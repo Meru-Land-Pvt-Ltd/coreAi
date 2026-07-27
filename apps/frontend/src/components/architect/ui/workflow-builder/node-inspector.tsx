@@ -13,7 +13,7 @@ import { VoicePicker } from "@/components/common/voice-picker";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
 import { LlmNodeInspector } from "./llm-node-inspector";
-import { isProviderDisabled, providerKeyHint, useLlmAvailability } from "./use-llm-availability";
+import { isProviderDisabled, useLlmAvailability } from "./use-llm-availability";
 
 export type ConnectorOwnership = "architect" | "buyer";
 
@@ -1699,16 +1699,14 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
             onUpdateNodeData("provider", providerId);
             onUpdateNodeData("model", defaultLlmModelForProvider(providerId) ?? "");
           }}
-          options={LLM_PROVIDERS.map((provider) => {
-            // Same rule as the AI Brain node: a provider the backend has no
-            // key for is greyed out instead of failing at run time.
-            const keyHint = providerKeyHint(aiAvailability, provider.id);
-            return {
-              value: provider.id,
-              label: keyHint ? `${provider.displayName} — ${keyHint}` : provider.displayName,
-              disabled: isProviderDisabled(aiAvailability, provider.id)
-            };
-          })}
+          options={LLM_PROVIDERS.map((provider) => ({
+            // Same rule as the AI Brain node: a provider the backend cannot
+            // run is greyed out rather than failing at run time. The label
+            // stays clean — the disabled state is the whole signal.
+            value: provider.id,
+            label: provider.displayName,
+            disabled: isProviderDisabled(aiAvailability, provider.id)
+          }))}
         />
 
         <div className="mt-4">

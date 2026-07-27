@@ -12,7 +12,7 @@ import {
   getLlmProvider,
   resolveLlmSelection,
 } from "./llm-catalog";
-import { isProviderDisabled, providerKeyHint, useLlmAvailability } from "./use-llm-availability";
+import { isProviderDisabled, providerDisabledTitle, useLlmAvailability } from "./use-llm-availability";
 
 type NodePropsPanel = {
   selectedNode: BuilderNode;
@@ -136,14 +136,6 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
               <span className="font-medium truncate">
                 {currentProvider?.displayName ?? selection.providerId}
               </span>
-              {providerKeyHint(availability, selection.providerId) && (
-                <span
-                  className="shrink-0 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
-                  data-testid="llm-provider-missing-key"
-                >
-                  {providerKeyHint(availability, selection.providerId)}
-                </span>
-              )}
             </div>
             <span className="ml-2 text-slate-400 shrink-0">
               <BuilderIcon
@@ -166,7 +158,6 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
                 // Greyed out when the backend has no key for it (and something
                 // else does work) — picking it would only fail at run time.
                 const disabled = isProviderDisabled(availability, p.id);
-                const keyHint = providerKeyHint(availability, p.id);
 
                 return (
                   <button
@@ -174,7 +165,7 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
                     type="button"
                     onClick={() => handleProviderChange(p.id)}
                     disabled={disabled}
-                    title={disabled && keyHint ? `${keyHint} on the backend` : undefined}
+                    title={providerDisabledTitle(availability, p.id)}
                     data-testid={`llm-provider-option-${p.id}`}
                     className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition ${
                       disabled
@@ -185,14 +176,8 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
                     }`}
                   >
                     <span className="truncate">{p.displayName}</span>
-                    <span
-                      className={`ml-2 shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${
-                        keyHint
-                          ? "border-amber-200 bg-amber-50 text-amber-700"
-                          : "border-slate-200 bg-slate-100 text-slate-600"
-                      }`}
-                    >
-                      {keyHint ?? `${getLlmModelsForProvider(p.id).length} models`}
+                    <span className="ml-2 shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                      {getLlmModelsForProvider(p.id).length} models
                     </span>
                   </button>
                 );

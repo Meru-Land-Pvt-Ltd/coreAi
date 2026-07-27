@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys } from "@coreai/shared";
 import { llmCredentialStatus } from "../ai-provider-engine/llm-credentials";
+import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
@@ -504,10 +505,6 @@ architectRoutes.get("/ai/providers", async (c) => {
   const providers = await Promise.all(
     registry.all().map(async (adapter) => {
       const catalogEntry = getLlmProvider(adapter.providerId);
-
-      // Cataloged LLM providers answer from the credential resolver: some
-      // adapters' own validate() checks the wrong env var (groq/deepseek read
-      // their own key at run time but validate OPENAI_API_KEY).
       const configured = catalogEntry
         ? llmCredentialStatus(adapter.providerId) === "configured"
         : await adapter
@@ -515,13 +512,18 @@ architectRoutes.get("/ai/providers", async (c) => {
             .then((result) => result.valid)
             .catch(() => false);
 
+      const blockReason = llmProviderBlockReason(adapter.providerId);
+
       return {
         id: adapter.providerId,
         displayName: adapter.displayName,
         models: adapter.models,
-        /** Whether this provider can run — never the key itself. */
+        /** A key is present — never the key itself. */
         configured,
-        /** Env var the backend needs, so the builder can name it. */
+        /** Key present AND the account is not blocked. What the UI gates on. */
+        available: configured && !blockReason,
+        /** Short reason for a tooltip; null when the provider is usable. */
+        unavailableReason: configured ? blockReason : "no API key",
         envKey: catalogEntry?.envKey ?? null
       };
     })

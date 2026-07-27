@@ -51,7 +51,12 @@ export type ArchitectAiProvider = {
   id: string;
   displayName: string;
   models: string[];
+  /** A key is present for this provider. */
   configured: boolean;
+  /** Key present AND the account is not blocked (no credit, over quota, …). */
+  available?: boolean;
+  /** Short reason for a tooltip; null when the provider is usable. */
+  unavailableReason?: string | null;
   envKey: string | null;
 };
 

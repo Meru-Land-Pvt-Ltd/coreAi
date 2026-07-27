@@ -22,7 +22,9 @@ function providersResponse(configuredIds: string[]) {
       ].map((provider) => ({
         ...provider,
         models: [],
-        configured: configuredIds.includes(provider.id)
+        configured: configuredIds.includes(provider.id),
+        available: configuredIds.includes(provider.id),
+        unavailableReason: configuredIds.includes(provider.id) ? null : "no API key"
       }))
     }
   };
@@ -144,19 +146,37 @@ describe("providers the backend cannot run", () => {
 
     const claudeOption = await screen.findByTestId("llm-provider-option-claude");
     expect(claudeOption).toHaveProperty("disabled", true);
-    expect(claudeOption.textContent).toContain("No ANTHROPIC_API_KEY");
+    // The disabled state is the whole signal — no key names in the UI.
+    expect(claudeOption.textContent).not.toContain("API_KEY");
+    expect(claudeOption.getAttribute("title")).toContain("Unavailable");
     expect(screen.getByTestId("llm-provider-option-openai")).toHaveProperty("disabled", false);
 
     await user.click(claudeOption);
     expect(onUpdateNodeData).not.toHaveBeenCalled();
   });
 
-  it("flags the node's own provider when its key is missing", async () => {
-    getProvidersMock.mockResolvedValue(providersResponse(["openai"]));
-    renderInspector({ llmProvider: "claude", llmModel: "claude-sonnet-5" });
+  it("greys out a provider whose account is out of credit", async () => {
+    // Key present, but the last run came back 402 Insufficient Balance.
+    getProvidersMock.mockResolvedValue({
+      success: true,
+      data: {
+        providers: [
+          { id: "openai", displayName: "OpenAI", envKey: "OPENAI_API_KEY", models: [], configured: true, available: true, unavailableReason: null },
+          { id: "claude", displayName: "Anthropic Claude", envKey: "ANTHROPIC_API_KEY", models: [], configured: true, available: false, unavailableReason: "out of credit" }
+        ]
+      }
+    });
+    const user = userEvent.setup();
+    const { onUpdateNodeData } = renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
 
-    const badge = await screen.findByTestId("llm-provider-missing-key");
-    expect(badge.textContent).toContain("No ANTHROPIC_API_KEY");
+    await user.click(screen.getByTestId("llm-provider-select"));
+    const claudeOption = await screen.findByTestId("llm-provider-option-claude");
+
+    expect(claudeOption).toHaveProperty("disabled", true);
+    expect(claudeOption.getAttribute("title")).toContain("out of credit");
+
+    await user.click(claudeOption);
+    expect(onUpdateNodeData).not.toHaveBeenCalled();
   });
 
   it("disables nothing when the backend has no keys at all", async () => {
@@ -170,7 +190,6 @@ describe("providers the backend cannot run", () => {
     // builder only shows the hint.
     const claudeOption = await screen.findByTestId("llm-provider-option-claude");
     expect(claudeOption).toHaveProperty("disabled", false);
-    expect(claudeOption.textContent).toContain("No ANTHROPIC_API_KEY");
   });
 
   it("leaves every provider usable when the status call fails", async () => {

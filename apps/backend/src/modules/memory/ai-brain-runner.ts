@@ -4,6 +4,10 @@ import {
   MISSING_LLM_CREDENTIALS_MESSAGE,
   resolveConfiguredLlmProvider,
 } from "../ai-provider-engine/llm-credentials";
+import {
+  recordLlmProviderFailure,
+  recordLlmProviderSuccess
+} from "../ai-provider-engine/llm-health";
 import { errorResponse } from "../ai-provider-engine/providers/base-adapter";
 import { memoryBroker } from "./memory-broker";
 import {
@@ -100,6 +104,12 @@ export async function runAiBrainNode(input: RunAiBrainNodeInput): Promise<RunAiB
 
   const response = await getProviderEngine().executeWithProvider(resolved.providerId, request);
   const finishedAt = new Date().toISOString();
+
+  if (response.status === "error") {
+    recordLlmProviderFailure(resolved.providerId, response.error);
+  } else {
+    recordLlmProviderSuccess(resolved.providerId);
+  }
 
   const { nodeRunId } = await memoryBroker.saveNodeMemory(
     providerResponseToNodeMemory({
