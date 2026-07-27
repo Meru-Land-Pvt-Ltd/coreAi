@@ -8,7 +8,7 @@ const nodes: Node[] = [
   {
     id: "1",
     position: { x: 80, y: 100 },
-    data: { label: "Manual Trigger" },
+    data: { label: "Input" },
     type: "input"
   },
   {
@@ -48,7 +48,7 @@ const edges: Edge[] = [
 ];
 
 const runLogs = [
-  "Manual Trigger started",
+  "Input started",
   "AI Prompt Node generated a prototype response",
   "Human Approval auto-approved for demo",
   "Connector Action completed",

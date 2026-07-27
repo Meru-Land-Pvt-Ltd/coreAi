@@ -25,7 +25,7 @@ const emptyWorkflowJson = {
     {
       id: "trigger",
       type: "manual_trigger",
-      label: "Manual Trigger"
+      label: "Input"
     },
     {
       id: "ai",
