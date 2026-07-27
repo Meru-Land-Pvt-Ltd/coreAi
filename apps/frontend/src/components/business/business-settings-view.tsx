@@ -261,7 +261,7 @@ const PHONE_COUNTRIES = [
   { dialCode: "+55", label: "+55 Brazil" }
 ] as const;
 
-function getPhoneCountryCode(phone: string) {
+function getPhoneCountryCode(phone: string): string {
   return (
     [...PHONE_COUNTRIES]
       .sort((a, b) => b.dialCode.length - a.dialCode.length)
@@ -269,7 +269,7 @@ function getPhoneCountryCode(phone: string) {
   );
 }
 
-function getNationalPhoneNumber(phone: string, dialCode = getPhoneCountryCode(phone)) {
+function getNationalPhoneNumber(phone: string, dialCode: string = getPhoneCountryCode(phone)) {
   const trimmedPhone = phone.trim();
   return trimmedPhone.startsWith(dialCode) ? trimmedPhone.slice(dialCode.length).trimStart() : trimmedPhone;
 }
@@ -1191,7 +1191,10 @@ export function BusinessSettingsView() {
   const emailDraftChanged =
     Boolean(normalizedEmailDraft) && normalizedEmailDraft !== normalizedAccountEmail;
   const emailDraftValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmailDraft);
-  const phoneCountryCode = getPhoneCountryCode(profileForm.phone);
+  const [selectedPhoneCountryCode, setSelectedPhoneCountryCode] = useState<string>(() =>
+    getPhoneCountryCode(profileForm.phone)
+  );
+  const phoneCountryCode = selectedPhoneCountryCode;
   const nationalPhoneNumber = getNationalPhoneNumber(profileForm.phone, phoneCountryCode);
 
   const showToast = useCallback((message: string) => {
@@ -1246,6 +1249,7 @@ export function BusinessSettingsView() {
       resolvedProfile
     );
     setProfileForm(nextForm);
+    setSelectedPhoneCountryCode(getPhoneCountryCode(nextForm.phone));
 
     const nextEmail = resolvedProfile?.email ?? authUser?.email ?? "";
     setAccountEmail(nextEmail);
@@ -1910,16 +1914,18 @@ export function BusinessSettingsView() {
                       <select
                         aria-label="Phone country code"
                         data-testid="business-settings-phone-country-code"
-                        value={phoneCountryCode}
-                        onChange={(e) =>
+                        value={selectedPhoneCountryCode}
+                        onChange={(e) => {
+                          const newDialCode = e.target.value;
+                          setSelectedPhoneCountryCode(newDialCode);
                           setProfileForm((current) => ({
                             ...current,
                             phone: buildInternationalPhoneNumber(
-                              e.target.value,
-                              getNationalPhoneNumber(current.phone)
+                              newDialCode,
+                              getNationalPhoneNumber(current.phone, phoneCountryCode)
                             )
-                          }))
-                        }
+                          }));
+                        }}
                         className="w-36 shrink-0 rounded-l-xl border border-r-0 border-gray-200 bg-white px-3 py-3 text-sm text-slate-700 shadow-sm focus:z-10 focus:border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-100 sm:w-44"
                       >
                         {PHONE_COUNTRIES.map((country) => (
