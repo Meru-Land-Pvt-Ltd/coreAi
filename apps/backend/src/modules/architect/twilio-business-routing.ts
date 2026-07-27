@@ -70,6 +70,7 @@ import {
   CallStateUnavailableError,
   type CanonicalCallContact
 } from "./call-contact-store";
+import { smsAttributionPrefix } from "../notifications/sms-format";
 import {
   addDaysToDate,
   businessOpenStatus,
@@ -1912,7 +1913,7 @@ export async function handleTwilioInboundSms(c: Context) {
 
       bookedEventId = calendarEvent.id;
       bookedAppointmentId = appointment.id;
-      replyBody = `${agent.business.businessName} via Triven.ai: You're booked — ${service} on ${formatAppointmentTime(
+      replyBody = `${smsAttributionPrefix(agent.business.businessName)}You're booked — ${service} on ${formatAppointmentTime(
         calendarEvent.startAt,
         agent.business.timeZone
       )}.${agent.business.businessPhoneNumber ? ` For assistance call ${agent.business.businessPhoneNumber}.` : ""}`;
@@ -3690,7 +3691,7 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
   try {
     const smsOutcome = await sendTrackedSms({
       to: callerPhone,
-      body: `${ctx.business.businessName} via Triven.ai: Hi ${target.customerName || "there"}, your ${target.service ? `${target.service} ` : ""}appointment on ${cancelledDate} at ${cancelledTime} has been cancelled. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
+      body: `${smsAttributionPrefix(ctx.business.businessName)}Hi ${target.customerName || "there"}, your ${target.service ? `${target.service} ` : ""}appointment on ${cancelledDate} at ${cancelledTime} has been cancelled. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
       messageType: "APPOINTMENT_CANCELLATION",
       businessId,
       businessName: ctx.business.businessName,
@@ -4010,7 +4011,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   try {
     const smsOutcome = await sendTrackedSms({
       to: callerPhone,
-      body: `${ctx.business.businessName} via Triven.ai: Hi ${target.customerName || "there"}, your ${target.service ? `${target.service} ` : ""}appointment has been moved to ${newDateLabel} at ${newTimeLabel}. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
+      body: `${smsAttributionPrefix(ctx.business.businessName)}Hi ${target.customerName || "there"}, your ${target.service ? `${target.service} ` : ""}appointment has been moved to ${newDateLabel} at ${newTimeLabel}. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
       messageType: "APPOINTMENT_CONFIRMATION",
       businessId,
       businessName: ctx.business.businessName,
@@ -4478,7 +4479,7 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
     const previewName = resolvePatientName(args, ctx.transcript, ctx.summary) ?? "";
     const previewPhone = resolvePatientPhone(argStr(args, PHONE_ARG_KEYS), ctx.customerPhone);
     const preview = applyBracketTemplate(
-      ctx.dental?.patientTemplate ?? "[Business Name] via Triven.ai: Confirmed: [Service] on [Date] at [Time].",
+      ctx.dental?.patientTemplate ?? `${smsAttributionPrefix("[Business Name]")}Confirmed: [Service] on [Date] at [Time].`,
       bracketTemplateValues({
         service,
         customerName: previewName,
@@ -4558,7 +4559,7 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
           if (outcome.suppressed) customerSmsBlockedReason = outcome.errorCode;
         } else {
           const sms = applyBracketTemplate(
-            ctx.dental?.patientTemplate ?? "[Business Name] via Triven.ai: Confirmed: [Service] on [Date] at [Time].",
+            ctx.dental?.patientTemplate ?? `${smsAttributionPrefix("[Business Name]")}Confirmed: [Service] on [Date] at [Time].`,
             values
           );
           const outcome = await sendTrackedSms({

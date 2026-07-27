@@ -2,6 +2,7 @@
  * Maps Memory Engine output -> Provider Engine input, and provider response -> NodeMemoryPayload.
  * This is the integration contract between Gaurav (memory) and Akhil (provider).
  */
+import { normalizeLlmProviderId } from "@coreai/shared";
 import type { AIExecuteRequest, AIExecuteResponse } from "../ai-provider-engine/types";
 import type { ContextBundle, NodeMemoryPayload } from "./types";
 
@@ -38,19 +39,9 @@ export type AiBrainNodeConfig = {
   };
 };
 
-const PROVIDER_ALIASES: Record<string, string> = {
-  openai: "openai",
-  gpt: "openai",
-  chatgpt: "openai",
-  claude: "claude",
-  anthropic: "claude",
-  gemini: "gemini",
-  google: "gemini",
-};
-
+/** Aliases and provider ids live in the shared LLM catalog. */
 export function normalizeProviderId(raw: unknown): string {
-  const key = String(raw ?? "openai").trim().toLowerCase();
-  return PROVIDER_ALIASES[key] ?? key;
+  return normalizeLlmProviderId(raw);
 }
 
 function asString(value: unknown, fallback = ""): string {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { SMS_COMPLIANCE_FOOTER, SMS_MAX_TOTAL_LENGTH, formatTransactionalSms } from "./sms-format";
+import {
+  SMS_COMPLIANCE_FOOTER,
+  SMS_MAX_TOTAL_LENGTH,
+  formatTransactionalSms,
+  smsAttributionPrefix
+} from "./sms-format";
 
 function countOccurrences(text: string, needle: RegExp): number {
   return (text.match(needle) ?? []).length;
@@ -12,7 +17,9 @@ describe("formatTransactionalSms", () => {
       businessName: "Bright Smile Dental"
     });
     if (!result.ok) throw new Error("expected ok");
-    expect(result.body.startsWith("Bright Smile Dental via Triven.ai: Hi Jane")).toBe(true);
+    expect(result.body.startsWith(`${smsAttributionPrefix("Bright Smile Dental")}Hi Jane`)).toBe(true);
+    // Carriers filter bare domains (Twilio 30007) — the prefix must not carry one.
+    expect(result.body).not.toContain("Triven.ai");
     expect(result.body.endsWith(SMS_COMPLIANCE_FOOTER)).toBe(true);
     expect(countOccurrences(result.body, /Reply STOP/gi)).toBe(1);
     expect(countOccurrences(result.body, /data rates may apply/gi)).toBe(1);
@@ -24,7 +31,7 @@ describe("formatTransactionalSms", () => {
       businessName: "Bright Smile Dental"
     });
     if (!result.ok) throw new Error("expected ok");
-    expect(countOccurrences(result.body, /via Triven\.ai:/g)).toBe(1);
+    expect(countOccurrences(result.body, /\svia\s[^:\n]{1,40}:/g)).toBe(1);
     expect(countOccurrences(result.body, /Reply STOP/gi)).toBe(1);
     expect(countOccurrences(result.body, /data rates may apply/gi)).toBe(1);
     expect(countOccurrences(result.body, /HELP/g)).toBe(1);

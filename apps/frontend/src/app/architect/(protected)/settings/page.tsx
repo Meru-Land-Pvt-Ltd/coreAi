@@ -175,7 +175,7 @@ function splitPhoneNumber(value: string) {
 
 function joinPhoneNumber(countryCode: string, phone: string) {
   const trimmedPhone = phone.trim();
-  return trimmedPhone ? `${countryCode} ${trimmedPhone}` : "";
+  return trimmedPhone ? `${countryCode} ${trimmedPhone}` : countryCode;
 }
 
 function Toggle({

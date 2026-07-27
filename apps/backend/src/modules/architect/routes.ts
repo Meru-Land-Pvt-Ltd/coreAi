@@ -1,6 +1,9 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { calendarEventTitleForMode, normalizeAgentConfigure, requiredConnectorKeys } from "@coreai/shared";
+import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys } from "@coreai/shared";
+import { llmCredentialStatus } from "../ai-provider-engine/llm-credentials";
+import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
+import { llmProviderAvailability } from "../ai-provider-engine/llm-probe";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
@@ -499,12 +502,37 @@ architectRoutes.use(
 
 architectRoutes.get("/ai/providers", async (c) => {
   const registry = getProviderRegistry();
-  const adapters = registry.all();
-  const providers = adapters.map((adapter) => ({
-    id: adapter.providerId,
-    displayName: adapter.displayName,
-    models: adapter.models
-  }));
+
+  const providers = await Promise.all(
+    registry.all().map(async (adapter) => {
+      const catalogEntry = getLlmProvider(adapter.providerId);
+      const configured = catalogEntry
+        ? llmCredentialStatus(adapter.providerId) === "configured"
+        : await adapter
+            .validate()
+            .then((result) => result.valid)
+            .catch(() => false);
+
+      // Cataloged LLM providers are probed live (cheap authenticated GET, no
+      // tokens) so an out-of-credit account is greyed out the moment the
+      // builder opens — not only after a run has already failed.
+      const blockReason = catalogEntry && configured
+        ? (await llmProviderAvailability(adapter.providerId)).reason
+        : llmProviderBlockReason(adapter.providerId);
+
+      return {
+        id: adapter.providerId,
+        displayName: adapter.displayName,
+        models: adapter.models,
+        configured,
+        available: configured && !blockReason,
+        unavailableReason: configured ? blockReason : "no API key",
+        unavailableKind: configured ? (blockReason ? "blocked" : null) : "no_key",
+        envKey: catalogEntry?.envKey ?? null
+      };
+    })
+  );
+
   return successResponse(c, { providers });
 });
 
@@ -513,8 +541,6 @@ architectRoutes.post("/media/upload", async (c) => {
   const file = form?.["file"];
   const kindRaw = typeof form?.["kind"] === "string" ? (form["kind"] as string) : "icon";
 
-  // Icons no longer use object storage — the builder inlines them as a data
-  // URL on the listing. Only screenshots are uploaded.
   if (kindRaw !== "screenshot") {
     return errorResponse(
       c,

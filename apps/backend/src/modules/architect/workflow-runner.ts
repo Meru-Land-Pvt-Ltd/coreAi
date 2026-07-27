@@ -22,6 +22,8 @@ import {
   listAvailableSlots
 } from "./google-calendar-connector";
 import { startVapiOutboundCall } from "./vapi-connector";
+import { MISSING_LLM_CREDENTIALS_MESSAGE } from "../ai-provider-engine/llm-credentials";
+import { smsAttributionPrefix } from "../notifications/sms-format";
 import {
   createWorkflowRun,
   completeWorkflowRun,
@@ -509,15 +511,13 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
   };
 }
 
-/** Test runs use Provider Engine for builder AI nodes; live receptionist keeps legacy SMS logic without provider. */
 function shouldUseProviderEngine(node: RunnerNode, mode: WorkflowRunMode): boolean {
   const type = asString(node.data?.type);
   if (type === VOICE_NODE_TYPES.voiceConversation) return false;
   if (type === "ai.brain") return true;
-  // LLM Call node (from workflow builder) always uses the provider engine
   if (type === "ai.llm_call") return true;
+  if (type === "ai.context_reply") return mode === "test";
   if (Boolean(asString(node.data?.provider))) return true;
-  if (type === "ai.context_reply" && mode === "test") return true;
   return false;
 }
 
@@ -589,7 +589,7 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
 function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
   if (asString(node.data?.type) === "trigger.manual") {
     logs.push(
-      createLog(node, "success", "Manual trigger fired.", {
+      createLog(node, "success", "Input fired.", {
         message: context.inboundSms?.body || context.latestMessage || "No custom message",
         attachmentsCount: Array.isArray(context.inboundSms?.attachments) ? context.inboundSms.attachments.length : 0
       })
@@ -703,6 +703,22 @@ function runAiNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLo
       output
     })
   );
+}
+
+
+function scriptedAiFallback(
+  node: RunnerNode,
+  context: RunnerContext,
+  isLlmCall: boolean
+): string {
+  if (isLlmCall) {
+    return "[Simulated output - no LLM key is configured on the backend.]";
+  }
+
+  const discardedLogs: WorkflowRunLog[] = [];
+  runAiNode(node, context, discardedLogs);
+
+  return asString(context.ai?.output);
 }
 
 function nowInZone(timeZone?: string) {
@@ -851,7 +867,7 @@ async function runSmsConnectorNode({
     return;
   }
 
-  const defaultBody = context.ai?.output ?? `${context.business?.name ?? "The business"} via Triven.ai: Sorry we missed your call. We can help by text right now.`;
+  const defaultBody = context.ai?.output ?? `${smsAttributionPrefix(context.business?.name ?? "The business")}Sorry we missed your call. We can help by text right now.`;
   const actionTo = renderTemplate(node.data?.smsTo, context) || context.caller_number || "";
   const actionBody = renderTemplate(node.data?.smsBody, context) || defaultBody;
   const sendAt = renderTemplate(node.data?.sendAt, context) || "8:00 AM next business day";
@@ -897,14 +913,12 @@ async function runSmsConnectorNode({
         executionId: outcome.executionId,
         ...(outcome.suppressed ? { suppressedReason: outcome.errorCode } : {})
       };
-      // Consent suppression is expected behavior, not a Twilio failure — the
-      // missed-call flow itself continues (e.g. the Vapi callback still runs).
       logs.push(
         outcome.suppressed
           ? createLog(
               node,
               "waiting",
-              `SMS skipped: ${outcome.errorCode === "SMS_OPTED_OUT" ? "the caller has opted out of texts" : "no SMS consent on record for this caller"} (${outcome.errorCode}).`,
+              `SMS skipped (${outcome.errorCode}): ${outcome.error ?? "suppressed before the provider request"}`,
               context.sentSms
             )
           : createLog(node, "error", `Twilio SMS failed: ${outcome.error ?? "unknown error"}`, context.sentSms)
@@ -2194,21 +2208,21 @@ export async function runWorkflowTest({
               node: toAiBrainNodeConfig(node, context),
             });
 
-            const outputText = result.text ?? "";
+            const isLlmCall = asString(node.data?.type) === "ai.llm_call";
+
+            const simulatedReply =
+              result.missingCredentials && mode === "test"
+                ? scriptedAiFallback(node, context, isLlmCall)
+                : null;
+
+            const outputText = simulatedReply ?? result.text ?? "";
 
             // Always update context.ai so generic downstream nodes see it
             context.ai = { output: outputText };
 
-            // For LLM Call nodes: also write to the configured llmOutputKey
-            // (defaults to "ai.output") so template variables like {{ai.output}}
-            // resolve correctly. Also write a namespaced per-node key
-            // (node.<id>.output) for explicit multi-LLM chaining references.
-            const isLlmCall = asString(node.data?.type) === "ai.llm_call";
             if (isLlmCall) {
               const outputKey = asString(node.data?.llmOutputKey, "ai.output");
-              // Flat dot-path key — renderTemplate resolves e.g. {{ai.output}}
               context[outputKey] = outputText;
-              // Per-node alias for explicit chaining: {{node.<id>.output}}
               const nodeLabel = asString(node.data?.title ?? node.data?.label, node.id)
                 .toLowerCase()
                 .replace(/[^a-z0-9]+/g, ".")
@@ -2216,8 +2230,6 @@ export async function runWorkflowTest({
               context[`node.${node.id}.output`] = outputText;
               context[`node.${nodeLabel}.output`] = outputText;
 
-              // Build/update the LLM pipeline accumulator
-              // so the final output node can surface all node results
               if (!context.llmPipeline || typeof context.llmPipeline !== "object") {
                 context.llmPipeline = {};
               }
@@ -2230,25 +2242,36 @@ export async function runWorkflowTest({
               };
             }
 
+            const completedMessage = isLlmCall
+              ? `LLM Call completed via ${result.providerId} (${result.modelName}).`
+              : "AI Brain node completed.";
+
             logs.push(
               createLog(
                 node,
-                result.status === "success" ? "success" : "error",
-                result.error ??
-                  (isLlmCall
-                    ? `LLM Call completed via ${result.providerId} (${result.modelName}).`
-                    : "AI Brain node completed."),
+                simulatedReply !== null || result.status === "success" ? "success" : "error",
+                simulatedReply !== null
+                  ? `Simulated reply - ${MISSING_LLM_CREDENTIALS_MESSAGE}`
+                  : result.fallbackFromProviderId
+                    ? `${completedMessage} ${result.fallbackFromProviderId} has no API key configured, so ${result.providerId} ran instead.`
+                    : result.error ?? completedMessage,
                 {
-                  text: result.text,
+                  text: outputText,
                   providerId: result.providerId,
                   modelName: result.modelName,
                   nodeRunId: result.nodeRunId,
+                  ...(simulatedReply !== null
+                    ? { simulated: true, reason: "missing-llm-credentials" }
+                    : {}),
+                  ...(result.fallbackFromProviderId
+                    ? { fallbackFromProviderId: result.fallbackFromProviderId }
+                    : {}),
                   ...(isLlmCall ? { outputKey: asString(node.data?.llmOutputKey, "ai.output") } : {}),
                 }
               )
             );
 
-            if (result.status === "error") runFailed = true;
+            if (simulatedReply === null && result.status === "error") runFailed = true;
           } else {
             runAiNode(node, context, logs);
           }

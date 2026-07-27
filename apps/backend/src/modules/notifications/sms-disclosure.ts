@@ -37,11 +37,19 @@ function normalize(text: string): string {
     .trim();
 }
 
+function segmentNamesBusiness(text: string, business: string): boolean {
+  if (!business) return false;
+  if (text.includes(business)) return true;
+
+  const squash = (value: string) => value.replace(/\s+/g, "");
+  return squash(text).includes(squash(business));
+}
+
 function assistantSegmentContainsFullDisclosure(segmentText: string, businessName: string): boolean {
   const text = normalize(segmentText);
   const business = normalize(businessName);
 
-  if (!business || !text.includes(business)) return false;
+  if (!segmentNamesBusiness(text, business)) return false;
   if (!/transactional text/.test(text)) return false;
   if (!/message frequency varies/.test(text)) return false;
   if (!/data rates may apply/.test(text)) return false;

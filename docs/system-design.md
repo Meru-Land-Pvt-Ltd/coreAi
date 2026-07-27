@@ -102,7 +102,7 @@ Business posts project -> architects propose -> business shortlists -> contract
 
 ## 8) Trigger System
 
-- Manual trigger via API.
+- Input via API.
 - Webhook trigger with signed secrets + replay protection.
 - Scheduled trigger using BullMQ repeat jobs.
 - Event trigger from connector webhooks.

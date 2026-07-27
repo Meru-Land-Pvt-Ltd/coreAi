@@ -122,6 +122,18 @@ describe("buildAgentSystemPrompt emotional support", () => {
     expect(prompt).toMatch(/pain, discomfort, worry, stress, frustration/);
   });
 
+  /**
+   * A real call (2026-07-27) ended with the assistant telling the caller the
+   * confirmation went to the number ending 2235 — the BUSINESS phone printed
+   * in the message body — when it went to the caller's own number.
+   */
+  it("forbids naming the business phone as a message recipient", () => {
+    const prompt = buildAgentSystemPrompt(baseInput());
+    expect(prompt).toContain("masked_recipient / canonical_recipient_ending");
+    expect(prompt).toContain("it is NEVER the recipient");
+    expect(prompt).toContain("never claim a message went to the business");
+  });
+
   it("requires answering the actual question and forbids booking-only replies", () => {
     const prompt = buildAgentSystemPrompt(baseInput());
     expect(prompt).toContain("answer the caller's ACTUAL question directly");

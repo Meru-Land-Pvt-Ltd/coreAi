@@ -46,6 +46,26 @@ export function getArchitectAgentsStats() {
   return apiGet<ArchitectAgentsStats>("/architect/agents/stats");
 }
 
+/** One AI provider the backend can run — `configured` is false when its key is missing. */
+export type ArchitectAiProvider = {
+  id: string;
+  displayName: string;
+  models: string[];
+  /** A key is present for this provider. */
+  configured: boolean;
+  /** Key present AND the account is not blocked (no credit, over quota, …). */
+  available?: boolean;
+  /** Short reason for a tooltip; null when the provider is usable. */
+  unavailableReason?: string | null;
+  /** "blocked" = key present but the account failed; "no_key" = no key set. */
+  unavailableKind?: "blocked" | "no_key" | null;
+  envKey: string | null;
+};
+
+export function getArchitectAiProviders() {
+  return apiGet<{ providers: ArchitectAiProvider[] }>("/architect/ai/providers");
+}
+
 export function getArchitectProfile() {
   return apiGet<{ profile: ArchitectProfile | null }>("/architect/profile");
 }

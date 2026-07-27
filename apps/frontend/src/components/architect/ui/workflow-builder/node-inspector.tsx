@@ -1,14 +1,19 @@
 import {
   EMAIL_TEMPLATE_VARIABLES,
+  LLM_PROVIDERS,
   VOICE_NODE_TYPES,
+  defaultLlmModelForProvider,
   findUnknownPromptVariables,
-  getNodeDefinition
+  getLlmModelsForProvider,
+  getNodeDefinition,
+  resolveLlmSelection
 } from "@coreai/shared";
 import { useState, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
 import { LlmNodeInspector } from "./llm-node-inspector";
+import { isProviderDisabled, useLlmAvailability } from "./use-llm-availability";
 
 export type ConnectorOwnership = "architect" | "buyer";
 
@@ -271,9 +276,9 @@ export function TextArea({
   );
 }
 
-export type SelectBoxOption = string | { value: string; label: string };
+export type SelectBoxOption = string | { value: string; label: string; disabled?: boolean };
 
-export function SelectBox({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: SelectBoxOption[] }) {
+export function SelectBox({ value, onChange, options, testId = "node-inspector-model-select" }: { value: string; onChange: (value: string) => void; options: SelectBoxOption[]; testId?: string }) {
   const normalized = options.map((option) =>
     typeof option === "string" ? { value: option, label: option } : option
   );
@@ -285,13 +290,13 @@ export function SelectBox({ value, onChange, options }: { value: string; onChang
   return (
     <div className="relative">
       <select
-        data-testid="node-inspector-model-select"
+        data-testid={testId}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-9 text-sm text-slate-800 outline-none focus:outline-none ring-0 focus:ring-0 focus:border-amber-400 transition-colors shadow-none cursor-pointer"
       >
         {allOptions.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option key={option.value} value={option.value} disabled={option.disabled}>
             {option.label}
           </option>
         ))}
@@ -1350,7 +1355,11 @@ function EndFlowProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
 function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
-  const isManual = selectedNode.data.type === "trigger.manual";
+  const isManual =
+    selectedNode.data.type === "trigger.manual" ||
+    selectedNode.data.type === "manual_trigger" ||
+    selectedNode.data.nodeKind === "trigger" ||
+    String(selectedNode.data.kind ?? "").toUpperCase() === "TRIGGER";
 
   if (isManual) {
     const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
@@ -1385,13 +1394,13 @@ function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
     return (
       <>
-        <Section title="Manual Trigger Config">
+        <Section title="Input Config">
           <Label>Input</Label>
           <TextArea
             value={str("input")}
             onChange={set("input")}
             height="h-32"
-            placeholder="Enter manual trigger text input..."
+            placeholder="Enter Input text input..."
           />
         </Section>
 
@@ -1667,6 +1676,12 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const lastOutput = str("lastTestOutput");
 
+  // Provider first, then its models — same pairing the AI Brain node uses, so
+  // a model can never be sent to a provider that cannot run it.
+  const { availability: aiAvailability } = useLlmAvailability();
+  const aiSelection = resolveLlmSelection(str("provider"), str("model"));
+  const aiModelId = aiSelection.modelId ?? defaultLlmModelForProvider(aiSelection.providerId) ?? "";
+
   return (
     <>
       <Section title="General">
@@ -1680,12 +1695,35 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
       </Section>
 
       <Section title="AI configuration">
-        <Label>Model</Label>
+        <Label>LLM provider</Label>
         <SelectBox
-          value={str("model", "gpt-4o")}
-          onChange={set("model")}
-          options={["gpt-4o", "gpt-4o-mini", "claude-sonnet", "gemini-3.1-flash-lite", "gemini-2.0-flash", "gemini-1.5-pro", "llama-3.1-70b"]}
+          testId="node-inspector-provider-select"
+          value={aiSelection.providerId}
+          onChange={(providerId) => {
+            onUpdateNodeData("provider", providerId);
+            onUpdateNodeData("model", defaultLlmModelForProvider(providerId) ?? "");
+          }}
+          options={LLM_PROVIDERS.map((provider) => ({
+            // Same rule as the AI Brain node: a provider the backend cannot
+            // run is greyed out rather than failing at run time. The label
+            // stays clean — the disabled state is the whole signal.
+            value: provider.id,
+            label: provider.displayName,
+            disabled: isProviderDisabled(aiAvailability, provider.id)
+          }))}
         />
+
+        <div className="mt-4">
+          <Label>Model</Label>
+          <SelectBox
+            value={aiModelId}
+            onChange={set("model")}
+            options={getLlmModelsForProvider(aiSelection.providerId).map((model) => ({
+              value: model.id,
+              label: model.displayName
+            }))}
+          />
+        </div>
 
         <div className="mt-4">
           <Label>Temperature</Label>

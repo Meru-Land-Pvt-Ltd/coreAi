@@ -7,7 +7,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiPost } from "@/lib/api";
 import { getAuthToken, getAuthUser, saveAuthSession, type AuthUser } from "@/lib/auth";
-import { getLoginDeviceId, takePendingLoginNext } from "@/lib/login-device";
+import { getLoginDeviceId, takePendingLoginNext, takePendingLoginRole } from "@/lib/login-device";
 import {
   ARCHITECT_LOGIN_PATH,
   ARCHITECT_MY_AGENTS_PATH,
@@ -30,6 +30,8 @@ type SignedInResult = {
   token: string;
   user: AuthUser;
   isNewUser?: boolean;
+  /** The role this sign-in link was issued for — authoritative for routing. */
+  role?: MagicLinkRole;
 };
 
 type ShowCodeResult = {
@@ -80,7 +82,12 @@ function MagicLinkInner() {
       saveAuthSession(data.token, data.user);
       setStatus("signed_in");
 
-      const role: MagicLinkRole = data.user.role === "ARCHITECT" ? "ARCHITECT" : "BUSINESS";
+      /* Route by the role the LINK was issued for. `user.role` is the legacy
+         single-role column, so an account holding BOTH roles was always sent
+         to whichever side it signed up with first — a business sign-in link
+         landed the caller on the architect dashboard. */
+      const role: MagicLinkRole =
+        data.role ?? (data.user.role === "ARCHITECT" ? "ARCHITECT" : "BUSINESS");
       const returnPath = resolveBusinessLoginReturnPath(takePendingLoginNext());
 
       const destination =
@@ -102,7 +109,10 @@ function MagicLinkInner() {
     const user = getAuthUser();
     if (!user || !getAuthToken()) return false;
 
-    const role: MagicLinkRole = user.role === "ARCHITECT" ? "ARCHITECT" : "BUSINESS";
+    /* No token exchange happens on this path, so the requested role comes
+       from what the login page stashed rather than the legacy user.role. */
+    const role: MagicLinkRole =
+      takePendingLoginRole() ?? (user.role === "ARCHITECT" ? "ARCHITECT" : "BUSINESS");
     const returnPath = resolveBusinessLoginReturnPath(takePendingLoginNext());
 
     setStatus("signed_in");

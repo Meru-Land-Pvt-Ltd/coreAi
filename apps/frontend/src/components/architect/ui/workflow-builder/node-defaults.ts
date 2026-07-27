@@ -43,7 +43,7 @@ export function defaultNodeData(
         accent: "violet",
         subtitle: "Generate text/JSON response using an LLM model",
         llmProvider: "openai",
-        llmModel: "gpt-4o",
+        llmModel: "gpt-5.4-mini",
         llmRequirements: "",
         llmSystemPrompt: "You are a helpful assistant.",
         llmPrompt: "",

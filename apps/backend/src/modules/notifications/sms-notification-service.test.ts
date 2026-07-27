@@ -9,6 +9,7 @@ import {
   sendTrackedSms
 } from "./sms-notification-service";
 import { recordVerbalSmsConsent } from "./sms-consent";
+import { smsAttributionPrefix } from "./sms-format";
 
 /**
  * Template tests are pure. Everything else runs against the local dev
@@ -123,7 +124,8 @@ describe("renderAppointmentConfirmationSms", () => {
       businessPhone: "+15557654321"
     });
 
-    expect(body).toContain("Smile Dental via Triven.ai:");
+    expect(body).toContain(smsAttributionPrefix("Smile Dental").trim());
+    expect(body).not.toContain("Triven.ai");
     expect(body).toContain("Hi Jane Smith");
     expect(body).toContain("Cleaning appointment is confirmed for Tue, Jul 14, 2026 at 3:00 PM");
     expect(body).toContain("For assistance call +15557654321.");

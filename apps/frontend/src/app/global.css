@@ -195,3 +195,32 @@ button:disabled {
     transition-duration: 0.001ms !important;
   }
 }
+
+.markdown-content {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.markdown-content pre {
+  overflow-x: auto;
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.markdown-content code {
+  word-break: break-all;
+  max-width: 100%;
+}
+
+.markdown-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
+}

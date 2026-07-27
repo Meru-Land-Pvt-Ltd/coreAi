@@ -19,7 +19,7 @@ function Markdown({ content, className = "" }: { content: string; className?: st
   const html = typeof content === "string" ? (marked.parse(content, { breaks: true, gfm: true }) as string) : "";
   return (
     <div
-      className={`markdown-content ${className}`}
+      className={`markdown-content min-w-0 max-w-full break-words [overflow-wrap:anywhere] ${className}`}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
@@ -786,26 +786,26 @@ export function TestPanel({
             <h3 className="mb-3 text-[13px] font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-has-gmail-flow-email-result-message-the-heading">
               {hasLlmPipeline ? "LLM Pipeline Results" : hasVoiceResult ? "Voice booking result" : hasGmailFlow ? "Email result" : "Message preview"}
             </h3>
-            <div className="shadow-soft flex items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 sm:p-6">
+            <div className="shadow-soft flex items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 min-w-0 max-w-full overflow-hidden">
               <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${hasLlmPipeline ? "bg-violet-50 text-violet-600" : "bg-green-50 text-green-600"}`}>
                 <BuilderIcon name={hasLlmPipeline ? "sparkles" : hasVoiceResult ? "phone-call" : hasGmailFlow ? "mail" : "message"} className="h-5 w-5" />
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0 max-w-full">
                 {hasLlmPipeline ? (
-                  <div className="space-y-4" data-testid="test-panel-llm-pipeline-results">
-                    <div>
+                  <div className="space-y-4 min-w-0 max-w-full" data-testid="test-panel-llm-pipeline-results">
+                    <div className="min-w-0 max-w-full">
                       {Object.values(runContext.llmPipeline as Record<string, any>).map((step, idx) => (
-                        <div key={idx} className="mb-3 last:mb-0 rounded-xl border border-violet-100 bg-violet-50/10 p-4">
-                          <div className="flex items-center justify-between border-b border-violet-100 pb-2">
-                            <span className="text-xs font-bold text-violet-950">{step.label || "LLM Step"}</span>
-                            <span className="font-mono text-[10px] text-violet-500 bg-violet-50 px-2 py-0.5 rounded">
+                        <div key={idx} className="mb-3 last:mb-0 rounded-xl border border-violet-100 bg-violet-50/10 p-4 min-w-0 max-w-full overflow-hidden">
+                          <div className="flex items-center justify-between border-b border-violet-100 pb-2 gap-2 flex-wrap sm:flex-nowrap">
+                            <span className="text-xs font-bold text-violet-950 truncate min-w-0">{step.label || "LLM Step"}</span>
+                            <span className="font-mono text-[10px] text-violet-500 bg-violet-50 px-2 py-0.5 rounded shrink-0">
                               {step.providerId} ({step.modelName})
                             </span>
                           </div>
-                          <div className="mt-2 text-sm leading-relaxed text-slate-700">
+                          <div className="mt-2 text-sm leading-relaxed text-slate-700 min-w-0 max-w-full overflow-x-auto break-words [overflow-wrap:anywhere]">
                             <Markdown content={step.output} />
                           </div>
-                          <p className="mt-2 font-mono text-[9px] text-slate-400">Variable: <code className="text-violet-600 font-bold">{step.outputKey}</code></p>
+                          <p className="mt-2 font-mono text-[9px] text-slate-400 truncate">Variable: <code className="text-violet-600 font-bold">{step.outputKey}</code></p>
                         </div>
                       ))}
                     </div>

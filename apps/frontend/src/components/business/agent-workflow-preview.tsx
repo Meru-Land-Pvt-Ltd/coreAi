@@ -221,7 +221,7 @@ function buildJourneyPreview(listing: WorkflowPreviewListing): JourneyPreview {
     baseSteps.push({ side: "customer", title: channel === "whatsapp" ? "Incoming WhatsApp" : "Incoming SMS", body: hasBooking ? "Hi, can I book an appointment?" : "Hi, can you help me with this?" });
     baseSteps.push({ side: "agent", title: cleanText(smsNode?.data?.label) || "AI reply", body: cleanText(smsNode?.data?.smsBody) || agentResponse });
   } else {
-    baseSteps.push({ side: "event", title: "Manual trigger", body: "A workflow run starts from the configured trigger." });
+    baseSteps.push({ side: "event", title: "Input", body: "A workflow run starts from the configured trigger." });
     baseSteps.push({ side: "agent", title: "AI processing", body: agentResponse });
   }
 

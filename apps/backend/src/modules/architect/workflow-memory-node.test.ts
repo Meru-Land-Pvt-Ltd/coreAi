@@ -27,7 +27,7 @@ describe("Workflow Memory Node Runner Integration", () => {
       nodes: [
         {
           id: "trigger-1",
-          data: { type: "trigger.manual", nodeKind: "trigger", title: "Manual Trigger" }
+          data: { type: "trigger.manual", nodeKind: "trigger", title: "Input" }
         },
         {
           id: "brain-1",
@@ -88,7 +88,7 @@ describe("Workflow Memory Node Runner Integration", () => {
       workflowId: "wf-test-memory-123",
       workflowJson,
       input: {
-        latestMessage: "Test run manual trigger"
+        latestMessage: "Test run Input"
       }
     });
 

@@ -135,3 +135,35 @@ describe("SmsDisclosureState — distinguishing 'never read' from 'read, awaitin
     expect(segmentsSmsDisclosureState([], BUSINESS)).toBe("NOT_PRESENTED");
   });
 });
+
+/**
+ * Regression from a real production call (2026-07-27, Bright Smile Dental).
+ * The assistant read the disclosure in full and the caller said yes, but the
+ * transcript rendered the name as "BrightSmile Dental" — consent was rejected
+ * as DISCLOSURE_NOT_PRESENTED and the caller had to hear it two more times.
+ */
+describe("business name spoken without its space", () => {
+  const spokenDisclosure = (name: string) =>
+    [
+      `assistant: I will need to read the SMS consent disclosure to you first. Would you like to receive transactional text messages from ${name} through triven dot ai, about this appointment booking, or service request, including confirmations, reminders, updates, cancellations, and customer support messages. Message frequency varies. Message and data rates may apply. Reply. Stop to opt out or help for help. Consent is not required to complete the booking or service request. Please say yes or no. Would you like to receive those messages?`,
+      "user: Yes."
+    ].join("\n");
+
+  it("accepts a merged name the transcriber produced", () => {
+    expect(
+      transcriptSmsDisclosureState(spokenDisclosure("BrightSmile Dental"), "Bright Smile Dental")
+    ).toBe("ANSWERED");
+  });
+
+  it("still accepts the correctly spaced name", () => {
+    expect(
+      transcriptSmsDisclosureState(spokenDisclosure("Bright Smile Dental"), "Bright Smile Dental")
+    ).toBe("ANSWERED");
+  });
+
+  it("still rejects a disclosure naming a different business", () => {
+    expect(
+      transcriptSmsDisclosureState(spokenDisclosure("Better White"), "Bright Smile Dental")
+    ).toBe("NOT_PRESENTED");
+  });
+});
