@@ -28,6 +28,17 @@ function keyIsSet(key: LlmEnvKey): boolean {
   return Boolean((env[key] ?? process.env[key])?.trim());
 }
 
+export function llmProviderApiKey(providerId: string): string {
+  const keys = (LLM_PROVIDER_ENV_KEYS as Record<string, readonly LlmEnvKey[]>)[providerId];
+  if (!keys) return "";
+
+  for (const key of keys) {
+    const value = (env[key] ?? process.env[key])?.trim();
+    if (value) return value;
+  }
+  return "";
+}
+
 export function llmCredentialStatus(providerId: string): LlmCredentialStatus {
   const keys = (LLM_PROVIDER_ENV_KEYS as Record<string, readonly LlmEnvKey[]>)[providerId];
   if (!keys) return "unknown";

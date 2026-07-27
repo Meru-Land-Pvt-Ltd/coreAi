@@ -3,6 +3,7 @@ import { z } from "zod";
 import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys } from "@coreai/shared";
 import { llmCredentialStatus } from "../ai-provider-engine/llm-credentials";
 import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
+import { llmProviderAvailability } from "../ai-provider-engine/llm-probe";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
@@ -512,7 +513,12 @@ architectRoutes.get("/ai/providers", async (c) => {
             .then((result) => result.valid)
             .catch(() => false);
 
-      const blockReason = llmProviderBlockReason(adapter.providerId);
+      // Cataloged LLM providers are probed live (cheap authenticated GET, no
+      // tokens) so an out-of-credit account is greyed out the moment the
+      // builder opens — not only after a run has already failed.
+      const blockReason = catalogEntry && configured
+        ? (await llmProviderAvailability(adapter.providerId)).reason
+        : llmProviderBlockReason(adapter.providerId);
 
       return {
         id: adapter.providerId,
