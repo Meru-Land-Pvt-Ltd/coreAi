@@ -273,7 +273,7 @@ export function TextArea({
 
 export type SelectBoxOption = string | { value: string; label: string };
 
-export function SelectBox({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: SelectBoxOption[] }) {
+export function SelectBox({ value, onChange, options, testId = "node-inspector-model-select" }: { value: string; onChange: (value: string) => void; options: SelectBoxOption[]; testId?: string }) {
   const normalized = options.map((option) =>
     typeof option === "string" ? { value: option, label: option } : option
   );
@@ -285,7 +285,7 @@ export function SelectBox({ value, onChange, options }: { value: string; onChang
   return (
     <div className="relative">
       <select
-        data-testid="node-inspector-model-select"
+        data-testid={testId}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-9 text-sm text-slate-800 outline-none focus:outline-none ring-0 focus:ring-0 focus:border-amber-400 transition-colors shadow-none cursor-pointer"
@@ -1680,12 +1680,28 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
       </Section>
 
       <Section title="AI configuration">
-        <Label>Model</Label>
+        <Label>LLM provider</Label>
         <SelectBox
-          value={str("model", "gpt-4o")}
-          onChange={set("model")}
-          options={["gpt-4o", "gpt-4o-mini", "claude-sonnet", "gemini-3.1-flash-lite", "gemini-2.0-flash", "gemini-1.5-pro", "llama-3.1-70b"]}
+          testId="node-inspector-provider-select"
+          value={aiSelection.providerId}
+          onChange={(providerId) => {
+            onUpdateNodeData("provider", providerId);
+            onUpdateNodeData("model", defaultLlmModelForProvider(providerId) ?? "");
+          }}
+          options={LLM_PROVIDERS.map((provider) => ({ value: provider.id, label: provider.displayName }))}
         />
+
+        <div className="mt-4">
+          <Label>Model</Label>
+          <SelectBox
+            value={aiModelId}
+            onChange={set("model")}
+            options={getLlmModelsForProvider(aiSelection.providerId).map((model) => ({
+              value: model.id,
+              label: model.displayName
+            }))}
+          />
+        </div>
 
         <div className="mt-4">
           <Label>Temperature</Label>

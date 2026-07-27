@@ -22,6 +22,7 @@ import {
   listAvailableSlots
 } from "./google-calendar-connector";
 import { startVapiOutboundCall } from "./vapi-connector";
+import { MISSING_LLM_CREDENTIALS_MESSAGE } from "../ai-provider-engine/llm-credentials";
 import {
   createWorkflowRun,
   completeWorkflowRun,
@@ -703,6 +704,22 @@ function runAiNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLo
       output
     })
   );
+}
+
+
+function scriptedAiFallback(
+  node: RunnerNode,
+  context: RunnerContext,
+  isLlmCall: boolean
+): string {
+  if (isLlmCall) {
+    return "[Simulated output - no LLM key is configured on the backend.]";
+  }
+
+  const discardedLogs: WorkflowRunLog[] = [];
+  runAiNode(node, context, discardedLogs);
+
+  return asString(context.ai?.output);
 }
 
 function nowInZone(timeZone?: string) {
@@ -2194,21 +2211,21 @@ export async function runWorkflowTest({
               node: toAiBrainNodeConfig(node, context),
             });
 
-            const outputText = result.text ?? "";
+            const isLlmCall = asString(node.data?.type) === "ai.llm_call";
+
+            const simulatedReply =
+              result.missingCredentials && mode === "test"
+                ? scriptedAiFallback(node, context, isLlmCall)
+                : null;
+
+            const outputText = simulatedReply ?? result.text ?? "";
 
             // Always update context.ai so generic downstream nodes see it
             context.ai = { output: outputText };
 
-            // For LLM Call nodes: also write to the configured llmOutputKey
-            // (defaults to "ai.output") so template variables like {{ai.output}}
-            // resolve correctly. Also write a namespaced per-node key
-            // (node.<id>.output) for explicit multi-LLM chaining references.
-            const isLlmCall = asString(node.data?.type) === "ai.llm_call";
             if (isLlmCall) {
               const outputKey = asString(node.data?.llmOutputKey, "ai.output");
-              // Flat dot-path key — renderTemplate resolves e.g. {{ai.output}}
               context[outputKey] = outputText;
-              // Per-node alias for explicit chaining: {{node.<id>.output}}
               const nodeLabel = asString(node.data?.title ?? node.data?.label, node.id)
                 .toLowerCase()
                 .replace(/[^a-z0-9]+/g, ".")
@@ -2216,8 +2233,6 @@ export async function runWorkflowTest({
               context[`node.${node.id}.output`] = outputText;
               context[`node.${nodeLabel}.output`] = outputText;
 
-              // Build/update the LLM pipeline accumulator
-              // so the final output node can surface all node results
               if (!context.llmPipeline || typeof context.llmPipeline !== "object") {
                 context.llmPipeline = {};
               }
@@ -2230,25 +2245,36 @@ export async function runWorkflowTest({
               };
             }
 
+            const completedMessage = isLlmCall
+              ? `LLM Call completed via ${result.providerId} (${result.modelName}).`
+              : "AI Brain node completed.";
+
             logs.push(
               createLog(
                 node,
-                result.status === "success" ? "success" : "error",
-                result.error ??
-                  (isLlmCall
-                    ? `LLM Call completed via ${result.providerId} (${result.modelName}).`
-                    : "AI Brain node completed."),
+                simulatedReply !== null || result.status === "success" ? "success" : "error",
+                simulatedReply !== null
+                  ? `Simulated reply - ${MISSING_LLM_CREDENTIALS_MESSAGE}`
+                  : result.fallbackFromProviderId
+                    ? `${completedMessage} ${result.fallbackFromProviderId} has no API key configured, so ${result.providerId} ran instead.`
+                    : result.error ?? completedMessage,
                 {
-                  text: result.text,
+                  text: outputText,
                   providerId: result.providerId,
                   modelName: result.modelName,
                   nodeRunId: result.nodeRunId,
+                  ...(simulatedReply !== null
+                    ? { simulated: true, reason: "missing-llm-credentials" }
+                    : {}),
+                  ...(result.fallbackFromProviderId
+                    ? { fallbackFromProviderId: result.fallbackFromProviderId }
+                    : {}),
                   ...(isLlmCall ? { outputKey: asString(node.data?.llmOutputKey, "ai.output") } : {}),
                 }
               )
             );
 
-            if (result.status === "error") runFailed = true;
+            if (simulatedReply === null && result.status === "error") runFailed = true;
           } else {
             runAiNode(node, context, logs);
           }

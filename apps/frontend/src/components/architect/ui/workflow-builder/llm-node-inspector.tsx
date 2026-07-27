@@ -4,7 +4,14 @@ import { useState, useRef, useEffect } from "react";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
 import { Section, Label, TextInput, TextArea } from "./node-inspector";
-import { LLM_MODELS } from "./llm-catalog";
+import {
+  LLM_PROVIDERS,
+  defaultLlmModelForProvider,
+  findLlmModel,
+  getLlmModelsForProvider,
+  getLlmProvider,
+  resolveLlmSelection,
+} from "./llm-catalog";
 
 type NodePropsPanel = {
   selectedNode: BuilderNode;
@@ -12,9 +19,11 @@ type NodePropsPanel = {
 };
 
 export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [providerOpen, setProviderOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const providerRef = useRef<HTMLDivElement>(null);
+  const modelRef = useRef<HTMLDivElement>(null);
 
   const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
 
@@ -23,30 +32,48 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
     return typeof value === "string" ? value : fallback;
   };
 
-  const activeModelId = str("llmModel", "gpt-4o");
+  // Provider first, then its models. A saved model belonging to a different
+  // provider is dropped by the resolver, so the two selects can never disagree.
+  const selection = resolveLlmSelection(str("llmProvider"), str("llmModel"));
+  const currentProvider = getLlmProvider(selection.providerId);
+  const providerModels = getLlmModelsForProvider(selection.providerId);
+  const activeModelId = selection.modelId ?? defaultLlmModelForProvider(selection.providerId) ?? "";
+  // Null for a model id the catalog does not list (older workflows) — the raw
+  // id is shown rather than silently swapping in a different model.
+  const currentModel = findLlmModel(activeModelId);
 
-  // Find active model or fallback to GPT-4o
-  const currentModel = LLM_MODELS.find((m) => m.id === activeModelId) ?? LLM_MODELS[4];
-
-  // Close dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setDropdownOpen(false);
+      const target = event.target as Node;
+      if (providerRef.current && !providerRef.current.contains(target)) {
+        setProviderOpen(false);
+      }
+      if (modelRef.current && !modelRef.current.contains(target)) {
+        setModelOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Handle model change
+  // Switching provider also switches to that provider's first model, so the
+  // node never keeps a model the new provider cannot run.
+  const handleProviderChange = (providerId: string) => {
+    setProviderOpen(false);
+    if (providerId === selection.providerId) return;
+
+    onUpdateNodeData("llmProvider", providerId);
+    onUpdateNodeData("llmModel", defaultLlmModelForProvider(providerId) ?? "");
+  };
+
   const handleModelChange = (modelId: string) => {
-    const foundModel = LLM_MODELS.find((m) => m.id === modelId);
+    const foundModel = findLlmModel(modelId);
     if (foundModel) {
       onUpdateNodeData("llmModel", foundModel.id);
       onUpdateNodeData("llmProvider", foundModel.providerId);
     }
-    setDropdownOpen(false);
+    setModelOpen(false);
   };
 
   // Attachment handling
@@ -89,58 +116,125 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
         />
       </Section>
 
-      {/* --- Section 2: Model Selection (Consistent with node-inspector styling) --- */}
+      {/* --- Section 2: LLM then Model (Consistent with node-inspector styling) --- */}
       <Section title="AI Model">
-        <Label>Model</Label>
+        <Label>LLM provider</Label>
 
-        <div className="relative" ref={dropdownRef}>
+        <div className="relative" ref={providerRef}>
           {/* Custom Select Button */}
           <button
             type="button"
-            onClick={() => setDropdownOpen(!dropdownOpen)}
+            onClick={() => setProviderOpen(!providerOpen)}
+            data-testid="llm-provider-select"
             className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-sm text-slate-800 outline-none transition hover:border-slate-300 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
           >
             <div className="flex items-center gap-2 min-w-0 flex-1">
-              <span className="font-medium truncate">{currentModel.displayName}</span>
-              <span className="shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                {currentModel.badge}
+              <span className="font-medium truncate">
+                {currentProvider?.displayName ?? selection.providerId}
               </span>
             </div>
             <span className="ml-2 text-slate-400 shrink-0">
               <BuilderIcon
                 name="chevron"
                 className={`h-4 w-4 transition-transform duration-200 ${
-                  dropdownOpen ? "rotate-180" : ""
+                  providerOpen ? "rotate-180" : ""
                 }`}
               />
             </span>
           </button>
 
           {/* Custom Dropdown Menu Popover */}
-          {dropdownOpen && (
-            <div className="absolute left-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-black/5 scrollbar-thin">
-              {LLM_MODELS.map((m) => {
-                const isSelected = m.id === currentModel.id;
+          {providerOpen && (
+            <div
+              className="absolute left-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-black/5 scrollbar-thin"
+              data-testid="llm-provider-options"
+            >
+              {LLM_PROVIDERS.map((p) => {
+                const isSelected = p.id === selection.providerId;
                 return (
                   <button
-                    key={m.id}
+                    key={p.id}
                     type="button"
-                    onClick={() => handleModelChange(m.id)}
+                    onClick={() => handleProviderChange(p.id)}
+                    data-testid={`llm-provider-option-${p.id}`}
                     className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition ${
                       isSelected
                         ? "bg-slate-100 text-slate-900 font-semibold"
                         : "text-slate-700 hover:bg-slate-50"
                     }`}
                   >
-                    <span className="truncate">{m.displayName}</span>
+                    <span className="truncate">{p.displayName}</span>
                     <span className="ml-2 shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                      {m.badge}
+                      {getLlmModelsForProvider(p.id).length} models
                     </span>
                   </button>
                 );
               })}
             </div>
           )}
+        </div>
+
+        <div className="mt-4">
+          <Label>Model</Label>
+
+          <div className="relative" ref={modelRef}>
+            {/* Custom Select Button */}
+            <button
+              type="button"
+              onClick={() => setModelOpen(!modelOpen)}
+              data-testid="llm-model-select"
+              className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-sm text-slate-800 outline-none transition hover:border-slate-300 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span className="font-medium truncate">
+                  {currentModel?.displayName ?? (activeModelId || "Select a model")}
+                </span>
+                {currentModel && (
+                  <span className="shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                    {currentModel.badge}
+                  </span>
+                )}
+              </div>
+              <span className="ml-2 text-slate-400 shrink-0">
+                <BuilderIcon
+                  name="chevron"
+                  className={`h-4 w-4 transition-transform duration-200 ${
+                    modelOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </span>
+            </button>
+
+            {/* Custom Dropdown Menu Popover — only this provider's models */}
+            {modelOpen && (
+              <div
+                className="absolute left-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-black/5 scrollbar-thin"
+                data-testid="llm-model-options"
+              >
+                {providerModels.map((m) => {
+                  const isSelected = m.id === activeModelId;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => handleModelChange(m.id)}
+                      data-testid={`llm-model-option-${m.id}`}
+                      className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition ${
+                        isSelected
+                          ? "bg-slate-100 text-slate-900 font-semibold"
+                          : "text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="truncate">{m.displayName}</span>
+                      <span className="ml-2 shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                        {m.badge}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </Section>
 
