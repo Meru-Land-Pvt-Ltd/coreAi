@@ -59,3 +59,32 @@ export function takePendingLoginNext(): string | null {
     return null;
   }
 }
+
+const PENDING_ROLE_KEY = "triven.login.pending-role";
+
+export function setPendingLoginRole(role: "BUSINESS" | "ARCHITECT" | null) {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (role) {
+      window.localStorage.setItem(PENDING_ROLE_KEY, role);
+    } else {
+      window.localStorage.removeItem(PENDING_ROLE_KEY);
+    }
+  } catch {
+    // Non-fatal — routing falls back to the account's default side.
+  }
+}
+
+/** Read and clear the requested login role. */
+export function takePendingLoginRole(): "BUSINESS" | "ARCHITECT" | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const value = window.localStorage.getItem(PENDING_ROLE_KEY);
+    window.localStorage.removeItem(PENDING_ROLE_KEY);
+    return value === "BUSINESS" || value === "ARCHITECT" ? value : null;
+  } catch {
+    return null;
+  }
+}

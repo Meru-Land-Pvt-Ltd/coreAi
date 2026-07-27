@@ -24,7 +24,7 @@ import {
   BUSINESS_ONBOARDING_PATH,
   resolveBusinessLoginReturnPath
 } from "@/lib/routes";
-import { getLoginDeviceId, setPendingLoginNext } from "@/lib/login-device";
+import { getLoginDeviceId, setPendingLoginNext, setPendingLoginRole } from "@/lib/login-device";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 
@@ -177,6 +177,7 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
     // The device id lets the emailed link sign this browser straight in; the
     // return path is stashed so a link opened in a new tab still honours ?next=.
     setPendingLoginNext(returnPath);
+    setPendingLoginRole(role);
 
     const result = await apiPost<unknown>("/auth/send-verification-code", {
       email: targetEmail,

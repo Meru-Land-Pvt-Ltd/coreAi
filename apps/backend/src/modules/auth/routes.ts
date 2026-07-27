@@ -287,9 +287,13 @@ authRoutes.post("/magic-link/complete", async (c) => {
       return errorResponse(c, outcome.message, outcome.status, outcome.code);
     }
 
+    /* The role the LINK was minted for. A dual-role account cannot be routed
+       from user.role (that column holds whichever role they signed up with
+       first), so a business sign-in link would land them on the architect
+       side. UserRoleMembership is the capability source; this is the intent. */
     return successResponse(
       c,
-      { mode: "signed_in" as const, ...outcome.session },
+      { mode: "signed_in" as const, role: resolution.role, ...outcome.session },
       "Signed in successfully"
     );
   } catch (error) {
