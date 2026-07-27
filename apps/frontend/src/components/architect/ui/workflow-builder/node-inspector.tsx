@@ -1385,13 +1385,13 @@ function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
     return (
       <>
-        <Section title="Manual Trigger Config">
+        <Section title="Input Config">
           <Label>Input</Label>
           <TextArea
             value={str("input")}
             onChange={set("input")}
             height="h-32"
-            placeholder="Enter manual trigger text input..."
+            placeholder="Enter Input text input..."
           />
         </Section>
 
