@@ -110,23 +110,9 @@ export type AgentDescriptionViewProps = {
   statusLabel: string;
   showAuthor: boolean;
   author: string;
-
-  /**
-   * Must contain only a real database-backed
-   * install count. Null hides the count.
-   */
   installsLabel?: string | null;
-
-  /**
-   * Short description visible before the user
-   * clicks View more.
-   */
   heroDescription: string;
 
-  /**
-   * Full description. This remains completely
-   * hidden until View more is clicked.
-   */
   agentDescription: string;
 
   tags: string[];
@@ -565,9 +551,13 @@ export function AgentDescriptionView(
   const fullDescription =
     agentDescription.trim();
 
+  const revealedDescription =
+    fullDescription.length > 0
+      ? fullDescription
+      : shortDescription;
+
   const hasFullDescription =
-    fullDescription.length > 0 &&
-    fullDescription !== shortDescription;
+    revealedDescription.length > 0;
 
   return (
     <>
@@ -603,7 +593,7 @@ export function AgentDescriptionView(
                 </div>
 
                 <div className="mt-4 flex items-start gap-3.5 sm:gap-4">
-                  <div className="relative inline-flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 ring-2 ring-amber-100 sm:h-14 sm:w-14">
+                  <div className="relative inline-flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200 sm:h-14 sm:w-14">
                     {iconUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -612,7 +602,7 @@ export function AgentDescriptionView(
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      <BotIcon className="h-6 w-6 text-white sm:h-7 sm:w-7" />
+                      <BotIcon className="h-6 w-6 text-slate-700 sm:h-7 sm:w-7" />
                     )}
                   </div>
 
@@ -653,20 +643,8 @@ export function AgentDescriptionView(
                   </div>
                 </div>
 
-                {shortDescription ? (
-                  <p className="mt-4 max-w-xl break-words text-[15px] leading-relaxed text-slate-700 sm:text-[16px]">
-                    {shortDescription}
-                  </p>
-                ) : null}
-
                 {hasFullDescription ? (
-                  <div
-                    className={
-                      shortDescription
-                        ? "mt-3"
-                        : "mt-4"
-                    }
-                  >
+                  <div className="mt-4">
                     <button
                       type="button"
                       onClick={() =>
@@ -683,8 +661,8 @@ export function AgentDescriptionView(
                       className="inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-amber-600 transition hover:text-amber-700"
                     >
                       {showFullDescription
-                        ? "View less"
-                        : "View more"}
+                        ? "Hide description"
+                        : "View full description"}
 
                       <svg
                         viewBox="0 0 20 20"
@@ -713,7 +691,7 @@ export function AgentDescriptionView(
                         className="mt-3 max-w-xl rounded-xl border border-slate-200 bg-slate-50/60 p-4"
                       >
                         <p className="whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-slate-700">
-                          {fullDescription}
+                          {revealedDescription}
                         </p>
                       </div>
                     ) : null}

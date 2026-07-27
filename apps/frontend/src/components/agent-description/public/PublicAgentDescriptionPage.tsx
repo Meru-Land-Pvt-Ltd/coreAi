@@ -200,7 +200,7 @@ export default function PublicAgentDescriptionPage() {
   }
 
   const price = Math.round((listing.priceCents ?? 0) / 100);
-  const installsLabel = formatPublicInstallCount(listing.installCount ?? 0, listing.id);
+  const installsLabel = formatPublicInstallCount(listing.installCount ?? 0) || null;
   const author = getListingAuthor(listing);
   const pricingModel = listing.pricingModel ?? "SUBSCRIPTION";
   const freeTrialEnabled = listing.freeTrialEnabled ?? false;
