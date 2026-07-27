@@ -11,9 +11,11 @@ import {
   type Connection,
   type Edge,
   type NodeProps,
-  type NodeTypes
+  type NodeTypes,
+  type ReactFlowInstance
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { BUILDER_NODE_DRAG_TYPE } from "./workflow-builder/component-library";
 import Link from "next/link";
 import type { Route } from "next";
 import {
@@ -167,6 +169,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   useEffect(() => {
     currentWorkflowIdRef.current = currentWorkflowId;
   }, [currentWorkflowId]);
+
+  const flowInstanceRef = useRef<ReactFlowInstance<BuilderNode, Edge> | null>(null);
 
   const nodeTypes = useMemo<NodeTypes>(
     () => ({ coreNode: CoreNode as unknown as ComponentType<NodeProps> }),
@@ -654,7 +658,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
   }, [workflowId]);
 
-  function addNodeFromLibrary(nodeKind: NodeKind, overrides?: Partial<BuilderNodeData>) {
+  function addNodeFromLibrary(
+    nodeKind: NodeKind,
+    overrides?: Partial<BuilderNodeData>,
+    position?: { x: number; y: number }
+  ) {
     if (blockIfUnderReview()) return;
 
     const id = `${nodeKind}-${Date.now()}`;
@@ -662,7 +670,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     const newNode: BuilderNode = {
       id,
       type: "coreNode",
-      position: {
+      position: position ?? {
         x: 150 + nodes.length * 48,
         y: 150 + nodes.length * 32
       },
@@ -1366,6 +1374,34 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 nodes={nodes}
                 edges={edges}
                 nodeTypes={nodeTypes}
+                onInit={(instance) => {
+                  flowInstanceRef.current = instance;
+                }}
+                onDragOver={(event) => {
+                  if (!event.dataTransfer.types.includes(BUILDER_NODE_DRAG_TYPE)) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                }}
+                onDrop={(event) => {
+                  const raw = event.dataTransfer.getData(BUILDER_NODE_DRAG_TYPE);
+                  if (!raw) return;
+                  event.preventDefault();
+
+                  try {
+                    const payload = JSON.parse(raw) as {
+                      nodeKind: NodeKind;
+                      overrides?: Partial<BuilderNodeData>;
+                    };
+                    /* Drop where the pointer actually is, not the stagger slot. */
+                    const position = flowInstanceRef.current?.screenToFlowPosition({
+                      x: event.clientX,
+                      y: event.clientY
+                    });
+                    addNodeFromLibrary(payload.nodeKind, payload.overrides, position);
+                  } catch {
+                    // Not our payload — ignore.
+                  }
+                }}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}

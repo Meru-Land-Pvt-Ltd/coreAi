@@ -19,7 +19,7 @@ function Markdown({ content, className = "" }: { content: string; className?: st
   const html = typeof content === "string" ? (marked.parse(content, { breaks: true, gfm: true }) as string) : "";
   return (
     <div
-      className={`markdown-content ${className}`}
+      className={`markdown-content min-w-0 max-w-full overflow-x-auto [overflow-wrap:anywhere] ${className}`}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
@@ -795,14 +795,14 @@ export function TestPanel({
                   <div className="space-y-4" data-testid="test-panel-llm-pipeline-results">
                     <div>
                       {Object.values(runContext.llmPipeline as Record<string, any>).map((step, idx) => (
-                        <div key={idx} className="mb-3 last:mb-0 rounded-xl border border-violet-100 bg-violet-50/10 p-4">
+                        <div key={idx} className="mb-3 min-w-0 overflow-hidden rounded-xl border border-violet-100 bg-violet-50/10 p-4 last:mb-0">
                           <div className="flex items-center justify-between border-b border-violet-100 pb-2">
                             <span className="text-xs font-bold text-violet-950">{step.label || "LLM Step"}</span>
                             <span className="font-mono text-[10px] text-violet-500 bg-violet-50 px-2 py-0.5 rounded">
                               {step.providerId} ({step.modelName})
                             </span>
                           </div>
-                          <div className="mt-2 text-sm leading-relaxed text-slate-700">
+                          <div className="mt-2 min-w-0 text-sm leading-relaxed text-slate-700">
                             <Markdown content={step.output} />
                           </div>
                           <p className="mt-2 font-mono text-[9px] text-slate-400">Variable: <code className="text-violet-600 font-bold">{step.outputKey}</code></p>

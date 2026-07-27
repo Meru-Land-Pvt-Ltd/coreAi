@@ -4,6 +4,9 @@ import { comingSoonItems, libraryGroups } from "./library";
 import { BuilderIcon } from "./icons";
 import type { BuilderNodeData, NodeKind } from "./types";
 
+/** dataTransfer key shared with the canvas drop handler. */
+export const BUILDER_NODE_DRAG_TYPE = "application/x-triven-builder-node";
+
 export function ComponentLibrary({
   searchTerm,
   onSearchChange,
@@ -81,6 +84,17 @@ export function ComponentLibrary({
                       key={`${group.title}-${item.label}`}
                       data-testid={item.testId}
                       type="button"
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "copy";
+                        event.dataTransfer.setData(
+                          BUILDER_NODE_DRAG_TYPE,
+                          JSON.stringify({
+                            nodeKind: item.nodeKind,
+                            overrides: { ...item.overrides, accent: item.accent, icon: item.icon }
+                          })
+                        );
+                      }}
                       onClick={() => onAddNode(item.nodeKind, { ...item.overrides, accent: item.accent, icon: item.icon })}
                       className={cn(
                         "comp flex w-full cursor-grab items-center gap-3 rounded-xl border bg-white p-3 text-left shadow-sm transition active:cursor-grabbing hover:-translate-y-0.5 hover:shadow-md",
