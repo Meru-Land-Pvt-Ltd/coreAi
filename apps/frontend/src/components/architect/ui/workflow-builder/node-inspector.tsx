@@ -1,8 +1,12 @@
 import {
   EMAIL_TEMPLATE_VARIABLES,
+  LLM_PROVIDERS,
   VOICE_NODE_TYPES,
+  defaultLlmModelForProvider,
   findUnknownPromptVariables,
-  getNodeDefinition
+  getLlmModelsForProvider,
+  getNodeDefinition,
+  resolveLlmSelection
 } from "@coreai/shared";
 import { useState, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
@@ -1666,6 +1670,11 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const lastOutput = str("lastTestOutput");
+
+  // Provider first, then its models — same pairing the AI Brain node uses, so
+  // a model can never be sent to a provider that cannot run it.
+  const aiSelection = resolveLlmSelection(str("provider"), str("model"));
+  const aiModelId = aiSelection.modelId ?? defaultLlmModelForProvider(aiSelection.providerId) ?? "";
 
   return (
     <>
