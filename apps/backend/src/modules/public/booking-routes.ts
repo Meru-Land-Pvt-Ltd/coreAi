@@ -6,6 +6,7 @@ import { errorResponse, successResponse } from "../../lib/api-response";
 import { validateSmsRecipientE164 } from "../architect/twilio-connector";
 import { maskPhone, recordWebFormSmsConsent } from "../notifications/sms-consent";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
+import { smsAttributionPrefix } from "../notifications/sms-format";
 
 export const publicBookingRoutes = new Hono();
 
@@ -202,7 +203,7 @@ publicBookingRoutes.post("/booking/:slug", async (c) => {
     const whenText = preferredText || "your requested time";
     const outcome = await sendTrackedSms({
       to: phone.e164,
-      body: `${business.name} via Triven.ai: Hi ${input.customerName}, we received your ${input.service ? `${input.service} ` : ""}request for ${whenText}. The team will confirm shortly. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
+      body: `${smsAttributionPrefix(business.name)}Hi ${input.customerName}, we received your ${input.service ? `${input.service} ` : ""}request for ${whenText}. The team will confirm shortly. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
       messageType: "WORKFLOW_SMS",
       businessId: business.id,
       businessName: business.name,

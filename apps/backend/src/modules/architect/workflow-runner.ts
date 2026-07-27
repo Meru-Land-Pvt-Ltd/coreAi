@@ -23,6 +23,7 @@ import {
 } from "./google-calendar-connector";
 import { startVapiOutboundCall } from "./vapi-connector";
 import { MISSING_LLM_CREDENTIALS_MESSAGE } from "../ai-provider-engine/llm-credentials";
+import { smsAttributionPrefix } from "../notifications/sms-format";
 import {
   createWorkflowRun,
   completeWorkflowRun,
@@ -866,7 +867,7 @@ async function runSmsConnectorNode({
     return;
   }
 
-  const defaultBody = context.ai?.output ?? `${context.business?.name ?? "The business"} via Triven.ai: Sorry we missed your call. We can help by text right now.`;
+  const defaultBody = context.ai?.output ?? `${smsAttributionPrefix(context.business?.name ?? "The business")}Sorry we missed your call. We can help by text right now.`;
   const actionTo = renderTemplate(node.data?.smsTo, context) || context.caller_number || "";
   const actionBody = renderTemplate(node.data?.smsBody, context) || defaultBody;
   const sendAt = renderTemplate(node.data?.sendAt, context) || "8:00 AM next business day";
@@ -912,14 +913,12 @@ async function runSmsConnectorNode({
         executionId: outcome.executionId,
         ...(outcome.suppressed ? { suppressedReason: outcome.errorCode } : {})
       };
-      // Consent suppression is expected behavior, not a Twilio failure — the
-      // missed-call flow itself continues (e.g. the Vapi callback still runs).
       logs.push(
         outcome.suppressed
           ? createLog(
               node,
               "waiting",
-              `SMS skipped: ${outcome.errorCode === "SMS_OPTED_OUT" ? "the caller has opted out of texts" : "no SMS consent on record for this caller"} (${outcome.errorCode}).`,
+              `SMS skipped (${outcome.errorCode}): ${outcome.error ?? "suppressed before the provider request"}`,
               context.sentSms
             )
           : createLog(node, "error", `Twilio SMS failed: ${outcome.error ?? "unknown error"}`, context.sentSms)

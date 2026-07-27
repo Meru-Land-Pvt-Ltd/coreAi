@@ -543,7 +543,7 @@ describe("cancellation notifications", () => {
     expect(sms?.messageType).toBe("APPOINTMENT_CANCELLATION");
     expect(sms?.status).toBe("SIMULATED");
     expect(sms?.body).toContain("has been cancelled");
-    expect(sms?.body).toContain("via Triven.ai");
+    expect(sms?.body).toContain("via Triven");
   });
 
   it("cancellation still succeeds when the SMS is suppressed for missing consent", async () => {

@@ -8,9 +8,15 @@ import {
 import {
   canSendTransactionalSms,
   maskPhone,
-  messagingProgramForMessageType
+  messagingProgramForMessageType,
+  type SmsConsentDenialReason
 } from "./sms-consent";
-import { formatTransactionalSms, isApprovedSmsPurpose, type TransactionalSmsPurpose } from "./sms-format";
+import {
+  formatTransactionalSms,
+  isApprovedSmsPurpose,
+  smsAttributionPrefix,
+  type TransactionalSmsPurpose
+} from "./sms-format";
 
 export type AppointmentConfirmationInput = {
   appointmentId: string;
@@ -111,19 +117,42 @@ export type TrackedSmsInput = {
   businessId?: string | null;
   installedAgentId?: string | null;
   appointmentId?: string | null;
-  /** Provider call id (VapiCall.callId) of the voice execution that provably
-   * originated this SMS — the direct billing attribution. Never guessed. */
   vapiCallId?: string | null;
-  /** Business display name — REQUIRED for consent-gated customer SMS (campaign attribution). */
   businessName?: string | null;
   smsPurpose?: TransactionalSmsPurpose;
-  /** Unique idempotency key; a duplicate trigger returns the existing record. */
   dedupeKey?: string | null;
 };
 
+export function smsDenialDetail(reason: SmsConsentDenialReason): {
+  code: string;
+  message: string;
+} {
+  switch (reason) {
+    case "SMS_OPTED_OUT":
+      return {
+        code: "SMS_OPTED_OUT",
+        message: "Recipient has opted out of this business's SMS program."
+      };
+    case "MISSING_BUSINESS":
+      return {
+        code: "SMS_BUSINESS_UNRESOLVED",
+        message:
+          "No business is attached to this send, so SMS consent could not be checked. The Twilio number that received the call must resolve to a business (BusinessPhoneNumber or PlatformPhoneNumber → Business)."
+      };
+    case "INVALID_PHONE":
+      return {
+        code: "SMS_INVALID_RECIPIENT",
+        message: "Recipient number is not a valid E.164 mobile number."
+      };
+    default:
+      return {
+        code: "SMS_CONSENT_REQUIRED",
+        message: "No affirmative SMS consent on record for this business and recipient."
+      };
+  }
+}
+
 export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOutcome> {
-  // SMS recipients must be explicit E.164 — ambiguous bare national numbers
-  // are rejected here, never guessed (voice-path normalization is separate).
   const recipient = validateSmsRecipientE164(input.to);
   if (!recipient.ok) {
     return {
@@ -152,8 +181,7 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
       messagingProgram
     });
     if (!authorization.allowed) {
-      const reason =
-        authorization.reason === "SMS_OPTED_OUT" ? "SMS_OPTED_OUT" : "SMS_CONSENT_REQUIRED";
+      const { code: reason, message: reasonMessage } = smsDenialDetail(authorization.reason);
       const suppressedExecution = await prisma.smsExecution.create({
         data: {
           businessId: input.businessId ?? null,
@@ -165,10 +193,7 @@ export async function sendTrackedSms(input: TrackedSmsInput): Promise<SmsSendOut
           body: input.body,
           status: "SUPPRESSED",
           errorCode: reason,
-          errorMessage:
-            reason === "SMS_OPTED_OUT"
-              ? "Recipient has opted out of this business's SMS program."
-              : "No affirmative SMS consent on record for this business and recipient.",
+          errorMessage: reasonMessage,
           failedAt: new Date()
         }
       });
@@ -338,7 +363,7 @@ export type AppointmentConfirmationTemplateValues = {
 export function renderAppointmentConfirmationSms(values: AppointmentConfirmationTemplateValues): string {
   const service = values.serviceName && values.serviceName !== "your" ? `${values.serviceName} ` : "";
   const lines = [
-    `${values.businessName} via Triven.ai: Hi ${values.customerName}, your ${service}appointment is confirmed for ${values.appointmentDate} at ${values.appointmentTime}.`
+    `${smsAttributionPrefix(values.businessName)}Hi ${values.customerName}, your ${service}appointment is confirmed for ${values.appointmentDate} at ${values.appointmentTime}.`
   ];
   if (values.businessPhone) {
     lines.push(`For assistance call ${values.businessPhone}.`);

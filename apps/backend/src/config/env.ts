@@ -40,6 +40,7 @@ const envSchema = z.object({
   TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
   /** Shared Triven SMS sender (E.164). Reserved — never assigned to a buyer. */
   TWILIO_SHARED_SMS_NUMBER: z.string().optional(),
+  SMS_ATTRIBUTION_BRAND: z.string().optional(),
   TWILIO_US_SMS_FROM: z.string().optional(),
   /** Public URL Twilio posts message delivery-status callbacks to. */
   TWILIO_SMS_STATUS_CALLBACK_URL: z.string().url().optional(),

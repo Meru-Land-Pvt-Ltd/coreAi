@@ -1,5 +1,17 @@
+import { env } from "../../config/env";
+
 export const SMS_COMPLIANCE_FOOTER =
   "Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.";
+
+export const SMS_ATTRIBUTION_BRAND = env.SMS_ATTRIBUTION_BRAND?.trim() || "Triven";
+
+export function smsAttributionPrefix(businessName: string): string {
+  return `${businessName} via ${SMS_ATTRIBUTION_BRAND}: `;
+}
+
+export function withSmsAttribution(businessName: string, body: string): string {
+  return hasSmsAttribution(body) ? body : `${smsAttributionPrefix(businessName)}${body}`;
+}
 
 export const SMS_MAX_TOTAL_LENGTH = 480;
 
@@ -60,7 +72,18 @@ function stripFooterFragments(text: string): string {
   return normalizeWhitespace(result).replace(/[ \t]+([.,!?])/g, "$1");
 }
 
-const ATTRIBUTION_PATTERN = /^[^\n:]{1,80}\svia\sTriven\.ai:/i;
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const ATTRIBUTION_PATTERN = new RegExp(
+  `^[^\\n:]{1,80}\\svia\\s(${escapeRegExp(SMS_ATTRIBUTION_BRAND)}|Triven\\.ai):`,
+  "i"
+);
+
+export function hasSmsAttribution(text: string): boolean {
+  return ATTRIBUTION_PATTERN.test(text.trim());
+}
 
 export function formatTransactionalSms(input: {
   body: string;
@@ -83,9 +106,7 @@ export function formatTransactionalSms(input: {
     }
   }
 
-  if (!ATTRIBUTION_PATTERN.test(content)) {
-    content = `${businessName} via Triven.ai: ${content}`;
-  }
+  content = withSmsAttribution(businessName, content);
 
   const maxContentLength = SMS_MAX_TOTAL_LENGTH - SMS_COMPLIANCE_FOOTER.length - 1;
   if (content.length > maxContentLength) {
