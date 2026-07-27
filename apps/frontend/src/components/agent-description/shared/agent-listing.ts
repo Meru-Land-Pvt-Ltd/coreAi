@@ -229,7 +229,6 @@ export function formatPublicInstallCount(installs: number): string {
   return `${realCount}+`;
 }
 
-/** The long-form agent description shown in the "About this agent" section. */
 const HTML_ENTITIES: Record<string, string> = {
   "&nbsp;": " ",
   "&amp;": "&",
@@ -255,7 +254,8 @@ export function htmlDescriptionToText(value: string): string {
     .replace(/\r\n?/g, "\n")
     .replace(/<\s*br\s*\/?\s*>/gi, "\n")
     .replace(/<\s*li[^>]*>/gi, "\n• ")
-    .replace(/<\s*\/\s*(p|div|li|ul|ol|h[1-6]|section|article)\s*>/gi, "\n\n")
+    .replace(/<\s*\/\s*li\s*>/gi, "")
+    .replace(/<\s*\/\s*(p|div|ul|ol|h[1-6]|section|article)\s*>/gi, "\n\n")
     .replace(/<[^>]*>/g, "");
 
   for (const [entity, character] of Object.entries(HTML_ENTITIES)) {
@@ -269,6 +269,7 @@ export function htmlDescriptionToText(value: string): string {
     .trim();
 }
 
+/** The long-form agent description shown in the "About this agent" section. */
 export function getAgentDescription(listing: ApiListing): string {
   return htmlDescriptionToText(
     listing.fullDescription?.trim() ||
