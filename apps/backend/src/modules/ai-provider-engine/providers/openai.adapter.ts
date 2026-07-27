@@ -69,7 +69,6 @@ class OpenAIAdapter implements AIProviderAdapter {
         this.client.chat.completions.create({
           model,
           messages,
-          temperature: request.temperature ?? 0.7,
           max_completion_tokens: request.maxTokens,
         })
       );
