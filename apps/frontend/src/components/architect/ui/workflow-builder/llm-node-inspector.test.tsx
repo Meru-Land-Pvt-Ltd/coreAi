@@ -1,9 +1,38 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LlmNodeInspector } from "./llm-node-inspector";
 import { NodeInspector } from "./node-inspector";
+import { resetLlmAvailabilityCache } from "./use-llm-availability";
 import type { BuilderNode, BuilderNodeData } from "./types";
+
+const { getProvidersMock } = vi.hoisted(() => ({ getProvidersMock: vi.fn() }));
+
+vi.mock("../../features/api", () => ({ getArchitectAiProviders: getProvidersMock }));
+
+/** Backend availability payload: which provider keys are present. */
+function providersResponse(configuredIds: string[]) {
+  return {
+    success: true,
+    data: {
+      providers: [
+        { id: "openai", displayName: "OpenAI", envKey: "OPENAI_API_KEY" },
+        { id: "claude", displayName: "Anthropic Claude", envKey: "ANTHROPIC_API_KEY" },
+        { id: "gemini", displayName: "Google Gemini", envKey: "GEMINI_API_KEY" }
+      ].map((provider) => ({
+        ...provider,
+        models: [],
+        configured: configuredIds.includes(provider.id)
+      }))
+    }
+  };
+}
+
+beforeEach(() => {
+  resetLlmAvailabilityCache();
+  getProvidersMock.mockReset();
+  getProvidersMock.mockResolvedValue(providersResponse([]));
+});
 
 afterEach(() => cleanup());
 
@@ -85,10 +114,75 @@ describe("AI Brain provider then model selection", () => {
   });
 
   it("shows an uncataloged saved model as-is instead of a different one", () => {
-    renderInspector({ llmProvider: "openai", llmModel: "gpt-4o" });
+    renderInspector({ llmProvider: "openai", llmModel: "gpt-4-turbo" });
 
     expect(screen.getByTestId("llm-provider-select").textContent).toContain("OpenAI");
-    expect(screen.getByTestId("llm-model-select").textContent).toContain("gpt-4o");
+    expect(screen.getByTestId("llm-model-select").textContent).toContain("gpt-4-turbo");
+  });
+
+  it("lists the provider's legacy models alongside the current ones", async () => {
+    const user = userEvent.setup();
+    renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
+
+    await user.click(screen.getByTestId("llm-model-select"));
+
+    expect(screen.getByTestId("llm-model-option-o4-mini")).toBeDefined();
+    expect(screen.getByTestId("llm-model-option-gpt-4o").textContent).toContain("Legacy");
+  });
+});
+
+describe("providers the backend cannot run", () => {
+  it("greys out and blocks a provider whose API key is missing", async () => {
+    getProvidersMock.mockResolvedValue(providersResponse(["openai"]));
+    const user = userEvent.setup();
+    const { onUpdateNodeData } = renderInspector({
+      llmProvider: "openai",
+      llmModel: "gpt-5.4-mini"
+    });
+
+    await user.click(screen.getByTestId("llm-provider-select"));
+
+    const claudeOption = await screen.findByTestId("llm-provider-option-claude");
+    expect(claudeOption).toHaveProperty("disabled", true);
+    expect(claudeOption.textContent).toContain("No ANTHROPIC_API_KEY");
+    expect(screen.getByTestId("llm-provider-option-openai")).toHaveProperty("disabled", false);
+
+    await user.click(claudeOption);
+    expect(onUpdateNodeData).not.toHaveBeenCalled();
+  });
+
+  it("flags the node's own provider when its key is missing", async () => {
+    getProvidersMock.mockResolvedValue(providersResponse(["openai"]));
+    renderInspector({ llmProvider: "claude", llmModel: "claude-sonnet-5" });
+
+    const badge = await screen.findByTestId("llm-provider-missing-key");
+    expect(badge.textContent).toContain("No ANTHROPIC_API_KEY");
+  });
+
+  it("disables nothing when the backend has no keys at all", async () => {
+    getProvidersMock.mockResolvedValue(providersResponse([]));
+    const user = userEvent.setup();
+    renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
+
+    await user.click(screen.getByTestId("llm-provider-select"));
+
+    // Greying out every provider would block workflow design entirely, so the
+    // builder only shows the hint.
+    const claudeOption = await screen.findByTestId("llm-provider-option-claude");
+    expect(claudeOption).toHaveProperty("disabled", false);
+    expect(claudeOption.textContent).toContain("No ANTHROPIC_API_KEY");
+  });
+
+  it("leaves every provider usable when the status call fails", async () => {
+    getProvidersMock.mockRejectedValue(new Error("network down"));
+    const user = userEvent.setup();
+    renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
+
+    await user.click(screen.getByTestId("llm-provider-select"));
+
+    const claudeOption = await screen.findByTestId("llm-provider-option-claude");
+    expect(claudeOption).toHaveProperty("disabled", false);
+    expect(claudeOption.textContent).toContain("models");
   });
 });
 

@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { calendarEventTitleForMode, normalizeAgentConfigure, requiredConnectorKeys } from "@coreai/shared";
+import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys } from "@coreai/shared";
+import { llmCredentialStatus } from "../ai-provider-engine/llm-credentials";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
@@ -499,12 +500,33 @@ architectRoutes.use(
 
 architectRoutes.get("/ai/providers", async (c) => {
   const registry = getProviderRegistry();
-  const adapters = registry.all();
-  const providers = adapters.map((adapter) => ({
-    id: adapter.providerId,
-    displayName: adapter.displayName,
-    models: adapter.models
-  }));
+
+  const providers = await Promise.all(
+    registry.all().map(async (adapter) => {
+      const catalogEntry = getLlmProvider(adapter.providerId);
+
+      // Cataloged LLM providers answer from the credential resolver: some
+      // adapters' own validate() checks the wrong env var (groq/deepseek read
+      // their own key at run time but validate OPENAI_API_KEY).
+      const configured = catalogEntry
+        ? llmCredentialStatus(adapter.providerId) === "configured"
+        : await adapter
+            .validate()
+            .then((result) => result.valid)
+            .catch(() => false);
+
+      return {
+        id: adapter.providerId,
+        displayName: adapter.displayName,
+        models: adapter.models,
+        /** Whether this provider can run — never the key itself. */
+        configured,
+        /** Env var the backend needs, so the builder can name it. */
+        envKey: catalogEntry?.envKey ?? null
+      };
+    })
+  );
+
   return successResponse(c, { providers });
 });
 

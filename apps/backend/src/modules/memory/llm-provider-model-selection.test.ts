@@ -37,10 +37,24 @@ describe("shared LLM catalog", () => {
   });
 
   it("keeps uncataloged model ids that are still valid at the provider", () => {
-    expect(resolveLlmSelection("openai", "gpt-4o")).toEqual({
+    expect(resolveLlmSelection("openai", "gpt-4-turbo")).toEqual({
       providerId: "openai",
-      modelId: "gpt-4o"
+      modelId: "gpt-4-turbo"
     });
+  });
+
+  it("carries each provider's current and legacy models", () => {
+    const openaiIds = getLlmModelsForProvider("openai").map((model) => model.id);
+    expect(openaiIds).toEqual(expect.arrayContaining(["gpt-5.5", "o4-mini", "gpt-4o", "gpt-4o-mini"]));
+
+    const claudeIds = getLlmModelsForProvider("claude").map((model) => model.id);
+    expect(claudeIds).toEqual(expect.arrayContaining(["claude-opus-5", "claude-sonnet-4-5"]));
+
+    // Every id is unique and owned by exactly one provider.
+    const allIds = LLM_PROVIDERS.flatMap((provider) =>
+      getLlmModelsForProvider(provider.id).map((model) => model.id)
+    );
+    expect(new Set(allIds).size).toBe(allIds.length);
   });
 
   it("normalizes saved provider aliases", () => {

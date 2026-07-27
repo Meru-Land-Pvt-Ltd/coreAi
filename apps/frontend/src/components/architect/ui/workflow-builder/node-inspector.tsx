@@ -13,6 +13,7 @@ import { VoicePicker } from "@/components/common/voice-picker";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
 import { LlmNodeInspector } from "./llm-node-inspector";
+import { isProviderDisabled, providerKeyHint, useLlmAvailability } from "./use-llm-availability";
 
 export type ConnectorOwnership = "architect" | "buyer";
 
@@ -275,7 +276,7 @@ export function TextArea({
   );
 }
 
-export type SelectBoxOption = string | { value: string; label: string };
+export type SelectBoxOption = string | { value: string; label: string; disabled?: boolean };
 
 export function SelectBox({ value, onChange, options, testId = "node-inspector-model-select" }: { value: string; onChange: (value: string) => void; options: SelectBoxOption[]; testId?: string }) {
   const normalized = options.map((option) =>
@@ -295,7 +296,7 @@ export function SelectBox({ value, onChange, options, testId = "node-inspector-m
         className="w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2 pr-9 text-sm text-slate-800 outline-none focus:outline-none ring-0 focus:ring-0 focus:border-amber-400 transition-colors shadow-none cursor-pointer"
       >
         {allOptions.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option key={option.value} value={option.value} disabled={option.disabled}>
             {option.label}
           </option>
         ))}
@@ -1673,6 +1674,7 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
   // Provider first, then its models — same pairing the AI Brain node uses, so
   // a model can never be sent to a provider that cannot run it.
+  const aiAvailability = useLlmAvailability();
   const aiSelection = resolveLlmSelection(str("provider"), str("model"));
   const aiModelId = aiSelection.modelId ?? defaultLlmModelForProvider(aiSelection.providerId) ?? "";
 
@@ -1697,7 +1699,16 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
             onUpdateNodeData("provider", providerId);
             onUpdateNodeData("model", defaultLlmModelForProvider(providerId) ?? "");
           }}
-          options={LLM_PROVIDERS.map((provider) => ({ value: provider.id, label: provider.displayName }))}
+          options={LLM_PROVIDERS.map((provider) => {
+            // Same rule as the AI Brain node: a provider the backend has no
+            // key for is greyed out instead of failing at run time.
+            const keyHint = providerKeyHint(aiAvailability, provider.id);
+            return {
+              value: provider.id,
+              label: keyHint ? `${provider.displayName} — ${keyHint}` : provider.displayName,
+              disabled: isProviderDisabled(aiAvailability, provider.id)
+            };
+          })}
         />
 
         <div className="mt-4">

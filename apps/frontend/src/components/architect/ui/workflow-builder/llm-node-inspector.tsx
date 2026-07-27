@@ -12,6 +12,7 @@ import {
   getLlmProvider,
   resolveLlmSelection,
 } from "./llm-catalog";
+import { isProviderDisabled, providerKeyHint, useLlmAvailability } from "./use-llm-availability";
 
 type NodePropsPanel = {
   selectedNode: BuilderNode;
@@ -24,6 +25,8 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const providerRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
+
+  const availability = useLlmAvailability();
 
   const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
 
@@ -62,6 +65,7 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
   const handleProviderChange = (providerId: string) => {
     setProviderOpen(false);
     if (providerId === selection.providerId) return;
+    if (isProviderDisabled(availability, providerId)) return;
 
     onUpdateNodeData("llmProvider", providerId);
     onUpdateNodeData("llmModel", defaultLlmModelForProvider(providerId) ?? "");
@@ -132,6 +136,14 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
               <span className="font-medium truncate">
                 {currentProvider?.displayName ?? selection.providerId}
               </span>
+              {providerKeyHint(availability, selection.providerId) && (
+                <span
+                  className="shrink-0 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                  data-testid="llm-provider-missing-key"
+                >
+                  {providerKeyHint(availability, selection.providerId)}
+                </span>
+              )}
             </div>
             <span className="ml-2 text-slate-400 shrink-0">
               <BuilderIcon
@@ -151,21 +163,36 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
             >
               {LLM_PROVIDERS.map((p) => {
                 const isSelected = p.id === selection.providerId;
+                // Greyed out when the backend has no key for it (and something
+                // else does work) — picking it would only fail at run time.
+                const disabled = isProviderDisabled(availability, p.id);
+                const keyHint = providerKeyHint(availability, p.id);
+
                 return (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => handleProviderChange(p.id)}
+                    disabled={disabled}
+                    title={disabled && keyHint ? `${keyHint} on the backend` : undefined}
                     data-testid={`llm-provider-option-${p.id}`}
                     className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition ${
-                      isSelected
-                        ? "bg-slate-100 text-slate-900 font-semibold"
-                        : "text-slate-700 hover:bg-slate-50"
+                      disabled
+                        ? "cursor-not-allowed text-slate-400"
+                        : isSelected
+                          ? "bg-slate-100 text-slate-900 font-semibold"
+                          : "text-slate-700 hover:bg-slate-50"
                     }`}
                   >
                     <span className="truncate">{p.displayName}</span>
-                    <span className="ml-2 shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                      {getLlmModelsForProvider(p.id).length} models
+                    <span
+                      className={`ml-2 shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+                        keyHint
+                          ? "border-amber-200 bg-amber-50 text-amber-700"
+                          : "border-slate-200 bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {keyHint ?? `${getLlmModelsForProvider(p.id).length} models`}
                     </span>
                   </button>
                 );

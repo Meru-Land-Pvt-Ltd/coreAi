@@ -46,6 +46,19 @@ export function getArchitectAgentsStats() {
   return apiGet<ArchitectAgentsStats>("/architect/agents/stats");
 }
 
+/** One AI provider the backend can run — `configured` is false when its key is missing. */
+export type ArchitectAiProvider = {
+  id: string;
+  displayName: string;
+  models: string[];
+  configured: boolean;
+  envKey: string | null;
+};
+
+export function getArchitectAiProviders() {
+  return apiGet<{ providers: ArchitectAiProvider[] }>("/architect/ai/providers");
+}
+
 export function getArchitectProfile() {
   return apiGet<{ profile: ArchitectProfile | null }>("/architect/profile");
 }
