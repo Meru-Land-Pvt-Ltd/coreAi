@@ -13,7 +13,7 @@ const workflowJson = {
   nodes: [
     {
       id: "trigger-1",
-      data: { label: "Manual Trigger", nodeKind: "trigger", type: "trigger.manual" }
+      data: { label: "Input", nodeKind: "trigger", type: "trigger.manual" }
     },
     {
       id: "email-1",

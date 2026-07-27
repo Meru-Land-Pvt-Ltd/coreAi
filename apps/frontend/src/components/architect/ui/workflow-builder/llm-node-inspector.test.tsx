@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LlmNodeInspector } from "./llm-node-inspector";
+import { NodeInspector } from "./node-inspector";
 import type { BuilderNode, BuilderNodeData } from "./types";
 
 afterEach(() => cleanup());
@@ -88,5 +89,41 @@ describe("AI Brain provider then model selection", () => {
 
     expect(screen.getByTestId("llm-provider-select").textContent).toContain("OpenAI");
     expect(screen.getByTestId("llm-model-select").textContent).toContain("gpt-4o");
+  });
+});
+
+describe("AI Step node provider then model selection", () => {
+  function renderAiStep(data: Partial<BuilderNodeData>) {
+    const onUpdateNodeData = vi.fn();
+    render(
+      <NodeInspector
+        selectedNode={node({ type: "ai.context_reply", kind: "AI", label: "AI Step", ...data })}
+        onClearSelection={vi.fn()}
+        onUpdateNodeData={onUpdateNodeData}
+        onDeleteNode={vi.fn()}
+      />
+    );
+    return { onUpdateNodeData };
+  }
+
+  it("offers only the selected provider's models", () => {
+    renderAiStep({ provider: "claude", model: "claude-sonnet-5" });
+
+    const modelSelect = screen.getByTestId("node-inspector-model-select") as HTMLSelectElement;
+    const modelIds = Array.from(modelSelect.options).map((option) => option.value);
+
+    expect(screen.getByTestId("node-inspector-provider-select")).toHaveProperty("value", "claude");
+    expect(modelIds).toContain("claude-opus-5");
+    expect(modelIds).not.toContain("gpt-5.5");
+  });
+
+  it("switching provider also switches to that provider's default model", async () => {
+    const user = userEvent.setup();
+    const { onUpdateNodeData } = renderAiStep({ provider: "openai", model: "gpt-5.4-mini" });
+
+    await user.selectOptions(screen.getByTestId("node-inspector-provider-select"), "claude");
+
+    expect(onUpdateNodeData).toHaveBeenCalledWith("provider", "claude");
+    expect(onUpdateNodeData).toHaveBeenCalledWith("model", "claude-sonnet-5");
   });
 });

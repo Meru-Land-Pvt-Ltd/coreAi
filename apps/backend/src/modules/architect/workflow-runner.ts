@@ -510,15 +510,13 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
   };
 }
 
-/** Test runs use Provider Engine for builder AI nodes; live receptionist keeps legacy SMS logic without provider. */
 function shouldUseProviderEngine(node: RunnerNode, mode: WorkflowRunMode): boolean {
   const type = asString(node.data?.type);
   if (type === VOICE_NODE_TYPES.voiceConversation) return false;
   if (type === "ai.brain") return true;
-  // LLM Call node (from workflow builder) always uses the provider engine
   if (type === "ai.llm_call") return true;
+  if (type === "ai.context_reply") return mode === "test";
   if (Boolean(asString(node.data?.provider))) return true;
-  if (type === "ai.context_reply" && mode === "test") return true;
   return false;
 }
 
@@ -590,7 +588,7 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
 function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
   if (asString(node.data?.type) === "trigger.manual") {
     logs.push(
-      createLog(node, "success", "Manual trigger fired.", {
+      createLog(node, "success", "Input fired.", {
         message: context.inboundSms?.body || context.latestMessage || "No custom message",
         attachmentsCount: Array.isArray(context.inboundSms?.attachments) ? context.inboundSms.attachments.length : 0
       })
