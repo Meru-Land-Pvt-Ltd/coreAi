@@ -55,7 +55,7 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.smsExecution.deleteMany({ where: { businessId } });
   await prisma.vapiCall.deleteMany({ where: { businessId } });
   await prisma.business.deleteMany({ where: { id: businessId } });
@@ -65,12 +65,12 @@ afterAll(async () => {
 
 describe("execution ledger and pricing state", () => {
   it("counts UNPRICED LIVE calls as executions alongside PRICED ones", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     expect(await countDistinctExecutions({ businessId })).toBe(2);
   });
 
   it("an SmsExecution row never changes the execution count", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     await prisma.smsExecution.create({
       data: {
         businessId,

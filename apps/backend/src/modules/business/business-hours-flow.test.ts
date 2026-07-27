@@ -118,7 +118,7 @@ afterAll(async () => {
 
 describe("PUT/GET /business/hours (DB)", () => {
   it("saves a complete weekly schedule with NO document upload and round-trips it", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const put = await authed(buyerA.token).put("/business/hours", WEEKLY_PAYLOAD);
     expect(put.status).toBe(200);
@@ -151,7 +151,7 @@ describe("PUT/GET /business/hours (DB)", () => {
   });
 
   it("rejects invalid schedules (closing before opening, bad timezone, duplicate dates)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const badTimes = await authed(buyerA.token).put("/business/hours", {
       ...WEEKLY_PAYLOAD,
@@ -176,7 +176,7 @@ describe("PUT/GET /business/hours (DB)", () => {
   });
 
   it("keeps businesses isolated — buyer B sees no hours from buyer A", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const get = await authed(buyerB.token).get("/business/hours");
     const body = (await get.json()) as { data?: { configured?: boolean; hours?: unknown } };
@@ -190,7 +190,7 @@ describe("PUT/GET /business/hours (DB)", () => {
 
 describe("agent answers from structured hours (DB)", () => {
   it("the fact lookup answers open/closed questions from the configured schedule", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const section = await buildHoursFactSection(buyerA.businessId, "Test Salon");
     expect(section.title).toContain("confirmed configuration");
@@ -202,7 +202,7 @@ describe("agent answers from structured hours (DB)", () => {
   });
 
   it("says hours are NOT confirmed (never guesses) for an unconfigured business", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const section = await buildHoursFactSection(buyerB.businessId, "No Hours Yet");
     expect(section.title).toContain("not configured");
@@ -213,7 +213,7 @@ describe("agent answers from structured hours (DB)", () => {
   });
 
   it("the demo/chat-test context carries the schedule with no PDF uploaded", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const filesCount = await prisma.businessKnowledgeFile.count({
       where: { businessId: buyerA.businessId }
@@ -228,7 +228,7 @@ describe("agent answers from structured hours (DB)", () => {
 
 describe("separation of schedules (DB)", () => {
   it("appointment hours stay separate: business 9–18 with structured appointment 10–17", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const agent = await prisma.installedAgent.findFirst({
       where: { businessId: buyerA.businessId },
@@ -241,6 +241,7 @@ describe("separation of schedules (DB)", () => {
         configJson: {
           ...((agent!.configJson as Record<string, unknown>) ?? {}),
           appointmentSchedule: {
+            useBusinessHours: false,
             days: Object.fromEntries(
               ["monday", "tuesday", "wednesday", "thursday", "friday"].map((day) => [
                 day,
@@ -267,16 +268,19 @@ describe("separation of schedules (DB)", () => {
       hoursJson: profile!.hoursJson,
       timeZone: profile!.timeZone
     });
-    // Appointment hours (10:00) differ from business hours (09:00) — both kept.
+    // Two separate schedules (#1): the appointment schedule (10:00–17:00) is
+    // what governs bookings and is reported as its own source; business hours
+    // (09:00–18:00) stay untouched and only describe when the office is open.
     expect(schedule.source).toBe("configured");
     expect(schedule.days.monday.open).toBe("10:00");
+    expect(schedule.days.monday.close).toBe("17:00");
 
     const businessState = await loadBusinessHoursState(buyerA.businessId);
     expect(businessState.weekly?.find((d) => d.day === "monday")?.periods[0]?.open).toBe("09:00");
   });
 
   it("a setup save without hours never wipes the confirmed schedule", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const before = await loadBusinessHoursState(buyerA.businessId);
     expect(before.configured).toBe(true);

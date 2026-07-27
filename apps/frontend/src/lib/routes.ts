@@ -110,12 +110,29 @@ export function businessCheckoutPath(listingId?: string): Route {
     : "/business/checkout") as Route;
 }
 
+export function businessInvoiceCheckoutPath({
+  invoiceId,
+  invoiceType,
+  listingId,
+  agentId
+}: {
+  invoiceId: string;
+  invoiceType: "agent" | "usage";
+  listingId?: string | null;
+  agentId?: string | null;
+}): Route {
+  const query = new URLSearchParams({ invoiceId, invoiceType });
+  if (listingId) query.set("listingId", listingId);
+  if (agentId) query.set("agentId", agentId);
+  return `/business/checkout?${query.toString()}` as Route;
+}
+
 type PaymentResultParams = {
   listingId?: string;
   agent?: string;
   amount?: number;
   email?: string;
-  mode?: "trial" | "purchase" | "free";
+  mode?: "trial" | "purchase" | "free" | "invoice";
   trialDays?: number;
   /** Real Payment row id — shown as the order/transaction reference. */
   paymentId?: string;

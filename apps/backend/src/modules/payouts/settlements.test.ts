@@ -74,7 +74,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.architectLedgerEntry.deleteMany({ where: { architectUserId: architectId } });
   await prisma.architectEarning.deleteMany({ where: { architectUserId: architectId } });
   await prisma.payment.deleteMany({ where: { id: { in: paymentIds } } });
@@ -84,7 +84,7 @@ afterAll(async () => {
 
 describe("settlement creation", () => {
   it("creates exactly one settlement per payment, idempotently", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const payment = await createPayment("single", 14_900);
 
     await createSettlementForPayment(payment.id);
@@ -103,7 +103,7 @@ describe("settlement creation", () => {
   });
 
   it("does not settle free installs", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const payment = await prisma.payment.create({
       data: {
         userId: buyerId,
@@ -124,7 +124,7 @@ describe("settlement creation", () => {
 
 describe("hold and release", () => {
   it("does not release held earnings before the hold expires or without admin approval", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const payment = await createPayment("held", 10_000); // not approved
     await createSettlementForPayment(payment.id);
 
@@ -134,7 +134,7 @@ describe("hold and release", () => {
   });
 
   it("releases approved earnings whose hold has expired", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const payment = await createPayment("released", 10_000, { approved: true });
     await createSettlementForPayment(payment.id);
     await prisma.architectEarning.update({
@@ -152,7 +152,7 @@ describe("hold and release", () => {
 
 describe("transitions", () => {
   it("rejects illegal regressions and keeps the stored state", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const payment = await createPayment("transition", 5_000, { approved: true });
     await createSettlementForPayment(payment.id);
     const earning = await prisma.architectEarning.findUnique({ where: { paymentId: payment.id } });
@@ -169,7 +169,7 @@ describe("transitions", () => {
 
 describe("refund adjustments", () => {
   it("applies a partial refund with the architect share and stays idempotent on duplicate webhooks", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const payment = await createPayment("refund-partial", 10_000, { approved: true });
     await createSettlementForPayment(payment.id);
 
@@ -195,7 +195,7 @@ describe("refund adjustments", () => {
   });
 
   it("marks a full refund REFUNDED before transfer and never over-adjusts", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const payment = await createPayment("refund-full", 10_000, { approved: true });
     await createSettlementForPayment(payment.id);
 
@@ -228,7 +228,7 @@ describe("refund adjustments", () => {
 
 describe("ledger idempotency", () => {
   it("dedupes identical (entryType, sourceId, earningId) entries", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const payment = await createPayment("ledger", 2_000, { approved: true });
     await createSettlementForPayment(payment.id);
     const earning = await prisma.architectEarning.findUnique({ where: { paymentId: payment.id } });
@@ -262,7 +262,7 @@ describe("ledger idempotency", () => {
 
 describe("payout reservation constraint", () => {
   it("blocks duplicate clientRequestId at the database level", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const clientRequestId = `req_${RUN}`;
     const first = await prisma.architectPayout.create({
       data: {

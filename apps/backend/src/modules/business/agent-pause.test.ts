@@ -104,13 +104,13 @@ afterEach(() => {
 
 describe("pause/resume endpoints", () => {
   it("another business owner can never pause this agent", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const response = await postJson(buildApp(), `/business/agents/${installedAgentId}/pause`, strangerToken);
     expect(response.status).toBe(404);
   });
 
   it("the owner can pause, and the paused agent stops responding on its number", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     env.TWILIO_VALIDATE_SIGNATURE = false;
     env.TWILIO_SHARED_SMS_NUMBER = undefined;
     const fetchMock = vi.fn();
@@ -176,7 +176,7 @@ describe("pause/resume endpoints", () => {
   });
 
   it("the owner can resume the paused agent", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const response = await postJson(buildApp(), `/business/agents/${installedAgentId}/resume`, ownerToken);
     expect(response.status).toBe(200);
     const json = (await response.json()) as { data?: { status?: string } };

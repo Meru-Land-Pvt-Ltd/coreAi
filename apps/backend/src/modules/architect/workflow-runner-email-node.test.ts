@@ -67,7 +67,7 @@ afterAll(async () => {
 
 describe("Send Email node in the builder dry run", () => {
   it("previews the email instead of failing with 'Unsupported connector: email'", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const result = await runWorkflowTest({
       userId,
@@ -99,7 +99,7 @@ describe("Send Email node in the builder dry run", () => {
   });
 
   it("previews team/custom recipients from the node config", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const teamGraph = {
       nodes: [

@@ -117,7 +117,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.workflowRun.deleteMany({ where: { businessId: phoneBusinessId } });
   await prisma.vapiCall.deleteMany({ where: { businessId: phoneBusinessId } });
   await prisma.lead.deleteMany({ where: { businessId: phoneBusinessId } });
@@ -130,12 +130,12 @@ afterAll(async () => {
 
 describe("resolvePrimaryBusinessId", () => {
   it("prefers the business with the active phone number over a newer stray row", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     expect(await resolvePrimaryBusinessId(ownerId)).toBe(phoneBusinessId);
   });
 
   it("falls back to the business carrying a buyer agent when no active number exists", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     await prisma.businessPhoneNumber.updateMany({
       where: { businessId: phoneBusinessId },
       data: { isActive: false }
@@ -153,7 +153,7 @@ describe("resolvePrimaryBusinessId", () => {
 
 describe("GET /business/dashboard", () => {
   it("serves runs, activity, and recordings from the phone-owning business — not the newest row", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const response = await app().request("/business/dashboard", {
       headers: { Authorization: `Bearer ${token}` }
@@ -193,7 +193,7 @@ describe("GET /business/dashboard", () => {
 
 describe("GET /business/calls/:id/recording-url", () => {
   it("returns a probed-playable URL by call id, null when storage rejects it, 404 for foreign calls", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     // The endpoint probes candidate URLs with a range GET before returning
     // them — stub outbound fetch so the fake storage URL answers.
@@ -236,7 +236,7 @@ describe("GET /business/calls/:id/recording-url", () => {
   }, 15000);
 
   it("probes presigned candidates first, limits AFTER sorting, and never stores signed query params", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const presigned = `https://storage.test.local/${RUN}-live-2-mono.wav?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=key&X-Amz-Signature=sig123`;
     const bare = Array.from({ length: 12 }, (_, index) => `https://storage.test.local/${RUN}-live-2-alt-${index}.wav`);

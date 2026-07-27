@@ -156,7 +156,7 @@ describe("shared-sender inbound SMS routing safety", () => {
   }
 
   it("does not attach a reply to any buyer when multiple businesses texted the customer", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubTwilioAccepting();
     env.TWILIO_VALIDATE_SIGNATURE = false;
     env.TWILIO_SHARED_SMS_NUMBER = "+17252202182";
@@ -182,7 +182,7 @@ describe("shared-sender inbound SMS routing safety", () => {
   });
 
   it("never infers a business even when exactly one recently texted the customer", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubTwilioAccepting();
     env.TWILIO_VALIDATE_SIGNATURE = false;
     env.TWILIO_SHARED_SMS_NUMBER = "+17252202182";

@@ -511,6 +511,13 @@ describe("vapi browser voice call booking (webhook tool path)", () => {
     await prisma.user.delete({ where: { id: fixture.architect.id } });
   }
 
+  // A clearly-future weekday date (the fixture has no business hours, so any day
+  // is open) — hardcoding today's date tripped the past-date guard once this
+  // suite actually started running against the DB.
+  const BOOKING_DATE = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // 3:00 PM in Asia/Kolkata (IST, always +05:30) for that date.
+  const BOOKING_START_UTC = zonedWallClockToUtc(BOOKING_DATE, 15, 0, "Asia/Kolkata").toISOString();
+
   async function postBooking(businessId: string): Promise<Record<string, unknown>> {
     const app = new Hono();
     app.post("/architect/connectors/vapi/webhook", handleVapiWebhook);
@@ -529,7 +536,7 @@ describe("vapi browser voice call booking (webhook tool path)", () => {
                 arguments: JSON.stringify({
                   customer_name: "Alex Tester",
                   customer_phone: "+15550018888",
-                  date: "2026-07-25",
+                  date: BOOKING_DATE,
                   time: "3:00 PM",
                   service_type: "Test Appointment"
                 })
@@ -577,8 +584,8 @@ describe("vapi browser voice call booking (webhook tool path)", () => {
       const insert = calendarCreateMock.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(insert.userId).toBe(fixture.architect.id);
       expect(insert.summaryOverride).toBe("[TRIVEN ARCHITECT TEST] Test Appointment");
-      // 3:00 PM IST on 2026-07-25 = 09:30 UTC.
-      expect(new Date(insert.startAt as Date).toISOString()).toBe("2026-07-25T09:30:00.000Z");
+      // 3:00 PM IST (Asia/Kolkata) on the booked date.
+      expect(new Date(insert.startAt as Date).toISOString()).toBe(BOOKING_START_UTC);
 
       // No real customer appointment row was created.
       const appointments = await prisma.appointment.count({ where: { businessId: fixture.business.id } });

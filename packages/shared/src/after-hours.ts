@@ -88,21 +88,89 @@ export function normalizeAfterHoursPolicy(raw: unknown): AfterHoursPolicy | null
   };
 }
 
-export const DEFAULT_DENTAL_AFTER_HOURS_POLICY: AfterHoursPolicy = Object.freeze({
+const PLATFORM_DEFAULT_BASE = {
   enabled: true,
-  emergencyScreeningEnabled: true,
-  emergencyCategory: "DENTAL",
   emergencyContactMethod: "SMS",
   offerAppointmentBooking: true,
   preferEarliestAvailableSlot: true,
   allowUrgentCallbackRequest: true,
   includeCallbackInStaffAlert: true
+} as const;
+
+export const DEFAULT_DENTAL_AFTER_HOURS_POLICY: AfterHoursPolicy = Object.freeze({
+  ...PLATFORM_DEFAULT_BASE,
+  emergencyScreeningEnabled: true,
+  emergencyCategory: "DENTAL"
 });
+
+export const DEFAULT_MEDICAL_AFTER_HOURS_POLICY: AfterHoursPolicy = Object.freeze({
+  ...PLATFORM_DEFAULT_BASE,
+  emergencyScreeningEnabled: true,
+  emergencyCategory: "MEDICAL"
+});
+
+export const DEFAULT_GENERAL_AFTER_HOURS_POLICY: AfterHoursPolicy = Object.freeze({
+  ...PLATFORM_DEFAULT_BASE,
+  emergencyScreeningEnabled: false,
+  emergencyCategory: "NONE"
+});
+
+const PLATFORM_DEFAULT_POLICIES: readonly AfterHoursPolicy[] = Object.freeze([
+  DEFAULT_DENTAL_AFTER_HOURS_POLICY,
+  DEFAULT_MEDICAL_AFTER_HOURS_POLICY,
+  DEFAULT_GENERAL_AFTER_HOURS_POLICY
+]);
 
 export function isPlatformDefaultAfterHoursPolicy(
   policy: AfterHoursPolicy | null | undefined
 ): boolean {
-  return policy === DEFAULT_DENTAL_AFTER_HOURS_POLICY;
+  return Boolean(policy) && PLATFORM_DEFAULT_POLICIES.includes(policy as AfterHoursPolicy);
+}
+
+const DENTAL_BUSINESS_TYPE =
+  /\b(dental|dentist\w*|dentistry|orthodont\w*|endodont\w*|periodont\w*|prosthodont\w*|oral surg\w*|oral health)\b/;
+
+const MEDICAL_BUSINESS_TYPE =
+  /\b(medical|medicine|clinic|clinical|doctor\w*|physician\w*|surgeon\w*|surgery|hospital|urgent care|health care|healthcare|pediatric\w*|paediatric\w*|dermatolog\w*|cardiolog\w*|neurolog\w*|oncolog\w*|ophthalmolog\w*|optometr\w*|chiropract\w*|physiotherap\w*|physical therapy|podiatr\w*|gynecolog\w*|gynaecolog\w*|obstetric\w*|psychiatr\w*|urology|urologist|nurse|nursing|midwif\w*|midwives)\b/;
+
+/**
+ * Animal care is excluded from clinical screening even though "veterinary
+ * clinic" reads as medical: the screening script directs callers to 911 and the
+ * nearest emergency department, which is the wrong instruction for a pet.
+ */
+const ANIMAL_CARE_BUSINESS_TYPE =
+  /\b(vet|vets|veterinar\w*|animal|animals|pet|pets|equine|canine|feline|kennel|grooming)\b/;
+
+/**
+ * Which emergency category a business type warrants BEFORE anyone configures a
+ * policy. Only human clinical practices get proactive screening; everything
+ * else falls to NONE.
+ */
+export function emergencyCategoryForBusinessType(
+  businessType: string | null | undefined
+): AfterHoursEmergencyCategory {
+  const value = ` ${String(businessType ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()} `;
+  if (!value.trim()) return "NONE";
+  if (ANIMAL_CARE_BUSINESS_TYPE.test(value)) return "NONE";
+  if (DENTAL_BUSINESS_TYPE.test(value)) return "DENTAL";
+  if (MEDICAL_BUSINESS_TYPE.test(value)) return "MEDICAL";
+  return "NONE";
+}
+
+export function platformDefaultAfterHoursPolicy(
+  businessType?: string | null
+): AfterHoursPolicy {
+  switch (emergencyCategoryForBusinessType(businessType)) {
+    case "DENTAL":
+      return DEFAULT_DENTAL_AFTER_HOURS_POLICY;
+    case "MEDICAL":
+      return DEFAULT_MEDICAL_AFTER_HOURS_POLICY;
+    default:
+      return DEFAULT_GENERAL_AFTER_HOURS_POLICY;
+  }
 }
 
 export function policyScreensForEmergencies(policy: AfterHoursPolicy | null | undefined): boolean {
@@ -386,12 +454,24 @@ export function isNegativeReply(text: string): boolean {
   );
 }
 
+const ROUTINE_SCHEDULING_PHRASES =
+  /\b(opening|openings|slot|slots|availability|available (?:time|times|slot|slots|day|days)|free (?:time|times|slot|slots)|first available|earliest available|walk[- ]?in|come in|get in|fit me in|squeeze me in)\b/;
+
+/** Any symptom or urgency word disqualifies the routine-phrase shortcut. */
+const SYMPTOM_OR_URGENCY_HINT =
+  /\b(pain|painful|hurt\w*|ache|aching|sore|swell\w*|swoll\w*|bleed\w*|blood|broke\w*|broken|crack\w*|chip\w*|knocked|abscess|infect\w*|fever|injur\w*|accident|emergency|urgent|asap|right now|immediately)\b/;
+
 /** The reply chose the scheduling side of the emergency-or-appointment question. */
 export function mentionsSchedulingIntent(text: string): boolean {
   const value = normalize(text);
-  return /\b(appointment|schedule|schedul\w+|book(ing)?|reschedul\w+|checkup|check-up|cleaning|consultation|next available)\b/.test(
-    value
-  );
+  if (
+    /\b(appointment|schedule|schedul\w+|book(ing)?|rebook|reschedul\w+|checkup|check-up|cleaning|consultation|next available)\b/.test(
+      value
+    )
+  ) {
+    return true;
+  }
+  return ROUTINE_SCHEDULING_PHRASES.test(value) && !SYMPTOM_OR_URGENCY_HINT.test(value);
 }
 
 export function isAmbiguousEmergencyReply(text: string): boolean {
@@ -614,6 +694,19 @@ export function deriveAfterHoursState(params: {
 
   if (unclearAnswers > 0) state.clarificationAsked = true;
 
+  if (
+    (state.route === "NOT_STARTED" || state.route === "EMERGENCY_QUESTION_ASKED") &&
+    state.redFlags.length === 0 &&
+    turns.some((turn) => turn.role === "user" && mentionsSchedulingIntent(turn.content)) &&
+    !turns.some(
+      (turn) =>
+        turn.role === "user" &&
+        (detectUrgentSymptoms(turn.content) || detectRedFlags(turn.content).length > 0)
+    )
+  ) {
+    state.route = "STANDARD_BOOKING";
+  }
+
   state.outcome = outcomeForRoute(state.route);
   return state;
 }
@@ -718,6 +811,7 @@ export function buildAfterHoursPromptSection(params: {
   }
 
   closedRules.push(
+    `- Being closed never blocks scheduling. Business hours and ${bookingLabel} hours are two different schedules: business hours only say whether the office is staffed right now, while ${bookingLabel} hours decide which future times can be booked. The caller may book, reschedule, or cancel on this call for any future time the availability tool returns — never tell them to call back during business hours.`,
     `- Hours honesty: never say "the next business day" or promise a specific ${bookingLabel} time unless an availability check confirmed it. When asked when the office reopens, use the configured next opening time if you have it — never guess.`,
     `- Messaging rules are unchanged after hours: an emergency NEVER creates SMS consent, a booking NEVER creates SMS consent, and no confirmation text is sent just because the call was urgent. Internal team notifications are separate from customer texts.`
   );
@@ -981,11 +1075,6 @@ export type AfterHoursGateResult =
   | { allowed: true }
   | { allowed: false; code: string; message: string };
 
-/**
- * Deterministic server-side gate for live Vapi tools. The model prompt is
- * guidance; THIS decides. Rejections are non-fatal tool errors — the call
- * continues, the assistant is told what must happen first.
- */
 export function evaluateAfterHoursToolGate(params: {
   route: AfterHoursLiveRoute;
   emergencyInstructionStatus: EmergencyInstructionStatus;
@@ -993,8 +1082,6 @@ export function evaluateAfterHoursToolGate(params: {
 }): AfterHoursGateResult {
   const { route, emergencyInstructionStatus, action } = params;
 
-  // The minimum internal staff alert is permitted in every route — it never
-  // replaces the emergency instruction, and delivery is confirmed separately.
   if (action === "staff_alert") return { allowed: true };
 
   switch (route) {
@@ -1002,8 +1089,6 @@ export function evaluateAfterHoursToolGate(params: {
       return { allowed: true };
 
     case "URGENT_DENTAL":
-      // Real availability, confirmed booking, urgent callback; customer SMS
-      // still passes the A2P consent gate downstream.
       return { allowed: true };
 
     case "NOT_STARTED":

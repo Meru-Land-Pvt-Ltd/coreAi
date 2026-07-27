@@ -681,7 +681,7 @@ export function resolveVapiModel(model?: string | null): VapiModelResolution {
   };
 }
 
-function genericAssistantTools() {
+export function genericAssistantTools() {
   return [
     {
       type: "function",
@@ -899,9 +899,39 @@ function genericAssistantTools() {
         }
       ],
       function: {
+        name: VOICE_TOOL_NAMES.updateAppointmentContact,
+        description:
+          "Correct the phone number on the caller's CURRENT booking. Two steps: (1) PREPARE — call with corrected_phone (full E.164 with country code) and confirmed omitted/false to validate it; you'll get back the masked old and new numbers to read aloud. (2) COMMIT — ONLY after the caller clearly confirms, call again with confirmed=true and NO phone (the validated number is loaded server-side). This moves the appointment's number and the text recipient together. The new number has NO SMS consent — after committing, read the SMS disclosure again before any text. Never guess a number; ask the caller to repeat it with the country code.",
+        parameters: {
+          type: "object",
+          properties: {
+            appointment_id: {
+              type: "string",
+              description:
+                "REQUIRED. The internal appointment id (appointment_ref) of the booking to correct in THIS call."
+            },
+            corrected_phone: {
+              type: "string",
+              description:
+                "REQUIRED on the PREPARE step: the corrected full phone number in E.164 with country code (e.g. +16505551234). Omit on the confirmed=true commit call — the validated number is loaded server-side from distributed pending state, never re-trusted from the model."
+            },
+            confirmed: {
+              type: "boolean",
+              description:
+                "COMMIT step: true ONLY after the caller clearly confirmed the masked number read back in the prepare step. Omit/false on the prepare call."
+            }
+          },
+          required: ["appointment_id"]
+        }
+      }
+    },
+    {
+      type: "function",
+      messages: [],
+      function: {
         name: VOICE_TOOL_NAMES.recordSmsConsent,
         description:
-          "Record the caller's answer to the SMS-consent disclosure. Call this ONLY after reading the full SMS consent disclosure aloud and hearing the caller's answer. Pass affirmative=true ONLY for a clear, unambiguous yes (e.g. 'yes', 'yes please', 'sure, that's fine'). Pass affirmative=false for no, silence, hesitation, an unclear answer, or an interruption. Never call it with affirmative=true because the caller merely provided a phone number or completed a booking.",
+          "Record the caller's answer to the SMS-consent disclosure. Call this ONLY after reading the full SMS consent disclosure aloud and hearing the caller's answer. Pass affirmative=true ONLY for a clear, unambiguous yes (e.g. 'yes', 'yes please', 'sure, that's fine'). Pass affirmative=false for no, silence, hesitation, an unclear answer, or an interruption. NEVER pass a phone number — the confirmation is sent to the number already on the booking (verified server-side). Never call it with affirmative=true because the caller merely provided a phone number or completed a booking.",
         parameters: {
           type: "object",
           properties: {
@@ -910,13 +940,13 @@ function genericAssistantTools() {
               description:
                 "true ONLY for a clear yes to the SMS consent question; false for no, silence, uncertainty, or an ambiguous answer."
             },
-            customer_phone: {
+            appointment_id: {
               type: "string",
               description:
-                "Customer phone number in E.164 format. If unknown, leave blank and the caller's number will be used."
+                "REQUIRED. The internal appointment id (appointment_ref) returned by book_appointment in THIS call. The recipient is resolved server-side from that appointment and verified caller ID — do NOT pass a spoken phone number. If the caller wants a different number, use update_appointment_contact first."
             }
           },
-          required: ["affirmative"]
+          required: ["appointment_id", "affirmative"]
         }
       }
     },
@@ -1022,6 +1052,8 @@ export function shouldIncludeAssistantTool(
   // Cancellation + rescheduling ship with the booking capability.
   if (toolName === VOICE_TOOL_NAMES.cancelAppointment) return includeTools.bookAppointment !== false;
   if (toolName === VOICE_TOOL_NAMES.rescheduleAppointment) return includeTools.bookAppointment !== false;
+  // Phone-correction ships with booking (and only matters when SMS is on).
+  if (toolName === VOICE_TOOL_NAMES.updateAppointmentContact) return includeTools.bookAppointment !== false;
   if (toolName === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;
   return true;
 }

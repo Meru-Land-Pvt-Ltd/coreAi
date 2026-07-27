@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { apiGet } from "@/lib/api";
+import { primeBusinessOnboardingStatus } from "@/lib/business-onboarding-status";
 import { BUSINESS_ONBOARDING_PATH } from "@/lib/routes";
 
 type GateStatus = "checking" | "ready";
@@ -16,14 +16,11 @@ export function BusinessOnboardingGate({ children }: { children: ReactNode }) {
 
     async function checkOnboarding() {
       try {
-        const response = await apiGet<{
-          completed: boolean;
-          skipped: boolean;
-        }>("/business/onboarding");
+        const status = await primeBusinessOnboardingStatus();
 
         if (cancelled) return;
 
-        if (response.success && response.data && !response.data.completed && !response.data.skipped) {
+        if (status && !status.completed && !status.skipped) {
           router.replace(BUSINESS_ONBOARDING_PATH);
           return;
         }

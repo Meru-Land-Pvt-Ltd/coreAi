@@ -130,7 +130,7 @@ beforeAll(async () => {
 afterAll(async () => {
   env.REDIS_URL = originalRedisUrl;
   resetAfterHoursCallStateStore();
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.vapiCall.deleteMany({ where: { businessId } });
   await prisma.appointment.deleteMany({ where: { businessId } });
   await prisma.workflowRun.deleteMany({ where: { businessId } });
@@ -158,7 +158,7 @@ afterEach(() => {
 
 describe("live server-side tool gating", () => {
   it("blocks booking before screening (greeting only) with a non-fatal explicit code", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const payload = await postWebhook(
       toolCallBody({ callId: `${RUN}-c1`, toolName: "book_appointment", turns: [{ role: "bot", message: GREETING }] })
     );
@@ -168,7 +168,7 @@ describe("live server-side tool gating", () => {
   });
 
   it("blocks availability + booking while POSSIBLE_EMERGENCY and while the warning-sign answer is pending", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const possible = await postWebhook(
       toolCallBody({
         callId: `${RUN}-c2`,
@@ -196,7 +196,7 @@ describe("live server-side tool gating", () => {
   });
 
   it("red flag: booking and customer SMS blocked until the assistant SPEAKS the instruction; caller saying 'call 911' does not unlock", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const redFlagTurns: Turn[] = [
       { role: "bot", message: GREETING },
       { role: "user", message: "my mouth is bleeding and it will not stop" }
@@ -247,7 +247,7 @@ describe("live server-side tool gating", () => {
   });
 
   it("clear non-emergency answers route to STANDARD_BOOKING — no gate code on availability", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const payload = await postWebhook(
       toolCallBody({
         callId: `${RUN}-c4`,
@@ -265,7 +265,7 @@ describe("live server-side tool gating", () => {
   });
 
   it("webhook retries are idempotent and call-ended clears the state", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const body = toolCallBody({
       callId: `${RUN}-c5`,
       toolName: "book_appointment",
@@ -289,7 +289,7 @@ describe("live server-side tool gating", () => {
   });
 
   it("a MIXED end-of-call payload carrying tool calls still settles usage exactly once and clears after-hours state", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const callId = `${RUN}-mixed-1`;
 
     // Establish routing state on an earlier tool event.
@@ -336,7 +336,7 @@ describe("live server-side tool gating", () => {
   });
 
   it("business and call state stay isolated; test-mode (webCall) calls are never gated", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     // Call A hits a red flag; call B on the same business stays independent.
     await postWebhook(
       toolCallBody({

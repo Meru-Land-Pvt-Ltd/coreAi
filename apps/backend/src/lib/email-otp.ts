@@ -1,7 +1,14 @@
 import { randomInt } from "crypto";
 import { prisma } from "./prisma";
-import { sendVerificationEmail } from "./mailer";
+import { buildMagicLinkUrl, sendVerificationEmail } from "./mailer";
 import { hashPassword, verifyPassword } from "./password";
+import {
+  createMagicLinkToken,
+  decryptVerificationCode,
+  encryptVerificationCode,
+  hashDeviceId,
+  hashMagicLinkToken
+} from "./magic-link-token";
 
 export type OtpAuthRole = "BUSINESS" | "ARCHITECT";
 export type OtpEmailPurpose = "sign_in" | "email_update";
@@ -29,7 +36,8 @@ export type OtpVerifySuccess = { ok: true };
 export async function issueEmailVerificationCode(
   email: string,
   role: OtpAuthRole,
-  purpose: OtpEmailPurpose = "sign_in"
+  purpose: OtpEmailPurpose = "sign_in",
+  options: { deviceId?: string } = {}
 ) {
   const cooldownDate = new Date(Date.now() - OTP_RESEND_COOLDOWN_SECONDS * 1000);
 
@@ -65,11 +73,17 @@ export async function issueEmailVerificationCode(
 
   const code = String(randomInt(100000, 1000000));
 
+  const magicLink = purpose === "sign_in" ? createMagicLinkToken() : null;
+
   await prisma.emailVerificationCode.create({
     data: {
       email,
       role,
       codeHash: hashPassword(code),
+      codeCipher: magicLink ? encryptVerificationCode(code) : null,
+      linkTokenHash: magicLink?.tokenHash ?? null,
+      originDeviceHash:
+        magicLink && options.deviceId ? hashDeviceId(options.deviceId) : null,
       expiresAt: new Date(Date.now() + OTP_EXPIRES_IN_MINUTES * 60 * 1000)
     }
   });
@@ -78,10 +92,101 @@ export async function issueEmailVerificationCode(
     to: email,
     code,
     role,
-    purpose
+    purpose,
+    magicLinkUrl: magicLink ? buildMagicLinkUrl(magicLink.token) : undefined
   });
 
   return { email, role, sent: true as const };
+}
+
+export type MagicLinkResolution =
+  | {
+      ok: true;
+      id: string;
+      email: string;
+      role: OtpAuthRole;
+      code: string;
+      expiresAt: Date;
+      /** True when the link was opened in the browser that started this login. */
+      isOriginDevice: boolean;
+    }
+  | {
+      ok: false;
+      message: string;
+      code: "MAGIC_LINK_INVALID" | "MAGIC_LINK_EXPIRED" | "MAGIC_LINK_ALREADY_USED";
+      status: 401 | 410;
+    };
+
+const MAGIC_LINK_INVALID: Extract<MagicLinkResolution, { ok: false }> = {
+  ok: false,
+  message: "This sign-in link is invalid. Request a new code to sign in.",
+  code: "MAGIC_LINK_INVALID",
+  status: 401
+};
+
+export async function resolveMagicLinkToken(
+  token: string,
+  deviceId?: string
+): Promise<MagicLinkResolution> {
+  const verificationCode = await prisma.emailVerificationCode.findUnique({
+    where: { linkTokenHash: hashMagicLinkToken(token) }
+  });
+
+  if (!verificationCode) {
+    return MAGIC_LINK_INVALID;
+  }
+
+  if (verificationCode.consumedAt) {
+    return {
+      ok: false,
+      message: "This sign-in link has already been used. Request a new code to sign in.",
+      code: "MAGIC_LINK_ALREADY_USED",
+      status: 410
+    };
+  }
+
+  if (verificationCode.expiresAt.getTime() <= Date.now()) {
+    return {
+      ok: false,
+      message: `This sign-in link expired after ${OTP_EXPIRES_IN_MINUTES} minutes. Request a new code to sign in.`,
+      code: "MAGIC_LINK_EXPIRED",
+      status: 410
+    };
+  }
+
+  // OTP is only ever issued for BUSINESS/ARCHITECT; anything else is not a login link.
+  if (verificationCode.role !== "BUSINESS" && verificationCode.role !== "ARCHITECT") {
+    return MAGIC_LINK_INVALID;
+  }
+
+  const code = decryptVerificationCode(verificationCode.codeCipher);
+
+  if (!code) {
+    return MAGIC_LINK_INVALID;
+  }
+
+  return {
+    ok: true,
+    id: verificationCode.id,
+    email: verificationCode.email,
+    role: verificationCode.role,
+    code,
+    expiresAt: verificationCode.expiresAt,
+    isOriginDevice: Boolean(
+      deviceId &&
+        verificationCode.originDeviceHash &&
+        verificationCode.originDeviceHash === hashDeviceId(deviceId)
+    )
+  };
+}
+
+export async function consumeMagicLinkCode(id: string): Promise<boolean> {
+  const { count } = await prisma.emailVerificationCode.updateMany({
+    where: { id, consumedAt: null },
+    data: { consumedAt: new Date() }
+  });
+
+  return count === 1;
 }
 
 export async function verifyEmailVerificationCode(

@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
+import { deleteUserWorkspace } from "../auth/workspace-deletion";
 import { normalizeTimeZone } from "@coreai/shared";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import {
@@ -653,6 +654,7 @@ businessSettingsRoutes.get("/data-export", async (c) => {
     c.header("Content-Type", "application/zip");
     c.header("Content-Disposition", `attachment; filename="${filename}"`);
     c.header("Cache-Control", "no-store");
+    c.header("X-Content-Type-Options", "nosniff");
     return c.body(zip);
   } catch (error) {
     console.error("Business data export failed", error);
@@ -746,15 +748,26 @@ businessSettingsRoutes.post("/danger/delete-account", async (c) => {
       console.error("[delete-account] consent pseudonymization failed (non-fatal)", error)
     );
 
-    // Hard delete — cascades erase every business-owned record.
-    await prisma.user.delete({ where: { id: authUser.id } });
+    /* Workspace-scoped: an account that is ALSO an architect keeps its User
+       row, its listings/workflows and its session — only the buyer side goes. */
+    const result = await deleteUserWorkspace(authUser.id, "BUSINESS");
 
-    console.log("[delete-account] business account deleted", {
+    console.log("[delete-account] business workspace deleted", {
       userId: authUser.id,
-      businesses: businessIds.length
+      businesses: businessIds.length,
+      accountRemoved: result.accountRemoved,
+      remainingRoles: result.remainingRoles
     });
 
-    return successResponse(c, { deleted: true }, "Account deleted");
+    return successResponse(
+      c,
+      {
+        deleted: true,
+        accountRemoved: result.accountRemoved,
+        remainingRoles: result.remainingRoles
+      },
+      result.accountRemoved ? "Account deleted" : "Business workspace deleted"
+    );
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(c, error.issues[0]?.message ?? "Invalid request", 422, "VALIDATION_ERROR");

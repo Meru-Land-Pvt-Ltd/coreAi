@@ -20,6 +20,7 @@ import { emailRoutes } from "./modules/email/routes";
 import { legalRoutes } from "./modules/legal/routes";
 import { publicBookingRoutes } from "./modules/public/booking-routes";
 import { chatbotRoutes } from "./modules/chatbot/routes";
+import { supportRoutes } from "./modules/support/routes";
 
 export const app = new Hono();
 
@@ -45,6 +46,8 @@ app.route("/admin", adminRoutes);
 app.route("/payments", paymentRoutes);
 app.route("/setup", setupRoutes);
 app.route("/contact", contactRoutes);
+// Public "Need Help" support submissions from the landing page (no session).
+app.route("/support", supportRoutes);
 app.route("/countries", countryRoutes);
 app.route("/memory", memoryRoutes);
 // SES/SNS webhooks — public by design (no session), guarded by topic ARN match.

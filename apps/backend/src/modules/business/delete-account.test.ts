@@ -116,14 +116,14 @@ afterAll(async () => {
 
 describe("buyer account deletion", () => {
   it("rejects a wrong confirmation and deletes nothing", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const response = await postDelete(buildApp(), ownerToken, "delete");
     expect(response.status).toBe(422);
     expect(await prisma.user.findUnique({ where: { id: ownerId } })).not.toBeNull();
   });
 
   it("erases the account, all business data, and frees the platform number", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const response = await postDelete(buildApp(), ownerToken, "DELETE");
     expect(response.status).toBe(200);
     const json = (await response.json()) as { data?: { deleted?: boolean } };

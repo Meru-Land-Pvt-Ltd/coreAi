@@ -60,10 +60,11 @@ describe("schedule resolution", () => {
     expect(schedule.days.sunday.closed).toBe(true);
   });
 
-  it("structured appointmentSchedule wins over business hours; defaults are safe for unconfigured agents", () => {
+  it("structured appointmentSchedule is its OWN schedule, not a narrowing of business hours", () => {
     const structured = resolveAppointmentSchedule({
       configJson: {
         appointmentSchedule: {
+          useBusinessHours: false,
           days: { monday: { open: "10:00", close: "16:00", closed: false } },
           confirmed: true
         }
@@ -71,9 +72,13 @@ describe("schedule resolution", () => {
       hoursJson: CLINIC_HOURS,
       timeZone: TZ
     });
+    // Appointment hours decide what is bookable; business hours (Monday
+    // 08:00-18:00) only decide whether the office is open right now.
     expect(structured.source).toBe("configured");
+    expect(structured.useBusinessHours).toBe(false);
     expect(structured.confirmed).toBe(true);
     expect(structured.days.monday.open).toBe("10:00");
+    expect(structured.days.monday.close).toBe("16:00");
 
     const defaults = resolveAppointmentSchedule({ configJson: null, hoursJson: null, timeZone: TZ });
     expect(defaults.source).toBe("defaults");
@@ -261,14 +266,20 @@ beforeAll(async () => {
         businessId,
         workflowId,
         name: `${RUN} A2`,
-        configJson: { appointmentSchedule: { days: { monday: { open: "12:00", close: "20:00", closed: false } }, confirmed: true } }
+        configJson: {
+          appointmentSchedule: {
+            useBusinessHours: false,
+            days: { monday: { open: "12:00", close: "20:00", closed: false } },
+            confirmed: true
+          }
+        }
       }
     })
   ).id;
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.appointment.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } });
   await prisma.installedAgent.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } });
   await prisma.workflowDefinition.deleteMany({ where: { id: workflowId } });
@@ -279,18 +290,22 @@ afterAll(async () => {
 
 describe("per-agent and per-business isolation", () => {
   it("two agents under one business use their OWN appointment hours", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const a = await resolveScheduleForBusiness({ businessId, installedAgentId: agentAId });
     const b = await resolveScheduleForBusiness({ businessId, installedAgentId: agentBId });
 
     expect(a.schedule.days.monday.open).toBe("08:00");
     expect(b.schedule.days.monday.open).toBe("12:00");
+    // Agent B configured appointment hours 12:00–20:00. Appointment hours are
+    // a separate schedule from business hours (08:00–18:00), so B keeps its
+    // own 20:00 close — callers can book an evening slot even though the
+    // storefront is closed by then.
     expect(b.schedule.days.monday.close).toBe("20:00");
   });
 
   it("a different business never inherits this business's schedule", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const other = await resolveScheduleForBusiness({ businessId: otherBusinessId });
     expect(other.schedule.source).toBe("defaults");
@@ -299,7 +314,7 @@ describe("per-agent and per-business isolation", () => {
 
 describe("Triven bookings block slots and booking revalidates", () => {
   it("an existing LIVE Triven appointment occupies its exact time", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     // Book Monday 17:00 EST as a live appointment.
     await prisma.appointment.create({
@@ -341,7 +356,7 @@ describe("Triven bookings block slots and booking revalidates", () => {
   });
 
   it("two concurrent callers cannot reserve the same slot", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const book = () =>
       revalidateAndReserveSlot({

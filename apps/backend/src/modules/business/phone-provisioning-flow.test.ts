@@ -43,7 +43,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.phoneProvisioningRequest.deleteMany({ where: { businessId: { in: [businessId, otherBusinessId] } } });
   await prisma.testCalendarEvent.deleteMany({ where: { ownerUserId: { in: [ownerId, otherOwnerId] } } });
   await prisma.platformPhoneNumber.deleteMany({ where: { phoneNumber: heldNumber } });
@@ -53,7 +53,7 @@ afterAll(async () => {
 
 describe("purchaseNumberForBusiness", () => {
   it("rejects invalid locations before any purchase", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     await expect(
       purchaseNumberForBusiness({
@@ -68,7 +68,7 @@ describe("purchaseNumberForBusiness", () => {
   });
 
   it("returns the existing number instead of buying a second one", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     await prisma.platformPhoneNumber.create({
       data: {
@@ -105,7 +105,7 @@ describe("purchaseNumberForBusiness", () => {
   });
 
   it("repeats of the same clientRequestId return the recorded request without re-purchasing", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     // Seed a completed request as if a prior purchase finished.
     await prisma.phoneProvisioningRequest.create({
@@ -139,7 +139,7 @@ describe("purchaseNumberForBusiness", () => {
 
 describe("first-time setup bootstrap (no OTP step)", () => {
   it("a purchased listing bootstraps the Business + InstalledAgent before number selection", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const buyer = await prisma.user.create({
       data: { email: `${RUN}-boot@test.local`, role: "BUSINESS" }
@@ -198,7 +198,7 @@ describe("first-time setup bootstrap (no OTP step)", () => {
 
 describe("test calendar event ownership", () => {
   it("only the owner can delete a test event; deletion is idempotent", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const row = await prisma.testCalendarEvent.create({
       data: {
@@ -250,7 +250,7 @@ describe("test calendar event ownership", () => {
   });
 
   it("architect events are scoped to the architect who created them", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const row = await prisma.testCalendarEvent.create({
       data: {

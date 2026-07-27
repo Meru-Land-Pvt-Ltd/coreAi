@@ -89,7 +89,7 @@ describe("buildBookingSlug", () => {
 
 describe("public booking endpoints (DB)", () => {
   it("GET returns public business info without authentication", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
 
     const response = await app.request(`/public/booking/${slug}`);
@@ -100,14 +100,14 @@ describe("public booking endpoints (DB)", () => {
   });
 
   it("GET 404s for an unknown slug", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const response = await app.request("/public/booking/does-not-exist");
     expect(response.status).toBe(404);
   });
 
   it("booking succeeds with the checkbox unchecked — and records no consent, sends no SMS", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -139,7 +139,7 @@ describe("public booking endpoints (DB)", () => {
   });
 
   it("booking with the checkbox omitted behaves exactly like unchecked", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const phone = nextPhone();
 
@@ -154,7 +154,7 @@ describe("public booking endpoints (DB)", () => {
   });
 
   it("a checked box creates WEB_FORM consent with booking id, URL, and metadata", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     env.TWILIO_SMS_MODE = "SIMULATED";
     const app = buildApp();
     const phone = nextPhone();
@@ -191,7 +191,7 @@ describe("public booking endpoints (DB)", () => {
   });
 
   it("rejects an invalid phone without creating anything", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
 
     const response = await postBooking(app, `/public/booking/${slug}`, {

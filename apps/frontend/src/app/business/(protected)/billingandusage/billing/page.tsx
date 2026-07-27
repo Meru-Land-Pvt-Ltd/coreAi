@@ -4,12 +4,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { loadStripe } from "@stripe/stripe-js";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet } from "@/lib/api";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { getAuthToken, getAuthUser, hasAuthRole } from "@/lib/auth";
-import { BUSINESS_BILLING_PATH, BUSINESS_LOGIN_PATH } from "@/lib/routes";
-import { shouldShowSyntheticAccrual } from "@/components/business/current-month-accrual";
+import {
+    BUSINESS_BILLING_PATH,
+    BUSINESS_LOGIN_PATH,
+    businessInvoiceCheckoutPath
+} from "@/lib/routes";
+import { syntheticAgentAccruals } from "@/components/business/current-month-accrual";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
@@ -33,6 +36,7 @@ type BillingInvoice = {
     billingEmail?: string | null;
     billingAddress?: string | null;
     lineItems?: Array<{ label: string; amountCents: number }> | null;
+    listingId?: string | null;
     invoiceKind?: string | null;
     invoiceType?: string | null;
 };
@@ -75,6 +79,16 @@ type AgentUsageBreakdown = {
     serviceCosts: Array<{
         serviceCode: string;
         serviceName: string;
+        invoiceLabel?: string;
+        unit: string;
+        quantity: number;
+        billedCostUsd: number;
+        amountCents: number;
+    }>;
+    invoiceServiceCosts?: Array<{
+        serviceCode: string;
+        serviceName: string;
+        invoiceLabel?: string;
         unit: string;
         quantity: number;
         billedCostUsd: number;
@@ -83,6 +97,7 @@ type AgentUsageBreakdown = {
 };
 type UsageInvoice = {
     id: string;
+    installedAgentId?: string | null;
     invoiceNumber: string;
     billingMonth: string;
     status: "OPEN" | "PENDING" | "OVERDUE" | "PAID" | "VOID";
@@ -96,6 +111,7 @@ type UsageInvoice = {
     lineItems?: Array<{
         serviceCode: string;
         serviceName: string;
+        invoiceLabel?: string;
         unit: string;
         quantity: number;
         amountUsd?: number;
@@ -104,14 +120,6 @@ type UsageInvoice = {
     isAccruing?: boolean;
 };
 type UsageInvoicesResponse = { invoices: UsageInvoice[] };
-type InvoicePaymentResult = {
-    status?: string;
-    invoiceIds?: string[];
-    carriedForward?: boolean;
-    requiresAction?: boolean;
-    clientSecret?: string | null;
-};
-type StripeConfigResponse = { publishableKey?: string | null };
 type UsageBill = {
     month: string;
     totalCalls: number;
@@ -123,6 +131,19 @@ type UsageBill = {
 
 function usageAgentId(agent: AgentUsageBreakdown) {
     return agent.installedAgentId ?? agent.agentId;
+}
+
+function formatUsageQuantity(service: {
+    serviceCode: string;
+    unit: string;
+    quantity: number;
+}) {
+    if (service.unit === "PER_MINUTE") return `${service.quantity.toFixed(2)} min`;
+    if (service.unit === "PER_SMS") return `${service.quantity.toFixed(0)} SMS`;
+    if (service.unit === "PER_CALL") {
+        return `${service.quantity.toFixed(0)} ${service.quantity === 1 ? "call" : "calls"}`;
+    }
+    return service.quantity.toFixed(2);
 }
 
 const INVOICE_STYLES = `
@@ -356,115 +377,58 @@ export default function BusinessInvoiceDetailPage() {
         window.print();
     }
 
-    async function payUsageInvoice(invoice: UsageInvoice) {
-        setPayingInvoiceId(invoice.id);
-        try {
-            let response = await apiPost<InvoicePaymentResult>(
-                `/business/billing/usage-invoices/${invoice.id}/pay`,
-                {}
-            );
-            if (!response.success) {
-                showToast(response.error ?? "Could not pay invoice");
-                return;
-            }
-
-            if (response.data?.carriedForward) {
-                showToast("Balance carried forward until it reaches the $0.50 card minimum");
-                return;
-            }
-
-            if (response.data?.requiresAction && response.data.clientSecret) {
-                const config = await apiGet<StripeConfigResponse>("/payments/config");
-                const publishableKey = config.data?.publishableKey;
-                const stripe = publishableKey ? await loadStripe(publishableKey) : null;
-                if (!config.success || !stripe) {
-                    showToast("Card authentication could not be started");
-                    return;
-                }
-                const action = await stripe.handleNextAction({
-                    clientSecret: response.data.clientSecret
-                });
-                if (action.error) {
-                    showToast(action.error.message ?? "Card authentication was not completed");
-                    return;
-                }
-                response = await apiPost<InvoicePaymentResult>(
-                    `/business/billing/usage-invoices/${invoice.id}/pay`,
-                    {}
-                );
-                if (!response.success) {
-                    showToast(response.error ?? "Could not finish paying invoice");
-                    return;
-                }
-            }
-
-            if (response.data?.status?.toUpperCase() !== "PAID") {
-                showToast("Payment is still pending");
-                return;
-            }
-            const settledIds = new Set(response.data.invoiceIds ?? [invoice.id]);
-            const paidAt = new Date().toISOString();
-            setUsageInvoices((current) => current.map((item) =>
-                settledIds.has(item.id) ? { ...item, status: "PAID", paidAt } : item
-            ));
-            showToast("Invoice paid and services restored");
-        } catch (error) {
-            showToast(error instanceof Error ? error.message : "Could not pay invoice");
-        } finally {
-            setPayingInvoiceId(null);
-        }
-    }
-
-    async function payAgentInvoice(invoice: BillingInvoice) {
+    function payUsageInvoice(invoice: UsageInvoice) {
         if (payingInvoiceId) return;
         setPayingInvoiceId(invoice.id);
-        try {
-            const response = await apiPost(`/payments/invoices/${invoice.id}/pay`, {});
-            if (!response.success) {
-                showToast(response.error ?? "Could not pay invoice");
-                return;
-            }
-            setBilling((current) => current
-                ? {
-                    ...current,
-                    invoices: current.invoices.map((item) =>
-                        item.id === invoice.id ? { ...item, status: "PAID" } : item
-                    )
-                }
-                : current
-            );
-            showToast("Invoice paid and eligible services restored");
-        } catch (error) {
-            showToast(error instanceof Error ? error.message : "Could not pay invoice");
-        } finally {
-            setPayingInvoiceId(null);
-        }
+        const checkoutAgentId =
+            invoice.agentBreakdown[0]?.installedAgentId ??
+            invoice.agentBreakdown[0]?.agentId ??
+            agentId;
+        router.push(
+            businessInvoiceCheckoutPath({
+                invoiceId: invoice.id,
+                invoiceType: "usage",
+                agentId: checkoutAgentId
+            })
+        );
     }
 
-    const showSyntheticAccrual = usage
-        ? shouldShowSyntheticAccrual({
+    function payAgentInvoice(invoice: BillingInvoice) {
+        if (payingInvoiceId) return;
+        setPayingInvoiceId(invoice.id);
+        router.push(
+            businessInvoiceCheckoutPath({
+                invoiceId: invoice.id,
+                invoiceType: "agent",
+                listingId: invoice.listingId
+            })
+        );
+    }
+
+    const currentUsageStatements: UsageInvoice[] = usage
+        ? syntheticAgentAccruals({
             invoices: usageInvoices,
             currentMonth: usage.month,
-            executionCount: usage.totalCalls,
-            costUsd: usage.totalBilledUsd
-        })
-        : false;
-    const currentUsageStatement: UsageInvoice | null = usage && showSyntheticAccrual
-        ? {
-            id: `accrued-${usage.month}`,
-            invoiceNumber: `ACCRUED-${usage.month.replace("-", "")}`,
+            agents: usage.agentRollup
+        }).map(({ id, invoiceNumber, agent, executionCount }) => ({
+            id,
+            installedAgentId: agent.installedAgentId ?? agent.agentId,
+            invoiceNumber,
             billingMonth: usage.month,
             status: "PENDING",
-            amountCents: Math.round(usage.totalBilledUsd * 100),
+            amountCents: Math.round(agent.billedCostUsd * 100),
             issuedAt: usage.updatedAt ?? new Date().toISOString(),
             dueAt: usageDueAt(usage.month),
             paidAt: null,
-            callCount: usage.totalCalls,
-            agentBreakdown: usage.agentRollup,
+            callCount: executionCount,
+            agentBreakdown: [{
+                ...agent,
+                serviceCosts: agent.invoiceServiceCosts ?? []
+            }],
             isAccruing: true
-        }
-        : null;
-    const allUsageInvoices = [...usageInvoices, ...(currentUsageStatement ? [currentUsageStatement] : [])];
+        }))
+        : [];
+    const allUsageInvoices = [...usageInvoices, ...currentUsageStatements];
     const scopedUsageInvoices = agentId
         ? allUsageInvoices.filter((item) => item.agentBreakdown.some((agent) => usageAgentId(agent) === agentId))
         : allUsageInvoices;
@@ -620,7 +584,7 @@ function UsageInvoiceCard({
     agentId: string | null;
     billing: Billing | null;
     paying: boolean;
-    onPay: (invoice: UsageInvoice) => Promise<void>;
+    onPay: (invoice: UsageInvoice) => void;
 }) {
     const allocation = agentId
         ? invoice.agentBreakdown.find((agent) => usageAgentId(agent) === agentId) ?? null
@@ -642,7 +606,8 @@ function UsageInvoiceCard({
         if (allocation) {
             services.push({
                 serviceCode: "agent_execution",
-                serviceName: `${allocation.agentName} executions`,
+                serviceName: "Usage service",
+                invoiceLabel: "Usage service",
                 unit: "PER_UNIT",
                 quantity: allocation.executionCount ?? allocation.callCount,
                 billedCostUsd: amountCents / 100,
@@ -652,6 +617,7 @@ function UsageInvoiceCard({
             services.push(...invoice.lineItems.map((item) => ({
                 serviceCode: item.serviceCode,
                 serviceName: item.serviceName,
+                invoiceLabel: item.invoiceLabel,
                 unit: item.unit,
                 quantity: item.quantity,
                 billedCostUsd: item.amountUsd ?? item.amountCents / 100,
@@ -660,7 +626,8 @@ function UsageInvoiceCard({
         } else {
             services.push({
                 serviceCode: "agent_execution",
-                serviceName: "Agent executions",
+                serviceName: "Usage service",
+                invoiceLabel: "Usage service",
                 unit: "PER_UNIT",
                 quantity: displayedAgents.reduce(
                     (sum, agent) => sum + (agent.executionCount ?? agent.callCount),
@@ -717,14 +684,16 @@ function UsageInvoiceCard({
 
                 <div className="overflow-x-auto">
                     <table className="w-full min-w-[520px] text-sm">
-                        <thead><tr className="bg-slate-50 text-slate-600"><th className="px-3 py-2.5 text-left">#</th><th className="px-3 py-2.5 text-left">Service</th><th className="px-3 py-2.5 text-right">Usage</th><th className="px-3 py-2.5 text-right">Amount</th></tr></thead>
+                        <thead><tr className="bg-slate-50 text-slate-600"><th className="px-3 py-2.5 text-left">#</th><th className="px-3 py-2.5 text-left">Invoice item</th><th className="px-3 py-2.5 text-right">Usage</th><th className="px-3 py-2.5 text-right">Amount</th></tr></thead>
                         <tbody>
                             {services.map((service, index) => (
                                 <tr key={service.serviceCode} data-testid="usage-invoice-line-item" className="border-b border-slate-100">
                                     <td className="px-3 py-3 text-slate-400">{index + 1}</td>
-                                    <td className="px-3 py-3 font-medium text-slate-700">{service.serviceName}</td>
+                                    <td className="px-3 py-3 font-medium text-slate-700">
+                                        {service.invoiceLabel ?? service.serviceName}
+                                    </td>
                                     <td className="px-3 py-3 text-right text-slate-500">
-                                        {service.serviceCode === "platform_service" ? "—" : service.quantity.toFixed(2)}
+                                        {formatUsageQuantity(service)}
                                     </td>
                                     <td className="px-3 py-3 text-right font-mono font-semibold">${service.billedCostUsd.toFixed(2)}</td>
                                 </tr>
@@ -746,7 +715,7 @@ function UsageInvoiceCard({
                     {isSyntheticAccrual ? (
                         <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">This live usage statement updates as your agents run. The persisted invoice can be paid from Billing &amp; Usage.</p>
                     ) : !isPaid ? (
-                        <button type="button" disabled={paying} onClick={() => void onPay(invoice)} data-testid="usage-invoice-pay" className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50">{paying ? "Paying…" : `Pay ${formatCurrencyCents(invoice.amountCents)}`}</button>
+                        <button type="button" disabled={paying} onClick={() => onPay(invoice)} data-testid="usage-invoice-pay" className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50">{paying ? "Redirecting…" : `Pay ${formatCurrencyCents(invoice.amountCents)}`}</button>
                     ) : (
                         <p className="text-sm font-medium text-green-600">✓ Paid successfully{invoice.paidAt ? ` on ${formatFullDate(invoice.paidAt)}` : ""}</p>
                     )}
@@ -768,7 +737,7 @@ function AgentInvoiceList({
     agentId: string | null;
     agentName: string | null;
     payingInvoiceId: string | null;
-    onPay: (invoice: UsageInvoice) => Promise<void>;
+    onPay: (invoice: UsageInvoice) => void;
 }) {
     return (
         <section className="mx-auto max-w-[800px]" aria-label="Agent invoices">
@@ -821,11 +790,11 @@ function AgentInvoiceList({
                                         <button
                                             type="button"
                                             disabled={payingInvoiceId === invoice.id}
-                                            onClick={() => void onPay(invoice)}
+                                            onClick={() => onPay(invoice)}
                                             data-testid="usage-invoice-list-pay"
                                             className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50"
                                         >
-                                            {payingInvoiceId === invoice.id ? "Paying…" : "Pay invoice"}
+                                            {payingInvoiceId === invoice.id ? "Redirecting…" : "Pay invoice"}
                                         </button>
                                     ) : null}
                                 </div>
@@ -850,7 +819,7 @@ function InvoiceCard({
     invoice: BillingInvoice;
     billing: Billing | null;
     paying: boolean;
-    onPay: (invoice: BillingInvoice) => Promise<void>;
+    onPay: (invoice: BillingInvoice) => void;
     businessName: string;
     businessEmail: string;
     billingAddress: string | null;
@@ -1027,11 +996,11 @@ function InvoiceCard({
                                 <button
                                     type="button"
                                     disabled={paying}
-                                    onClick={() => void onPay(invoice)}
+                                    onClick={() => onPay(invoice)}
                                     data-testid="invoice-pay-now"
                                     className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-amber-600 disabled:opacity-50"
                                 >
-                                    {paying ? "Paying…" : `Pay ${amount}`}
+                                    {paying ? "Redirecting…" : `Pay ${amount}`}
                                 </button>
                             ) : null}
                         </div>

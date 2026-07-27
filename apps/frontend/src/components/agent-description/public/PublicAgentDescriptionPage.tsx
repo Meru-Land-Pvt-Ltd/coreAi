@@ -17,9 +17,11 @@ import {
 } from "@/lib/routes";
 import { getHowItWorksSteps } from "@coreai/shared";
 import { AgentDescriptionView } from "@/components/agent-description/shared/AgentDescriptionView";
+import { NeedHelpModal } from "@/components/common/need-help-modal";
 import {
   formatPublicInstallCount,
   getAgentDescription,
+  htmlDescriptionToText,
   getIncludedItems,
   getListingAuthor,
   getListingCategory,
@@ -27,25 +29,28 @@ import {
   getWorkflowFeatures,
   type ApiListing,
   type ListingApiResponse,
-  type SimilarListing,
-  type SimilarListingsApiResponse
+  type SimilarListing
 } from "@/components/agent-description/shared/agent-listing";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 const BUSINESS_LOGIN_PATH = "/business/login" as Route;
 const ARCHITECT_LOGIN_PATH = "/architect/login" as Route;
 
+const NO_SIMILAR_AGENTS: SimilarListing[] = [];
+
 const LOADING_STYLES = `
 .agent-detail-root { font-family: 'Inter', system-ui, -apple-system, sans-serif; background-color: #ffffff; }
 `;
 
 function PublicBrandingHeader() {
+  const [helpOpen, setHelpOpen] = useState(false);
+
   return (
     <header
       data-testid="agent-detail-branding-header"
       className="sticky top-0 z-50 border-b border-gray-100 bg-white/90 backdrop-blur"
     >
-      <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-2 gap-y-2 px-4 py-3 sm:flex-nowrap sm:gap-x-3 sm:px-6">
         <a href="/" className="flex shrink-0 items-center gap-2.5" aria-label="Triven home" data-testid="agent-detail-brand-home">
           <Image
             src={TRIVEN_LOGO_SRC}
@@ -55,33 +60,35 @@ function PublicBrandingHeader() {
             priority
             className="h-9 w-9 object-contain"
           />
-          <span className="text-xl font-extrabold tracking-tight text-amber-500">Triven.ai</span>
+          <span className="text-lg font-extrabold tracking-tight text-amber-500 sm:text-xl">Triven.ai</span>
         </a>
 
-        <nav className="ml-auto flex shrink-0 items-center gap-2">
-          <Link
-            href={ARCHITECT_LOGIN_PATH}
-            data-testid="agent-detail-for-architects-link"
-            className="hidden rounded-lg px-3 py-2 text-[13.5px] font-semibold text-slate-600 transition hover:text-slate-900 sm:block"
-          >
-            For Architects
-          </Link>
+        <nav className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
           <Link
             href={BUSINESS_LOGIN_PATH}
             data-testid="agent-detail-login-link"
-            className="rounded-xl border border-amber-500 px-3.5 py-2 text-[13.5px] font-semibold text-amber-600 transition hover:bg-amber-50 sm:px-4"
+            className="rounded-xl border border-amber-500 px-2.5 py-1.5 text-xs font-semibold text-amber-600 transition hover:bg-amber-50 sm:px-4 sm:py-2 sm:text-[13.5px]"
           >
             Log in
           </Link>
           <Link
             href={ASSIGNMENT_PATH}
             data-testid="agent-detail-get-started-link"
-            className="rounded-xl bg-amber-500 px-3.5 py-2 text-[13.5px] font-semibold text-white transition hover:bg-amber-600 sm:px-4"
+            className="rounded-xl bg-amber-500 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-600 sm:px-4 sm:py-2 sm:text-[13.5px]"
           >
             Get started
           </Link>
+          <button
+            type="button"
+            onClick={() => setHelpOpen(true)}
+            data-testid="agent-detail-need-help-button"
+            className="whitespace-nowrap text-xs font-semibold text-amber-600 transition-colors hover:text-amber-700 sm:text-sm"
+          >
+            Need help?
+          </button>
         </nav>
       </div>
+      <NeedHelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
     </header>
   );
 }
@@ -92,7 +99,6 @@ export default function PublicAgentDescriptionPage() {
   const agentId = params.agentId;
 
   const [listing, setListing] = useState<ApiListing | null>(null);
-  const [similarListings, setSimilarListings] = useState<SimilarListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [apiError, setApiError] = useState("");
 
@@ -146,34 +152,6 @@ export default function PublicAgentDescriptionPage() {
     };
   }, [agentId]);
 
-  useEffect(() => {
-    if (!agentId || !listing) return;
-
-    let mounted = true;
-
-    async function loadSimilarListings() {
-      try {
-        const response = await apiGet<SimilarListingsApiResponse>(
-          `/architect/listings/public/${agentId}/similar`
-        );
-
-        if (!mounted) return;
-
-        if (response.success && response.data?.listings) {
-          setSimilarListings(response.data.listings);
-        }
-      } catch {
-        // Similar agents failing silently is acceptable
-      }
-    }
-
-    loadSimilarListings();
-
-    return () => {
-      mounted = false;
-    };
-  }, [agentId, listing]);
-
   const category = useMemo(() => (listing ? getListingCategory(listing) : ""), [listing]);
   const tags = useMemo(() => (listing ? getListingTags(listing) : []), [listing]);
   const features = useMemo(() => (listing ? getWorkflowFeatures(listing) : []), [listing]);
@@ -218,7 +196,7 @@ export default function PublicAgentDescriptionPage() {
   }
 
   const price = Math.round((listing.priceCents ?? 0) / 100);
-  const installsLabel = formatPublicInstallCount(listing.installCount ?? 0, listing.id);
+  const installsLabel = formatPublicInstallCount(listing.installCount ?? 0) || null;
   const author = getListingAuthor(listing);
   const pricingModel = listing.pricingModel ?? "SUBSCRIPTION";
   const freeTrialEnabled = listing.freeTrialEnabled ?? false;
@@ -243,12 +221,9 @@ export default function PublicAgentDescriptionPage() {
         ? "One-time purchase · Usage charges apply"
         : "Monthly subscription · Usage charges billed separately";
 
-  const heroDescription =
-    listing.shortDescription ||
-    listing.tagline ||
-    listing.description ||
-    listing.workflow?.description ||
-    "";
+  const heroDescription = htmlDescriptionToText(
+    listing.shortDescription || listing.tagline || ""
+  );
 
   const howItWorksSteps = getHowItWorksSteps(listing.requiredConnectors, listing.workflow?.workflowJson);
 
@@ -279,7 +254,7 @@ export default function PublicAgentDescriptionPage() {
       primaryCtaLabel={primaryCtaLabel}
       primaryCtaTestId={primaryCtaTestId}
       howItWorksSteps={howItWorksSteps}
-      similar={similarListings}
+      similar={NO_SIMILAR_AGENTS}
       similarHref={(id) => publicAgentPath(id)}
       showDemo
       demoMode="public"

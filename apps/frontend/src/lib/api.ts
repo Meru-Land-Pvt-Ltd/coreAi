@@ -82,6 +82,36 @@ export async function apiPost<T>(
   }
 }
 
+export async function apiUpload<T>(
+  path: string,
+  formData: FormData
+): Promise<ApiResponse<T>> {
+  try {
+    const token = typeof window !== "undefined" ? localStorage.getItem("coreai-token") : null;
+    const response = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: formData
+    });
+    const data = (await response.json().catch(() => ({}))) as ApiResponse<T>;
+    if (!response.ok || data?.success === false) {
+      return {
+        success: false,
+        error: stringValue(data?.error) ?? stringValue(data?.message) ?? "Upload failed",
+        code: stringValue(data?.code) ?? "API_ERROR",
+        status: response.status
+      };
+    }
+    return data;
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Upload failed",
+      code: "UNKNOWN_ERROR"
+    };
+  }
+}
+
 export async function apiGet<T>(
   path: string,
   token?: string

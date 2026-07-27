@@ -1,9 +1,9 @@
 import {
   AFTER_HOURS_POLICY_VERSION,
-  DEFAULT_DENTAL_AFTER_HOURS_POLICY,
   VOICE_NODE_TYPES,
   buildAfterHoursSnapshot,
   normalizeAfterHoursPolicy,
+  platformDefaultAfterHoursPolicy,
   type AfterHoursPolicy,
   type AfterHoursSnapshot
 } from "@coreai/shared";
@@ -28,13 +28,25 @@ function voiceNodePolicy(workflowJson: unknown): AfterHoursPolicy | null {
   return null;
 }
 
+/** The buyer's saved business type, which beats the Business row's own type. */
+export function readConfiguredBusinessType(configJson: unknown): string | null {
+  const details = recordOf(recordOf(configJson).businessDetails);
+  const value = details.businessType ?? recordOf(configJson).businessType;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 export function resolveAfterHoursPolicy(input: {
   configJson: unknown;
   workflowJson?: unknown;
+  /** Drives the platform default only — a saved policy always wins. */
+  businessType?: string | null;
 }): AfterHoursPolicy {
   const buyer = normalizeAfterHoursPolicy(recordOf(input.configJson).afterHoursPolicy);
   if (buyer) return buyer;
-  return voiceNodePolicy(input.workflowJson) ?? DEFAULT_DENTAL_AFTER_HOURS_POLICY;
+  return (
+    voiceNodePolicy(input.workflowJson) ??
+    platformDefaultAfterHoursPolicy(input.businessType ?? readConfiguredBusinessType(input.configJson))
+  );
 }
 
 export async function resolveAfterHoursPolicyForBusiness(
@@ -44,14 +56,19 @@ export async function resolveAfterHoursPolicyForBusiness(
   const agent = await prisma.installedAgent.findFirst({
     where: installedAgentId ? { id: installedAgentId } : { businessId, status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
-    select: { configJson: true, workflow: { select: { workflowJson: true } } }
+    select: {
+      configJson: true,
+      workflow: { select: { workflowJson: true } },
+      business: { select: { type: true } }
+    }
   });
 
   if (!agent) return null;
 
   return resolveAfterHoursPolicy({
     configJson: agent.configJson,
-    workflowJson: agent.workflow?.workflowJson
+    workflowJson: agent.workflow?.workflowJson,
+    businessType: readConfiguredBusinessType(agent.configJson) ?? agent.business?.type ?? null
   });
 }
 

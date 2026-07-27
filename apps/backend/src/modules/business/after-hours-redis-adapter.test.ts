@@ -69,11 +69,17 @@ describe("production fail-closed", () => {
     );
   });
 
-  it("connection not ready (status 'connecting') → unavailable; probe reports not safe for live", async () => {
+  it("connection still 'connecting' → available for live via offline queue; health probe reports not-ready", async () => {
     setAfterHoursRedisAdapterForTests(fakeAdapter({ status: "connecting" }));
     setAfterHoursProductionModeForTests(true);
 
-    expect(afterHoursStateStoreAvailableForLive()).toBe(false);
+    // A configured store is usable for LIVE even mid-connect — the client's
+    // offline queue resolves commands once connected, and a genuine failure
+    // fails closed at read/write time. Requiring status==="ready" here wrongly
+    // blocked every after-hours call during the normal connection window.
+    expect(afterHoursStateStoreAvailableForLive()).toBe(true);
+
+    // The health PROBE is a stricter diagnostic and still reports not-ready.
     const probe = await probeAfterHoursStateStore();
     expect(probe).toMatchObject({
       distributed: true,
@@ -83,6 +89,17 @@ describe("production fail-closed", () => {
       ready: false,
       safeForLive: false
     });
+  });
+
+  it("configured store whose reads SUCCEED while connecting round-trips (offline queue)", async () => {
+    // A working client that has not flipped to "ready" must still serve reads
+    // and writes — this is the exact production case my earlier strict gate broke.
+    setAfterHoursRedisAdapterForTests(fakeAdapter({ status: "connecting" }));
+    setAfterHoursProductionModeForTests(true);
+
+    await writeAfterHoursCallState("biz-1", "call-1", liveState("URGENT_DENTAL"));
+    const read = await readAfterHoursCallState("biz-1", "call-1");
+    expect(read?.route).toBe("URGENT_DENTAL");
   });
 
   it("ready + PONG → safe for live, and write/read round-trips through the adapter", async () => {

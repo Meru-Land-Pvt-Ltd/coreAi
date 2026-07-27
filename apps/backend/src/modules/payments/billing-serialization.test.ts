@@ -435,7 +435,7 @@ afterAll(async () => {
 
 describe("GET /payments/billing serialization", () => {
   it("serializes spendingAlertLastNotifiedAt and trial periodEnd, aggregates execution + unpaid invoices", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const res = await getJson(buildApp(), "/payments/billing", tokenWithDates);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -466,7 +466,7 @@ describe("GET /payments/billing serialization", () => {
   });
 
   it("returns null lastNotifiedAt when the notification date is absent", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const res = await getJson(buildApp(), "/payments/billing", tokenWithoutDates);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -476,7 +476,7 @@ describe("GET /payments/billing serialization", () => {
 
 describe("GET /payments/my-agents serialization", () => {
   it("serializes pausedAt when present and null when absent", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const res = await getJson(buildApp(), "/payments/my-agents", tokenWithDates);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -498,7 +498,7 @@ describe("GET /payments/my-agents serialization", () => {
   });
 
   it("returns null pausedAt for a business that never paused", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const res = await getJson(buildApp(), "/payments/my-agents", tokenWithoutDates);
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -512,7 +512,7 @@ describe("GET /payments/my-agents serialization", () => {
 
 describe("POST /payments/invoices/:id/pay retry safety", () => {
   it("claims the invoice (attempt count + pending window), pays with a per-attempt idempotency key, then clears the claim", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const res = await postJson(
       buildApp(),
       `/payments/invoices/${payableInvoiceId}/pay`,
@@ -533,7 +533,7 @@ describe("POST /payments/invoices/:id/pay retry safety", () => {
   });
 
   it("treats a duplicate payment attempt as already paid", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const intentsBefore = stripeState.createdIntents.length;
     const res = await postJson(
       buildApp(),
@@ -550,7 +550,7 @@ describe("POST /payments/invoices/:id/pay retry safety", () => {
   });
 
   it("rejects a payment whose claim window is still open without touching the attempt count", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const res = await postJson(
       buildApp(),
       `/payments/invoices/${inProgressInvoiceId}/pay`,

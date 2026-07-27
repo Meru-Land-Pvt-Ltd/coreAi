@@ -1,19 +1,17 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../../lib/prisma";
+import { env } from "../../config/env";
+import { resetSharedRedisForTests } from "../../lib/redis";
 import { recordVapiCallUsage } from "./usage-billing";
 import {
   isSandboxExecutionBusiness,
-  recallCallContact,
-  rememberCallContact,
   resolveVapiCallExecutionMode
 } from "../architect/twilio-business-routing";
-
-/**
- * FREE installs have no Payment row — the InstalledAgent is the acquisition
- * record. End-of-call usage (recording URL, duration, billing fields) must
- * still be written, and one architect sandbox agent on a dual-role owner's
- * business must never demote live buyer calls to dry runs.
- */
+import {
+  readCallContact,
+  updateCallContact,
+  resetCallContactStoreForTests
+} from "../architect/call-contact-store";
 
 const RUN = `freeusage-${process.pid}-${Date.now().toString(36)}`;
 
@@ -70,7 +68,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.vapiCall.deleteMany({ where: { businessId } });
   await prisma.agentUsageExecution.deleteMany({ where: { businessId } });
   await prisma.installedAgent.deleteMany({ where: { businessId } });
@@ -81,7 +79,7 @@ afterAll(async () => {
 
 describe("recordVapiCallUsage — free installs", () => {
   it("records the recording URL and usage fields with no Payment row", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const callId = `${RUN}-call-1`;
     await prisma.vapiCall.create({
@@ -111,22 +109,22 @@ describe("recordVapiCallUsage — free installs", () => {
 
 describe("isSandboxExecutionBusiness — dual-role owners", () => {
   it("a live buyer agent's calls stay LIVE even when a sandbox agent shares the business", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     expect(await isSandboxExecutionBusiness(businessId, freeAgentId)).toBe(false);
   });
 
   it("the sandbox agent's own calls are classified as sandbox", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     expect(await isSandboxExecutionBusiness(businessId, sandboxAgentId)).toBe(true);
   });
 
   it("without an attributable agent, a mixed business is NOT a sandbox", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     expect(await isSandboxExecutionBusiness(businessId)).toBe(false);
   });
 
   it("a business with only sandbox agents is a sandbox", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const sandboxOnly = await prisma.business.create({
       data: { ownerId, name: `${RUN} sandbox biz`, type: "salon" }
     });
@@ -168,23 +166,42 @@ describe("resolveVapiCallExecutionMode — only phone calls are runs", () => {
 });
 
 describe("per-call contact memory — never re-ask name or number in the same call", () => {
-  it("remembers and recalls the caller's details for the same call only", () => {
+  const BIZ = `${RUN}-biz`;
+  const savedRedisUrl = env.REDIS_URL;
+  beforeAll(() => {
+    env.REDIS_URL = undefined;
+    resetSharedRedisForTests();
+    resetCallContactStoreForTests();
+  });
+  afterAll(() => {
+    env.REDIS_URL = savedRedisUrl;
+    resetSharedRedisForTests();
+    resetCallContactStoreForTests();
+  });
+
+  it("remembers and recalls the caller's details for the same call only", async () => {
     const callA = `${RUN}-contact-a`;
     const callB = `${RUN}-contact-b`;
 
-    rememberCallContact(callA, { name: "Alex Morgan" });
-    rememberCallContact(callA, { phone: "+15550160001" });
+    await updateCallContact(BIZ, callA, { customerName: "Alex Morgan" });
+    await updateCallContact(BIZ, callA, { canonicalPhoneE164: "+15550160001" });
 
-    expect(recallCallContact(callA)).toEqual({ name: "Alex Morgan", phone: "+15550160001" });
-    expect(recallCallContact(callB)).toEqual({});
-    expect(recallCallContact(undefined)).toEqual({});
+    expect(await readCallContact(BIZ, callA)).toMatchObject({
+      customerName: "Alex Morgan",
+      canonicalPhoneE164: "+15550160001"
+    });
+    expect(await readCallContact(BIZ, callB)).toBeNull();
+    expect(await readCallContact(BIZ, undefined)).toBeNull();
   });
 
-  it("later partial updates never erase earlier details", () => {
+  it("later partial updates never erase earlier details", async () => {
     const callId = `${RUN}-contact-c`;
-    rememberCallContact(callId, { name: "Jamie Fox", phone: "+15550160002" });
-    rememberCallContact(callId, { name: "Jamie Fox" });
+    await updateCallContact(BIZ, callId, { customerName: "Jamie Fox", canonicalPhoneE164: "+15550160002" });
+    await updateCallContact(BIZ, callId, { customerName: "Jamie Fox" });
 
-    expect(recallCallContact(callId)).toEqual({ name: "Jamie Fox", phone: "+15550160002" });
+    expect(await readCallContact(BIZ, callId)).toMatchObject({
+      customerName: "Jamie Fox",
+      canonicalPhoneE164: "+15550160002"
+    });
   });
 });

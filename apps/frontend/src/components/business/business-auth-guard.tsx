@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { getAuthToken, getAuthUser, hasAuthRole, setActiveWorkspace } from "@/lib/auth";
+import { primeBusinessOnboardingStatus } from "@/lib/business-onboarding-status";
 import { ensureBusinessWorkspaceAccess } from "@/lib/business-workspace";
 import { businessLoginPathWithNext } from "@/lib/routes";
 
@@ -13,6 +14,7 @@ export function BusinessAuthGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<GuardStatus>("checking");
+  const workspaceActivatedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -31,18 +33,23 @@ export function BusinessAuthGuard({ children }: { children: ReactNode }) {
       return;
     }
 
+    void primeBusinessOnboardingStatus();
+
     if (hasAuthRole(user, "BUSINESS")) {
       setActiveWorkspace("BUSINESS");
       setStatus("authed");
       return;
     }
 
-    // Authenticated account without the BUSINESS capability (e.g. an
-    // ARCHITECT entering the buyer side intentionally) — activate the
-    // Business workspace server-side; the token and other roles are kept.
+    if (workspaceActivatedRef.current) {
+      setStatus("authed");
+      return;
+    }
+
     void ensureBusinessWorkspaceAccess().then((access) => {
       if (cancelled) return;
       if (access === "authed") {
+        workspaceActivatedRef.current = true;
         setStatus("authed");
       } else {
         redirectToLogin();

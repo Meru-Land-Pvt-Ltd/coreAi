@@ -336,6 +336,7 @@ ${workflowMap}
       canEmail: hasCapability(tools, "email.send")
     },
     smsConsentMode: "simulated",
+    openingLine: firstMessage,
     nodeInstructions,
     extraSections: [
       ...(business.factsLines?.length

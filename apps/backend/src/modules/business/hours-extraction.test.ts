@@ -35,7 +35,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.businessKnowledgeFile.deleteMany({ where: { businessId: { in: businessIds } } });
   await prisma.businessKnowledgeBase.deleteMany({ where: { businessId: { in: businessIds } } });
   await prisma.business.deleteMany({ where: { id: { in: businessIds } } });
@@ -44,7 +44,7 @@ afterAll(async () => {
 
 describe("hours extraction from real brochure layouts", () => {
   it("reads a PDF-style table with a split day name and the time on its own line", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     // Mirrors the exact layout pdf-parse produced for a real brochure:
     // "Wednesda" / "y" broken across lines, its hours on the following line.
     const businessId = await businessWithDoc(
@@ -72,7 +72,7 @@ describe("hours extraction from real brochure layouts", () => {
   });
 
   it('reads time-first "Timings: 10 AM to 8 PM (Mon–Sat)" with a separate Sunday line', async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const businessId = await businessWithDoc(
       ["Visit us!", "Timings: 10 AM to 8 PM (Mon–Sat)", "Sunday: Closed"].join("\n")
     );
@@ -85,7 +85,7 @@ describe("hours extraction from real brochure layouts", () => {
   });
 
   it('"Open daily 9am – 9pm" fills the week, but an explicit day still wins', async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const businessId = await businessWithDoc(
       ["We are here for you.", "Open daily 9am – 9pm", "Sunday: Closed"].join("\n")
     );
@@ -99,7 +99,7 @@ describe("hours extraction from real brochure layouts", () => {
   });
 
   it('infers the evening close in bare ranges: "Mon through Fri 9 to 5"', async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const businessId = await businessWithDoc("Hours\nMon through Fri 9 to 5\nSat 10 to 2");
 
     const suggestion = await extractHoursFromDocuments({ businessId });
@@ -110,7 +110,7 @@ describe("hours extraction from real brochure layouts", () => {
   });
 
   it("still requires confidence — a document without timings suggests nothing", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const businessId = await businessWithDoc(
       "About us\nPlease notify us at least 24 hours before your appointment.\nCall 555-0100 anytime."
     );

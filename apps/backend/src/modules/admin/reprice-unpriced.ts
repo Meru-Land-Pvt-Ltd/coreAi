@@ -246,13 +246,22 @@ export async function repriceUnpricedExecutions(
           installedAgentId: call.installedAgentId,
           callId: call.callId,
           occurredAt,
-          actualCostMicroUsd: pricingResult.totals.actualCostMicroUsd
-        }).catch((error) => {
-          console.error("[admin-reprice] canonical execution write failed (non-fatal)", {
-            callId: call.callId,
-            error
+          actualCostMicroUsd: pricingResult.totals.actualCostMicroUsd,
+          usageLineItems: pricingResult.lineItems
+        })
+          .then(async (execution) => {
+            if (!execution?.usageInvoiceId) return;
+            await prisma.vapiCall.updateMany({
+              where: { id: call.id, usageInvoiceId: null },
+              data: { usageInvoiceId: execution.usageInvoiceId }
+            });
+          })
+          .catch((error) => {
+            console.error("[admin-reprice] canonical execution write failed (non-fatal)", {
+              callId: call.callId,
+              error
+            });
           });
-        });
       }
 
       priced += 1;

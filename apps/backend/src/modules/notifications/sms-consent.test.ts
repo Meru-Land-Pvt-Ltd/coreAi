@@ -164,7 +164,7 @@ describe("messagingProgramForMessageType", () => {
 
 describe("verbal consent records (DB)", () => {
   it("a clear verbal yes creates OPTED_IN consent with full evidence", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const phone = nextPhone();
 
     const outcome = await recordVerbalSmsConsent({
@@ -192,7 +192,7 @@ describe("verbal consent records (DB)", () => {
   });
 
   it("a verbal no records a decline, not consent", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const phone = nextPhone();
 
     const outcome = await recordVerbalSmsConsent({
@@ -214,7 +214,7 @@ describe("verbal consent records (DB)", () => {
   });
 
   it("silence/no tool call means no consent exists — sends stay blocked", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     // Ambiguous responses never reach recordVerbalSmsConsent(affirmative=true);
     // with no record at all the authorization check must deny.
     const phone = nextPhone();
@@ -223,7 +223,7 @@ describe("verbal consent records (DB)", () => {
   });
 
   it("consent for Business A never authorizes Business B", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const phone = nextPhone();
 
     await recordVerbalSmsConsent({
@@ -241,7 +241,7 @@ describe("verbal consent records (DB)", () => {
   });
 
   it("duplicate consent submissions are idempotent (one row per business+phone+program)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const phone = nextPhone();
     const submit = () =>
       recordVerbalSmsConsent({
@@ -259,7 +259,7 @@ describe("verbal consent records (DB)", () => {
   });
 
   it("normalizes phone formatting variants onto one consent record", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const phone = nextPhone();
     const decorated = `+1 (${phone.slice(2, 5)}) ${phone.slice(5, 8)}-${phone.slice(8)}`;
 
@@ -279,7 +279,7 @@ describe("verbal consent records (DB)", () => {
   });
 
   it("rejects an ambiguous bare national number instead of guessing", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const outcome = await recordVerbalSmsConsent({
       businessId: bizAId,
       phoneNumber: "6165551234",
@@ -291,7 +291,7 @@ describe("verbal consent records (DB)", () => {
   });
 
   it("web-form consent stores booking id, source URL, and request metadata", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const phone = nextPhone();
 
     const outcome = await recordWebFormSmsConsent({
@@ -317,7 +317,7 @@ describe("verbal consent records (DB)", () => {
 
 describe("STOP / START consent sync (DB)", () => {
   it("STOP revokes consent and blocks future sends; START restores it", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const phone = nextPhone();
 
     await recordVerbalSmsConsent({
@@ -343,7 +343,7 @@ describe("STOP / START consent sync (DB)", () => {
   });
 
   it("a STOP for one business does not alter another business's records", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const phone = nextPhone();
 
     await recordVerbalSmsConsent({
@@ -370,7 +370,7 @@ describe("STOP / START consent sync (DB)", () => {
   });
 
   it("START never manufactures consent that did not previously exist", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const phone = nextPhone();
 
     // A verbal decline (no prior opt-in) must NOT flip to OPTED_IN on START —
@@ -391,7 +391,7 @@ describe("STOP / START consent sync (DB)", () => {
   });
 
   it("START scoped to Business B never restores Business A's revoked consent (cross-business)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const phone = nextPhone();
 
     await recordVerbalSmsConsent({
@@ -419,7 +419,7 @@ describe("STOP / START consent sync (DB)", () => {
 
 describe("central SMS authorization gate (DB)", () => {
   it("no SMS is sent without consent — suppressed with SMS_CONSENT_REQUIRED", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fetchMock = stubTwilioAccepting();
     const phone = nextPhone();
 
@@ -442,7 +442,7 @@ describe("central SMS authorization gate (DB)", () => {
   });
 
   it("sends after opt-in, and appends the STOP/HELP notice when missing", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fetchMock = stubTwilioAccepting();
     const phone = nextPhone();
 
@@ -492,7 +492,7 @@ describe("central SMS authorization gate (DB)", () => {
   });
 
   it("blocks sends after STOP with SMS_OPTED_OUT", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fetchMock = stubTwilioAccepting();
     const phone = nextPhone();
 
@@ -518,7 +518,7 @@ describe("central SMS authorization gate (DB)", () => {
   });
 
   it("consent for Business A does not allow Business B to text the same phone", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fetchMock = stubTwilioAccepting();
     const phone = nextPhone();
 
@@ -543,7 +543,7 @@ describe("central SMS authorization gate (DB)", () => {
   });
 
   it("a message with no business scope is never sent to a customer program", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fetchMock = stubTwilioAccepting();
 
     const outcome = await sendTrackedSms({
@@ -558,7 +558,7 @@ describe("central SMS authorization gate (DB)", () => {
   });
 
   it("a suppressed attempt never consumes the dedupe key of a later consented send", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fetchMock = stubTwilioAccepting();
     const phone = nextPhone();
     const dedupeKey = `${RUN}-dedupe-after-consent`;
@@ -595,7 +595,7 @@ describe("central SMS authorization gate (DB)", () => {
   });
 
   it("TEAM_NOTIFICATION and TEST_SMS remain exempt (owner/staff-directed)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fetchMock = stubTwilioAccepting();
 
     const team = await sendTrackedSms({

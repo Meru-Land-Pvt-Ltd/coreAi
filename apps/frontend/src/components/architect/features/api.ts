@@ -1123,7 +1123,7 @@ export function saveArchitectPayoutSchedule(body: ArchitectPayoutSchedule) {
 }
 
 /**
- * Downloads the architect's data export as a ZIP (excludes agent source code
+ * Downloads the architect's data export as readable text (excludes agent source code
  * and conversation logs). Triggers a browser download on success.
  */
 export async function downloadArchitectDataExport(): Promise<{ success: boolean; error?: string }> {
@@ -1132,13 +1132,13 @@ export async function downloadArchitectDataExport(): Promise<{ success: boolean;
       responseType: "blob"
     });
 
-    const blob = new Blob([response.data as BlobPart], { type: "application/zip" });
+    const blob = new Blob([response.data as BlobPart], { type: "text/plain;charset=utf-8" });
     const disposition =
       typeof response.headers?.["content-disposition"] === "string"
         ? response.headers["content-disposition"]
         : "";
     const match = /filename="?([^"]+)"?/.exec(disposition);
-    const filename = match?.[1] ?? `triven-architect-data-${new Date().toISOString().slice(0, 10)}.zip`;
+    const filename = match?.[1] ?? `triven-architect-data-${new Date().toISOString().slice(0, 10)}.txt`;
 
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");

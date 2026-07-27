@@ -44,7 +44,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.installedAgent.deleteMany({ where: { businessId } });
   await prisma.workflowDefinition.deleteMany({ where: { id: workflowId } });
   await prisma.businessProfile.deleteMany({ where: { businessId } });
@@ -54,7 +54,7 @@ afterAll(async () => {
 
 describe("pre-deploy test surfaces", () => {
   it("chat-test setup finds a PROVISIONING agent (Test step runs before Go Live)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const setup = await buildInstalledAgentChatTestSetup(businessId);
     expect(setup).not.toBeNull();
@@ -63,7 +63,7 @@ describe("pre-deploy test surfaces", () => {
   });
 
   it("prefers an ACTIVE agent over a PROVISIONING one when both exist", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const activeAgent = await prisma.installedAgent.create({
       data: { businessId, workflowId, name: `${RUN} active agent`, status: "ACTIVE" }
@@ -78,7 +78,7 @@ describe("pre-deploy test surfaces", () => {
   });
 
   it("paused agents are never testable", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     await prisma.installedAgent.update({
       where: { id: provisioningAgentId },

@@ -86,7 +86,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.vapiCall.deleteMany({ where: { businessId } });
   await prisma.appointment.deleteMany({ where: { businessId } });
   await prisma.lead.deleteMany({ where: { businessId } });
@@ -99,7 +99,7 @@ afterAll(async () => {
 
 describe("buildInstalledAgentRunStats", () => {
   it("counts LIVE calls + missed calls only — appointments and test calls never inflate runs", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const stats = await buildInstalledAgentRunStats(businessId, [{ id: agentAId, listingId: null }]);
     const agentStats = stats.get(agentAId);
@@ -112,7 +112,7 @@ describe("buildInstalledAgentRunStats", () => {
   });
 
   it("attributes shared events exactly once when several agents share phone links", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     agentBId = (
       await prisma.installedAgent.create({

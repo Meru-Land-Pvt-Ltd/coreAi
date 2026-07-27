@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { deleteUserWorkspace } from "../auth/workspace-deletion";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import {
   issueEmailVerificationCode,
@@ -18,7 +19,7 @@ import {
 } from "./danger-obligations";
 import { computeArchitectPayoutSummary } from "./settings-payout-summary";
 import { computeNextPayoutDate, normalizePayoutSchedule, payoutScheduleSchema } from "./payout-schedule";
-import { buildArchitectDataExportZip } from "./data-export";
+import { buildArchitectDataExportText } from "./data-export";
 import { pseudonymizeDisclosureConsentsForUser } from "../compliance/disclosure-consent";
 
 export const architectSettingsRoutes = new Hono();
@@ -601,11 +602,13 @@ architectSettingsRoutes.put("/payouts/schedule", async (c) => {
 architectSettingsRoutes.get("/data-export", async (c) => {
   try {
     const authUser = c.get("authUser");
-    const { filename, zip } = await buildArchitectDataExportZip(authUser.id);
+    const { filename, content } = await buildArchitectDataExportText(authUser.id);
 
-    c.header("Content-Type", "application/zip");
+    c.header("Content-Type", "text/plain; charset=utf-8");
     c.header("Content-Disposition", `attachment; filename="${filename}"`);
-    return c.body(zip);
+    c.header("Cache-Control", "no-store");
+    c.header("X-Content-Type-Options", "nosniff");
+    return c.body(content);
   } catch (error) {
     console.error("Architect data export failed", error);
     return errorResponse(c, "Could not export your data", 500, "DATA_EXPORT_FAILED");
@@ -822,9 +825,19 @@ architectSettingsRoutes.post("/danger/delete-account", async (c) => {
       console.error("[delete-account] consent pseudonymization failed (non-fatal)", error)
     );
 
-    await prisma.user.delete({ where: { id: authUser.id } });
+    /* Workspace-scoped: an account that is ALSO a buyer keeps its User row,
+       its businesses and its session — only the architect side goes. */
+    const result = await deleteUserWorkspace(authUser.id, "ARCHITECT");
 
-    return successResponse(c, { deleted: true }, "Account deleted");
+    return successResponse(
+      c,
+      {
+        deleted: true,
+        accountRemoved: result.accountRemoved,
+        remainingRoles: result.remainingRoles
+      },
+      result.accountRemoved ? "Account deleted" : "Architect workspace deleted"
+    );
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(c, error.issues[0]?.message ?? "Invalid delete request", 422, "VALIDATION_ERROR");

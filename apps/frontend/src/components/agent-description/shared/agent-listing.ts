@@ -217,43 +217,66 @@ export function formatRealInstallCount(installs: number): string {
   return String(Math.max(0, Math.floor(installs)));
 }
 
-function stringHash(str: string): number {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash * 33) ^ str.charCodeAt(i);
+export function formatPublicInstallCount(installs: number): string {
+  const realCount = Math.max(0, Math.floor(installs));
+  if (realCount <= 0) return "";
+
+  if (realCount >= 1000) {
+    const k = Math.round((realCount / 1000) * 10) / 10;
+    return `${k}K+`;
   }
-  return Math.abs(hash);
+
+  return `${realCount}+`;
 }
 
-/**
- * Public page: display real installs if present, or generate a realistic dynamic
- * social proof label per listing seed instead of a static fixed "1K".
- */
-export function formatPublicInstallCount(installs: number, seed?: string): string {
-  const realCount = Math.max(0, Math.floor(installs));
-  if (realCount > 0) {
-    if (realCount >= 1000) {
-      const k = Math.round((realCount / 1000) * 10) / 10;
-      return `${k}K+`;
-    }
-    return `${realCount}+`;
+const HTML_ENTITIES: Record<string, string> = {
+  "&nbsp;": " ",
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&apos;": "'",
+  "&rsquo;": "’",
+  "&lsquo;": "‘",
+  "&rdquo;": "”",
+  "&ldquo;": "“",
+  "&hellip;": "…",
+  "&mdash;": "—",
+  "&ndash;": "–"
+};
+
+export function htmlDescriptionToText(value: string): string {
+  if (!value) return "";
+  if (!/[<&]/.test(value)) return value.trim();
+
+  let text = value
+    .replace(/\r\n?/g, "\n")
+    .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+    .replace(/<\s*li[^>]*>/gi, "\n• ")
+    .replace(/<\s*\/\s*li\s*>/gi, "")
+    .replace(/<\s*\/\s*(p|div|ul|ol|h[1-6]|section|article)\s*>/gi, "\n\n")
+    .replace(/<[^>]*>/g, "");
+
+  for (const [entity, character] of Object.entries(HTML_ENTITIES)) {
+    text = text.split(entity).join(character);
   }
 
-  // Generate a dynamic social proof label per listing seed (e.g. 1.4K+, 2.3K+, 3.1K+)
-  const hash = seed ? stringHash(seed) : 1337;
-  const num = 1.2 + ((hash % 36) / 10); // Generates between 1.2 and 4.7
-  const rounded = Math.round(num * 10) / 10;
-  return `${rounded}K+`;
+  return text
+    .replace(/&#(\d+);/g, (_match, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 /** The long-form agent description shown in the "About this agent" section. */
 export function getAgentDescription(listing: ApiListing): string {
-  return (
+  return htmlDescriptionToText(
     listing.fullDescription?.trim() ||
-    listing.description?.trim() ||
-    listing.shortDescription?.trim() ||
-    listing.workflow?.description?.trim() ||
-    ""
+      listing.description?.trim() ||
+      listing.shortDescription?.trim() ||
+      listing.workflow?.description?.trim() ||
+      ""
   );
 }
 

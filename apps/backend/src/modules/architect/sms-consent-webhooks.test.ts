@@ -190,7 +190,7 @@ afterEach(() => {
 
 describe("Vapi record_sms_consent tool", () => {
   it("FAILS CLOSED when the disclosure was never spoken on the call (no transcript evidence)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const customer = nextPhone();
 
@@ -217,7 +217,7 @@ describe("Vapi record_sms_consent tool", () => {
   });
 
   it("a transcript WITHOUT the disclosure phrases also fails closed — arbitrary text is not proof", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const customer = nextPhone();
 
@@ -239,7 +239,7 @@ describe("Vapi record_sms_consent tool", () => {
   });
 
   it("caller-authored disclosure text can NEVER create OFFERED state (role spoofing)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const customer = nextPhone();
 
@@ -263,7 +263,7 @@ describe("Vapi record_sms_consent tool", () => {
   });
 
   it("OFFERED state persists across webhook retries mid-call, and is SPENT after a terminal decision", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const customer = nextPhone();
     const callId = `${RUN}-offered-1`;
@@ -302,7 +302,7 @@ describe("Vapi record_sms_consent tool", () => {
   });
 
   it("a clear yes records OPTED_IN consent scoped to the call's business", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const customer = nextPhone();
 
@@ -337,7 +337,7 @@ describe("Vapi record_sms_consent tool", () => {
   });
 
   it("a no records a decline and reports sms_allowed=false", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const customer = nextPhone();
 
@@ -362,7 +362,7 @@ describe("Vapi record_sms_consent tool", () => {
   });
 
   it("a missing/ambiguous affirmative value records nothing", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const app = buildApp();
     const customer = nextPhone();
 
@@ -399,7 +399,7 @@ describe("Vapi record_sms_consent tool", () => {
 
 describe("keyword handling on the shared platform sender", () => {
   it("STOP revokes consent for that phone and never auto-replies", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     env.TWILIO_VALIDATE_SIGNATURE = false;
     env.TWILIO_SHARED_SMS_NUMBER = SHARED_SENDER;
     const app = buildApp();
@@ -430,7 +430,7 @@ describe("keyword handling on the shared platform sender", () => {
   });
 
   it("START restores consent that was revoked by an SMS STOP", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     env.TWILIO_VALIDATE_SIGNATURE = false;
     env.TWILIO_SHARED_SMS_NUMBER = SHARED_SENDER;
     const app = buildApp();
@@ -461,7 +461,7 @@ describe("keyword handling on the shared platform sender", () => {
   });
 
   it("HELP returns support info only when app-level replies are enabled", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     env.TWILIO_VALIDATE_SIGNATURE = false;
     env.TWILIO_SHARED_SMS_NUMBER = SHARED_SENDER;
     const app = buildApp();
@@ -491,7 +491,7 @@ describe("keyword handling on the shared platform sender", () => {
 
 describe("keyword handling on a business-mapped number", () => {
   it("STOP is scoped to that business only and the AI never replies to it", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     env.TWILIO_VALIDATE_SIGNATURE = false;
     const app = buildApp();
     const customer = nextPhone();
@@ -535,7 +535,7 @@ describe("keyword handling on a business-mapped number", () => {
 
 describe("inbound-sms webhook signature validation stays enforced", () => {
   it("rejects an unsigned request when validation is enabled", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     env.TWILIO_VALIDATE_SIGNATURE = true;
     env.TWILIO_AUTH_TOKEN = AUTH_TOKEN;
     const app = buildApp();
@@ -549,7 +549,7 @@ describe("inbound-sms webhook signature validation stays enforced", () => {
   });
 
   it("accepts a correctly signed request", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     env.TWILIO_VALIDATE_SIGNATURE = true;
     env.TWILIO_AUTH_TOKEN = AUTH_TOKEN;
     const app = buildApp();

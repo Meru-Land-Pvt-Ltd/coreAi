@@ -96,6 +96,7 @@ export const VOICE_TOOL_NAMES = {
   bookAppointment: "book_appointment",
   cancelAppointment: "cancel_appointment",
   rescheduleAppointment: "reschedule_appointment",
+  updateAppointmentContact: "update_appointment_contact",
   sendNotification: "send_notification",
   recordSmsConsent: "record_sms_consent",
   lookupKnowledge: "lookup_knowledge"

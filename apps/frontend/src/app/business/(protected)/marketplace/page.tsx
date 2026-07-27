@@ -107,6 +107,7 @@ type ApiListing = {
   trialDays?: number | null;
   iconUrl?: string | null;
   includedFeatures?: string[];
+  capabilities?: string[];
 };
 
 type ListingsApiResponse = {
@@ -411,11 +412,9 @@ function getWhatYouGetItems(listing: ApiListing): string[] {
     .filter(Boolean);
   if (fromFeatures.length) return fromFeatures;
 
-  const nodes = listing.workflow?.workflowJson?.nodes ?? [];
-
-  const fromNodes = nodes
-    .map((node) => node.data?.label || node.data?.title)
-    .filter((value): value is string => Boolean(value?.trim()));
+  const fromNodes = (listing.capabilities ?? [])
+    .map((value) => value.trim())
+    .filter(Boolean);
 
   if (fromNodes.length) return fromNodes;
 
@@ -484,7 +483,7 @@ function AgentCardIcon({ iconUrl, size = 12 }: { iconUrl?: string | null; size?:
         className={`relative grid ${box} shrink-0 place-items-center overflow-hidden bg-amber-50 ring-1 ring-amber-100`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- listing icons may be data URLs */}
-        <img src={iconUrl} alt="" className="h-full w-full object-cover" />
+        <img src={iconUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
       </span>
     );
   }

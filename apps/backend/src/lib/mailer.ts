@@ -17,24 +17,10 @@ const contactLink = process.env.TRIVEN_CONTACT_URL ?? process.env.CORE_CONTACT_U
 const marketplaceLink = `${appUrl}/business/marketplace`;
 const checkoutLink = `${appUrl}/business/checkout`;
 
-// Hosted Triven wordmark served from the frontend's /public folder. Using a
-// remote <img> (rather than a CID attachment) keeps the logo out of the
-// "attachments" list while still showing the real brand mark.
 const logoUrl =
   process.env.TRIVEN_LOGO_URL ??
   `${appUrl}/triven.ai%20word%20logo%20transparent%20bg.PNG`;
 
-/**
- * All platform email goes out through Amazon SES. Every message picks its
- * sender identity by purpose; lib/mime.ts composes the raw MIME so
- * attachments (invoice PDFs) ride along in a single SES raw send.
- *
- * otp            → SES_FROM_NO_REPLY  (verification codes, no-reply)
- * billing        → SES_FROM_BILLING   (payments, invoices, reminders)
- * confirmation   → SES_FROM_CONFIRM   (assignment links & similar notices)
- * support        → SES_FROM_SUPPORT   (support conversations)
- * notification   → SES_FROM_NO_REPLY  (lifecycle mail: welcome, tips, ROI)
- */
 export type PlatformEmailPurpose = "otp" | "billing" | "confirmation" | "support" | "notification";
 
 type PlatformEmailAttachment = {
@@ -132,22 +118,38 @@ type SendVerificationEmailInput = {
   code: string;
   role: "BUSINESS" | "ARCHITECT";
   purpose?: VerificationEmailPurpose;
+  /** One-click sign-in link. Present for sign_in mail only. */
+  magicLinkUrl?: string;
 };
+
+export function buildMagicLinkUrl(token: string): string {
+  return `${appUrl}/magic-link?token=${encodeURIComponent(token)}`;
+}
 
 function verificationEmailCopy({
   purpose,
   roleLabel,
-  expirationMinutes
+  expirationMinutes,
+  magicLinkUrl
 }: {
   purpose: VerificationEmailPurpose;
   roleLabel: string;
   expirationMinutes: number;
+  magicLinkUrl?: string;
 }) {
   if (purpose === "email_update") {
     return {
       subject: `Confirm your new ${brandName} email: verification code`,
       previewText: `Confirm your new email address. This code expires in ${expirationMinutes} minutes.`,
       bodyText: `Your ${brandName} verification code is {code}. Use this code to confirm your new email address for your ${roleLabel} account. This code expires in ${expirationMinutes} minutes. ${brandName} will never ask you for this code. Do not share it with anyone.`
+    };
+  }
+
+  if (magicLinkUrl) {
+    return {
+      subject: `Sign in to ${brandName}`,
+      previewText: `Your secure sign-in link expires in ${expirationMinutes} minutes.`,
+      bodyText: `Sign in to ${brandName} as ${roleLabel} by opening this link:\n\n${magicLinkUrl}\n\nThe link expires in ${expirationMinutes} minutes and can be used once. If you're signing in on another device, open the link and it will show you a 6-digit code to enter there. If you didn't request this, you can ignore this email.`
     };
   }
 
@@ -162,13 +164,15 @@ export async function sendVerificationEmail({
   to,
   code,
   role,
-  purpose = "sign_in"
+  purpose = "sign_in",
+  magicLinkUrl
 }: SendVerificationEmailInput) {
   const roleLabel = role === "BUSINESS" ? "Business Owner" : "AI Architect";
   const copy = verificationEmailCopy({
     purpose,
     roleLabel,
-    expirationMinutes: verificationCodeExpirationMinutes
+    expirationMinutes: verificationCodeExpirationMinutes,
+    magicLinkUrl
   });
   const subject = copy.subject.replace("{code}", code);
   const text = copy.bodyText.replace("{code}", code);
@@ -177,6 +181,10 @@ export async function sendVerificationEmail({
     console.warn(
       `[mailer] SES is not configured. ${purpose === "email_update" ? "Email update" : "Sign-in"} verification code for ${to} (${roleLabel}): ${code}`
     );
+
+    if (magicLinkUrl) {
+      console.warn(`[mailer] Magic sign-in link for ${to}: ${magicLinkUrl}`);
+    }
 
     if (isProduction) {
       throw new Error("Email delivery is not configured on the server");
@@ -194,7 +202,8 @@ export async function sendVerificationEmail({
       code,
       roleLabel,
       expirationMinutes: verificationCodeExpirationMinutes,
-      purpose
+      purpose,
+      magicLinkUrl
     })
   });
 }
@@ -203,14 +212,16 @@ function buildVerificationEmailHtml({
   code,
   roleLabel,
   expirationMinutes,
-  purpose = "sign_in"
+  purpose = "sign_in",
+  magicLinkUrl
 }: {
   code: string;
   roleLabel: string;
   expirationMinutes: number;
   purpose?: VerificationEmailPurpose;
+  magicLinkUrl?: string;
 }) {
-  const copy = verificationEmailCopy({ purpose, roleLabel, expirationMinutes });
+  const copy = verificationEmailCopy({ purpose, roleLabel, expirationMinutes, magicLinkUrl });
   const safeCode = escapeHtml(code);
   const safeRoleLabel = escapeHtml(roleLabel);
   const safeExpirationMinutes = escapeHtml(String(expirationMinutes));
@@ -220,7 +231,70 @@ function buildVerificationEmailHtml({
   const safeBodyHtml =
     purpose === "email_update"
       ? `Use this code to confirm your new email address for your ${brandName} account as <strong>${safeRoleLabel}</strong>.`
-      : `Use this code to finish signing in to ${brandName} as <strong>${safeRoleLabel}</strong>.`;
+      : magicLinkUrl
+        ? `Click below to sign in to ${brandName} as <strong>${safeRoleLabel}</strong>. No password needed.`
+        : `Use this code to finish signing in to ${brandName} as <strong>${safeRoleLabel}</strong>.`;
+
+  const safeMagicLinkUrl = magicLinkUrl ? escapeHtml(magicLinkUrl) : "";
+
+  // Passwordless sign-in mail is link-only — the 6-digit fallback code is never
+  // printed here, it is revealed by the link's landing page. Everything else
+  // (email-change confirmations) keeps the original code block.
+  const bodyBlockHtml = magicLinkUrl
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 18px 0;">
+<tr>
+<td align="center">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="center" bgcolor="#f59e0b" style="border-radius:10px;background-image:linear-gradient(90deg,#f59e0b,#d97706);">
+<a href="${safeMagicLinkUrl}" target="_blank" style="display:inline-block;padding:15px 38px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:10px;">Sign in to ${brandName}</a>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+
+<p style="margin:0 0 6px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#94a3b8;">
+Button not working? Paste this into your browser:
+</p>
+
+<p style="margin:0 0 14px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;word-break:break-all;">
+<a href="${safeMagicLinkUrl}" target="_blank" style="color:#d97706;text-decoration:none;">${safeMagicLinkUrl}</a>
+</p>
+
+<p style="margin:0 0 12px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#94a3b8;">
+This link expires in ${safeExpirationMinutes} minutes and can be used once. Signing in on a different device? Open the link and it will show you a 6-digit code to enter there.
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #fde68a;border-radius:8px;overflow:hidden;background-color:#fffbeb;">
+<tr>
+<td width="4" style="width:4px;background-color:#f59e0b;font-size:0;line-height:0;">&nbsp;</td>
+<td style="padding:12px 16px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#92400e;">
+${brandName} will never ask you to forward this link. Don't share it with anyone.
+</td>
+</tr>
+</table>`
+    : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 18px 0;">
+<tr>
+<td align="center" style="padding:20px;background-color:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;">
+<span style="font-family:'Courier New',Courier,monospace;font-size:34px;font-weight:700;letter-spacing:8px;color:#111827;">${safeCode}</span>
+</td>
+</tr>
+</table>
+
+<p style="margin:0 0 12px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#94a3b8;">
+This code expires in ${safeExpirationMinutes} minutes.
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #fde68a;border-radius:8px;overflow:hidden;background-color:#fffbeb;">
+<tr>
+<td width="4" style="width:4px;background-color:#f59e0b;font-size:0;line-height:0;">&nbsp;</td>
+<td style="padding:12px 16px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#92400e;">
+${brandName} will never ask you for this code. Don't share it with anyone.
+</td>
+</tr>
+</table>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -257,26 +331,7 @@ ${emailLogoMarkup()}
 ${safeBodyHtml}
 </p>
 
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 18px 0;">
-<tr>
-<td align="center" style="padding:20px;background-color:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;">
-<span style="font-family:'Courier New',Courier,monospace;font-size:34px;font-weight:700;letter-spacing:8px;color:#111827;">${safeCode}</span>
-</td>
-</tr>
-</table>
-
-<p style="margin:0 0 12px 0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#94a3b8;">
-This code expires in ${safeExpirationMinutes} minutes.
-</p>
-
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #fde68a;border-radius:8px;overflow:hidden;background-color:#fffbeb;">
-<tr>
-<td width="4" style="width:4px;background-color:#f59e0b;font-size:0;line-height:0;">&nbsp;</td>
-<td style="padding:12px 16px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#92400e;">
-${brandName} will never ask you for this code. Don't share it with anyone.
-</td>
-</tr>
-</table>
+${bodyBlockHtml}
 </td>
 </tr>
 
@@ -310,10 +365,6 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
-// Real Triven wordmark rendered inline in the email header. Referenced by URL
-// (not a CID attachment) so it never shows up as an email attachment. The alt
-// text falls back to the brand name if the recipient blocks remote images.
-
 function emailLogoMarkup() {
   return `<img src="${logoUrl}" alt="${brandName}" height="30" style="display:inline-block;height:30px;width:auto;border:0;outline:none;text-decoration:none;" />`;
 }
@@ -332,8 +383,6 @@ ${emailLogoMarkup()}
 </tr>`;
 }
 
-// Minimal footer: brand name + Privacy / Help links only. No mailing address,
-// no unsubscribe link, no "AI Agent Platform" tagline.
 function buildEmailFooterRow() {
   return `<tr>
 <td style="padding:10px 32px 30px 32px;">
@@ -367,8 +416,13 @@ export type InvoiceData = {
   billingAddress?: string | null;
   paymentMethod?: string | null;
   transactionId?: string;
-  /** Fee breakdown rows (agent price + number fee); single description row when absent. */
-  lineItems?: Array<{ label: string; amountCents: number }>;
+  /** Itemized fee rows; quantity/unit-price metadata is optional for legacy invoices. */
+  lineItems?: Array<{
+    label: string;
+    amountCents: number;
+    quantity?: number;
+    unitPriceDisplay?: string;
+  }>;
 };
 
 type InvoiceStatusView = {
@@ -381,7 +435,7 @@ type InvoiceStatusView = {
 
 function invoiceStatusView(status: string): InvoiceStatusView {
   const value = (status || "").toUpperCase();
-  if (value === "SUCCEEDED" || value === "PAID") {
+  if (value === "SUCCEEDED" || value === "PAID" || value === "COMPLETED") {
     return {
       label: "PAID",
       badgeBg: "#dcfce7",
@@ -399,7 +453,7 @@ function invoiceStatusView(status: string): InvoiceStatusView {
       isPaid: false
     };
   }
-  if (value === "PENDING") {
+  if (value === "PENDING" || value === "OPEN") {
     return {
       label: "PENDING",
       badgeBg: "#dbeafe",
@@ -414,6 +468,24 @@ function invoiceStatusView(status: string): InvoiceStatusView {
       badgeBg: "#fee2e2",
       badgeText: "#b91c1c",
       balanceColor: "#dc2626",
+      isPaid: false
+    };
+  }
+  if (value === "OVERDUE") {
+    return {
+      label: "OVERDUE",
+      badgeBg: "#fee2e2",
+      badgeText: "#b91c1c",
+      balanceColor: "#dc2626",
+      isPaid: false
+    };
+  }
+  if (value === "REFUNDED" || value === "CANCELED" || value === "VOID") {
+    return {
+      label: value,
+      badgeBg: "#f1f5f9",
+      badgeText: "#475569",
+      balanceColor: "#64748b",
       isPaid: false
     };
   }
@@ -433,13 +505,37 @@ function formatInvoiceFullDate(date: Date) {
 function invoiceAmounts(invoice: InvoiceData) {
   const status = invoiceStatusView(invoice.status);
   const displayAmount = formatMoney(invoice.amountCents, invoice.currency);
-  const listPriceCents = invoice.listPriceCents ?? invoice.amountCents;
-  const amountPaid = status.isPaid
-    ? formatMoney(listPriceCents, invoice.currency)
-    : displayAmount;
-  const balanceDue = status.isPaid ? "$0.00" : displayAmount;
+  const zeroAmount = formatMoney(0, invoice.currency);
+  const closedWithoutBalance = ["REFUNDED", "CANCELED", "VOID"].includes(
+    (invoice.status || "").toUpperCase()
+  );
+  const amountPaid = status.isPaid ? displayAmount : zeroAmount;
+  const balanceDue = status.isPaid || closedWithoutBalance ? zeroAmount : displayAmount;
 
   return { status, displayAmount, amountPaid, balanceDue };
+}
+
+function invoiceLineItemValues(
+  item: NonNullable<InvoiceData["lineItems"]>[number],
+  currency: string
+) {
+  const quantity =
+    typeof item.quantity === "number" && Number.isFinite(item.quantity) && item.quantity > 0
+      ? item.quantity
+      : 1;
+  const quantityDisplay = new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 6
+  }).format(quantity);
+  const unitPrice =
+    item.unitPriceDisplay?.trim() ||
+    formatMoney(item.amountCents / quantity, currency);
+
+  return {
+    label: item.label,
+    quantity: quantityDisplay,
+    unitPrice,
+    amount: formatMoney(item.amountCents, currency)
+  };
 }
 
 /** Matches the billing invoice detail page card — used in emails, HTML, and PDF. */
@@ -467,18 +563,16 @@ export function buildInvoiceCardHtml(
   // otherwise the single description row shown historically.
   const lineItems =
     invoice.lineItems && invoice.lineItems.length > 0
-      ? invoice.lineItems.map((item) => ({
-          label: escapeHtml(item.label),
-          amount: formatMoney(item.amountCents, invoice.currency)
-        }))
-      : [{ label: description, amount: displayAmount }];
+      ? invoice.lineItems.map((item) => invoiceLineItemValues(item, invoice.currency))
+      : [{ label: invoice.description || invoice.agentName || "Agent purchase", amountCents: invoice.amountCents }]
+          .map((item) => invoiceLineItemValues(item, invoice.currency));
   const lineItemRows = lineItems
     .map(
       (item, index) => `<tr style="border-bottom:1px solid #f1f5f9;">
 <td style="padding:12px;color:#64748b;">${index + 1}</td>
-<td style="padding:12px;color:#0f172a;">${item.label}</td>
-<td align="right" style="padding:12px;color:#0f172a;">1</td>
-<td align="right" style="padding:12px;color:#0f172a;">${item.amount}</td>
+<td style="padding:12px;color:#0f172a;">${escapeHtml(item.label)}</td>
+<td align="right" style="padding:12px;color:#0f172a;">${escapeHtml(item.quantity)}</td>
+<td align="right" style="padding:12px;color:#0f172a;">${escapeHtml(item.unitPrice)}</td>
 <td align="right" style="padding:12px;font-weight:600;color:#0f172a;">${item.amount}</td>
 </tr>`
     )
@@ -697,15 +791,22 @@ export function buildInvoicePdfBuffer(invoice: InvoiceData): Promise<Buffer> {
       const cardLeft = margin;
       let y = margin;
 
-      // Card container
-      doc.roundedRect(cardLeft, y, cardWidth, 720, 12).lineWidth(1).strokeColor("#e2e8f0").stroke();
+      const drawCardContainer = () => {
+        doc
+          .save()
+          .rect(0, 0, doc.page.width, doc.page.height)
+          .fill("#ffffff")
+          .restore();
+        doc
+          .save()
+          .roundedRect(cardLeft, margin, cardWidth, doc.page.height - margin * 2, 12)
+          .lineWidth(1)
+          .fillAndStroke("#ffffff", "#e2e8f0")
+          .restore();
+      };
 
-      // Watermark
-      doc
-        .fillColor("#f1f5f9")
-        .font("Helvetica-Bold")
-        .fontSize(72)
-        .text("INVOICE", cardLeft + cardWidth - 210, y + 24, { width: 200, align: "right" });
+      // Card container
+      drawCardContainer();
 
       const innerX = cardLeft + 40;
       const innerRight = cardLeft + cardWidth - 40;
@@ -775,27 +876,67 @@ export function buildInvoicePdfBuffer(invoice: InvoiceData): Promise<Buffer> {
 
       y = billY + 20;
 
-      // Table header
-      doc.rect(innerX, y, innerRight - innerX, 22).fill("#f8fafc");
-      doc.fillColor("#475569").font("Helvetica-Bold").fontSize(9);
-      doc.text("#", innerX + 8, y + 7, { width: 20 });
-      doc.text("Description", innerX + 32, y + 7, { width: 220 });
-      doc.text("Qty", innerX + 280, y + 7, { width: 30, align: "right" });
-      doc.text("Unit Price", innerX + 320, y + 7, { width: 70, align: "right" });
-      doc.text("Amount", innerX + 400, y + 7, { width: innerRight - innerX - 408, align: "right" });
-
-      y += 22;
       const description = invoice.description || invoice.agentName || "Agent purchase";
-      doc.fillColor("#64748b").font("Helvetica").fontSize(10).text("1", innerX + 8, y + 10, { width: 20 });
-      doc.fillColor("#0f172a").text(description, innerX + 32, y + 10, { width: 220 });
-      doc.text("1", innerX + 280, y + 10, { width: 30, align: "right" });
-      doc.text(displayAmount, innerX + 320, y + 10, { width: 70, align: "right" });
-      doc.font("Helvetica-Bold").text(displayAmount, innerX + 400, y + 10, {
-        width: innerRight - innerX - 408,
-        align: "right"
+      const lineItems =
+        invoice.lineItems && invoice.lineItems.length > 0
+          ? invoice.lineItems
+          : [{ label: description, amountCents: invoice.amountCents }];
+
+      const drawTableHeader = () => {
+        doc.rect(innerX, y, innerRight - innerX, 22).fill("#f8fafc");
+        doc.fillColor("#475569").font("Helvetica-Bold").fontSize(9);
+        doc.text("#", innerX + 8, y + 7, { width: 20 });
+        doc.text("Description", innerX + 32, y + 7, { width: 220 });
+        doc.text("Qty", innerX + 280, y + 7, { width: 30, align: "right" });
+        doc.text("Unit Price", innerX + 320, y + 7, { width: 70, align: "right" });
+        doc.text("Amount", innerX + 400, y + 7, {
+          width: innerRight - innerX - 408,
+          align: "right"
+        });
+        y += 22;
+      };
+
+      const beginContinuationPage = () => {
+        doc.addPage();
+        drawCardContainer();
+        y = margin + 24;
+        doc
+          .fillColor("#94a3b8")
+          .font("Helvetica-Bold")
+          .fontSize(16)
+          .text("INVOICE - CONTINUED", innerX, y);
+        doc
+          .fillColor("#475569")
+          .font("Helvetica")
+          .fontSize(10)
+          .text(`#${invoice.invoiceNumber}`, innerX, y + 22);
+        y += 52;
+        drawTableHeader();
+      };
+
+      drawTableHeader();
+      lineItems.forEach((item, index) => {
+        doc.font("Helvetica").fontSize(10);
+        const rowHeight = Math.max(32, doc.heightOfString(item.label, { width: 220 }) + 18);
+        if (y + rowHeight > doc.page.height - margin - 215) {
+          beginContinuationPage();
+        }
+
+        const values = invoiceLineItemValues(item, invoice.currency);
+        doc.fillColor("#64748b").font("Helvetica").fontSize(10).text(String(index + 1), innerX + 8, y + 9, {
+          width: 20
+        });
+        doc.fillColor("#0f172a").text(values.label, innerX + 32, y + 9, { width: 220 });
+        doc.text(values.quantity, innerX + 280, y + 9, { width: 30, align: "right" });
+        doc.text(values.unitPrice, innerX + 320, y + 9, { width: 70, align: "right" });
+        doc.font("Helvetica-Bold").text(values.amount, innerX + 400, y + 9, {
+          width: innerRight - innerX - 408,
+          align: "right"
+        });
+        y += rowHeight;
+        doc.moveTo(innerX, y).lineTo(innerRight, y).strokeColor("#f1f5f9").stroke();
       });
 
-      y += 36;
       doc.moveTo(innerX, y).lineTo(innerRight, y).strokeColor("#f1f5f9").stroke();
       y += 18;
 
@@ -1236,6 +1377,171 @@ function primaryButton(href: string, label: string) {
 
 function secondaryButton(href: string, label: string) {
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;"><tr><td align="center" bgcolor="#ffffff" style="border-radius:8px;border:1px solid #fcd34d;"><a href="${href}" target="_blank" style="display:inline-block;padding:11px 28px;${emailBodyStyle}font-size:15px;font-weight:600;color:#b45309;text-decoration:none;border-radius:8px;">${label}</a></td></tr></table>`;
+}
+
+export function buildTrialEndedEmailHtml({
+  agentName,
+  trialEndDate,
+  myAgentsLink
+}: {
+  agentName: string;
+  trialEndDate: string;
+  myAgentsLink: string;
+}) {
+  const safeAgentName = escapeHtml(agentName);
+  const safeTrialEndDate = escapeHtml(trialEndDate);
+  const safeMyAgentsLink = escapeHtml(myAgentsLink);
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<p style="margin:0 0 16px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Your ${brandName} trial for <strong>${safeAgentName}</strong> ended on <strong>${safeTrialEndDate}</strong>. Your data is safe. Choose a plan to continue using your agent.</p>
+${primaryButton(safeMyAgentsLink, "Choose a plan")}
+</td>
+</tr>`;
+
+  return emailShell(
+    "Your trial ended, but your data is safe.",
+    "Your trial has expired",
+    inner
+  );
+}
+
+export type AppointmentBookedEmailDetails = {
+  businessName: string;
+  appointmentId: string;
+  customerName?: string | null;
+  customerPhone: string;
+  service?: string | null;
+  providerName?: string | null;
+  startAt: Date;
+  endAt: Date;
+  timeZone?: string | null;
+  appointmentLink?: string | null;
+};
+
+type SendAppointmentBookedEmailInput = AppointmentBookedEmailDetails & {
+  to: string;
+};
+
+function appointmentEmailTimeZone(timeZone?: string | null) {
+  const requested = timeZone?.trim() || "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: requested }).format(new Date());
+    return requested;
+  } catch {
+    return "UTC";
+  }
+}
+
+function appointmentEmailDisplay(details: AppointmentBookedEmailDetails) {
+  const timeZone = appointmentEmailTimeZone(details.timeZone);
+  const date = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone
+  }).format(details.startAt);
+  const time = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+    timeZone
+  }).format(details.startAt);
+  const durationMinutes = Math.max(
+    0,
+    Math.round((details.endAt.getTime() - details.startAt.getTime()) / 60_000)
+  );
+
+  return {
+    customerName: details.customerName?.trim() || "Customer",
+    service: details.service?.trim() || "Appointment",
+    providerName: details.providerName?.trim() || null,
+    date,
+    time,
+    duration: durationMinutes === 1 ? "1 minute" : `${durationMinutes} minutes`,
+    timeZone
+  };
+}
+
+function appointmentEmailDestination(appointmentLink?: string | null) {
+  const dashboardLink = `${appUrl}/business/dashboard`;
+  const candidate = appointmentLink?.trim();
+  if (!candidate) return dashboardLink;
+
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+      ? parsed.toString()
+      : dashboardLink;
+  } catch {
+    return dashboardLink;
+  }
+}
+
+export function buildAppointmentBookedEmailHtml(details: AppointmentBookedEmailDetails) {
+  const display = appointmentEmailDisplay(details);
+  const destination = appointmentEmailDestination(details.appointmentLink);
+  const detailRow = (label: string, value: string) =>
+    `<tr><td valign="top" width="145" style="padding:7px 12px 7px 0;${emailBodyStyle}font-size:13px;font-weight:600;line-height:1.5;color:#64748b;">${escapeHtml(label)}</td><td valign="top" style="padding:7px 0;${emailBodyStyle}font-size:14px;font-weight:500;line-height:1.5;color:#111827;word-break:break-word;">${escapeHtml(value)}</td></tr>`;
+
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<p style="margin:0 0 7px 0;${emailBodyStyle}font-size:20px;font-weight:700;line-height:1.4;color:#111827;">New appointment booked</p>
+<p style="margin:0 0 18px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">A new appointment has been booked for <strong>${escapeHtml(details.businessName)}</strong>. Here are the details your team needs.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">
+<tr><td style="padding:14px 18px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+${detailRow("Customer", display.customerName)}
+${detailRow("Phone", details.customerPhone)}
+${detailRow("Service", display.service)}
+${detailRow("Date", display.date)}
+${detailRow("Time", display.time)}
+${detailRow("Duration", display.duration)}
+${display.providerName ? detailRow("Team member", display.providerName) : ""}
+${detailRow("Booking reference", details.appointmentId)}
+</table>
+</td></tr>
+</table>
+${primaryButton(escapeHtml(destination), "View appointment")}
+<p style="margin:0 0 12px 0;${emailBodyStyle}font-size:13px;line-height:1.6;color:#94a3b8;">Please review the appointment and prepare for the customer. This notification was sent automatically by ${brandName}.</p>
+</td>
+</tr>`;
+
+  return emailShell(
+    `${escapeHtml(display.customerName)} booked ${escapeHtml(display.service)} for ${escapeHtml(display.date)}.`,
+    "New appointment booked",
+    inner
+  );
+}
+
+export async function sendAppointmentBookedEmail({
+  to,
+  ...details
+}: SendAppointmentBookedEmailInput) {
+  const display = appointmentEmailDisplay(details);
+  const destination = appointmentEmailDestination(details.appointmentLink);
+  const textRows = [
+    `A new appointment has been booked for ${details.businessName}.`,
+    "",
+    `Customer: ${display.customerName}`,
+    `Phone: ${details.customerPhone}`,
+    `Service: ${display.service}`,
+    `Date: ${display.date}`,
+    `Time: ${display.time}`,
+    `Duration: ${display.duration}`,
+    ...(display.providerName ? [`Team member: ${display.providerName}`] : []),
+    `Booking reference: ${details.appointmentId}`,
+    "",
+    `View appointment: ${destination}`
+  ];
+
+  await sendPlatformEmail({
+    purpose: "notification",
+    to,
+    subject: `New appointment booked: ${display.customerName} — ${display.service}`,
+    text: textRows.join("\n"),
+    html: buildAppointmentBookedEmailHtml(details)
+  });
 }
 
 // --- 1) Welcome email (sent on a buyer's first login) ----------------------

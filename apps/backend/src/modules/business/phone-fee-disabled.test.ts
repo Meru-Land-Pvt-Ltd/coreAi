@@ -40,7 +40,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (!dbAvailable) return;
+  if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
   await prisma.platformPhoneNumber.deleteMany({ where: { id: numberId } });
   await prisma.user.deleteMany({ where: { id: ownerId } });
 });
@@ -51,19 +51,19 @@ describe("AI Receptionist number fee is fully disabled", () => {
   });
 
   it("getPhoneNumberFee returns zero regardless of admin pricing rows", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const fee = await getPhoneNumberFee();
     expect(fee.amountCents).toBe(0);
   });
 
   it("an assigned, never-billed number adds NO fee to a purchase", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const unbilled = await resolveUnbilledPhoneFee({ buyerUserId: ownerId });
     expect(unbilled).toBeNull();
   });
 
   it("a $2 listing produces a single $2 line item — the buyer total equals the listing price", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const unbilled = await resolveUnbilledPhoneFee({ buyerUserId: ownerId });
 
     const lineItems = buildAgentPurchaseLineItems({

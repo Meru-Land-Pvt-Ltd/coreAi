@@ -24,6 +24,7 @@ import {
   BUSINESS_ONBOARDING_PATH,
   resolveBusinessLoginReturnPath
 } from "@/lib/routes";
+import { getLoginDeviceId, setPendingLoginNext, setPendingLoginRole } from "@/lib/login-device";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 
@@ -173,9 +174,15 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
   }
 
   async function sendVerificationCode(targetEmail: string) {
+    // The device id lets the emailed link sign this browser straight in; the
+    // return path is stashed so a link opened in a new tab still honours ?next=.
+    setPendingLoginNext(returnPath);
+    setPendingLoginRole(role);
+
     const result = await apiPost<unknown>("/auth/send-verification-code", {
       email: targetEmail,
-      role
+      role,
+      deviceId: getLoginDeviceId() ?? undefined
     });
 
     if (!result.success) {
@@ -537,7 +544,7 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
                   </h1>
 
                   <p className="mt-2 text-sm text-slate-600 text-center" data-testid="auth-auth-card-login-with-email-otp-or-google-text">
-                    Login with email OTP or Google
+                    Sign in with a secure email link or Google
                   </p>
 
                   <button
@@ -609,12 +616,12 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
                       disabled={isSending || isGoogleLoading}
                       className="mt-4 w-full py-3 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600 active:scale-[0.99] transition duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      {isSending ? "Sending..." : "Send Verification Code"}
+                      {isSending ? "Sending..." : "Continue"}
                     </button>
                   </form>
 
                   <p data-testid="components-auth-auth-card-p-4" className="mt-4 text-xs text-slate-400 text-center leading-relaxed">
-                    We&apos;ll send a 6-digit code to verify your email. No password needed.
+                    We&apos;ll email you a secure sign-in link. No password needed.
                   </p>
                 </div>
               ) : null}
@@ -626,8 +633,13 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
                   </h1>
 
                   <p className="mt-2 text-sm text-slate-600 text-center" data-testid="auth-auth-card-we-sent-a-code-to-email-text">
-                    We sent a code to{" "}
+                    We sent a sign-in link to{" "}
                     <span className="font-semibold text-slate-900" data-testid="auth-auth-card-email-text">{email}</span>
+                  </p>
+
+                  <p className="mt-2 text-xs text-slate-400 text-center leading-relaxed" data-testid="auth-auth-card-magic-link-hint-text">
+                    Click it and you&apos;ll be signed in automatically. Opening it on another
+                    device? It shows a 6-digit code — enter it below.
                   </p>
 
                   <div
@@ -679,7 +691,7 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
                       disabled={secondsLeft > 0 || isSending}
                       className="text-amber-600 font-medium hover:text-amber-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Resend code{" "}
+                      Resend link{" "}
                       {secondsLeft > 0 ? <span data-testid="auth-auth-card-seconds-left-s-text">({secondsLeft}s)</span> : null}
                     </button>
 

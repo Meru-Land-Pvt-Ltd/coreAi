@@ -317,7 +317,10 @@ describe("consent-status synchronization through booking", () => {
     expect(result.consentStatus).toBe("none");
     expect(result.requiredDisclosure).toBe(verbalSmsConsentDisclosure(fixture.businessName));
     expect(String(result.message)).toContain("WORD-FOR-WORD");
-    expect(result.customerSafeMessage).toContain("couldn't send");
+    // Booking DEFERS the text until consent — it never claims a send, and the
+    // caller-safe line offers the text rather than saying it failed.
+    expect(result.customerSafeMessage).toContain("text confirmation if you'd like");
+    expect(result.smsAttempted).toBe(false);
     expect(sendTwilioSmsMock).not.toHaveBeenCalled();
   }, 40000);
 

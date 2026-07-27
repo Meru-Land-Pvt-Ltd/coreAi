@@ -198,14 +198,20 @@ async function upsertConsentDecision(input: {
 }
 
 export async function recordVerbalSmsConsent(
-  input: RecordConsentBase & { vapiCallId: string | null; affirmative: boolean }
+  input: RecordConsentBase & {
+    vapiCallId: string | null;
+    affirmative: boolean;
+    /** Binds the consent row to the appointment so recipients reconcile. */
+    appointmentId?: string | null;
+  }
 ): Promise<RecordConsentOutcome> {
   return upsertConsentDecision({
     base: input,
     method: "VERBAL_CALL",
     affirmative: input.affirmative,
     disclosureText: verbalSmsConsentDisclosure(input.businessName),
-    vapiCallId: input.vapiCallId
+    vapiCallId: input.vapiCallId,
+    appointmentId: input.appointmentId ?? null
   });
 }
 

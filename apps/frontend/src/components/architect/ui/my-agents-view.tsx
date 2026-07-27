@@ -597,19 +597,19 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
 
   return (
     <div className="ma-band ma-live-band grid grid-cols-3 gap-3 border-t border-gray-100 bg-gray-50 px-5 py-3">
-      <div className="min-w-0 rounded-xl px-3  shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="min-w-0 rounded-xl px-3">
         <div className="text-[11px] font-medium capitalize tracking-wide text-slate-400">Executions</div>
         <div className=" text-sm font-bold text-slate-900" data-testid={`my-agents-executions-${agent.id}`}>
           {executions.toLocaleString("en-US")}
         </div>
       </div>
-      <div className="min-w-0 rounded-xl  px-3  shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="min-w-0 rounded-xl px-3">
         <div className="text-[11px] font-medium capitalize tracking-wide text-slate-400">Revenue</div>
         <div className=" text-sm font-bold text-amber-600" data-testid={`my-agents-revenue-${agent.id}`}>
           {formatUsdFromCents(revenue)}
         </div>
       </div>
-      <div className="min-w-0 rounded-xl  px-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      <div className="min-w-0 rounded-xl px-3">
         <div className="text-[11px] font-medium capitalize tracking-wide text-slate-400">Installs</div>
         <div className=" text-sm font-bold text-slate-900" data-testid={`my-agents-installs-${agent.id}`}>
           {installs.toLocaleString("en-US")}
@@ -2142,15 +2142,6 @@ export function MyAgentsView() {
             <TrendFooter direction={executionsTrendDirection} testId="my-agents-stats-executions-trend">
               {executionsTrendText}
             </TrendFooter>
-            <p className="mt-1 text-xs font-semibold text-slate-400" data-testid="my-agents-stats-period-executions">
-              Period: {stats.periodExecutionCount ?? stats.executionsThisMonth}
-            </p>
-            <p className="mt-0.5 text-xs font-semibold text-slate-400" data-testid="my-agents-stats-lifetime-executions">
-              Lifetime: {stats.lifetimeExecutionCount ?? stats.totalExecutions}
-              {typeof stats.excludedPausedInstallationCount === "number" && stats.excludedPausedInstallationCount > 0
-                ? ` · ${stats.excludedPausedInstallationCount} paused install${stats.excludedPausedInstallationCount === 1 ? "" : "s"} excluded`
-                : ""}
-            </p>
           </div>
 
           {/* Total approved earnings — same value as the Payouts page. */}

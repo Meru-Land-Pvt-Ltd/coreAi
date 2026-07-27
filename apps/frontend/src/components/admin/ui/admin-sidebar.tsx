@@ -10,6 +10,7 @@ import {
   CircleDollarSign,
   FileInput,
   Gauge,
+  LifeBuoy,
   LogOut,
   Mail,
   MessageSquareText,
@@ -57,7 +58,8 @@ const NAV_GROUPS: Array<{ label: string; items: AdminNavItem[] }> = [
     label: "Requests",
     items: [
       { label: "Template requests", href: "/admin/templetrequests" as Route, icon: FileInput },
-      { label: "Contact messages", href: "/admin/contactus" as Route, icon: MessageSquareText }
+      { label: "Contact messages", href: "/admin/contactus" as Route, icon: MessageSquareText },
+      { label: "Need help", href: "/admin/needhelp" as Route, icon: LifeBuoy }
     ]
   }
 ];

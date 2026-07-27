@@ -27,7 +27,7 @@ let genAiClient: unknown = null;
 async function getClient() {
   if (!genAiClient) {
     const { GoogleGenAI } = await import("@google/genai");
-    genAiClient = new GoogleGenAI({ apiKey: env.GOOGLE_AI_API_KEY });
+    genAiClient = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return genAiClient as any;
@@ -58,7 +58,7 @@ class GeminiAdapter implements AIProviderAdapter {
   }
 
   async validate(): Promise<ValidationResult> {
-    return checkEnvKey("GOOGLE_AI_API_KEY");
+    return checkEnvKey("GEMINI_API_KEY");
   }
 
   async execute(request: AIExecuteRequest): Promise<AIExecuteResponse> {

@@ -190,7 +190,7 @@ describe("buildAgentSystemPrompt emotional support", () => {
     const prompt = buildAgentSystemPrompt(
       baseInput({ capabilities: { canCheckAvailability: true, canBook: true, canText: false, canEmail: true } })
     );
-    expect(prompt).toContain("Offer an email confirmation and collect the caller's email address");
+    expect(prompt).toContain("Offer email confirmation and collect the caller's email address");
     expect(prompt).not.toContain("SMS consent rules");
     expect(prompt).not.toContain("record_sms_consent");
   });

@@ -36,10 +36,16 @@ const stripeMocks = vi.hoisted(() => {
   return { fakeStripe, paymentIntentsCreate };
 });
 
-vi.mock("./stripe", () => ({
-  getStripeClient: () => stripeMocks.fakeStripe,
-  isStripeConfigured: () => true
-}));
+vi.mock("./stripe", async (importOriginal) => {
+  // Keep the real pure helpers (e.g. attachOrReusePaymentMethod, which just
+  // drives the client) and override only the client accessors with the fake.
+  const actual = await importOriginal<typeof import("./stripe")>();
+  return {
+    ...actual,
+    getStripeClient: () => stripeMocks.fakeStripe,
+    isStripeConfigured: () => true
+  };
+});
 
 import { createAuthToken } from "../../lib/jwt";
 import { prisma } from "../../lib/prisma";
@@ -192,7 +198,7 @@ beforeEach(() => {
 
 describe("free agent installation (DB)", () => {
   it("installs immediately with no Payment record and reuses the install on repeat", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const first = await authedPost("/payments/purchase", {
       listingId: freeListingId,
@@ -240,7 +246,7 @@ describe("free agent installation (DB)", () => {
   });
 
   it("listing-access reports the free install as active access (no repeat trial offers)", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const response = await authedGet(`/payments/listing-access/${freeListingId}`);
     expect(response.status).toBe(200);
@@ -253,7 +259,7 @@ describe("free agent installation (DB)", () => {
   });
 
   it("shows the free install on My Agents as a valid acquisition", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const response = await authedGet("/payments/my-agents");
     expect(response.status).toBe(200);
@@ -275,7 +281,7 @@ describe("free agent installation (DB)", () => {
 
 describe("free-trial installation (DB)", () => {
   it("starts one trial, auto-installs it, and blocks a second trial forever", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const first = await authedPost("/payments/start-trial", {
       listingId: trialListingId,
@@ -332,7 +338,7 @@ describe("free-trial installation (DB)", () => {
 
 describe("paid agent installation (DB)", () => {
   it("does not install anything when the charge is incomplete or fails", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     stripeMocks.paymentIntentsCreate.mockResolvedValue({
       id: "pi_test_incomplete",
@@ -359,7 +365,7 @@ describe("paid agent installation (DB)", () => {
   });
 
   it("installs automatically after a confirmed charge; repeated callbacks stay deduplicated", async () => {
-    if (!dbAvailable) return;
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     stripeMocks.paymentIntentsCreate.mockResolvedValue({
       id: "pi_test_success_1",

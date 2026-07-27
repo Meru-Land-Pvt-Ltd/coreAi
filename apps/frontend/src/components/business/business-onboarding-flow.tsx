@@ -5,6 +5,7 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
+import { clearBusinessOnboardingStatusCache } from "@/lib/business-onboarding-status";
 import { BusinessHoursSection } from "@/components/business/business-hours-section";
 import { BUSINESS_MARKETPLACE_PATH, businessAgentDetailPath } from "@/lib/routes";
 import { BriefcaseBusiness, Rocket, TrendingUp } from "lucide-react";
@@ -321,6 +322,7 @@ export function BusinessOnboardingFlow() {
       if (response.success && response.data) {
         setForm((current) => ({ ...current, ...response.data!.data }));
         setRecommendations(response.data.recommendations ?? []);
+        clearBusinessOnboardingStatusCache();
       }
       console.log("persist result:", response);
       return response.success;

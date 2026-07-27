@@ -64,6 +64,25 @@ button:disabled {
   border-radius: 999px;
 }
 
+.activity-scrollbar {
+  scrollbar-color: #a3a3a3 #f1f1f1;
+  scrollbar-width: thin;
+}
+
+.activity-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.activity-scrollbar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 999px;
+}
+
+.activity-scrollbar::-webkit-scrollbar-thumb {
+  background: #a3a3a3;
+  border-radius: 999px;
+}
+
 .admin-workspace > div > header h1 {
   letter-spacing: 0;
 }
