@@ -230,13 +230,52 @@ export function formatPublicInstallCount(installs: number): string {
 }
 
 /** The long-form agent description shown in the "About this agent" section. */
+const HTML_ENTITIES: Record<string, string> = {
+  "&nbsp;": " ",
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&apos;": "'",
+  "&rsquo;": "’",
+  "&lsquo;": "‘",
+  "&rdquo;": "”",
+  "&ldquo;": "“",
+  "&hellip;": "…",
+  "&mdash;": "—",
+  "&ndash;": "–"
+};
+
+export function htmlDescriptionToText(value: string): string {
+  if (!value) return "";
+  if (!/[<&]/.test(value)) return value.trim();
+
+  let text = value
+    .replace(/\r\n?/g, "\n")
+    .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+    .replace(/<\s*li[^>]*>/gi, "\n• ")
+    .replace(/<\s*\/\s*(p|div|li|ul|ol|h[1-6]|section|article)\s*>/gi, "\n\n")
+    .replace(/<[^>]*>/g, "");
+
+  for (const [entity, character] of Object.entries(HTML_ENTITIES)) {
+    text = text.split(entity).join(character);
+  }
+
+  return text
+    .replace(/&#(\d+);/g, (_match, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function getAgentDescription(listing: ApiListing): string {
-  return (
+  return htmlDescriptionToText(
     listing.fullDescription?.trim() ||
-    listing.description?.trim() ||
-    listing.shortDescription?.trim() ||
-    listing.workflow?.description?.trim() ||
-    ""
+      listing.description?.trim() ||
+      listing.shortDescription?.trim() ||
+      listing.workflow?.description?.trim() ||
+      ""
   );
 }
 

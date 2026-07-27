@@ -21,6 +21,7 @@ import { NeedHelpModal } from "@/components/common/need-help-modal";
 import {
   formatPublicInstallCount,
   getAgentDescription,
+  htmlDescriptionToText,
   getIncludedItems,
   getListingAuthor,
   getListingCategory,
@@ -35,11 +36,6 @@ const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 const BUSINESS_LOGIN_PATH = "/business/login" as Route;
 const ARCHITECT_LOGIN_PATH = "/architect/login" as Route;
 
-/**
- * "More agents businesses love" is intentionally absent from the public share
- * page — the shared view hides that section when the list is empty. The
- * logged-in business page still passes real listings and keeps showing it.
- */
 const NO_SIMILAR_AGENTS: SimilarListing[] = [];
 
 const LOADING_STYLES = `
@@ -225,12 +221,13 @@ export default function PublicAgentDescriptionPage() {
         ? "One-time purchase · Usage charges apply"
         : "Monthly subscription · Usage charges billed separately";
 
-  const heroDescription =
+  const heroDescription = htmlDescriptionToText(
     listing.shortDescription ||
-    listing.tagline ||
-    listing.description ||
-    listing.workflow?.description ||
-    "";
+      listing.tagline ||
+      listing.description ||
+      listing.workflow?.description ||
+      ""
+  );
 
   const howItWorksSteps = getHowItWorksSteps(listing.requiredConnectors, listing.workflow?.workflowJson);
 

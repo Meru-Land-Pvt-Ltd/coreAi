@@ -132,6 +132,10 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
   const [isSending, setIsSending] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  /* The emailed message contains ONLY a link. The 6-digit code exists purely
+     for the cross-device case, where the link is opened somewhere other than
+     the browser that asked for it, so the boxes stay hidden until asked for. */
+  const [showCodeEntry, setShowCodeEntry] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const currentYear = new Date().getFullYear();
 
@@ -167,6 +171,7 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
     setOtp(["", "", "", "", "", ""]);
     setError("");
     setSecondsLeft(0);
+    setShowCodeEntry(false);
 
     router.replace(roleContent[nextRole].loginPath, {
       scroll: false
@@ -209,10 +214,9 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
       setEmail(cleanEmail);
       setStep(2);
       setSecondsLeft(60);
-
-      window.setTimeout(() => {
-        otpRefs.current[0]?.focus();
-      }, 80);
+      /* No focus grab: the code boxes start hidden and are focused only when
+         the caller opens the other-device path. */
+      setShowCodeEntry(false);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to send verification code"
@@ -462,6 +466,7 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
     setOtp(["", "", "", "", "", ""]);
     setError("");
     setSecondsLeft(0);
+    setShowCodeEntry(false);
   }
 
   return (
@@ -638,13 +643,32 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
                   </p>
 
                   <p className="mt-2 text-xs text-slate-400 text-center leading-relaxed" data-testid="auth-auth-card-magic-link-hint-text">
-                    Click it and you&apos;ll be signed in automatically. Opening it on another
-                    device? It shows a 6-digit code — enter it below.
+                    Click it and you&apos;ll be signed in automatically.
                   </p>
+
+                  {!showCodeEntry ? (
+                    <div className="mt-6 text-center">
+                      <button
+                        data-testid="auth-auth-card-show-code-entry"
+                        type="button"
+                        onClick={() => {
+                          setShowCodeEntry(true);
+                          window.setTimeout(() => otpRefs.current[0]?.focus(), 0);
+                        }}
+                        className="text-sm font-medium text-amber-600 hover:text-amber-700 transition-colors duration-200"
+                      >
+                        Signing in on another device?
+                      </button>
+
+                      <p className="mt-2 text-xs text-slate-400 leading-relaxed">
+                        Open the link there and it will show a 6-digit code to enter here.
+                      </p>
+                    </div>
+                  ) : null}
 
                   <div
                     data-testid="components-auth-auth-card-div-12"
-                    className="mt-6 flex justify-center gap-2"
+                    className={`mt-6 flex justify-center gap-2 ${showCodeEntry ? "" : "hidden"}`}
                     aria-label="6-digit verification code"
                   >
                     {otp.map((digit, index) => (
@@ -678,7 +702,7 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
                     type="button"
                     onClick={handleVerify}
                     disabled={isVerifying}
-                    className="mt-6 w-full py-3 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600 active:scale-[0.99] transition duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className={`mt-6 w-full py-3 rounded-xl bg-amber-500 text-white font-semibold hover:bg-amber-600 active:scale-[0.99] transition duration-200 disabled:opacity-60 disabled:cursor-not-allowed ${showCodeEntry ? "" : "hidden"}`}
                   >
                     {isVerifying ? "Verifying..." : "Verify & Continue"}
                   </button>

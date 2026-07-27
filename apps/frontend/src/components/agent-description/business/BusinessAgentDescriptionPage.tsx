@@ -16,6 +16,7 @@ import { AgentDescriptionView } from "@/components/agent-description/shared/Agen
 import {
   formatRealInstallCount,
   getAgentDescription,
+  htmlDescriptionToText,
   getIncludedItems,
   getListingAuthor,
   getListingCategory,
@@ -505,14 +506,11 @@ export default function BusinessAgentDescriptionPage() {
         ? "One-time purchase · Usage charges apply"
         : "Monthly subscription · Usage charges billed separately";
 
-  /*
-   * Only shortDescription or tagline can appear before View more.
-   * Full listing/workflow descriptions stay hidden.
-   */
-  const heroDescription =
+  const heroDescription = htmlDescriptionToText(
     listing.shortDescription?.trim() ||
-    listing.tagline?.trim() ||
-    "";
+      listing.tagline?.trim() ||
+      ""
+  );
 
   const howItWorksSteps =
     getHowItWorksSteps(
