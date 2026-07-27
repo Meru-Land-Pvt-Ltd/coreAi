@@ -50,7 +50,7 @@ function PublicBrandingHeader() {
       data-testid="agent-detail-branding-header"
       className="sticky top-0 z-50 border-b border-gray-100 bg-white/90 backdrop-blur"
     >
-      <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 py-3 sm:gap-3 sm:px-6">
         <a href="/" className="flex shrink-0 items-center gap-2.5" aria-label="Triven home" data-testid="agent-detail-brand-home">
           <Image
             src={TRIVEN_LOGO_SRC}
@@ -60,10 +60,10 @@ function PublicBrandingHeader() {
             priority
             className="h-9 w-9 object-contain"
           />
-          <span className="text-xl font-extrabold tracking-tight text-amber-500">Triven.ai</span>
+          <span className="text-lg font-extrabold tracking-tight text-amber-500 sm:text-xl">Triven.ai</span>
         </a>
 
-        <nav className="ml-auto flex shrink-0 items-center gap-2">
+        <nav className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
           <Link
             href={BUSINESS_LOGIN_PATH}
             data-testid="agent-detail-login-link"
@@ -82,7 +82,7 @@ function PublicBrandingHeader() {
             type="button"
             onClick={() => setHelpOpen(true)}
             data-testid="agent-detail-need-help-button"
-            className="text-sm font-semibold text-amber-600 hover:text-amber-700 transition-colors"
+            className="hidden text-sm font-semibold text-amber-600 transition-colors hover:text-amber-700 sm:inline-block"
           >
             Need help?
           </button>
@@ -221,12 +221,11 @@ export default function PublicAgentDescriptionPage() {
         ? "One-time purchase · Usage charges apply"
         : "Monthly subscription · Usage charges billed separately";
 
+  /* Short line only. Falling back to `description`/`workflow.description` here
+     would print the long copy as the hero line, which is exactly what the
+     "View full description" toggle exists to avoid. */
   const heroDescription = htmlDescriptionToText(
-    listing.shortDescription ||
-      listing.tagline ||
-      listing.description ||
-      listing.workflow?.description ||
-      ""
+    listing.shortDescription || listing.tagline || ""
   );
 
   const howItWorksSteps = getHowItWorksSteps(listing.requiredConnectors, listing.workflow?.workflowJson);

@@ -551,13 +551,11 @@ export function AgentDescriptionView(
   const fullDescription =
     agentDescription.trim();
 
-  const revealedDescription =
-    fullDescription.length > 0
-      ? fullDescription
-      : shortDescription;
-
+  /* The short line is always visible. The toggle appears only when the full
+     description actually adds something beyond it. */
   const hasFullDescription =
-    revealedDescription.length > 0;
+    fullDescription.length > 0 &&
+    fullDescription !== shortDescription;
 
   return (
     <>
@@ -643,8 +641,14 @@ export function AgentDescriptionView(
                   </div>
                 </div>
 
+                {shortDescription ? (
+                  <p className="mt-4 max-w-xl break-words text-[15px] leading-relaxed text-slate-700 sm:text-[16px]">
+                    {shortDescription}
+                  </p>
+                ) : null}
+
                 {hasFullDescription ? (
-                  <div className="mt-4">
+                  <div className={shortDescription ? "mt-3" : "mt-4"}>
                     <button
                       type="button"
                       onClick={() =>
@@ -688,10 +692,10 @@ export function AgentDescriptionView(
                       <div
                         id="agent-full-description"
                         data-testid="agent-detail-full-description"
-                        className="mt-3 max-w-xl rounded-xl border border-slate-200 bg-slate-50/60 p-4"
+                        className="mt-3 max-w-xl p-4"
                       >
                         <p className="whitespace-pre-wrap break-words text-[13.5px] leading-relaxed text-slate-700">
-                          {revealedDescription}
+                          {fullDescription}
                         </p>
                       </div>
                     ) : null}
