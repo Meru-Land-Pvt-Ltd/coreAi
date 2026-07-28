@@ -32,6 +32,7 @@ export type PhoneSearchOutcome = {
   smsRequired: boolean;
   localityFilterSupported: boolean;
   alreadyAssigned?: BusinessPhoneAssignment | null;
+  availableToAssign?: BusinessPhoneAssignment[];
 };
 
 export type BusinessPhoneAssignment = {
@@ -46,24 +47,29 @@ export type BusinessPhoneAssignment = {
   installedAgentId: string | null;
 };
 
-/** The business's current active Triven number, in the buyer-safe shape. */
-export async function getBusinessPhoneAssignment(businessId: string): Promise<BusinessPhoneAssignment | null> {
-  const number = await prisma.platformPhoneNumber.findFirst({
-    where: { businessId, status: "ASSIGNED", isPlatformSmsSender: false },
-    orderBy: { assignedAt: "desc" },
-    select: {
-      phoneNumber: true,
-      country: true,
-      region: true,
-      locality: true,
-      voiceEnabled: true,
-      smsEnabled: true,
-      assignedAt: true,
-      installedAgentId: true
-    }
-  });
-  if (!number) return null;
+const ASSIGNMENT_SELECT = {
+  phoneNumber: true,
+  country: true,
+  region: true,
+  locality: true,
+  voiceEnabled: true,
+  smsEnabled: true,
+  assignedAt: true,
+  installedAgentId: true
+} as const;
 
+type AssignmentRow = {
+  phoneNumber: string;
+  country: string | null;
+  region: string | null;
+  locality: string | null;
+  voiceEnabled: boolean;
+  smsEnabled: boolean;
+  assignedAt: Date | null;
+  installedAgentId: string | null;
+};
+
+function toAssignment(number: AssignmentRow): BusinessPhoneAssignment {
   return {
     assigned: true,
     phoneNumber: number.phoneNumber,
@@ -75,6 +81,55 @@ export async function getBusinessPhoneAssignment(businessId: string): Promise<Bu
     assignedAt: number.assignedAt?.toISOString() ?? null,
     installedAgentId: number.installedAgentId
   };
+}
+
+export async function listBusinessPhoneAssignments(
+  businessId: string
+): Promise<BusinessPhoneAssignment[]> {
+  const numbers = await prisma.platformPhoneNumber.findMany({
+    where: { businessId, status: "ASSIGNED", isPlatformSmsSender: false },
+    orderBy: { assignedAt: "desc" },
+    select: ASSIGNMENT_SELECT
+  });
+  return numbers.map(toAssignment);
+}
+
+export async function getAgentPhoneAssignment(
+  businessId: string,
+  installedAgentId: string
+): Promise<BusinessPhoneAssignment | null> {
+  const mapping = await prisma.businessPhoneNumber.findFirst({
+    where: { businessId, installedAgentId, isActive: true },
+    select: { phoneNumber: true }
+  });
+  if (!mapping) return null;
+
+  const number = await prisma.platformPhoneNumber.findFirst({
+    where: { phoneNumber: mapping.phoneNumber, isPlatformSmsSender: false },
+    select: ASSIGNMENT_SELECT
+  });
+  return number ? toAssignment(number) : null;
+}
+
+/** Numbers the business owns that are not locked to any agent yet. */
+export async function listUnassignedBusinessNumbers(
+  businessId: string
+): Promise<BusinessPhoneAssignment[]> {
+  const owned = await listBusinessPhoneAssignments(businessId);
+  if (owned.length === 0) return [];
+
+  const locked = await prisma.businessPhoneNumber.findMany({
+    where: {
+      businessId,
+      isActive: true,
+      installedAgentId: { not: null },
+      phoneNumber: { in: owned.map((number) => number.phoneNumber) }
+    },
+    select: { phoneNumber: true }
+  });
+  const lockedNumbers = new Set(locked.map((row) => row.phoneNumber));
+
+  return owned.filter((number) => !lockedNumbers.has(number.phoneNumber));
 }
 
 const REGULATORY_NOTE_BY_COUNTRY: Record<string, string> = {
@@ -128,10 +183,23 @@ export async function searchNumbersForBusiness(params: {
   state?: string | null;
   city?: string | null;
 }): Promise<PhoneSearchOutcome> {
-  // One active number per business: once assigned, search never returns
-  // purchasable inventory — only the existing assignment.
-  const alreadyAssigned = await getBusinessPhoneAssignment(params.businessId);
-  if (alreadyAssigned) {
+  if (params.installedAgentId) {
+    const alreadyAssigned = await getAgentPhoneAssignment(params.businessId, params.installedAgentId);
+    if (alreadyAssigned) {
+      return {
+        numbers: [],
+        exactMatchAvailable: false,
+        matchLevel: "NATIONAL",
+        fallbackOptions: [],
+        smsRequired: false,
+        localityFilterSupported: true,
+        alreadyAssigned
+      };
+    }
+  }
+
+  const availableToAssign = await listUnassignedBusinessNumbers(params.businessId);
+  if (availableToAssign.length > 0) {
     return {
       numbers: [],
       exactMatchAvailable: false,
@@ -139,7 +207,7 @@ export async function searchNumbersForBusiness(params: {
       fallbackOptions: [],
       smsRequired: false,
       localityFilterSupported: true,
-      alreadyAssigned
+      availableToAssign
     };
   }
 
@@ -341,22 +409,53 @@ export async function purchaseNumberForBusiness(params: {
       where: { businessId_clientRequestId: { businessId: params.businessId, clientRequestId } }
     });
     if (existing) return { kind: "existing", outcome: outcomeFromRequest(existing, true) };
-    const currentNumber = await tx.platformPhoneNumber.findFirst({
-      where: { businessId: params.businessId, status: "ASSIGNED", isPlatformSmsSender: false },
-      select: { id: true, phoneNumber: true, status: true }
-    });
-    if (currentNumber && !params.replaceExisting) {
-      return {
-        kind: "existing",
-        outcome: {
-          status: "ACTIVE",
-          requestId: "",
-          phoneNumber: currentNumber.phoneNumber,
-          alreadyCompleted: true,
-          errorCode: "PHONE_NUMBER_ALREADY_ASSIGNED",
-          errorMessage: "Your business already has an active Triven AI number."
-        }
-      };
+    if (params.installedAgentId && !params.replaceExisting) {
+      const agentMapping = await tx.businessPhoneNumber.findFirst({
+        where: {
+          businessId: params.businessId,
+          installedAgentId: params.installedAgentId,
+          isActive: true
+        },
+        select: { phoneNumber: true }
+      });
+      if (agentMapping) {
+        return {
+          kind: "existing",
+          outcome: {
+            status: "ACTIVE",
+            requestId: "",
+            phoneNumber: agentMapping.phoneNumber,
+            alreadyCompleted: true,
+            errorCode: "PHONE_NUMBER_ALREADY_ASSIGNED",
+            errorMessage: "This agent already has an active Triven AI number."
+          }
+        };
+      }
+    }
+    if (!params.replaceExisting) {
+      const freeNumber = await tx.platformPhoneNumber.findFirst({
+        where: {
+          businessId: params.businessId,
+          status: "ASSIGNED",
+          isPlatformSmsSender: false,
+          installedAgentId: null
+        },
+        select: { phoneNumber: true }
+      });
+      if (freeNumber) {
+        return {
+          kind: "existing",
+          outcome: {
+            status: "ACTIVE",
+            requestId: "",
+            phoneNumber: freeNumber.phoneNumber,
+            alreadyCompleted: true,
+            errorCode: "UNASSIGNED_NUMBER_AVAILABLE",
+            errorMessage:
+              "You already have a Triven AI number that is not assigned to an agent. Assign it to this agent instead of buying another."
+          }
+        };
+      }
     }
 
     // A different in-flight provisioning request must finish or fail before a
@@ -509,19 +608,22 @@ export async function purchaseNumberForBusiness(params: {
       // won the race while the Twilio purchase ran outside the transaction.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${assignmentLockKey}))`;
 
-      const activeNow = await tx.platformPhoneNumber.findFirst({
-        where: {
-          businessId: params.businessId,
-          status: "ASSIGNED",
-          isPlatformSmsSender: false,
-          id: { not: platformNumber.id }
-        },
-        select: { id: true, phoneNumber: true, status: true }
-      });
+      const activeNow = params.installedAgentId
+        ? await tx.platformPhoneNumber.findFirst({
+            where: {
+              businessId: params.businessId,
+              installedAgentId: params.installedAgentId,
+              status: "ASSIGNED",
+              isPlatformSmsSender: false,
+              id: { not: platformNumber.id }
+            },
+            select: { id: true, phoneNumber: true, status: true }
+          })
+        : null;
 
       if (activeNow && !params.replaceExisting) {
         throw new PhoneNumberServiceError(
-          "Your business already has an active Triven AI number.",
+          "This agent already has an active Triven AI number.",
           409,
           "PHONE_NUMBER_ALREADY_ASSIGNED"
         );

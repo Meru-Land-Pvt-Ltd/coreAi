@@ -270,26 +270,29 @@ async function mergeAgentSetup(agentId: string, patch: Record<string, unknown>) 
   });
 }
 
-async function getActivePhone(businessId: string) {
+
+async function getActivePhone(businessId: string, installedAgentId?: string) {
+  if (installedAgentId) {
+    const own = await prisma.businessPhoneNumber.findFirst({
+      where: { businessId, installedAgentId, isActive: true },
+      orderBy: { createdAt: "desc" }
+    });
+    if (own) return own;
+  }
+
   return prisma.businessPhoneNumber.findFirst({
-    where: { businessId },
+    where: { businessId, isActive: true, installedAgentId: null },
     orderBy: { createdAt: "desc" }
   });
 }
 
-/**
- * Store the verified business phone. The verified number is the line the
- * business owner controls (forwardToPhone). The Triven inbound number is NOT
- * auto-purchased here anymore — the owner picks a location and confirms a
- * specific number through /business/phone-numbers/search + /purchase.
- */
 async function persistVerifiedPhone(opts: {
   businessId: string;
   installedAgentId: string;
   phone: string;
 }) {
   const normalized = normalizePhone(opts.phone);
-  const existing = await getActivePhone(opts.businessId);
+  const existing = await getActivePhone(opts.businessId, opts.installedAgentId);
 
   if (existing) {
     const updatedMapping = await prisma.businessPhoneNumber.update({

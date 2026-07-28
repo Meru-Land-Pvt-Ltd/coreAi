@@ -492,7 +492,17 @@ async function buildInstalledAgentAssistantPlan(
     configJson: installedAgent.configJson,
     workflowJson: installedAgent.workflow.workflowJson,
     profileExists: Boolean(business.profile),
-    priorAssistantId: cleanString(business.profile?.vapiAssistantId),
+   priorAssistantId:
+      cleanString(
+        installedAgent.configJson &&
+          typeof installedAgent.configJson === "object" &&
+          !Array.isArray(installedAgent.configJson)
+          ? ((installedAgent.configJson as Record<string, unknown>).vapiAssistantId as string | undefined)
+          : undefined
+      ) ||
+      (business.installedAgents && business.installedAgents.length > 1
+        ? undefined
+        : cleanString(business.profile?.vapiAssistantId)),
     voiceNode,
     systemPrompt,
     firstMessage,

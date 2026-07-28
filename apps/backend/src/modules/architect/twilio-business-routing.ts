@@ -353,8 +353,16 @@ function buildBusinessContext(
     teamPhone: profile?.teamPhone ?? env.TWILIO_DEFAULT_TEAM_PHONE ?? undefined,
     calendarId: profile?.calendarId ?? env.GOOGLE_CALENDAR_ID ?? "primary",
     timeZone: profile?.timeZone ?? env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
-    vapiAssistantId: profile?.vapiAssistantId ?? env.VAPI_DEFAULT_ASSISTANT_ID ?? undefined,
-    vapiPhoneNumberId: profile?.vapiPhoneNumberId ?? env.VAPI_DEFAULT_PHONE_NUMBER_ID ?? undefined,
+    vapiAssistantId:
+      (typeof agentConfig.vapiAssistantId === "string" ? agentConfig.vapiAssistantId.trim() : "") ||
+      profile?.vapiAssistantId ||
+      env.VAPI_DEFAULT_ASSISTANT_ID ||
+      undefined,
+    vapiPhoneNumberId:
+      (typeof agentConfig.vapiPhoneNumberId === "string" ? agentConfig.vapiPhoneNumberId.trim() : "") ||
+      profile?.vapiPhoneNumberId ||
+      env.VAPI_DEFAULT_PHONE_NUMBER_ID ||
+      undefined,
     services: jsonStringArray(profile?.services),
     faqs: faqStrings(profile?.faqsJson),
     tone: profile?.tone ?? "friendly",
@@ -366,13 +374,21 @@ function buildBusinessContext(
   };
 }
 
-/** Latest ACTIVE installed agent for a business (used when a number isn't linked). */
 async function latestActiveInstalledAgent(businessId: string) {
-  return prisma.installedAgent.findFirst({
+  const active = await prisma.installedAgent.findMany({
     where: { businessId, status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
     include: { workflow: true }
   });
+
+  if (active.length === 1) return active[0];
+  if (active.length > 1) {
+    console.warn("[twilio-webhook] unlinked number in a multi-agent business — refusing to guess", {
+      businessId,
+      activeAgentCount: active.length
+    });
+  }
+  return null;
 }
 
 export function isInstalledAgentActivityPaused(status?: string | null) {
@@ -380,11 +396,6 @@ export function isInstalledAgentActivityPaused(status?: string | null) {
   return normalized === "PAUSED" || normalized === "SUSPENDED_BILLING";
 }
 
-/**
- * Vapi may keep sending tool callbacks for a call that was already in progress
- * when the buyer paused the agent. Re-check the persisted status for every
- * callback so pausing also stops booking, messaging, email and other node work.
- */
 async function isVapiInstalledAgentPaused(businessId: string, installedAgentId?: string) {
   if (installedAgentId) {
     const agent = await prisma.installedAgent.findFirst({
@@ -503,8 +514,7 @@ async function resolveAgent({
     });
     if (platform?.businessId && platform.status === "ASSIGNED") {
       const bizPhone = await prisma.businessPhoneNumber.findFirst({
-        where: { businessId: platform.businessId, isActive: true },
-        orderBy: { createdAt: "desc" },
+        where: { phoneNumber: platform.phoneNumber, isActive: true },
         include: {
           business: { include: { profile: true, knowledgeBases: true } },
           installedAgent: { include: { workflow: true } }
@@ -743,12 +753,6 @@ function formatAppointmentTime(iso: string, timeZone?: string | null): string {
   }
 }
 
-/**
- * Voice-facing appointment time: "Saturday, July twenty-fifth at 9:00 AM".
- * TTS mangles abbreviated dates ("Sat, Jul 25" → "July 20 fifth"), so every
- * spoken confirmation uses this fully-spelled ordinal form (#7).
- */
-/** Just the clock time ("9:00 AM") — the [Time] token, with no date attached. */
 function formatAppointmentTimeOfDay(iso: string, timeZone?: string | null): string {
   const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
   try {
@@ -966,9 +970,6 @@ async function maybeStartVapiAfterMissedCall({
 }) {
   if (existingCallId || !agent.business) return existingCallId ?? null;
 
-  // Pause race closure: re-read the persisted status immediately before the
-  // billable outbound Vapi POST (the missed-call workflow may have run for a
-  // while since the webhook-entry gate).
   if (agent.business.businessId) {
     const pausedNow = await isVapiInstalledAgentPaused(
       agent.business.businessId,
@@ -983,9 +984,6 @@ async function maybeStartVapiAfterMissedCall({
     }
   }
 
-  // Same deterministic server-side hours decision as inbound answering, so the
-  // outbound AI callback's prompt sees the correct open/closed state (falls
-  // back to the safe "unknown" default if the lookup fails).
   let outboundHours: { state: "open" | "closed" | "unknown"; statusLine: string; nextOpenText: string } | null =
     null;
   try {
@@ -1176,9 +1174,6 @@ async function buildVapiAnswerTwiml({
   const business = agent.business;
   if (!business || !callerNumber) return null;
 
-  // Pause race closure: pause may land between the webhook-entry gate and
-  // this point — re-read the persisted status immediately before the billable
-  // Vapi POST so no new execution (and no usage) can start on a paused agent.
   if (business.businessId) {
     const pausedNow = await isVapiInstalledAgentPaused(business.businessId, business.installedAgentId ?? undefined);
     if (pausedNow) {
