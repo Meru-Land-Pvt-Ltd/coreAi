@@ -152,7 +152,15 @@ export function agentBillingAnchorAt(input: {
       payment.status === PaymentStatus.SUCCEEDED &&
       payment.invoiceKind === PaymentInvoiceKind.PURCHASE
   );
-  if (paidPurchase) return paymentAnchorDate(paidPurchase);
+  if (paidPurchase) {
+    // The actual successful purchase time is the immutable anniversary.
+    // Older rows may carry a calendar-month periodStart that must not move a
+    // July 24 payment to July 1.
+    return (
+      paidPurchase.paidAt ??
+      paidPurchase.createdAt
+    );
+  }
 
   const paidEntitlement = payments.find(
     (payment) =>
@@ -238,12 +246,22 @@ export function nextSubscriptionInvoicePeriod(
   anchorAt?: Date
 ) {
   const paidPeriodStart = paid.periodStart ?? paid.paidAt ?? paid.createdAt;
+  if (anchorAt) {
+    // The immutable purchase/post-trial anchor owns the cadence. Legacy rows
+    // sometimes stored a calendar-month periodEnd (for example Aug 1 for a
+    // Jul 24 purchase); trusting that value would permanently move renewals to
+    // the first. Advance from the paid period's start to the next anniversary.
+    const start = nextUtcBillingAnniversary(anchorAt, paidPeriodStart);
+    return {
+      start,
+      end: nextUtcBillingAnniversary(anchorAt, start)
+    };
+  }
+
   const start = paid.periodEnd ?? addUtcCalendarMonth(paidPeriodStart);
   return {
     start,
-    end: anchorAt
-      ? nextUtcBillingAnniversary(anchorAt, start)
-      : addUtcCalendarMonth(start)
+    end: addUtcCalendarMonth(start)
   };
 }
 

@@ -129,6 +129,7 @@ type UsageBill = {
         billedCostUsd: number;
         amountCents: number;
         purchasedAt?: string;
+        billingAnchorAt?: string;
         executionFeeCents?: number | null;
         iconUrl?: string | null;
         serviceCosts: Array<{
@@ -849,7 +850,7 @@ export default function BusinessBillingUsagePage() {
         }).map(({ id, invoiceNumber, agent, executionCount }) => {
             const issuedAt = currentUsage.updatedAt ?? new Date().toISOString();
             const period = billingPeriodForAnchor(
-                agent.purchasedAt,
+                agent.billingAnchorAt ?? agent.purchasedAt,
                 issuedAt,
                 currentUsage.month
             );

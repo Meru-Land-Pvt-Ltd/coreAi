@@ -15,6 +15,10 @@ import {
   rollupExecutions,
   usageBalanceIsCollectible
 } from "./execution-billing";
+import {
+  agentBillingAnchorAt,
+  agentBillingPeriodFor
+} from "./agent-payment-scope";
 import { restoreBusinessAfterBillingPayment } from "./billing-cycle";
 import { resolvePrimaryBusinessId } from "./primary-business";
 import { countStandaloneBillableSms } from "./usage-billing";
@@ -74,15 +78,14 @@ async function loadOwnedBusiness(ownerId: string) {
             }
           },
           payments: {
-            where: {
-              status: "SUCCEEDED",
-              invoiceKind: "PURCHASE"
-            },
             orderBy: [{ periodStart: "asc" }, { createdAt: "asc" }],
-            take: 1,
             select: {
+              status: true,
+              invoiceKind: true,
               periodStart: true,
+              periodEnd: true,
               paidAt: true,
+              dueAt: true,
               createdAt: true
             }
           }
@@ -241,6 +244,16 @@ export async function getBusinessExecutionUsage(c: Context) {
   // Start from installed agents, not execution rows, so a just-purchased agent
   // appears immediately with zero executions.
   const agentRollup = agentsForMonth.map((agent) => {
+    const purchasePayment = agent.payments.find(
+      (payment) =>
+        payment.status === "SUCCEEDED" &&
+        payment.invoiceKind === "PURCHASE"
+    );
+    const billingAnchor = agentBillingAnchorAt({
+      agentCreatedAt: agent.createdAt,
+      referenceAt: selectedBounds.end,
+      payments: agent.payments
+    });
     const stats = statsByAgent.get(agent.id) ?? {
       installedAgentId: agent.id,
       executionCount: 0,
@@ -312,11 +325,11 @@ export async function getBusinessExecutionUsage(c: Context) {
       status: agent.status,
       acquiredAt: agent.createdAt.toISOString(),
       purchasedAt: (
-        agent.payments[0]?.periodStart ??
-        agent.payments[0]?.paidAt ??
-        agent.payments[0]?.createdAt ??
+        purchasePayment?.paidAt ??
+        purchasePayment?.createdAt ??
         agent.createdAt
       ).toISOString(),
+      billingAnchorAt: billingAnchor.toISOString(),
       executionFeeCents: agent.executionFeeCents,
       executionFeeUsd: agent.executionFeeCents / 100,
       executionCount: stats.executionCount,
@@ -693,7 +706,32 @@ export async function getBusinessExecutionInvoices(c: Context) {
         if (call) invoiceCallsById.set(call.callId, call);
       }
       const invoiceCalls = [...invoiceCallsById.values()];
-      const status = normalizeUsageInvoiceStatus(invoice.status);
+      const storedStatus = normalizeUsageInvoiceStatus(invoice.status);
+      const billingAgent = invoice.installedAgentId
+        ? business.installedAgents.find(
+            (agent) => agent.id === invoice.installedAgentId
+          ) ?? null
+        : null;
+      const normalizedPeriod =
+        billingAgent &&
+        !invoice.paidAt &&
+        !invoice.closedAt &&
+        ["PENDING", "OPEN", "OVERDUE"].includes(storedStatus)
+          ? agentBillingPeriodFor(
+              agentBillingAnchorAt({
+                agentCreatedAt: billingAgent.createdAt,
+                referenceAt: invoice.issuedAt,
+                payments: billingAgent.payments
+              }),
+              invoice.issuedAt
+            )
+          : null;
+      const status =
+        storedStatus === "OVERDUE" &&
+        normalizedPeriod &&
+        normalizedPeriod.dueAt > new Date()
+          ? "PENDING"
+          : storedStatus;
       const canonicalStats = rollupExecutions(invoice.executions);
       const canonicalBreakdown = [...canonicalStats.values()].map((stats) => {
         const agent = business.installedAgents.find(
@@ -848,11 +886,20 @@ export async function getBusinessExecutionInvoices(c: Context) {
         status,
         tabStatus: status === "PAID" ? "PAID" : status,
         currency: invoice.currency,
-        periodStart: invoice.periodStart.toISOString(),
-        periodEnd: invoice.periodEnd.toISOString(),
+        periodStart: (
+          normalizedPeriod?.start ?? invoice.periodStart
+        ).toISOString(),
+        periodEnd: (
+          normalizedPeriod?.end ?? invoice.periodEnd
+        ).toISOString(),
         issuedAt: invoice.issuedAt.toISOString(),
-        dueAt: invoice.dueAt.toISOString(),
-        graceEndsAt: invoice.graceEndsAt?.toISOString() ?? null,
+        dueAt: (
+          normalizedPeriod?.dueAt ?? invoice.dueAt
+        ).toISOString(),
+        graceEndsAt:
+          normalizedPeriod?.graceEndsAt.toISOString() ??
+          invoice.graceEndsAt?.toISOString() ??
+          null,
         totalMicroUsd,
         totalUsd: microUsdToUsd(totalMicroUsd),
         amountCents: totalAmountCents,

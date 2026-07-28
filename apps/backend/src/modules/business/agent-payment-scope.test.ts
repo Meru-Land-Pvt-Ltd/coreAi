@@ -143,6 +143,23 @@ describe("paid-period reconciliation", () => {
 });
 
 describe("billing cadence", () => {
+  it("uses the paid purchase date even when a legacy period starts on the first", () => {
+    expect(
+      agentBillingAnchorAt({
+        agentCreatedAt: new Date("2026-07-25T00:00:00.000Z"),
+        referenceAt: new Date("2026-07-26T00:00:00.000Z"),
+        payments: [
+          payment({
+            createdAt: new Date("2026-07-24T00:00:00.000Z"),
+            paidAt: new Date("2026-07-24T00:00:00.000Z"),
+            periodStart: new Date("2026-07-01T00:00:00.000Z"),
+            periodEnd: new Date("2026-08-01T00:00:00.000Z")
+          })
+        ]
+      })
+    ).toEqual(new Date("2026-07-24T00:00:00.000Z"));
+  });
+
   it("generates the next subscription period from the paid period end date", () => {
     expect(
       nextSubscriptionInvoicePeriod(
@@ -154,6 +171,53 @@ describe("billing cadence", () => {
     ).toEqual({
       start: new Date("2026-08-09T10:30:00.000Z"),
       end: new Date("2026-09-09T10:30:00.000Z")
+    });
+  });
+
+  it("ignores a legacy August 1 period end and renews a July 24 purchase on August 24", () => {
+    const anchor = new Date("2026-07-24T10:30:00.000Z");
+    expect(
+      nextSubscriptionInvoicePeriod(
+        payment({
+          createdAt: anchor,
+          paidAt: anchor,
+          periodStart: anchor,
+          periodEnd: new Date("2026-08-01T00:00:00.000Z")
+        }),
+        anchor
+      )
+    ).toEqual({
+      start: new Date("2026-08-24T10:30:00.000Z"),
+      end: new Date("2026-09-24T10:30:00.000Z")
+    });
+  });
+
+  it("keeps a July 20 purchase on the twentieth for every monthly renewal", () => {
+    const anchor = new Date("2026-07-20T00:00:00.000Z");
+    const august = nextSubscriptionInvoicePeriod(
+      payment({
+        createdAt: anchor,
+        paidAt: anchor,
+        periodStart: anchor,
+        periodEnd: new Date("2026-08-01T00:00:00.000Z")
+      }),
+      anchor
+    );
+    const september = nextSubscriptionInvoicePeriod(
+      payment({
+        periodStart: august.start,
+        periodEnd: august.end
+      }),
+      anchor
+    );
+
+    expect(august).toEqual({
+      start: new Date("2026-08-20T00:00:00.000Z"),
+      end: new Date("2026-09-20T00:00:00.000Z")
+    });
+    expect(september).toEqual({
+      start: new Date("2026-09-20T00:00:00.000Z"),
+      end: new Date("2026-10-20T00:00:00.000Z")
     });
   });
 
@@ -211,7 +275,7 @@ describe("billing cadence", () => {
     });
   });
 
-  it("repairs a legacy February drift without creating a short period", () => {
+  it("repairs a legacy February drift back to the original anniversary", () => {
     const anchor = new Date("2026-01-31T10:30:00.000Z");
     expect(
       nextSubscriptionInvoicePeriod(
@@ -222,7 +286,7 @@ describe("billing cadence", () => {
         anchor
       )
     ).toEqual({
-      start: new Date("2026-03-28T10:30:00.000Z"),
+      start: new Date("2026-03-31T10:30:00.000Z"),
       end: new Date("2026-04-30T10:30:00.000Z")
     });
   });

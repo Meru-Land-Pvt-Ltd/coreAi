@@ -20,9 +20,11 @@ import { ensureMonthlyAssignedNumberFees } from "./phone-number-invoice";
 import {
   addUtcCalendarMonth,
   agentBillingAnchorAt,
+  initialAgentPurchasePeriod,
   nextSubscriptionInvoicePeriod,
   paidPaymentCoversAgentInvoice,
-  reconcileCoveredAgentInvoices
+  reconcileCoveredAgentInvoices,
+  resolveAgentBillingPeriod
 } from "./agent-payment-scope";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -869,6 +871,273 @@ async function createDueSubscriptionInvoices(now: Date) {
   return { billingPeriod, created };
 }
 
+async function reconcileOpenSubscriptionInvoicePeriods(now: Date) {
+  return prisma.$transaction(async (tx) => {
+    const invoices = await tx.payment.findMany({
+      where: {
+        invoiceKind: "SUBSCRIPTION_RENEWAL",
+        status: { in: ["PENDING", "OVERDUE"] },
+        installedAgentId: { not: null },
+        paymentPendingAt: null
+      },
+      include: {
+        installedAgent: {
+          select: {
+            id: true,
+            businessId: true,
+            listingId: true,
+            createdAt: true,
+            business: { select: { ownerId: true } }
+          }
+        }
+      }
+    });
+
+    let repaired = 0;
+    const reopenedScopes = new Map<
+      string,
+      { businessId: string; installedAgentId: string }
+    >();
+    for (const invoice of invoices) {
+      const agent = invoice.installedAgent;
+      if (!agent || !agent.listingId) continue;
+
+      const payments = await tx.payment.findMany({
+        where: {
+          id: { not: invoice.id },
+          userId: agent.business.ownerId,
+          listingId: agent.listingId,
+          OR: [{ businessId: agent.businessId }, { businessId: null }],
+          AND: [
+            {
+              OR: [
+                { installedAgentId: agent.id },
+                { installedAgentId: null }
+              ]
+            }
+          ]
+        },
+        orderBy: [{ periodStart: "asc" }, { createdAt: "asc" }],
+        select: {
+          id: true,
+          userId: true,
+          businessId: true,
+          listingId: true,
+          installedAgentId: true,
+          status: true,
+          invoiceKind: true,
+          createdAt: true,
+          paidAt: true,
+          periodStart: true,
+          periodEnd: true,
+          dueAt: true
+        }
+      });
+      const paid = payments
+        .filter((payment) => payment.status === "SUCCEEDED")
+        .sort(
+          (left, right) =>
+            (
+              right.periodStart ??
+              right.paidAt ??
+              right.createdAt
+            ).getTime() -
+            (
+              left.periodStart ??
+              left.paidAt ??
+              left.createdAt
+            ).getTime()
+        )[0];
+      if (!paid) continue;
+
+      const anchorAt = agentBillingAnchorAt({
+        agentCreatedAt: agent.createdAt,
+        referenceAt: now,
+        payments
+      });
+      const expected = nextSubscriptionInvoicePeriod(paid, anchorAt);
+      const status = now < expected.start ? "PENDING" : "OVERDUE";
+      const changed =
+        invoice.periodStart?.getTime() !== expected.start.getTime() ||
+        invoice.periodEnd?.getTime() !== expected.end.getTime() ||
+        invoice.dueAt?.getTime() !== expected.start.getTime() ||
+        invoice.graceEndsAt?.getTime() !==
+          graceEndFor(expected.start).getTime() ||
+        invoice.status !== status;
+      if (!changed) continue;
+
+      await tx.payment.update({
+        where: { id: invoice.id },
+        data: {
+          periodStart: expected.start,
+          periodEnd: expected.end,
+          dueAt: expected.start,
+          graceEndsAt: graceEndFor(expected.start),
+          status,
+          ...(status === "PENDING"
+            ? {
+                suspendedAt: null,
+                paymentPendingAt: null
+              }
+            : {})
+        }
+      });
+      if (
+        status === "PENDING" &&
+        (invoice.status === "OVERDUE" || invoice.suspendedAt)
+      ) {
+        reopenedScopes.set(agent.id, {
+          businessId: agent.businessId,
+          installedAgentId: agent.id
+        });
+      }
+      repaired += 1;
+    }
+
+    return {
+      considered: invoices.length,
+      repaired,
+      reopenedScopes: [...reopenedScopes.values()]
+    };
+  });
+}
+
+async function reconcilePaidPurchasePeriods() {
+  return prisma.$transaction(async (tx) => {
+    const purchases = await tx.payment.findMany({
+      where: {
+        status: "SUCCEEDED",
+        invoiceKind: "PURCHASE",
+        listing: { is: { pricingModel: "SUBSCRIPTION" } }
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        paidAt: true,
+        periodStart: true,
+        periodEnd: true
+      }
+    });
+
+    let repaired = 0;
+    for (const purchase of purchases) {
+      const purchasedAt = purchase.paidAt ?? purchase.createdAt;
+      const expected = initialAgentPurchasePeriod(
+        "SUBSCRIPTION",
+        purchasedAt
+      );
+      if (
+        purchase.periodStart?.getTime() === expected.start.getTime() &&
+        purchase.periodEnd?.getTime() === expected.end?.getTime()
+      ) {
+        continue;
+      }
+
+      await tx.payment.update({
+        where: { id: purchase.id },
+        data: {
+          periodStart: expected.start,
+          periodEnd: expected.end
+        }
+      });
+      repaired += 1;
+    }
+
+    return { considered: purchases.length, repaired };
+  });
+}
+
+async function reconcileOpenUsageInvoicePeriods(now: Date) {
+  return prisma.$transaction(async (tx) => {
+    const invoices = await tx.businessUsageInvoice.findMany({
+      where: {
+        status: { in: ["PENDING", "OPEN", "OVERDUE"] },
+        installedAgentId: { not: null },
+        paidAt: null,
+        closedAt: null,
+        paymentPendingAt: null
+      },
+      include: {
+        installedAgent: {
+          select: {
+            id: true,
+            businessId: true,
+            listingId: true,
+            createdAt: true,
+            business: { select: { ownerId: true } }
+          }
+        }
+      }
+    });
+
+    let repaired = 0;
+    const reopenedScopes = new Map<
+      string,
+      { businessId: string; installedAgentId: string }
+    >();
+    for (const invoice of invoices) {
+      const agent = invoice.installedAgent;
+      if (!agent) continue;
+
+      const expected = await resolveAgentBillingPeriod(
+        tx,
+        {
+          id: agent.id,
+          businessId: agent.businessId,
+          listingId: agent.listingId,
+          createdAt: agent.createdAt,
+          ownerUserId: agent.business.ownerId
+        },
+        invoice.issuedAt
+      );
+      const status =
+        invoice.status === "OVERDUE" && now < expected.dueAt
+          ? "PENDING"
+          : invoice.status;
+      const changed =
+        invoice.periodStart.getTime() !== expected.start.getTime() ||
+        invoice.periodEnd.getTime() !== expected.end.getTime() ||
+        invoice.dueAt.getTime() !== expected.dueAt.getTime() ||
+        invoice.graceEndsAt?.getTime() !== expected.graceEndsAt.getTime() ||
+        invoice.status !== status;
+      if (!changed) continue;
+
+      await tx.businessUsageInvoice.update({
+        where: { id: invoice.id },
+        data: {
+          periodStart: expected.start,
+          periodEnd: expected.end,
+          dueAt: expected.dueAt,
+          graceEndsAt: expected.graceEndsAt,
+          status,
+          ...(status === "PENDING"
+            ? {
+                suspendedAt: null,
+                lastReminderAt: null
+              }
+            : {})
+        }
+      });
+      if (
+        status === "PENDING" &&
+        (invoice.status === "OVERDUE" || invoice.suspendedAt)
+      ) {
+        reopenedScopes.set(agent.id, {
+          businessId: agent.businessId,
+          installedAgentId: agent.id
+        });
+      }
+      repaired += 1;
+    }
+
+    return {
+      considered: invoices.length,
+      repaired,
+      reopenedScopes: [...reopenedScopes.values()]
+    };
+  });
+}
+
 async function sendUsageReminder(invoice: {
   invoiceNumber: string;
   billingMonth: string;
@@ -1035,9 +1304,28 @@ async function reconcileCanonicalExecutions(now: Date) {
 
 export async function runBillingCycle(now = new Date()) {
   const executionReconciliation = await reconcileCanonicalExecutions(now);
+  const purchasePeriods = await reconcilePaidPurchasePeriods();
+  const usageInvoicePeriods = await reconcileOpenUsageInvoicePeriods(now);
   const assignedNumberFees = await ensureMonthlyAssignedNumberFees(now);
   const trialEndingOneDayEmails = await sendPendingTrialEndingOneDayEmails(now);
   const trialCompletions = await completeExpiredTrials(now);
+  const subscriptionInvoicePeriods =
+    await reconcileOpenSubscriptionInvoicePeriods(now);
+  const reopenedScopes = new Map(
+    [
+      ...usageInvoicePeriods.reopenedScopes,
+      ...subscriptionInvoicePeriods.reopenedScopes
+    ].map((scope) => [
+      `${scope.businessId}:${scope.installedAgentId}`,
+      scope
+    ])
+  );
+  for (const scope of reopenedScopes.values()) {
+    await restoreBusinessAfterBillingPayment(
+      scope.businessId,
+      scope.installedAgentId
+    );
+  }
   const subscriptionInvoices = await createDueSubscriptionInvoices(now);
   const coveredAgentInvoices = await reconcileCoveredAgentInvoices({ now });
   for (const businessId of coveredAgentInvoices.businessIds) {
@@ -1049,10 +1337,13 @@ export async function runBillingCycle(now = new Date()) {
   return {
     billingMonth: billingMonthFor(now),
     executionReconciliation,
+    purchasePeriods,
+    usageInvoicePeriods,
     assignedNumberFees,
     trialEndingOneDayEmails,
     trialCompletions,
     trialEndEmails,
+    subscriptionInvoicePeriods,
     subscriptionInvoices,
     coveredAgentInvoices,
     usageInvoices,

@@ -19,6 +19,19 @@ const CURRENT_MONTH = "2026-07";
 const PRIOR_MONTH = "2026-06";
 
 describe("anniversary usage period", () => {
+  it("shows July 24 through August 24 instead of ending on August 1", () => {
+    expect(
+      billingPeriodForAnchor(
+        "2026-07-24T00:00:00.000Z",
+        "2026-07-25T00:00:00.000Z",
+        "2026-07"
+      )
+    ).toEqual({
+      start: "2026-07-24T00:00:00.000Z",
+      end: "2026-08-24T00:00:00.000Z"
+    });
+  });
+
   it("uses the purchase day and restores a month-end anchor after February", () => {
     expect(
       billingPeriodForAnchor(

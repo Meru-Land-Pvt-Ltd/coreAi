@@ -93,6 +93,7 @@ type AgentUsageBreakdown = {
     billedCostUsd: number;
     amountCents: number;
     purchasedAt?: string;
+    billingAnchorAt?: string;
     serviceCosts: Array<{
         serviceCode: string;
         serviceName: string;
@@ -447,7 +448,11 @@ export default function BusinessInvoiceDetailPage() {
             );
             const amountCents = Math.round(billedCostUsd * 100);
             const issuedAt = usage.updatedAt ?? new Date().toISOString();
-            const period = billingPeriodForAnchor(agent.purchasedAt, issuedAt, usage.month);
+            const period = billingPeriodForAnchor(
+                agent.billingAnchorAt ?? agent.purchasedAt,
+                issuedAt,
+                usage.month
+            );
 
             return {
                 id,
