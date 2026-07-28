@@ -43,6 +43,12 @@ export function formatUsageInvoiceAmountUsd(value: number) {
   })}`;
 }
 
+export function usageInvoicePayableCents(lineAmountsUsd: number[]) {
+  return Math.round(
+    lineAmountsUsd.reduce((sum, amount) => sum + amount, 0) * 100
+  );
+}
+
 function roundTo(value: number, fractionDigits: number) {
   const factor = 10 ** fractionDigits;
   return Math.round((value + Number.EPSILON) * factor) / factor;

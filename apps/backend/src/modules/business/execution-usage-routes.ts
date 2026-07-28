@@ -8,6 +8,7 @@ import {
 } from "../payments/stripe";
 import {
   billingMonthFor,
+  invoiceAttachedExecutions,
   MICRO_USD_PER_CENT,
   monthBounds,
   monthLabel,
@@ -222,9 +223,13 @@ export async function getBusinessExecutionUsage(c: Context) {
   const agentsForMonth = business.installedAgents.filter(
     (agent) => agent.createdAt < selectedBounds.end
   );
-  const statsByAgent = rollupExecutions(executions);
+  // Billing-facing screens must use the same execution scope as the invoice.
+  // Trial/free/history rows are canonical activity, but they are not attached
+  // to a usage invoice and must not inflate the payable execution count.
+  const invoicedExecutions = invoiceAttachedExecutions(executions);
+  const statsByAgent = rollupExecutions(invoicedExecutions);
   const chargedCallIds = new Set(
-    executions
+    invoicedExecutions
       .filter(
         (execution) =>
           execution.source === "VAPI" &&
@@ -232,8 +237,9 @@ export async function getBusinessExecutionUsage(c: Context) {
       )
       .map((execution) => execution.sourceId)
   );
+  const invoicedCalls = calls.filter((call) => chargedCallIds.has(call.callId));
   const callDurationByAgent = new Map<string, number>();
-  for (const call of calls) {
+  for (const call of invoicedCalls) {
     if (!call.installedAgentId) continue;
     callDurationByAgent.set(
       call.installedAgentId,
@@ -264,7 +270,7 @@ export async function getBusinessExecutionUsage(c: Context) {
       legacyBilledCostMicroUsd: 0,
       displayCostMicroUsd: 0
     };
-    const recordedLineItemGroups = calls
+    const recordedLineItemGroups = invoicedCalls
       .filter(
         (call) =>
           call.installedAgentId === agent.id &&
@@ -362,18 +368,18 @@ export async function getBusinessExecutionUsage(c: Context) {
     (sum, agent) => sum + agent.billedCostMicroUsd,
     0
   );
-  const totalActualMicroUsd = executions.reduce(
+  const totalActualMicroUsd = invoicedExecutions.reduce(
     (sum, row) => sum + row.actualCostMicroUsd,
     0
   );
-  const totalDurationMinutes = calls.reduce(
+  const totalDurationMinutes = invoicedCalls.reduce(
     (sum, call) => sum + (call.durationMinutes ?? 0),
     0
   );
-  const totalExecutions = executions.length;
+  const totalExecutions = invoicedExecutions.length;
   const totalCostUsd = microUsdToUsd(totalMicroUsd);
   const executionByCallId = new Map(
-    executions
+    invoicedExecutions
       .filter((execution) => execution.source === "VAPI")
       .map((execution) => [execution.sourceId, execution])
   );
@@ -401,11 +407,11 @@ export async function getBusinessExecutionUsage(c: Context) {
       totalExecutions > 0 ? totalCostUsd / totalExecutions : 0,
     averageCostPerCustomerInteractionUsd:
       totalExecutions > 0 ? totalCostUsd / totalExecutions : 0,
-    updatedAt: executions[0]?.occurredAt.toISOString() ?? null,
+    updatedAt: invoicedExecutions[0]?.occurredAt.toISOString() ?? null,
     standaloneSms: { count: standaloneSmsCount },
     agentRollup,
     serviceRollup: rollupRecordedUsageLineItems(
-      calls
+      invoicedCalls
         .filter(
           (call) =>
             chargedCallIds.has(call.callId) &&
@@ -428,7 +434,7 @@ export async function getBusinessExecutionUsage(c: Context) {
         service.billedCostMicroUsd / MICRO_USD_PER_CENT
       )
     })),
-    executions: executions.map((execution) => ({
+    executions: invoicedExecutions.map((execution) => ({
       id: execution.id,
       installedAgentId: execution.installedAgentId,
       agentName: agentsById.get(execution.installedAgentId)?.name ?? "Agent",
@@ -448,7 +454,7 @@ export async function getBusinessExecutionUsage(c: Context) {
       legacyBilledCostUsd: microUsdToUsd(execution.legacyBilledCostMicroUsd),
       usageInvoiceId: execution.usageInvoiceId
     })),
-    calls: calls.map((call) => {
+    calls: invoicedCalls.map((call) => {
       const execution = executionByCallId.get(call.callId);
       const repricedCallMicroUsd =
         execution &&

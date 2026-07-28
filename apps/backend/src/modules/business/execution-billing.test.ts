@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canonicalExecutionKey,
+  invoiceAttachedExecutions,
   normalizeUsageInvoiceStatus,
   rollupExecutions,
   trialExecutionDecision,
@@ -84,5 +85,14 @@ describe("canonical execution billing", () => {
   it("carries balances below Stripe's minimum until their aggregate is collectible", () => {
     expect(usageBalanceIsCollectible(499_999)).toBe(false);
     expect(usageBalanceIsCollectible(500_000)).toBe(true);
+  });
+
+  it("uses only invoice-attached executions on billing-facing screens", () => {
+    const executions = Array.from({ length: 22 }, (_, index) => ({
+      id: `execution-${index + 1}`,
+      usageInvoiceId: index < 17 ? "invoice-1" : null
+    }));
+
+    expect(invoiceAttachedExecutions(executions)).toHaveLength(17);
   });
 });

@@ -5,6 +5,7 @@ import {
   formatUsageInvoiceAmountUsd,
   formatUsageInvoiceRate,
   phoneCallBreakdownOrder,
+  usageInvoicePayableCents,
   usageInvoiceRowOrder
 } from "./usage-invoice-rate";
 
@@ -35,6 +36,10 @@ describe("usage invoice rate formatting", () => {
   it("shows usage line amounts with exactly three decimal places", () => {
     expect(formatUsageInvoiceAmountUsd(0.009 * 9.27)).toBe("$0.083");
     expect(formatUsageInvoiceAmountUsd(9.27)).toBe("$9.270");
+  });
+
+  it("rounds the complete payable invoice total to two decimal places", () => {
+    expect(usageInvoicePayableCents([2, 1.843, 0.06, 0.039])).toBe(394);
   });
 
   it("calculates line amounts from the rounded values displayed on the invoice", () => {

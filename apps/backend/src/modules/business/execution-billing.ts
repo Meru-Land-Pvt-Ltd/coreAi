@@ -17,6 +17,12 @@ export function usageBalanceIsCollectible(totalMicroUsd: number) {
   return totalMicroUsd >= STRIPE_MINIMUM_CHARGE_MICRO_USD;
 }
 
+export function invoiceAttachedExecutions<
+  T extends { usageInvoiceId: string | null }
+>(executions: T[]) {
+  return executions.filter((execution) => execution.usageInvoiceId !== null);
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")

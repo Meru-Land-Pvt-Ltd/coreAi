@@ -22,6 +22,7 @@ import {
     formatUsageInvoiceAmountUsd,
     formatUsageInvoiceRate,
     phoneCallBreakdownOrder,
+    usageInvoicePayableCents,
     usageInvoiceRowOrder
 } from "@/components/business/usage-invoice-rate";
 
@@ -755,11 +756,10 @@ function UsageInvoiceCard({
             usageInvoiceRowOrder(right.serviceCode)
     );
     const isPaid = invoice.status === "PAID";
-    const displayedInvoiceTotalUsd = services.reduce(
-        (sum, service) => sum + calculateUsageInvoiceLineAmountUsd(service),
-        0
+    const displayedInvoiceTotalCents = usageInvoicePayableCents(
+        services.map((service) => calculateUsageInvoiceLineAmountUsd(service))
     );
-    const displayedInvoiceTotal = formatUsageInvoiceAmountUsd(displayedInvoiceTotalUsd);
+    const displayedInvoiceTotal = formatCurrencyCents(displayedInvoiceTotalCents);
     const isSyntheticAccrual = invoice.id.startsWith("accrued-");
     const isPending = invoice.status === "PENDING" || invoice.status === "OPEN";
     const statusLabel = isPaid ? "PAID" : isPending ? "PENDING" : invoice.status;
@@ -916,8 +916,8 @@ function UsageInvoiceCard({
                     <div className="w-full space-y-2 text-sm sm:w-72">
                         <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{displayedInvoiceTotal}</span></div>
                         <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold"><span>Total</span><span>{displayedInvoiceTotal}</span></div>
-                        <div className="flex justify-between text-slate-500"><span>Amount Paid</span><span>{isPaid ? displayedInvoiceTotal : "$0.000"}</span></div>
-                        <div className="flex justify-between font-bold"><span>Balance Due</span><span className={isPaid ? "text-green-600" : "text-red-600"}>{isPaid ? "$0.000" : displayedInvoiceTotal}</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Amount Paid</span><span>{isPaid ? displayedInvoiceTotal : "$0.00"}</span></div>
+                        <div className="flex justify-between font-bold"><span>Balance Due</span><span className={isPaid ? "text-green-600" : "text-red-600"}>{isPaid ? "$0.00" : displayedInvoiceTotal}</span></div>
                     </div>
                 </div>
 
@@ -925,7 +925,7 @@ function UsageInvoiceCard({
                     {isSyntheticAccrual ? (
                         <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">This live usage statement updates as your agents run. The persisted invoice can be paid from Billing &amp; Usage.</p>
                     ) : !isPaid ? (
-                        <button type="button" disabled={paying} onClick={() => onPay(invoice)} data-testid="usage-invoice-pay" className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50">{paying ? "Redirecting…" : `Pay ${formatCurrencyCents(invoice.amountCents)}`}</button>
+                        <button type="button" disabled={paying} onClick={() => onPay(invoice)} data-testid="usage-invoice-pay" className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50">{paying ? "Redirecting…" : `Pay ${displayedInvoiceTotal}`}</button>
                     ) : (
                         <p className="text-sm font-medium text-green-600">✓ Paid successfully{invoice.paidAt ? ` on ${formatFullDate(invoice.paidAt)}` : ""}</p>
                     )}
