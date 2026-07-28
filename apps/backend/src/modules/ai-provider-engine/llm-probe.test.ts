@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { env } from "../../config/env";
-import { resetLlmProviderHealth } from "./llm-health";
+import { recordLlmProviderFailure, recordLlmProviderSuccess, resetLlmProviderHealth } from "./llm-health";
 import {
+  llmProviderAvailability,
   probeLlmProvider,
   resetLlmProbeCache,
   verdictFromDeepSeekBalance,
@@ -120,5 +121,45 @@ describe("probeLlmProvider", () => {
     // A forced probe bypasses the cache — used after a top-up.
     await probeLlmProvider("openai", { force: true });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("evidence from a real run outranks the probe", () => {
+  it("keeps OpenAI greyed out after a 429, even though /v1/models answers 200", async () => {
+    setKey("OPENAI_API_KEY", "sk-test");
+    recordLlmProviderFailure(
+      "openai",
+      "429 You exceeded your current quota, please check your plan and billing details."
+    );
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200 }));
+
+    await expect(llmProviderAvailability("openai")).resolves.toEqual({
+      usable: false,
+      reason: "over quota"
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("probes generation for OpenAI, since a models list cannot see quota", async () => {
+    setKey("OPENAI_API_KEY", "sk-test");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 429 }));
+
+    await expect(probeLlmProvider("openai")).resolves.toEqual({
+      usable: false,
+      reason: "over quota"
+    });
+
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/chat/completions");
+    expect(init.method).toBe("POST");
+  });
+
+  it("re-enables once a real run succeeds", async () => {
+    setKey("OPENAI_API_KEY", "sk-test");
+    recordLlmProviderFailure("openai", "429 quota exceeded");
+    recordLlmProviderSuccess("openai");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 200 }));
+
+    await expect(llmProviderAvailability("openai")).resolves.toEqual({ usable: true, reason: null });
   });
 });

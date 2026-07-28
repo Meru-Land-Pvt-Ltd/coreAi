@@ -1,9 +1,5 @@
 import { llmProviderApiKey } from "./llm-credentials";
-import {
-  llmProviderBlockReason,
-  recordLlmProviderFailure,
-  recordLlmProviderSuccess
-} from "./llm-health";
+import { llmProviderBlockReason, recordLlmProviderFailure } from "./llm-health";
 
 const PROBE_TIMEOUT_MS = 6000;
 const PROBE_TTL_MS = 5 * 60 * 1000;
@@ -12,11 +8,18 @@ type ProbeVerdict = { usable: boolean; reason: string | null };
 
 const cache = new Map<string, { verdict: ProbeVerdict; until: number }>();
 
-type ProbeRequest = { url: string; headers: Record<string, string> };
+type ProbeRequest = {
+  url: string;
+  headers: Record<string, string>;
+  body?: unknown;
+};
 
-/** Cheapest authenticated read each provider offers. */
 const PROBES: Record<string, (apiKey: string) => ProbeRequest> = {
-  openai: (k) => ({ url: "https://api.openai.com/v1/models", headers: { Authorization: `Bearer ${k}` } }),
+  openai: (k) => ({
+    url: "https://api.openai.com/v1/chat/completions",
+    headers: { Authorization: `Bearer ${k}`, "Content-Type": "application/json" },
+    body: { model: "gpt-4o-mini", messages: [{ role: "user", content: "hi" }], max_tokens: 1 }
+  }),
   claude: (k) => ({
     url: "https://api.anthropic.com/v1/models",
     headers: { "x-api-key": k, "anthropic-version": "2023-06-01" }
@@ -35,12 +38,9 @@ export function verdictFromStatus(status: number): ProbeVerdict {
   if (status === 402) return { usable: false, reason: "out of credit" };
   if (status === 401 || status === 403) return { usable: false, reason: "key rejected" };
   if (status === 429) return { usable: false, reason: "over quota" };
-  // Anything else — including 5xx and unexpected codes — is not proof the
-  // provider is unusable, so it stays enabled.
   return { usable: true, reason: null };
 }
 
-/** DeepSeek reports an exhausted balance in the body, with HTTP 200. */
 export function verdictFromDeepSeekBalance(body: unknown): ProbeVerdict {
   const available = (body as { is_available?: unknown } | null)?.is_available;
   return available === false ? { usable: false, reason: "out of credit" } : { usable: true, reason: null };
@@ -50,10 +50,15 @@ async function runProbe(providerId: string, apiKey: string): Promise<ProbeVerdic
   const build = PROBES[providerId];
   if (!build) return { usable: true, reason: null };
 
-  const { url, headers } = build(apiKey);
+  const { url, headers, body } = build(apiKey);
 
   try {
-    const response = await fetch(url, { headers, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+    const response = await fetch(url, {
+      method: body ? "POST" : "GET",
+      headers,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
+    });
     const verdict = verdictFromStatus(response.status);
     if (!verdict.usable) return verdict;
 
@@ -86,26 +91,20 @@ export async function probeLlmProvider(
   const verdict = await runProbe(providerId, apiKey);
   cache.set(providerId, { verdict, until: now + PROBE_TTL_MS });
 
-  // Keep the run-failure record in step: a healthy probe means a top-up
-  // landed, so the provider stops being blocked without waiting out the TTL.
-  if (verdict.usable) {
-    recordLlmProviderSuccess(providerId);
-  } else if (verdict.reason) {
+  if (!verdict.usable && verdict.reason) {
     recordLlmProviderFailure(providerId, verdict.reason);
   }
 
   return verdict;
 }
 
-/** Probe result combined with any failure a real run already proved. */
 export async function llmProviderAvailability(
   providerId: string
 ): Promise<ProbeVerdict> {
-  const probe = await probeLlmProvider(providerId);
-  if (!probe.usable) return probe;
-
   const blocked = llmProviderBlockReason(providerId);
-  return blocked ? { usable: false, reason: blocked } : probe;
+  if (blocked) return { usable: false, reason: blocked };
+
+  return probeLlmProvider(providerId);
 }
 
 /** Test seam. */
