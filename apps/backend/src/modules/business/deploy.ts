@@ -492,17 +492,13 @@ async function buildInstalledAgentAssistantPlan(
     configJson: installedAgent.configJson,
     workflowJson: installedAgent.workflow.workflowJson,
     profileExists: Boolean(business.profile),
-   priorAssistantId:
-      cleanString(
-        installedAgent.configJson &&
-          typeof installedAgent.configJson === "object" &&
-          !Array.isArray(installedAgent.configJson)
-          ? ((installedAgent.configJson as Record<string, unknown>).vapiAssistantId as string | undefined)
-          : undefined
-      ) ||
-      (business.installedAgents && business.installedAgents.length > 1
-        ? undefined
-        : cleanString(business.profile?.vapiAssistantId)),
+    priorAssistantId: cleanString(
+      installedAgent.configJson &&
+        typeof installedAgent.configJson === "object" &&
+        !Array.isArray(installedAgent.configJson)
+        ? ((installedAgent.configJson as Record<string, unknown>).vapiAssistantId as string | undefined)
+        : undefined
+    ),
     voiceNode,
     systemPrompt,
     firstMessage,
@@ -525,7 +521,7 @@ export async function deployInstalledAgentVoiceAssistant(
 
   const webhookUrl = `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`;
   const existingAssistantId =
-    plan.priorAssistantId && plan.priorAssistantId !== env.VAPI_DEFAULT_ASSISTANT_ID
+    plan.priorAssistantId
       ? plan.priorAssistantId
       : undefined;
 
@@ -797,7 +793,7 @@ export async function startInstalledAgentPreviewCall(
   const priorPreview = cleanString(config.previewAssistantId);
   // Reuse the preview assistant across runs, but never overwrite the live one.
   const existingAssistantId =
-    priorPreview && priorPreview !== env.VAPI_DEFAULT_ASSISTANT_ID && priorPreview !== plan.priorAssistantId
+    priorPreview && priorPreview !== plan.priorAssistantId
       ? priorPreview
       : undefined;
 

@@ -356,12 +356,10 @@ function buildBusinessContext(
     vapiAssistantId:
       (typeof agentConfig.vapiAssistantId === "string" ? agentConfig.vapiAssistantId.trim() : "") ||
       profile?.vapiAssistantId ||
-      env.VAPI_DEFAULT_ASSISTANT_ID ||
       undefined,
     vapiPhoneNumberId:
       (typeof agentConfig.vapiPhoneNumberId === "string" ? agentConfig.vapiPhoneNumberId.trim() : "") ||
       profile?.vapiPhoneNumberId ||
-      env.VAPI_DEFAULT_PHONE_NUMBER_ID ||
       undefined,
     services: jsonStringArray(profile?.services),
     faqs: faqStrings(profile?.faqsJson),
@@ -564,8 +562,10 @@ async function resolveAgent({
           teamPhone: env.TWILIO_DEFAULT_TEAM_PHONE,
           calendarId: env.GOOGLE_CALENDAR_ID ?? "primary",
           timeZone: env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
-          vapiAssistantId: env.VAPI_DEFAULT_ASSISTANT_ID,
-          vapiPhoneNumberId: env.VAPI_DEFAULT_PHONE_NUMBER_ID,
+          // Assistants live in the database, one per installed agent — this
+          // dev/bootstrap branch has no agent, so it has no assistant.
+          vapiAssistantId: undefined,
+          vapiPhoneNumberId: undefined,
           services: [],
           faqs: [],
           tone: "friendly",
@@ -1487,7 +1487,7 @@ export async function handleTwilioVoice(c: Context) {
     return sayTwiml(c, "This assistant is temporarily unavailable. Please try again later.");
   }
 
-  const hasDeployedAssistant = Boolean(assistantId && assistantId !== env.VAPI_DEFAULT_ASSISTANT_ID);
+  const hasDeployedAssistant = Boolean(assistantId);
   const aiShouldAnswer = agent.routingMode
     ? await shouldAnswerWithAiByMode(agent.routingMode, agent)
     : env.VAPI_ANSWER_INBOUND || hasDeployedAssistant || !forwardToPhone;

@@ -213,13 +213,9 @@ export async function deployDentalWorkflow({
     create: { businessId: business.id, ...profileData }
   });
 
-  // ---- Deploy the Vapi assistant (create or update) ----
-  // Only update a prior *per-business* assistant. If the profile still holds the
-  // shared env default (from a generic install), create a fresh one instead of
-  // PATCHing the shared template.
   const priorAssistantId = business.profile?.vapiAssistantId;
   const existingAssistantId =
-    priorAssistantId && priorAssistantId !== env.VAPI_DEFAULT_ASSISTANT_ID
+    priorAssistantId
       ? priorAssistantId
       : undefined;
 

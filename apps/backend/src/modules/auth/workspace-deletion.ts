@@ -8,16 +8,6 @@ export type WorkspaceDeletionResult = {
   remainingRoles: UserRole[];
 };
 
-/**
- * Delete ONE workspace.
- *
- * Both danger-zone routes used to run `prisma.user.delete()`, which cascades
- * from the User row and therefore destroyed BOTH sides of a dual-role account:
- * deleting a business account also erased that person's architect listings,
- * workflows and profile, and vice versa. An account that still holds the other
- * role now keeps its User row, its other workspace's data, and its session —
- * only this workspace's records and its role membership are removed.
- */
 export async function deleteUserWorkspace(
   userId: string,
   workspace: Extract<UserRole, "BUSINESS" | "ARCHITECT">
@@ -27,9 +17,6 @@ export async function deleteUserWorkspace(
     prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
   ]);
 
-  /* Legacy accounts predate UserRoleMembership, so the primary-role column
-     counts as an implicit grant — otherwise their other workspace would be
-     treated as absent and the whole account deleted. */
   const heldRoles = new Set<UserRole>(memberships.map((membership) => membership.role));
   if (user?.role) heldRoles.add(user.role);
 
@@ -42,6 +29,30 @@ export async function deleteUserWorkspace(
 
   await prisma.$transaction(async (tx) => {
     if (workspace === "BUSINESS") {
+      const doomed = await tx.business.findMany({ where: { ownerId: userId }, select: { id: true } });
+      if (doomed.length > 0) {
+        const orphaned = await tx.payment.findMany({
+          where: { userId, businessId: { in: doomed.map((b) => b.id) } },
+          select: { id: true, businessId: true, lineItemsJson: true }
+        });
+        for (const payment of orphaned) {
+          const meta =
+            payment.lineItemsJson && typeof payment.lineItemsJson === "object" && !Array.isArray(payment.lineItemsJson)
+              ? (payment.lineItemsJson as Record<string, unknown>)
+              : {};
+          await tx.payment.update({
+            where: { id: payment.id },
+            data: {
+              lineItemsJson: {
+                ...meta,
+                deletedWorkspaceBusinessId: payment.businessId,
+                deletedWorkspaceAt: new Date().toISOString()
+              }
+            }
+          });
+        }
+      }
+
       // Every business-owned record cascades from Business.
       await tx.business.deleteMany({ where: { ownerId: userId } });
     } else {
@@ -52,9 +63,6 @@ export async function deleteUserWorkspace(
 
     await tx.userRoleMembership.deleteMany({ where: { userId, role: workspace } });
 
-    /* `User.role` is the legacy primary-role column that still drives some
-       routing. Repoint it at a role the account actually keeps so nothing
-       sends them back into the workspace they just deleted. */
     if (user?.role === workspace && remainingRoles[0]) {
       await tx.user.update({ where: { id: userId }, data: { role: remainingRoles[0] } });
     }

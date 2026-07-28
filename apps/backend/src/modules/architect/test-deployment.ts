@@ -339,7 +339,7 @@ export async function startArchitectTestDeployment(
   const existingAgent = await findSandboxAgent(architectUserId, workflowId);
   const priorAssistantId = configString(existingAgent?.configJson, "vapiAssistantId");
   const existingAssistantId =
-    priorAssistantId && isRealId(priorAssistantId) && priorAssistantId !== env.VAPI_DEFAULT_ASSISTANT_ID
+    priorAssistantId && isRealId(priorAssistantId)
       ? priorAssistantId
       : undefined;
 

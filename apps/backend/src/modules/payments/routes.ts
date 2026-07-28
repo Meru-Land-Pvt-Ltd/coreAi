@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { PaymentInvoiceKind, PaymentStatus, UsageInvoiceStatus } from "@prisma/client";
+import { PaymentInvoiceKind, PaymentStatus, Prisma, UsageInvoiceStatus } from "@prisma/client";
 import { z } from "zod";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
@@ -941,11 +941,18 @@ paymentRoutes.post("/billing/payment-method/primary", async (c) => {
 paymentRoutes.get("/my-agents", async (c) => {
   const authUser = c.get("authUser");
 
+  const currentBusinessId = await resolvePrimaryBusinessId(authUser.id);
+
   const [payments, business] = await Promise.all([
     prisma.payment.findMany({
       where: {
         userId: authUser.id,
-        listingId: { not: null }
+        listingId: { not: null },
+        OR: [
+          { businessId: null },
+          ...(currentBusinessId ? [{ businessId: currentBusinessId }] : [])
+        ],
+        NOT: { lineItemsJson: { path: ["deletedWorkspaceBusinessId"], not: Prisma.DbNull } }
       },
       orderBy: { createdAt: "desc" },
       include: {
@@ -969,7 +976,7 @@ paymentRoutes.get("/my-agents", async (c) => {
       }
     }),
     prisma.business.findFirst({
-      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
+      where: { id: currentBusinessId ?? "" },
       select: {
         id: true,
         installedAgents: {
@@ -984,10 +991,6 @@ paymentRoutes.get("/my-agents", async (c) => {
     ? await buildInstalledAgentRunStats(business.id, installedAgents, { start: currentMonthStart() })
     : new Map<string, { runs: number; costMicroUsd: number }>();
 
-  // Execution pricing through the canonical pricing service (same layer as
-  // the Admin Pricing screen) — buyer-safe projection only: billing rates,
-  // never vendor actual costs. Null rate = "usage pricing unavailable" in the
-  // UI, never zero and never free.
   const buyerPricing = buyerExecutionPricingView(await loadActiveUsageServicePricing());
   const phoneNumberBilling = await getPhoneNumberBillingState();
   const executionPricing = {
@@ -1098,6 +1101,9 @@ paymentRoutes.get("/my-agents", async (c) => {
         purchasedAtToUse = installedAgent.createdAt;
       }
     }
+
+    const resolvedStatus = statusToUse.toUpperCase();
+    if (resolvedStatus === "FAILED" || resolvedStatus === "CANCELED") continue;
 
     const isTrial = statusToUse === PaymentStatus.TRIALING || (
       statusToUse !== PaymentStatus.SUCCEEDED &&

@@ -95,8 +95,8 @@ export function getVoiceAnswerStatus() {
     vapiApiKeyConfigured,
     defaultAssistantConfigured,
     defaultAssistantNote: defaultAssistantConfigured
-      ? "Legacy global fallback assistant is configured."
-      : "Production multi-business setup does not require VAPI_DEFAULT_ASSISTANT_ID. Buyer deploy stores InstalledAgent.configJson.vapiAssistantId.",
+      ? "VAPI_DEFAULT_ASSISTANT_ID is set but IGNORED — assistants are per installed agent, stored in InstalledAgent.configJson.vapiAssistantId."
+      : "Assistants are created per installed agent at deploy and stored in InstalledAgent.configJson.vapiAssistantId.",
     defaultPhoneNumberIdConfigured,
     defaultPhoneNumberIdNote: defaultPhoneNumberIdConfigured
       ? "Legacy global fallback phone number id is configured."
@@ -119,20 +119,7 @@ export async function ensureBusinessVapiAssistant(businessId: string): Promise<s
   const existing = business.profile?.vapiAssistantId;
   if (isRealId(existing)) return existing as string;
 
-  const legacyFallbackAssistantId = env.VAPI_DEFAULT_ASSISTANT_ID;
-
-  if (!isRealId(legacyFallbackAssistantId)) {
-    return null;
-  }
-
-  if (business.profile) {
-    await prisma.businessProfile.update({
-      where: { businessId },
-      data: { vapiAssistantId: legacyFallbackAssistantId }
-    });
-  }
-
-  return legacyFallbackAssistantId ?? null;
+  return null;
 }
 
 export type VapiCallDetails = {
@@ -261,7 +248,9 @@ export type VapiBusinessContext = {
 };
 
 function requireVapiConfig(assistantId?: string | null, phoneNumberId?: string | null) {
-  const resolvedAssistantId = clean(assistantId) || clean(env.VAPI_DEFAULT_ASSISTANT_ID);
+  // Assistant ids come from the database (InstalledAgent.configJson), never
+  // from a platform-wide env default — two buyers must never share one.
+  const resolvedAssistantId = clean(assistantId);
   const resolvedPhoneNumberId = clean(phoneNumberId) || clean(env.VAPI_DEFAULT_PHONE_NUMBER_ID);
 
   if (!env.VAPI_API_KEY || !resolvedAssistantId || !resolvedPhoneNumberId) {
@@ -436,7 +425,9 @@ export async function createVapiInboundTwiml({
   businessHours?: VapiBusinessHoursVariables | null;
   firstMessageOverride?: string | null;
 }): Promise<string | null> {
-  const resolvedAssistantId = clean(assistantId) || clean(env.VAPI_DEFAULT_ASSISTANT_ID);
+  // Assistant ids come from the database (InstalledAgent.configJson), never
+  // from a platform-wide env default — two buyers must never share one.
+  const resolvedAssistantId = clean(assistantId);
 
   if (!env.VAPI_API_KEY || !isRealId(resolvedAssistantId) || !callerNumber) {
     return null;

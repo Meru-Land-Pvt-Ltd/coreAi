@@ -398,7 +398,7 @@ Live call handling:
       ? String((existingAgent.configJson as Record<string, unknown>).vapiAssistantId)
       : "";
   const existingAssistantId =
-    priorAssistantId && isRealId(priorAssistantId) && priorAssistantId !== env.VAPI_DEFAULT_ASSISTANT_ID
+    priorAssistantId && isRealId(priorAssistantId)
       ? priorAssistantId
       : undefined;
 
