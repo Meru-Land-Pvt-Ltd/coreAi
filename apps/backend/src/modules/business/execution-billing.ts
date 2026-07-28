@@ -6,6 +6,7 @@ import {
   sumLineItems,
   type UsageLineItem
 } from "../../lib/usage-pricing";
+import { resolveAgentBillingPeriod } from "./agent-payment-scope";
 
 export const DEFAULT_TRIAL_EXECUTION_LIMIT = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -88,19 +89,6 @@ export function trialExecutionDecision(input: {
     free,
     nextExecutionsUsed: free ? input.executionsUsed + 1 : input.executionsUsed,
     freeReason: free ? "TRIAL_ALLOWANCE" : null
-  };
-}
-
-export function invoiceLifecycleDates(billingMonth: string) {
-  const bounds = monthBounds(billingMonth);
-  if (!bounds) throw new Error(`Invalid billing month ${billingMonth}`);
-  const dueAt = bounds.end;
-  return {
-    ...bounds,
-    dueAt,
-    // The invoice is overdue on the 1st. Service suspension starts at 00:00
-    // UTC on the 8th, after seven complete grace days.
-    graceEndsAt: new Date(dueAt.getTime() + 7 * DAY_MS)
   };
 }
 
@@ -278,6 +266,7 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
         installSource: true,
         executionFeeCents: true,
         executionBillingStartedAt: true,
+        createdAt: true,
         trialExecutionLimit: true,
         trialExecutionsUsed: true,
         business: { select: { ownerId: true } },
@@ -381,11 +370,23 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
 
     let usageInvoiceId: string | null = null;
     if (billable) {
+      const usagePeriod = await resolveAgentBillingPeriod(
+        tx,
+        {
+          id: agent.id,
+          businessId: agent.businessId,
+          listingId: agent.listingId,
+          createdAt: agent.createdAt,
+          ownerUserId: agent.business.ownerId
+        },
+        occurredAt
+      );
+      const usageBillingMonth = usagePeriod.key;
       let invoice = await tx.businessUsageInvoice.findFirst({
         where: {
           businessId: agent.businessId,
           installedAgentId: agent.id,
-          billingMonth,
+          billingMonth: usageBillingMonth,
           status: { in: ["PENDING", "OPEN", "OVERDUE"] },
           paidAt: null,
           closedAt: null
@@ -395,32 +396,35 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
 
       if (!invoice) {
         const latestSegment = await tx.businessUsageInvoice.findFirst({
-          where: { installedAgentId: agent.id, billingMonth },
+          where: {
+            installedAgentId: agent.id,
+            billingMonth: usageBillingMonth
+          },
           orderBy: { sequence: "desc" },
           select: { sequence: true }
         });
         const sequence = (latestSegment?.sequence ?? 0) + 1;
-        const lifecycle = invoiceLifecycleDates(billingMonth);
-        const initialStatus = new Date() >= lifecycle.dueAt ? "OVERDUE" : "PENDING";
+        const initialStatus =
+          new Date() >= usagePeriod.dueAt ? "OVERDUE" : "PENDING";
 
         invoice = await tx.businessUsageInvoice.create({
           data: {
             businessId: agent.businessId,
             installedAgentId: agent.id,
-            billingMonth,
+            billingMonth: usageBillingMonth,
             sequence,
             invoiceNumber: usageInvoiceNumber({
               businessId: agent.businessId,
               installedAgentId: agent.id,
-              billingMonth,
+              billingMonth: usageBillingMonth,
               sequence
             }),
             status: initialStatus,
-            periodStart: occurredAt,
-            periodEnd: lifecycle.end,
+            periodStart: usagePeriod.start,
+            periodEnd: usagePeriod.end,
             issuedAt: occurredAt,
-            dueAt: lifecycle.dueAt,
-            graceEndsAt: lifecycle.graceEndsAt,
+            dueAt: usagePeriod.dueAt,
+            graceEndsAt: usagePeriod.graceEndsAt,
             subtotalMicroUsd: 0,
             totalMicroUsd: 0
           }

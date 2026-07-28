@@ -19,7 +19,7 @@
 import { prisma } from "../src/lib/prisma";
 import { listUsageServicePricing } from "../src/modules/admin/usage-pricing-service";
 import { USAGE_SERVICE_CODES } from "../src/lib/usage-service-resolver";
-import { PHONE_NUMBER_FEE_ENABLED, PHONE_NUMBER_SERVICE_CODE } from "../src/modules/business/phone-provisioning";
+import { PHONE_NUMBER_FEE_ENABLED } from "../src/modules/business/phone-provisioning";
 
 const SHOW_ACTUAL = process.argv.includes("--show-actual-costs");
 
@@ -102,12 +102,11 @@ async function main() {
 
   // Phone-number billing honesty check.
   console.log("--- Phone-number billing ---");
-  const phoneRecord = activeByCode.get(PHONE_NUMBER_SERVICE_CODE);
   console.log(
     `Flag PHONE_NUMBER_FEE_ENABLED=${PHONE_NUMBER_FEE_ENABLED} — ` +
       (PHONE_NUMBER_FEE_ENABLED
-        ? `billing ACTIVE at ${phoneRecord ? usd(phoneRecord.billingCostMicroUsd) : "(no active record!)"} per assigned number (one-time, feeBilledAt-deduped)`
-        : `billing DISABLED (buyers see "Phone-number billing is currently not enabled."); admin record ${phoneRecord ? "remains configured for future activation" : "is NOT configured"}`)
+        ? "billing ACTIVE monthly from the assigned number's Twilio current_price (round USD + $1); Admin Pricing is not used"
+        : 'billing DISABLED (buyers see "Phone-number billing is currently not enabled.")')
   );
   console.log("");
 

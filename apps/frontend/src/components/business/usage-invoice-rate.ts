@@ -1,4 +1,5 @@
 export type UsageInvoiceRateInput = {
+  serviceCode?: string;
   unit: string;
   quantity: number;
   billedCostUsd: number;
@@ -70,5 +71,23 @@ export function calculateUsageInvoiceLineAmountUsd(
 export function formatUsageInvoiceRate(service: UsageInvoiceRateInput) {
   const rate = effectiveUsageInvoiceRateUsd(service);
   if (rate === null) return "—";
+  if (service.serviceCode === "phone_number") {
+    return formatInvoiceRateUsd(rate);
+  }
   return `${formatInvoiceRateUsd(rate)} / ${usageRateUnitLabel(service.unit)}`;
+}
+
+export function usageInvoiceRowOrder(serviceCode: string) {
+  if (serviceCode === "phone_number") return 0;
+  if (serviceCode === "phone_call_minutes") return 1;
+  if (serviceCode === "platform_service") return 3;
+  return 2;
+}
+
+export function phoneCallBreakdownOrder(serviceCode: string) {
+  if (serviceCode === "twilio_voice") return 0;
+  if (serviceCode === "deepgram_nova3") return 1;
+  if (serviceCode === "openai_gpt4o_mini") return 2;
+  if (serviceCode === "elevenlabs_flash_v25") return 3;
+  return 4;
 }

@@ -239,7 +239,7 @@ describe("buyer-safe pricing projection", () => {
       invoiceLabel: "Appointment booking",
       billingRateUsd: 0
     });
-    expect(view.phoneNumber?.billingRateUsd).toBeCloseTo(2.0, 6);
+    expect(view.phoneNumber).toBeNull();
     // phone number billed at $2.00 even though vendor cost is $1.15 — and the
     // vendor figure must not be derivable from the buyer view.
     const serialized = JSON.stringify(view);

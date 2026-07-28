@@ -211,11 +211,11 @@ export function ExecutionPricingSummary({
         </div>
       ) : null}
       <div className="flex items-center justify-between gap-2">
-        <span>Dedicated phone number</span>
+        <span>Dedicated Business Phone Number</span>
         <span data-testid="execution-pricing-phone">
           {phoneState && phoneState.enabled && phoneState.amountCents
-            ? `$${(phoneState.amountCents / 100).toFixed(2)} per number`
-            : "Phone-number billing is currently not enabled."}
+            ? `$${(phoneState.amountCents / 100).toFixed(2)} per month`
+            : phoneState?.message ?? "Phone-number billing is currently not enabled."}
         </span>
       </div>
     </div>

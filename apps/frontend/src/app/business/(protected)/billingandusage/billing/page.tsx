@@ -12,12 +12,17 @@ import {
     BUSINESS_LOGIN_PATH,
     businessInvoiceCheckoutPath
 } from "@/lib/routes";
-import { syntheticAgentAccruals } from "@/components/business/current-month-accrual";
+import {
+    billingPeriodForAnchor,
+    syntheticAgentAccruals
+} from "@/components/business/current-month-accrual";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 import {
     calculateUsageInvoiceLineAmountUsd,
     formatUsageInvoiceAmountUsd,
-    formatUsageInvoiceRate
+    formatUsageInvoiceRate,
+    phoneCallBreakdownOrder,
+    usageInvoiceRowOrder
 } from "@/components/business/usage-invoice-rate";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
@@ -87,6 +92,7 @@ type AgentUsageBreakdown = {
     durationMinutes: number;
     billedCostUsd: number;
     amountCents: number;
+    purchasedAt?: string;
     serviceCosts: Array<{
         serviceCode: string;
         serviceName: string;
@@ -115,6 +121,8 @@ type UsageInvoice = {
     billingMonth: string;
     status: "OPEN" | "PENDING" | "OVERDUE" | "PAID" | "VOID";
     amountCents: number;
+    periodStart?: string;
+    periodEnd?: string;
     issuedAt: string;
     dueAt: string;
     paidAt: string | null;
@@ -152,7 +160,10 @@ function formatUsageQuantity(service: {
     unit: string;
     quantity: number;
 }) {
-    if (service.serviceCode === "platform_service" && service.unit === "PER_UNIT") {
+    if (service.serviceCode === "phone_number") {
+        return String(Math.round(service.quantity));
+    }
+    if (service.unit === "PER_UNIT") {
         const units = Math.round(service.quantity);
         return `${units} ${units === 1 ? "unit" : "units"}`;
     }
@@ -244,9 +255,9 @@ function formatFullDate(value: string) {
     return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
-function usageDueAt(month: string) {
-    const [year, monthNumber] = month.split("-").map(Number);
-    return new Date(Date.UTC(year, monthNumber, 1)).toISOString();
+function formatUsagePeriod(invoice: UsageInvoice) {
+    if (!invoice.periodStart || !invoice.periodEnd) return invoice.billingMonth;
+    return `${formatFullDate(invoice.periodStart)} – ${formatFullDate(invoice.periodEnd)}`;
 }
 
 type StatusView = {
@@ -435,6 +446,8 @@ export default function BusinessInvoiceDetailPage() {
                 0
             );
             const amountCents = Math.round(billedCostUsd * 100);
+            const issuedAt = usage.updatedAt ?? new Date().toISOString();
+            const period = billingPeriodForAnchor(agent.purchasedAt, issuedAt, usage.month);
 
             return {
                 id,
@@ -443,8 +456,10 @@ export default function BusinessInvoiceDetailPage() {
                 billingMonth: usage.month,
                 status: "PENDING" as const,
                 amountCents,
-                issuedAt: usage.updatedAt ?? new Date().toISOString(),
-                dueAt: usageDueAt(usage.month),
+                periodStart: period.start,
+                periodEnd: period.end,
+                issuedAt,
+                dueAt: period.end,
                 paidAt: null,
                 callCount: executionCount,
                 agentBreakdown: [{
@@ -683,11 +698,17 @@ function UsageInvoiceCard({
             });
         }
     }
-    const phoneCallMinuteServices = services.filter(
-        (service) =>
-            PHONE_CALL_MINUTE_SERVICE_CODES.has(service.serviceCode) &&
-            service.unit === "PER_MINUTE"
-    );
+    const phoneCallMinuteServices = services
+        .filter(
+            (service) =>
+                PHONE_CALL_MINUTE_SERVICE_CODES.has(service.serviceCode) &&
+                service.unit === "PER_MINUTE"
+        )
+        .sort(
+            (left, right) =>
+                phoneCallBreakdownOrder(left.serviceCode) -
+                phoneCallBreakdownOrder(right.serviceCode)
+        );
     const phoneCallAmountUsd = phoneCallMinuteServices.reduce(
         (sum, service) => sum + calculateUsageInvoiceLineAmountUsd(service),
         0
@@ -696,8 +717,8 @@ function UsageInvoiceCard({
     const phoneCallMinuteRow = phoneCallMinuteServices.length
         ? {
             serviceCode: "phone_call_minutes",
-            serviceName: "Phone call minutes",
-            invoiceLabel: "Phone call minutes",
+            serviceName: "Phone Call Minutes",
+            invoiceLabel: "Phone Call Minutes",
             unit: "PER_MINUTE",
             quantity: phoneCallMinutes,
             unitPriceUsd:
@@ -723,7 +744,11 @@ function UsageInvoiceCard({
         }
         rows.push(service);
         return rows;
-    }, []);
+    }, []).sort(
+        (left, right) =>
+            usageInvoiceRowOrder(left.serviceCode) -
+            usageInvoiceRowOrder(right.serviceCode)
+    );
     const isPaid = invoice.status === "PAID";
     const displayedInvoiceTotalUsd = services.reduce(
         (sum, service) => sum + calculateUsageInvoiceLineAmountUsd(service),
@@ -901,7 +926,7 @@ function UsageInvoiceCard({
                     )}
                 </div>
             </div>
-            <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 text-xs text-slate-400 sm:px-12">Triven AI Agent Platform — Usage invoice for {invoice.billingMonth}</div>
+            <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 text-xs text-slate-400 sm:px-12">Triven AI Agent Platform — Usage invoice for {formatUsagePeriod(invoice)}</div>
         </article>
     );
 }
@@ -956,7 +981,7 @@ function AgentInvoiceList({
                                             {isPaid ? "Paid" : invoice.status === "OVERDUE" ? "Overdue" : "Pending"}
                                         </span>
                                     </div>
-                                    <p className="mt-2 font-semibold text-slate-900">Usage for {invoice.billingMonth}</p>
+                                    <p className="mt-2 font-semibold text-slate-900">Usage for {formatUsagePeriod(invoice)}</p>
                                     <p className="mt-1 text-sm text-slate-500">
                                         {executions} executions · {isPaid && invoice.paidAt ? `Paid ${formatFullDate(invoice.paidAt)}` : `Due ${formatFullDate(invoice.dueAt)}`}
                                     </p>
@@ -1010,8 +1035,8 @@ function InvoiceCard({
     const amountPaid = status.isPaid ? formatCurrencyCents(displayCents) : "$0.00";
     const balanceDue = status.isPaid ? "$0.00" : amount;
 
-    // Itemized rows when the payment carries a fee breakdown (agent price +
-    // AI Receptionist No.); otherwise the single description row as before.
+    // Itemized rows when the payment carries a fee breakdown; otherwise the
+    // single description row as before.
     const lineItems =
         invoice.lineItems && invoice.lineItems.length > 0
             ? invoice.lineItems.map((item) => ({

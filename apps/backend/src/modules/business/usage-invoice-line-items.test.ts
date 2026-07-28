@@ -220,14 +220,14 @@ describe("customer-facing usage invoice lines", () => {
     });
   });
 
-  it("keeps an issued one-time phone-number fee at its recorded rate", () => {
+  it("keeps an issued monthly phone-number fee at its recorded rate", () => {
     const [phoneFee] = repriceUsageInvoiceLineItems(
       [
         {
           ...line(
             "phone_number",
-            "Dedicated phone number",
-            "Dedicated phone number",
+            "Dedicated Business Phone Number",
+            "Dedicated Business Phone Number",
             2_000_000,
             2_000_000
           ),
@@ -257,7 +257,7 @@ describe("customer-facing usage invoice lines", () => {
       customerFacingUsageLineItems([phoneFee], new Map())[0]
     ).toMatchObject({
       serviceCode: "phone_number",
-      invoiceLabel: "Dedicated phone number"
+      invoiceLabel: "Dedicated Business Phone Number"
     });
   });
 });

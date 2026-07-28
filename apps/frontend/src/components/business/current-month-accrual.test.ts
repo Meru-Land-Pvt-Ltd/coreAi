@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SYNTHETIC_ACCRUAL_ID_PREFIX,
+  billingPeriodForAnchor,
   findPersistedCurrentAccrual,
   isSyntheticAccrualId,
   shouldShowSyntheticAccrual,
@@ -16,6 +17,21 @@ import {
 
 const CURRENT_MONTH = "2026-07";
 const PRIOR_MONTH = "2026-06";
+
+describe("anniversary usage period", () => {
+  it("uses the purchase day and restores a month-end anchor after February", () => {
+    expect(
+      billingPeriodForAnchor(
+        "2026-01-31T10:30:00.000Z",
+        "2026-02-28T10:30:00.000Z",
+        "2026-02"
+      )
+    ).toEqual({
+      start: "2026-02-28T10:30:00.000Z",
+      end: "2026-03-31T10:30:00.000Z"
+    });
+  });
+});
 
 type AgentUsageBreakdown = {
   agentId: string | null;
@@ -303,5 +319,24 @@ describe("per-agent synthetic accruals", () => {
     expect(rows.map((row) => row.agent.agentName)).toEqual([
       "Second used agent"
     ]);
+  });
+
+  it("recognizes an anniversary period that overlaps the selected month", () => {
+    const rows = syntheticAgentAccruals({
+      invoices: [
+        {
+          id: "real-agent-used",
+          billingMonth: "2026-06",
+          periodStart: "2026-06-25T00:00:00.000Z",
+          periodEnd: "2026-07-25T00:00:00.000Z",
+          status: "PENDING",
+          installedAgentId: "agent-used"
+        }
+      ],
+      currentMonth: "2026-07",
+      agents
+    });
+
+    expect(rows).toHaveLength(0);
   });
 });

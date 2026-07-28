@@ -96,7 +96,7 @@ import { deleteTestCalendarEvent } from "../architect/test-calendar-events";
 import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
 import {
   findBuyerPlatformNumber,
-  getPhoneNumberFee,
+  getPhoneNumberFeeForPlatformNumber,
   workflowNeedsPhoneNumber
 } from "./phone-provisioning";
 import {
@@ -1322,6 +1322,28 @@ businessRoutes.post("/phone-numbers/assign", async (c) => {
   }
 
   try {
+    const pricingNumber = await prisma.platformPhoneNumber.findFirst({
+      where: {
+        phoneNumber: parsed.data.phoneNumber,
+        businessId,
+        status: "ASSIGNED",
+        isPlatformSmsSender: false
+      },
+      select: { id: true }
+    });
+    if (!pricingNumber) {
+      return errorResponse(
+        c,
+        "That number is not one of your business's numbers.",
+        409,
+        "PHONE_NUMBER_TAKEN"
+      );
+    }
+    const phoneNumberFee = await getPhoneNumberFeeForPlatformNumber(
+      pricingNumber.id,
+      { refreshFromTwilio: true }
+    );
+
     const assigned = await prisma.$transaction(async (tx) => {
       // Same lock the purchase flow takes — assignment and provisioning must
       // never interleave for one business.
@@ -1374,6 +1396,16 @@ businessRoutes.post("/phone-numbers/assign", async (c) => {
         buyerUserId: authUser.id,
         forwardToPhone: parsed.data.forwardToPhone ?? null
       });
+      await addPhoneNumberFeeToPendingInvoiceTx(
+        tx,
+        {
+          platformPhoneNumberId: platform.id,
+          businessId,
+          installedAgentId,
+          chargedAt: new Date()
+        },
+        phoneNumberFee
+      );
 
       return platform.phoneNumber;
     });
@@ -2976,6 +3008,7 @@ businessRoutes.post("/setup", async (c) => {
       prisma.businessUsageInvoice.count({
         where: {
           businessId: business.id,
+          installedAgentId: installedAgent.id,
           status: "OVERDUE",
           OR: [
             { suspendedAt: { not: null } },
@@ -2989,9 +3022,19 @@ businessRoutes.post("/setup", async (c) => {
               userId: authUser.id,
               listingId: resolved.listingId,
               status: "OVERDUE",
-              OR: [
-                { suspendedAt: { not: null } },
-                { graceEndsAt: { lte: billingNow } }
+              AND: [
+                {
+                  OR: [
+                    { installedAgentId: installedAgent.id },
+                    { installedAgentId: null }
+                  ]
+                },
+                {
+                  OR: [
+                    { suspendedAt: { not: null } },
+                    { graceEndsAt: { lte: billingNow } }
+                  ]
+                }
               ]
             }
           })
@@ -3028,8 +3071,26 @@ businessRoutes.post("/setup", async (c) => {
       }
     }
 
-    const selectedPhoneFee = targetPlatform || existingPhone
-      ? await getPhoneNumberFee()
+    const selectedPlatformNumberId =
+      targetPlatform?.id ??
+      (
+        existingPhone
+          ? await prisma.platformPhoneNumber.findFirst({
+              where: {
+                phoneNumber: existingPhone.phoneNumber,
+                businessId: business.id,
+                status: "ASSIGNED",
+                isPlatformSmsSender: false
+              },
+              select: { id: true }
+            })
+          : null
+      )?.id ??
+      null;
+    const selectedPhoneFee = selectedPlatformNumberId
+      ? await getPhoneNumberFeeForPlatformNumber(selectedPlatformNumberId, {
+          refreshFromTwilio: true
+        })
       : null;
 
     if (targetPlatform) {

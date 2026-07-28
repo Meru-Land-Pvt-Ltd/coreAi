@@ -1258,8 +1258,8 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     pricingModel: listing.pricingModel,
     freeTrialEnabled: listing.freeTrialEnabled,
     trialDays: listing.trialDays,
-    // The one-time number fee is not charged at checkout. It is added to the
-    // agent's first pending usage invoice after setup assigns a number.
+    // The monthly number fee is not charged at agent checkout. Its first fixed
+    // unit is added to usage billing after setup assigns the number.
     phoneNumberFee: null,
     // Honest phone-number billing state: when disabled, the UI must say so
     // instead of displaying a payable rate that is never charged.

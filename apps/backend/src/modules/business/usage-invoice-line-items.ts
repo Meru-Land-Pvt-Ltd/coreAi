@@ -106,7 +106,7 @@ function customerServiceIdentity(
     item.invoiceLabel?.trim() ||
     invoiceLabels.get(item.serviceCode)?.trim() ||
     (item.serviceCode === "phone_number"
-      ? item.serviceName.trim()
+      ? "Dedicated Business Phone Number"
       : "") ||
     (item.serviceCode.startsWith("invoice_label_")
       ? item.serviceName.trim()

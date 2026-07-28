@@ -4,6 +4,8 @@ import { prisma } from "../../lib/prisma";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { logAdminAction } from "./audit";
 import { assignPlatformNumber, unassignPlatformNumber } from "../business/phone-assignment";
+import { addPhoneNumberFeeToPendingInvoiceTx } from "../business/phone-number-invoice";
+import { getPhoneNumberFeeForPlatformNumber } from "../business/phone-provisioning";
 import {
   PhoneNumberServiceError,
   configureWebhooks,
@@ -326,15 +328,33 @@ adminPhoneNumberRoutes.post("/:id/assign", async (c) => {
   }
 
   try {
+    const phoneNumberFee = installedAgentId
+      ? await getPhoneNumberFeeForPlatformNumber(record.id, {
+          refreshFromTwilio: true
+        })
+      : null;
     const result = await prisma.$transaction(async (tx) => {
       const fresh = await tx.platformPhoneNumber.findUnique({ where: { id: record.id } });
       if (!fresh || fresh.status !== "AVAILABLE") throw new PhoneNumberServiceError("This number was just assigned by someone else.", 409, "NUMBER_NOT_ASSIGNABLE");
-      return assignPlatformNumber(tx, {
+      const assignment = await assignPlatformNumber(tx, {
         platform: fresh,
         businessId: business.id,
         installedAgentId,
         buyerUserId: input.buyerUserId ?? null
       });
+      if (installedAgentId && phoneNumberFee) {
+        await addPhoneNumberFeeToPendingInvoiceTx(
+          tx,
+          {
+            platformPhoneNumberId: record.id,
+            businessId: business.id,
+            installedAgentId,
+            chargedAt: new Date()
+          },
+          phoneNumberFee
+        );
+      }
+      return assignment;
     });
 
     await logAdminAction({

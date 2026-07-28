@@ -2,12 +2,12 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import {
   billingMonthFor,
-  invoiceLifecycleDates,
   MICRO_USD_PER_CENT,
   usageInvoiceNumber
 } from "./execution-billing";
+import { resolveAgentBillingPeriod } from "./agent-payment-scope";
 import {
-  getPhoneNumberFee,
+  getPhoneNumberFeeForPlatformNumber,
   PHONE_NUMBER_SERVICE_CODE,
   type PhoneNumberFee
 } from "./phone-provisioning";
@@ -48,8 +48,7 @@ export async function addPhoneNumberFeeToPendingInvoiceTx(
       select: {
         businessId: true,
         installedAgentId: true,
-        status: true,
-        feeBilledAt: true
+        status: true
       }
     }),
     tx.installedAgent.findFirst({
@@ -57,7 +56,13 @@ export async function addPhoneNumberFeeToPendingInvoiceTx(
         id: input.installedAgentId,
         businessId: input.businessId
       },
-      select: { id: true }
+      select: {
+        id: true,
+        businessId: true,
+        listingId: true,
+        createdAt: true,
+        business: { select: { ownerId: true } }
+      }
     })
   ]);
 
@@ -72,11 +77,40 @@ export async function addPhoneNumberFeeToPendingInvoiceTx(
   ) {
     throw new Error("PHONE_INVOICE_ASSIGNMENT_MISMATCH");
   }
-  if (number.feeBilledAt) {
-    return { added: false, invoiceId: null, amountMicroUsd: 0 };
+  const billingPeriod = await resolveAgentBillingPeriod(
+    tx,
+    {
+      id: agent.id,
+      businessId: agent.businessId,
+      listingId: agent.listingId,
+      createdAt: agent.createdAt,
+      ownerUserId: agent.business.ownerId
+    },
+    input.chargedAt
+  );
+  const billingMonth = billingPeriod.key;
+  // A number is billed once per agent/month, even if that month's first
+  // invoice has already been paid and a later execution creates a new invoice.
+  const existingMonthlyLine = await tx.businessUsageInvoiceLineItem.findFirst({
+    where: {
+      serviceCode: PHONE_NUMBER_SERVICE_CODE,
+      invoice: {
+        businessId: input.businessId,
+        installedAgentId: input.installedAgentId,
+        billingMonth,
+        status: { not: "VOID" }
+      }
+    },
+    select: { id: true, invoiceId: true }
+  });
+  if (existingMonthlyLine) {
+    return {
+      added: false,
+      invoiceId: existingMonthlyLine.invoiceId,
+      amountMicroUsd: 0
+    };
   }
 
-  const billingMonth = billingMonthFor(input.chargedAt);
   let invoice = await tx.businessUsageInvoice.findFirst({
     where: {
       businessId: input.businessId,
@@ -102,8 +136,6 @@ export async function addPhoneNumberFeeToPendingInvoiceTx(
       select: { sequence: true }
     });
     const sequence = (latest?.sequence ?? 0) + 1;
-    const lifecycle = invoiceLifecycleDates(billingMonth);
-
     invoice = await tx.businessUsageInvoice.create({
       data: {
         businessId: input.businessId,
@@ -117,11 +149,11 @@ export async function addPhoneNumberFeeToPendingInvoiceTx(
           sequence
         }),
         status: "PENDING",
-        periodStart: input.chargedAt,
-        periodEnd: lifecycle.end,
+        periodStart: billingPeriod.start,
+        periodEnd: billingPeriod.end,
         issuedAt: input.chargedAt,
-        dueAt: lifecycle.dueAt,
-        graceEndsAt: lifecycle.graceEndsAt,
+        dueAt: billingPeriod.dueAt,
+        graceEndsAt: billingPeriod.graceEndsAt,
         subtotalMicroUsd: 0,
         totalMicroUsd: 0
       },
@@ -160,11 +192,6 @@ export async function addPhoneNumberFeeToPendingInvoiceTx(
     });
   }
 
-  await tx.platformPhoneNumber.update({
-    where: { id: input.platformPhoneNumberId },
-    data: { feeBilledAt: input.chargedAt }
-  });
-
   return {
     added: !existingLine,
     invoiceId: invoice.id,
@@ -178,7 +205,9 @@ export async function addPhoneNumberFeeToPendingInvoice(input: {
   installedAgentId: string;
   chargedAt?: Date;
 }): Promise<PhoneNumberInvoiceResult> {
-  const fee = await getPhoneNumberFee();
+  const fee = await getPhoneNumberFeeForPlatformNumber(
+    input.platformPhoneNumberId
+  );
   return prisma.$transaction((tx) =>
     addPhoneNumberFeeToPendingInvoiceTx(
       tx,
@@ -191,4 +220,57 @@ export async function addPhoneNumberFeeToPendingInvoice(input: {
       fee
     )
   );
+}
+
+/**
+ * Ensure every active agent-number assignment has one fixed phone-number line
+ * on that agent's current monthly usage invoice. Each assignment is isolated
+ * by installedAgentId and the line is idempotent for that agent/month.
+ */
+export async function ensureMonthlyAssignedNumberFees(now = new Date()): Promise<{
+  considered: number;
+  added: number;
+  skipped: number;
+  failed: number;
+}> {
+  const numbers = await prisma.platformPhoneNumber.findMany({
+    where: {
+      status: "ASSIGNED",
+      isPlatformSmsSender: false,
+      businessId: { not: null },
+      installedAgentId: { not: null }
+    },
+    select: {
+      id: true,
+      businessId: true,
+      installedAgentId: true
+    }
+  });
+
+  let added = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const number of numbers) {
+    if (!number.businessId || !number.installedAgentId) continue;
+    try {
+      const result = await addPhoneNumberFeeToPendingInvoice({
+        platformPhoneNumberId: number.id,
+        businessId: number.businessId,
+        installedAgentId: number.installedAgentId,
+        chargedAt: now
+      });
+      if (result.added) added += 1;
+      else skipped += 1;
+    } catch (error) {
+      failed += 1;
+      console.error("[phone-number-billing] monthly fee reconciliation failed", {
+        platformPhoneNumberId: number.id,
+        installedAgentId: number.installedAgentId,
+        billingMonth: billingMonthFor(now),
+        error
+      });
+    }
+  }
+
+  return { considered: numbers.length, added, skipped, failed };
 }

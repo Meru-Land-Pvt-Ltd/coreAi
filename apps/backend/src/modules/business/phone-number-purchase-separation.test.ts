@@ -5,7 +5,7 @@ import {
 } from "./phone-provisioning";
 
 describe("phone-number billing timing", () => {
-  it("enables the one-time phone-number fee", () => {
+  it("enables the monthly assigned-number fee", () => {
     expect(PHONE_NUMBER_FEE_ENABLED).toBe(true);
   });
 

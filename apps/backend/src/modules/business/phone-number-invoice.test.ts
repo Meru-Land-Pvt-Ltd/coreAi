@@ -7,18 +7,19 @@ const INPUT = {
   installedAgentId: "agent-1",
   chargedAt: new Date("2026-07-28T10:30:00.000Z")
 };
+const BILLING_ANCHOR = new Date("2026-07-25T10:30:00.000Z");
 
 const FEE = {
   amountCents: 200,
-  label: "Dedicated phone number",
+  label: "Dedicated Business Phone Number",
   serviceCode: "phone_number",
-  pricingVersion: "phone-service@2026-07-01T00:00:00.000Z"
+  pricingVersion: "twilio:local:1150000:2026-07-28T10:00:00.000Z"
 };
 
 function invoiceTx(options?: {
-  feeBilledAt?: Date | null;
   pendingInvoiceId?: string | null;
-  existingPhoneLineId?: string | null;
+  existingMonthlyLine?: { id: string; invoiceId: string } | null;
+  existingInvoiceLineId?: string | null;
 }) {
   const pendingInvoiceId = options?.pendingInvoiceId ?? null;
   const businessUsageInvoiceFindFirst = vi
@@ -36,13 +37,30 @@ function invoiceTx(options?: {
       findUnique: vi.fn().mockResolvedValue({
         businessId: INPUT.businessId,
         installedAgentId: INPUT.installedAgentId,
-        status: "ASSIGNED",
-        feeBilledAt: options?.feeBilledAt ?? null
-      }),
-      update: vi.fn().mockResolvedValue({ id: INPUT.platformPhoneNumberId })
+        status: "ASSIGNED"
+      })
     },
     installedAgent: {
-      findFirst: vi.fn().mockResolvedValue({ id: INPUT.installedAgentId })
+      findFirst: vi.fn().mockResolvedValue({
+        id: INPUT.installedAgentId,
+        businessId: INPUT.businessId,
+        listingId: "listing-1",
+        createdAt: BILLING_ANCHOR,
+        business: { ownerId: "owner-1" }
+      })
+    },
+    payment: {
+      findMany: vi.fn().mockResolvedValue([
+        {
+          status: "SUCCEEDED",
+          invoiceKind: "PURCHASE",
+          createdAt: BILLING_ANCHOR,
+          paidAt: BILLING_ANCHOR,
+          periodStart: BILLING_ANCHOR,
+          periodEnd: new Date("2026-08-25T10:30:00.000Z"),
+          dueAt: null
+        }
+      ])
     },
     businessUsageInvoice: {
       findFirst: businessUsageInvoiceFindFirst,
@@ -50,9 +68,10 @@ function invoiceTx(options?: {
       update: vi.fn().mockResolvedValue({ id: pendingInvoiceId ?? "invoice-new" })
     },
     businessUsageInvoiceLineItem: {
+      findFirst: vi.fn().mockResolvedValue(options?.existingMonthlyLine ?? null),
       findUnique: vi.fn().mockResolvedValue(
-        options?.existingPhoneLineId
-          ? { id: options.existingPhoneLineId }
+        options?.existingInvoiceLineId
+          ? { id: options.existingInvoiceLineId }
           : null
       ),
       create: vi.fn().mockResolvedValue({ id: "line-phone" })
@@ -82,7 +101,9 @@ describe("addPhoneNumberFeeToPendingInvoiceTx", () => {
         billingMonth: "2026-07",
         sequence: 1,
         status: "PENDING",
-        periodStart: INPUT.chargedAt,
+        periodStart: BILLING_ANCHOR,
+        periodEnd: new Date("2026-08-25T10:30:00.000Z"),
+        dueAt: new Date("2026-08-25T10:30:00.000Z"),
         issuedAt: INPUT.chargedAt,
         subtotalMicroUsd: 0,
         totalMicroUsd: 0
@@ -106,10 +127,6 @@ describe("addPhoneNumberFeeToPendingInvoiceTx", () => {
         subtotalMicroUsd: { increment: 2_000_000 },
         totalMicroUsd: { increment: 2_000_000 }
       }
-    });
-    expect(tx.platformPhoneNumber.update).toHaveBeenCalledWith({
-      where: { id: INPUT.platformPhoneNumberId },
-      data: { feeBilledAt: INPUT.chargedAt }
     });
   });
 
@@ -137,9 +154,45 @@ describe("addPhoneNumberFeeToPendingInvoiceTx", () => {
     });
   });
 
-  it("does not add or increment the fee again after it has been billed", async () => {
+  it("adds one new fixed unit after the next billing anniversary", async () => {
+    const tx = invoiceTx();
+    const augustInput = {
+      ...INPUT,
+      chargedAt: new Date("2026-08-25T10:31:00.000Z")
+    };
+
+    const result = await addPhoneNumberFeeToPendingInvoiceTx(
+      tx as never,
+      augustInput,
+      FEE
+    );
+
+    expect(result.added).toBe(true);
+    expect(tx.businessUsageInvoice.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        installedAgentId: INPUT.installedAgentId,
+        billingMonth: "2026-08",
+        periodStart: new Date("2026-08-25T10:30:00.000Z"),
+        periodEnd: new Date("2026-09-25T10:30:00.000Z")
+      }),
+      select: { id: true }
+    });
+    expect(tx.businessUsageInvoiceLineItem.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        serviceName: "Dedicated Business Phone Number",
+        unit: "PER_UNIT",
+        quantity: 1,
+        amountMicroUsd: 2_000_000
+      })
+    });
+  });
+
+  it("does not add the fee again to another invoice in the same agent/month", async () => {
     const tx = invoiceTx({
-      feeBilledAt: new Date("2026-07-28T10:31:00.000Z")
+      existingMonthlyLine: {
+        id: "line-july",
+        invoiceId: "invoice-paid-earlier"
+      }
     });
 
     const result = await addPhoneNumberFeeToPendingInvoiceTx(
@@ -150,19 +203,18 @@ describe("addPhoneNumberFeeToPendingInvoiceTx", () => {
 
     expect(result).toEqual({
       added: false,
-      invoiceId: null,
+      invoiceId: "invoice-paid-earlier",
       amountMicroUsd: 0
     });
     expect(tx.businessUsageInvoice.findFirst).not.toHaveBeenCalled();
     expect(tx.businessUsageInvoiceLineItem.create).not.toHaveBeenCalled();
     expect(tx.businessUsageInvoice.update).not.toHaveBeenCalled();
-    expect(tx.platformPhoneNumber.update).not.toHaveBeenCalled();
   });
 
-  it("recovers an existing phone line without incrementing the invoice twice", async () => {
+  it("recovers an invoice-level race without incrementing twice", async () => {
     const tx = invoiceTx({
       pendingInvoiceId: "invoice-current",
-      existingPhoneLineId: "line-existing"
+      existingInvoiceLineId: "line-existing"
     });
 
     const result = await addPhoneNumberFeeToPendingInvoiceTx(
@@ -178,6 +230,19 @@ describe("addPhoneNumberFeeToPendingInvoiceTx", () => {
     });
     expect(tx.businessUsageInvoiceLineItem.create).not.toHaveBeenCalled();
     expect(tx.businessUsageInvoice.update).not.toHaveBeenCalled();
-    expect(tx.platformPhoneNumber.update).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an invoice assignment for a different agent", async () => {
+    const tx = invoiceTx();
+    tx.platformPhoneNumber.findUnique.mockResolvedValue({
+      businessId: INPUT.businessId,
+      installedAgentId: "agent-2",
+      status: "ASSIGNED"
+    });
+
+    await expect(
+      addPhoneNumberFeeToPendingInvoiceTx(tx as never, INPUT, FEE)
+    ).rejects.toThrow("PHONE_INVOICE_ASSIGNMENT_MISMATCH");
+    expect(tx.businessUsageInvoiceLineItem.create).not.toHaveBeenCalled();
   });
 });

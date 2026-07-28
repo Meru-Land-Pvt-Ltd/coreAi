@@ -7,7 +7,10 @@ import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { BusinessPaymentMethodModal } from "@/components/business/business-payment-method-modal";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { businessCheckoutPath, businessInvoiceCheckoutPath } from "@/lib/routes";
-import { syntheticAgentAccruals } from "@/components/business/current-month-accrual";
+import {
+    billingPeriodForAnchor,
+    syntheticAgentAccruals
+} from "@/components/business/current-month-accrual";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 import {
     outstandingExecutionCents,
@@ -125,6 +128,7 @@ type UsageBill = {
         durationMinutes: number;
         billedCostUsd: number;
         amountCents: number;
+        purchasedAt?: string;
         executionFeeCents?: number | null;
         iconUrl?: string | null;
         serviceCosts: Array<{
@@ -181,6 +185,8 @@ type UsageInvoice = {
     billingMonth: string;
     status: "OPEN" | "PENDING" | "OVERDUE" | "PAID" | "VOID";
     amountCents: number;
+    periodStart?: string;
+    periodEnd?: string;
     issuedAt: string;
     dueAt: string;
     paidAt: string | null;
@@ -269,11 +275,6 @@ function buildMonthRange(startMonth: string, endMonth: string) {
     }
 
     return months.reverse();
-}
-
-function usageDueAt(month: string) {
-    const [year, monthNumber] = month.split("-").map(Number);
-    return new Date(Date.UTC(year, monthNumber, 1)).toISOString();
 }
 
 function formatCallTimestamp(iso: string) {
@@ -845,23 +846,33 @@ export default function BusinessBillingUsagePage() {
             invoices: usageInvoices,
             currentMonth: CURRENT_MONTH,
             agents: currentUsage.agentRollup
-        }).map(({ id, invoiceNumber, agent, executionCount }) => ({
-            id,
-            installedAgentId: agent.installedAgentId ?? agent.agentId,
-            invoiceNumber,
-            billingMonth: currentUsage.month,
-            status: "PENDING",
-            amountCents: Math.round(agent.billedCostUsd * 100),
-            issuedAt: currentUsage.updatedAt ?? new Date().toISOString(),
-            dueAt: usageDueAt(currentUsage.month),
-            paidAt: null,
-            callCount: executionCount,
-            agentBreakdown: [{
-                ...agent,
-                serviceCosts: agent.invoiceServiceCosts ?? []
-            }],
-            isAccruing: true
-        }))
+        }).map(({ id, invoiceNumber, agent, executionCount }) => {
+            const issuedAt = currentUsage.updatedAt ?? new Date().toISOString();
+            const period = billingPeriodForAnchor(
+                agent.purchasedAt,
+                issuedAt,
+                currentUsage.month
+            );
+            return {
+                id,
+                installedAgentId: agent.installedAgentId ?? agent.agentId,
+                invoiceNumber,
+                billingMonth: currentUsage.month,
+                status: "PENDING" as const,
+                amountCents: Math.round(agent.billedCostUsd * 100),
+                periodStart: period.start,
+                periodEnd: period.end,
+                issuedAt,
+                dueAt: period.end,
+                paidAt: null,
+                callCount: executionCount,
+                agentBreakdown: [{
+                    ...agent,
+                    serviceCosts: agent.invoiceServiceCosts ?? []
+                }],
+                isAccruing: true
+            };
+        })
         : [];
     const pendingUsageInvoices = [
         ...usageInvoices.filter((invoice) => invoice.status === "PENDING" || invoice.status === "OPEN"),

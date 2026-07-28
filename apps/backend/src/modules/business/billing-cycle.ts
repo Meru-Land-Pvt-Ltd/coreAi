@@ -16,8 +16,10 @@ import {
 import {
   buildAgentPurchaseLineItems
 } from "./phone-provisioning";
+import { ensureMonthlyAssignedNumberFees } from "./phone-number-invoice";
 import {
   addUtcCalendarMonth,
+  agentBillingAnchorAt,
   nextSubscriptionInvoicePeriod,
   paidPaymentCoversAgentInvoice,
   reconcileCoveredAgentInvoices
@@ -85,22 +87,50 @@ async function suspendPhones(
   );
 }
 
+export function usageSuspensionTargets(input: {
+  businessId: string;
+  installedAgentId: string | null;
+}) {
+  if (!input.installedAgentId) return null;
+  return {
+    installedAgentId: input.installedAgentId,
+    agentWhere: {
+      id: input.installedAgentId,
+      businessId: input.businessId
+    },
+    phoneWhere: {
+      businessId: input.businessId,
+      installedAgentId: input.installedAgentId
+    }
+  };
+}
+
 async function suspendBusinessForUsageInvoice(invoiceId: string, now: Date) {
   const invoice = await prisma.businessUsageInvoice.findUnique({
     where: { id: invoiceId },
-    select: { id: true, businessId: true, suspendedAt: true }
+    select: {
+      id: true,
+      businessId: true,
+      installedAgentId: true,
+      suspendedAt: true
+    }
   });
   if (!invoice) return false;
+  const targets = usageSuspensionTargets(invoice);
+  if (!targets) return false;
 
   const phones = await prisma.businessPhoneNumber.findMany({
-    where: { businessId: invoice.businessId, isActive: true },
+    where: {
+      ...targets.phoneWhere,
+      isActive: true
+    },
     select: { id: true, configJson: true }
   });
 
   await prisma.$transaction([
     prisma.installedAgent.updateMany({
       where: {
-        businessId: invoice.businessId,
+        ...targets.agentWhere,
         installSource: { not: "ARCHITECT_SELF_TEST" },
         status: { in: ["ACTIVE", "PROVISIONING"] }
       },
@@ -195,27 +225,33 @@ async function hasSuspendingSubscriptionDebt(
   return (blocking._sum.amountCents ?? 0) >= 50;
 }
 
+async function hasSuspendingUsageDebt(
+  businessId: string,
+  installedAgentId: string
+) {
+  const blocking = await prisma.businessUsageInvoice.aggregate({
+    where: {
+      businessId,
+      installedAgentId,
+      status: "OVERDUE",
+      paidAt: null,
+      graceEndsAt: { lte: new Date() }
+    },
+    _sum: { totalMicroUsd: true }
+  });
+  return usageBalanceIsCollectible(blocking._sum.totalMicroUsd ?? 0);
+}
+
 /**
  * Restores billing-suspended services after a successful payment.
  *
- * Usage debt is business-wide: one usage invoice beyond grace pauses every
- * buyer service. Subscription/post-trial debt is scoped to its installed
- * agent. An agent is restored only after both blocking categories are clear.
+ * Usage and subscription debt are both scoped to one installed agent. Paying
+ * one agent's invoice never changes another agent's suspension state.
  */
 export async function restoreBusinessAfterBillingPayment(
   businessId: string,
   installedAgentId?: string | null
 ) {
-  const usageStillBlocking =
-    (await prisma.businessUsageInvoice.count({
-      where: {
-        businessId,
-        status: "OVERDUE",
-        suspendedAt: { not: null }
-      }
-    })) > 0;
-  if (usageStillBlocking) return false;
-
   const suspendedAgents = await prisma.installedAgent.findMany({
     where: {
       businessId,
@@ -227,6 +263,7 @@ export async function restoreBusinessAfterBillingPayment(
   const restoredAgentIds: string[] = [];
   for (const agent of suspendedAgents) {
     if (
+      (await hasSuspendingUsageDebt(businessId, agent.id)) ||
       await hasSuspendingSubscriptionDebt(
         businessId,
         agent.id,
@@ -243,26 +280,36 @@ export async function restoreBusinessAfterBillingPayment(
   }
 
   const phones = await prisma.businessPhoneNumber.findMany({
-    where: { businessId },
+    where: {
+      businessId,
+      ...(installedAgentId ? { installedAgentId } : {})
+    },
     select: { id: true, installedAgentId: true, configJson: true }
   });
+  let restoredPhones = 0;
   for (const phone of phones) {
     const config = jsonRecord(phone.configJson);
     if (config.billingSuspended !== true) continue;
-    const subscriptionStillBlocking = phone.installedAgentId
-      ? !restoredAgentIds.includes(phone.installedAgentId) &&
-        (await hasSuspendingSubscriptionDebt(
-          businessId,
-          phone.installedAgentId,
-          (
-            await prisma.installedAgent.findUnique({
-              where: { id: phone.installedAgentId },
-              select: { listingId: true }
-            })
-          )?.listingId ?? null
-        ))
-      : false;
-    if (subscriptionStillBlocking) continue;
+    if (!phone.installedAgentId) continue;
+    const listingId = (
+      await prisma.installedAgent.findUnique({
+        where: { id: phone.installedAgentId },
+        select: { listingId: true }
+      })
+    )?.listingId ?? null;
+    if (
+      (await hasSuspendingUsageDebt(
+        businessId,
+        phone.installedAgentId
+      )) ||
+      (await hasSuspendingSubscriptionDebt(
+        businessId,
+        phone.installedAgentId,
+        listingId
+      ))
+    ) {
+      continue;
+    }
 
     delete config.billingSuspended;
     delete config.billingSuspensionKinds;
@@ -271,9 +318,10 @@ export async function restoreBusinessAfterBillingPayment(
       where: { id: phone.id },
       data: { isActive: true, configJson: config as Prisma.InputJsonValue }
     });
+    restoredPhones += 1;
   }
 
-  return restoredAgentIds.length > 0 || phones.length > 0;
+  return restoredAgentIds.length > 0 || restoredPhones > 0;
 }
 
 async function completedTrialLineItems(trial: {
@@ -678,7 +726,8 @@ async function createDueSubscriptionInvoices(now: Date) {
   for (const agent of agents) {
     if (!agent.listing || !agent.listingId) continue;
 
-    const [latestPaid, unresolvedAgentInvoices] = await Promise.all([
+    const [latestPaid, billingAnchorPayments, unresolvedAgentInvoices] =
+      await Promise.all([
       prisma.payment.findFirst({
         where: {
           userId: agent.business.ownerId,
@@ -700,6 +749,31 @@ async function createDueSubscriptionInvoices(now: Date) {
           { createdAt: "desc" }
         ]
       }),
+      prisma.payment.findMany({
+        where: {
+          userId: agent.business.ownerId,
+          OR: [{ businessId: agent.businessId }, { businessId: null }],
+          listingId: agent.listingId,
+          AND: [
+            {
+              OR: [
+                { installedAgentId: agent.id },
+                { installedAgentId: null }
+              ]
+            }
+          ]
+        },
+        orderBy: [{ periodStart: "asc" }, { createdAt: "asc" }],
+        select: {
+          status: true,
+          invoiceKind: true,
+          createdAt: true,
+          paidAt: true,
+          periodStart: true,
+          periodEnd: true,
+          dueAt: true
+        }
+      }),
       prisma.payment.count({
         where: {
           userId: agent.business.ownerId,
@@ -719,12 +793,17 @@ async function createDueSubscriptionInvoices(now: Date) {
           status: { in: ["PENDING", "OVERDUE"] }
         }
       })
-    ]);
+      ]);
     if (!latestPaid || unresolvedAgentInvoices > 0) continue;
+    const billingAnchorAt = agentBillingAnchorAt({
+      agentCreatedAt: agent.createdAt,
+      referenceAt: now,
+      payments: billingAnchorPayments
+    });
     const {
       start: periodStart,
       end: periodEnd
-    } = nextSubscriptionInvoicePeriod(latestPaid);
+    } = nextSubscriptionInvoicePeriod(latestPaid, billingAnchorAt);
     if (now < periodStart) continue;
     const renewalDate = periodStart.toISOString().slice(0, 10);
     const invoiceKey = `subscription:${agent.id}:${renewalDate}`;
@@ -956,6 +1035,7 @@ async function reconcileCanonicalExecutions(now: Date) {
 
 export async function runBillingCycle(now = new Date()) {
   const executionReconciliation = await reconcileCanonicalExecutions(now);
+  const assignedNumberFees = await ensureMonthlyAssignedNumberFees(now);
   const trialEndingOneDayEmails = await sendPendingTrialEndingOneDayEmails(now);
   const trialCompletions = await completeExpiredTrials(now);
   const subscriptionInvoices = await createDueSubscriptionInvoices(now);
@@ -969,6 +1049,7 @@ export async function runBillingCycle(now = new Date()) {
   return {
     billingMonth: billingMonthFor(now),
     executionReconciliation,
+    assignedNumberFees,
     trialEndingOneDayEmails,
     trialCompletions,
     trialEndEmails,

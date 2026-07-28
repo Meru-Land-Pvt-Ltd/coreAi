@@ -45,7 +45,9 @@ const records = [
   service("database_storage", "Call records", "PER_CALL", 200),
   service("sms_confirmation", "SMS confirmation", "PER_SMS", 10_000),
   service("google_calendar", "Appointment booking", "PER_UNIT", 0),
-  service("phone_number", "Dedicated phone number", "PER_UNIT", 2_000_000),
+  // The old admin row remains present to prove checkout execution pricing
+  // ignores it; assigned-number pricing now comes from Twilio.
+  service("phone_number", "Dedicated Business Phone Number", "PER_UNIT", 2_000_000),
   service("unused_provider", "Unused provider", "PER_MINUTE", 500_000)
 ];
 
@@ -67,8 +69,7 @@ describe("listing checkout usage pricing", () => {
       "elevenlabs_flash_v25",
       "database_storage",
       "sms_confirmation",
-      "google_calendar",
-      "phone_number"
+      "google_calendar"
     ]);
     expect(pricing.services).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ code: "unused_provider" })])
@@ -102,7 +103,7 @@ describe("listing checkout usage pricing", () => {
     ]);
   });
 
-  it("does not advertise a disabled phone-number charge", () => {
+  it("never mixes the fixed monthly phone fee into execution pricing", () => {
     const pricing = buildListingUsagePricing({
       records,
       requiredConnectors: ["phone_provider"],

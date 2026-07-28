@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   canonicalExecutionKey,
-  invoiceLifecycleDates,
   normalizeUsageInvoiceStatus,
   rollupExecutions,
   trialExecutionDecision,
@@ -49,16 +48,6 @@ describe("canonical execution billing", () => {
       nextExecutionsUsed: 50,
       freeReason: null
     });
-  });
-
-  it("uses calendar month boundaries across a year change", () => {
-    const lifecycle = invoiceLifecycleDates("2026-12");
-    expect(lifecycle.start.toISOString()).toBe("2026-12-01T00:00:00.000Z");
-    expect(lifecycle.end.toISOString()).toBe("2027-01-01T00:00:00.000Z");
-    expect(lifecycle.dueAt.toISOString()).toBe("2027-01-01T00:00:00.000Z");
-    expect(lifecycle.graceEndsAt.toISOString()).toBe(
-      "2027-01-08T00:00:00.000Z"
-    );
   });
 
   it("normalizes legacy OPEN invoices and rolls canonical execution totals", () => {

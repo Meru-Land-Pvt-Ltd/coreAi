@@ -71,6 +71,19 @@ async function loadOwnedBusiness(ownerId: string) {
               pricingModel: true,
               trialDays: true
             }
+          },
+          payments: {
+            where: {
+              status: "SUCCEEDED",
+              invoiceKind: "PURCHASE"
+            },
+            orderBy: [{ periodStart: "asc" }, { createdAt: "asc" }],
+            take: 1,
+            select: {
+              periodStart: true,
+              paidAt: true,
+              createdAt: true
+            }
           }
         }
       }
@@ -297,7 +310,12 @@ export async function getBusinessExecutionUsage(c: Context) {
       iconUrl: agent.listing?.iconUrl ?? null,
       status: agent.status,
       acquiredAt: agent.createdAt.toISOString(),
-      purchasedAt: agent.createdAt.toISOString(),
+      purchasedAt: (
+        agent.payments[0]?.periodStart ??
+        agent.payments[0]?.paidAt ??
+        agent.payments[0]?.createdAt ??
+        agent.createdAt
+      ).toISOString(),
       executionFeeCents: agent.executionFeeCents,
       executionFeeUsd: agent.executionFeeCents / 100,
       executionCount: stats.executionCount,
@@ -761,8 +779,8 @@ export async function getBusinessExecutionInvoices(c: Context) {
           item.billedCostMicroUsd / MICRO_USD_PER_CENT
         )
       }));
-      // Persisted invoice rows are authoritative and can include one-time
-      // non-call charges such as the dedicated phone number. Historical
+      // Persisted invoice rows are authoritative and can include fixed monthly
+      // non-call charges such as the assigned business number. Historical
       // invoices without stored rows still fall back to call-derived detail.
       const lineItems =
         storedLineItems.length > 0 ? storedLineItems : detailedLineItems;
@@ -1061,8 +1079,8 @@ export async function payBusinessExecutionInvoice(c: Context) {
 
       let repricedTotalMicroUsd = 0;
       for (const lineItem of row.lineItems) {
-        // The one-time phone-number fee is frozen at selection time. Metered
-        // usage continues to use the current active Admin billing rate.
+        // The monthly assigned-number fee is frozen from Twilio at assignment.
+        // Metered usage continues to use the current active Admin billing rate.
         const pricing =
           usageInvoiceServiceUsesSnapshotPrice(lineItem.serviceCode)
             ? undefined

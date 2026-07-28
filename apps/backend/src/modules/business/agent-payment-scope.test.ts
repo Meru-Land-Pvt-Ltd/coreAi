@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   addUtcCalendarMonth,
+  agentBillingAnchorAt,
+  agentBillingPeriodFor,
   initialAgentPurchasePeriod,
   nextSubscriptionInvoicePeriod,
   paidPaymentCoversAgentInvoice,
   paymentsForInstalledAgent,
   sameInstalledAgentPaymentScope,
+  utcBillingAnniversary,
   type AgentPaymentPeriod
 } from "./agent-payment-scope";
 
@@ -158,6 +161,93 @@ describe("billing cadence", () => {
     expect(
       addUtcCalendarMonth(new Date("2026-01-31T10:30:00.000Z"))
     ).toEqual(new Date("2026-02-28T10:30:00.000Z"));
+  });
+
+  it("keeps usage on the purchase-day anniversary instead of the first", () => {
+    const anchor = new Date("2026-07-25T10:30:00.000Z");
+    expect(
+      agentBillingPeriodFor(
+        anchor,
+        new Date("2026-08-24T23:59:59.000Z")
+      )
+    ).toMatchObject({
+      key: "2026-07",
+      start: anchor,
+      end: new Date("2026-08-25T10:30:00.000Z"),
+      dueAt: new Date("2026-08-25T10:30:00.000Z"),
+      graceEndsAt: new Date("2026-09-01T10:30:00.000Z")
+    });
+    expect(
+      agentBillingPeriodFor(
+        anchor,
+        new Date("2026-08-25T10:30:00.000Z")
+      )
+    ).toMatchObject({
+      key: "2026-08",
+      start: new Date("2026-08-25T10:30:00.000Z"),
+      end: new Date("2026-09-25T10:30:00.000Z")
+    });
+  });
+
+  it("clamps February but returns to the original month-end anchor", () => {
+    const anchor = new Date("2026-01-31T10:30:00.000Z");
+    expect(utcBillingAnniversary(anchor, 1)).toEqual(
+      new Date("2026-02-28T10:30:00.000Z")
+    );
+    expect(utcBillingAnniversary(anchor, 2)).toEqual(
+      new Date("2026-03-31T10:30:00.000Z")
+    );
+    expect(
+      nextSubscriptionInvoicePeriod(
+        payment({
+          periodStart: anchor,
+          periodEnd: new Date("2026-02-28T10:30:00.000Z")
+        }),
+        anchor
+      )
+    ).toEqual({
+      start: new Date("2026-02-28T10:30:00.000Z"),
+      end: new Date("2026-03-31T10:30:00.000Z")
+    });
+  });
+
+  it("repairs a legacy February drift without creating a short period", () => {
+    const anchor = new Date("2026-01-31T10:30:00.000Z");
+    expect(
+      nextSubscriptionInvoicePeriod(
+        payment({
+          periodStart: new Date("2026-02-28T10:30:00.000Z"),
+          periodEnd: new Date("2026-03-28T10:30:00.000Z")
+        }),
+        anchor
+      )
+    ).toEqual({
+      start: new Date("2026-03-28T10:30:00.000Z"),
+      end: new Date("2026-04-30T10:30:00.000Z")
+    });
+  });
+
+  it("starts post-trial billing at trial end without counting trial days", () => {
+    expect(
+      agentBillingAnchorAt({
+        agentCreatedAt: new Date("2026-07-01T00:00:00.000Z"),
+        referenceAt: new Date("2026-07-08T00:00:00.000Z"),
+        payments: [
+          payment({
+            status: "COMPLETED",
+            invoiceKind: "TRIAL",
+            periodStart: new Date("2026-07-01T00:00:00.000Z"),
+            periodEnd: new Date("2026-07-08T00:00:00.000Z")
+          }),
+          payment({
+            status: "OVERDUE",
+            invoiceKind: "POST_TRIAL",
+            periodStart: new Date("2026-07-08T00:00:00.000Z"),
+            periodEnd: new Date("2026-08-08T00:00:00.000Z")
+          })
+        ]
+      })
+    ).toEqual(new Date("2026-07-08T00:00:00.000Z"));
   });
 
   it("stores a monthly period only for subscription purchases", () => {

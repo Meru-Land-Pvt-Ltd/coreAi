@@ -129,11 +129,6 @@ export function buyerExecutionPricingView(records: UsageServicePricingRecord[]):
         serviceId.endsWith("_google_calendar")
       );
     }) ?? null;
-  const phone =
-    active.find(
-      (record) => record.unit === "PER_UNIT" && /phone|number/i.test(`${record.serviceId} ${record.name}`)
-    ) ?? null;
-
   return {
     currency: USAGE_PRICING_CURRENCY,
     voice: {
@@ -143,6 +138,8 @@ export function buyerExecutionPricingView(records: UsageServicePricingRecord[]):
     },
     sms: sms ? toBuyerRate(sms) : null,
     calendar: calendar ? toBuyerRate(calendar) : null,
-    phoneNumber: phone ? toBuyerRate(phone) : null
+    // Assigned-number pricing is fetched from Twilio for the selected
+    // country/type and is never sourced from Admin execution pricing.
+    phoneNumber: null
   };
 }

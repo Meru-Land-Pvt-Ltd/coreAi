@@ -13,7 +13,7 @@ import {
   addPhoneNumberFeeToPendingInvoice,
   addPhoneNumberFeeToPendingInvoiceTx
 } from "./phone-number-invoice";
-import { getPhoneNumberFee } from "./phone-provisioning";
+import { getPhoneNumberFeeForPlatformNumber } from "./phone-provisioning";
 
 export type SafeAvailableNumber = {
   phoneNumber: string;
@@ -531,9 +531,6 @@ export async function purchaseNumberForBusiness(params: {
     return precheck.outcome;
   }
   const { request } = precheck;
-  const phoneNumberFee = params.installedAgentId
-    ? await getPhoneNumberFee()
-    : null;
 
   const fail = async (errorCode: string, errorMessage: string): Promise<PurchaseOutcome> => {
     await transitionRequest(request.id, "FAILED", {
@@ -590,6 +587,9 @@ export async function purchaseNumberForBusiness(params: {
       error instanceof PhoneNumberServiceError ? error.message : "The number could not be purchased right now. Please try again shortly.";
     return fail(code ?? "TWILIO_PURCHASE_FAILED", message);
   }
+  const phoneNumberFee = params.installedAgentId
+    ? await getPhoneNumberFeeForPlatformNumber(platformNumber.id)
+    : null;
 
   await transitionRequest(request.id, "PURCHASED", {
     note: `Purchased ${platformNumber.phoneNumber} (webhooks configured at purchase).`,
