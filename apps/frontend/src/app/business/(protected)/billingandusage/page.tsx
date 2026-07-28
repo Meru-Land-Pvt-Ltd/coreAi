@@ -13,6 +13,7 @@ import {
     outstandingExecutionCents,
     outstandingSubscriptionCents
 } from "@/components/business/outstanding-billing";
+import { billingAgentMatchesUsage } from "@/lib/agent-billing-identity";
 
 type BillingPaymentMethod = {
     brand: string;
@@ -23,6 +24,7 @@ type BillingPaymentMethod = {
 
 type BillingInvoice = {
     id: string;
+    installedAgentId?: string | null;
     createdAt: string;
     description: string;
     amountCents: number;
@@ -792,11 +794,7 @@ export default function BusinessBillingUsagePage() {
             .map((agent) => {
             const matchIndex = rollups.findIndex((rollup, index) => {
                 if (usedIndexes.has(index)) return false;
-                const rollupInstalledId = rollup.installedAgentId ?? rollup.agentId;
-                if (agent.installedAgentId && rollupInstalledId === agent.installedAgentId) return true;
-                const listingId = agent.listingId ?? agent.id;
-                if (rollup.listingId && rollup.listingId === listingId) return true;
-                return rollup.agentName.trim().toLowerCase() === agent.name.trim().toLowerCase();
+                return billingAgentMatchesUsage(agent, rollup);
             });
             const rollup = matchIndex >= 0 ? rollups[matchIndex] : null;
             if (matchIndex >= 0) usedIndexes.add(matchIndex);
@@ -965,13 +963,9 @@ export default function BusinessBillingUsagePage() {
                                     : pricingModel === "ONE_TIME"
                                         ? " one-time"
                                         : "";
-                                const agentExecutionUsage = currentUsage?.agentRollup.find((rollup) => {
-                                    const rollupInstalledId = rollup.installedAgentId ?? rollup.agentId;
-                                    if (agent.installedAgentId && rollupInstalledId === agent.installedAgentId) return true;
-                                    const listingId = agent.listingId ?? agent.id;
-                                    if (rollup.listingId && rollup.listingId === listingId) return true;
-                                    return rollup.agentName.trim().toLowerCase() === agent.name.trim().toLowerCase();
-                                });
+                                const agentExecutionUsage = currentUsage?.agentRollup.find(
+                                    (rollup) => billingAgentMatchesUsage(agent, rollup)
+                                );
                                 const agentExecutionCostUsd = agentExecutionUsage?.billedCostUsd ?? 0;
                                 const trialLimit = agent.trialExecutionLimit ?? 50;
                                 const trialUsed = agent.trialExecutionsUsed
@@ -1001,7 +995,7 @@ export default function BusinessBillingUsagePage() {
                                         {pricingModel === "SUBSCRIPTION" ? (
                                             <button
                                                 type="button"
-                                                onClick={() => cancelAgentSubscription(agent.listingId ?? agent.id)}
+                                                onClick={() => cancelAgentSubscription(agent.installedAgentId ?? agent.id)}
                                                 data-testid="billing-cancel-agent"
                                                 className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600 transition hover:bg-red-100 hover:text-red-700"
                                             >

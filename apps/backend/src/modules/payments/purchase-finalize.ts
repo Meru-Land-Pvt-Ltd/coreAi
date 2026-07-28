@@ -10,15 +10,14 @@ import {
   type PaymentWithListing
 } from "../../lib/billing-invoices";
 import { sendPaymentSuccessEmail, type InvoiceData } from "../../lib/mailer";
-import {
-  buildAgentPurchaseLineItems,
-  markPhoneNumberFeeBilled,
-  resolveUnbilledPhoneFee
-} from "../business/phone-provisioning";
 import { resolveActivePayment } from "../business/purchase-access";
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
 import { createSettlementForPayment } from "../payouts/settlements";
 import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
+import {
+  initialAgentPurchasePeriod,
+  reconcileCoveredAgentInvoices
+} from "../business/agent-payment-scope";
 import { getStripeClient, isStripeConfigured } from "./stripe";
 
 
@@ -238,7 +237,12 @@ export async function buildInvoiceData(
 
 export type FinalizeAgentPurchaseParams = {
   authUser: AuthUserForInvoice;
-  listing: { id: string; name: string; priceCents: number };
+  listing: {
+    id: string;
+    name: string;
+    priceCents: number;
+    pricingModel: string;
+  };
   businessId: string | null;
   customerId: string | null;
   paymentMethodId: string | null;
@@ -264,20 +268,7 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
     if (existing) return { payment: existing, alreadyRecorded: true };
   }
 
-  const unbilledPhoneFee = await resolveUnbilledPhoneFee({
-    buyerUserId: authUser.id,
-    businessId
-  });
-  let lineItems = buildAgentPurchaseLineItems({
-    agentLabel: listing.name,
-    agentPriceCents: listing.priceCents,
-    phoneFee: unbilledPhoneFee?.fee ?? null
-  });
-  const lineTotal = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
-  const phoneFeeCharged = Boolean(unbilledPhoneFee) && lineTotal === params.amountCents;
-  if (lineTotal !== params.amountCents) {
-    lineItems = [{ label: listing.name, amountCents: params.amountCents }];
-  }
+  const lineItems = [{ label: listing.name, amountCents: params.amountCents }];
 
   let billing = params.billing;
   if (!billing) {
@@ -302,17 +293,10 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
       if (existing) return { payment: existing, alreadyRecorded: true as const };
     }
 
-    const purchasePeriodStart = new Date();
-    const purchasePeriodEnd = new Date(
-      Date.UTC(
-        purchasePeriodStart.getUTCFullYear(),
-        purchasePeriodStart.getUTCMonth() + 1,
-        purchasePeriodStart.getUTCDate(),
-        purchasePeriodStart.getUTCHours(),
-        purchasePeriodStart.getUTCMinutes(),
-        purchasePeriodStart.getUTCSeconds()
-      )
-    );
+    const {
+      start: purchasePeriodStart,
+      end: purchasePeriodEnd
+    } = initialAgentPurchasePeriod(listing.pricingModel, new Date());
     const created = await tx.payment.create({
       data: {
         userId: authUser.id,
@@ -348,10 +332,27 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
   // from the response path, the 3DS confirm, and the webhook backstop; the
   // unique (businessId, listingId) constraint keeps repeated callbacks on
   // one InstalledAgent. Best-effort: setup still installs lazily on failure.
+  let purchasedInstalledAgentId: string | null = null;
   try {
     const owned = await loadOwnedListing(authUser.id, listing.id);
     if (owned) {
-      await ensureBusinessAndAgent({ ownerId: authUser.id, listing: owned });
+      const { agent } = await ensureBusinessAndAgent({
+        ownerId: authUser.id,
+        listing: owned
+      });
+      if (agent) {
+        purchasedInstalledAgentId = agent.id;
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: { installedAgentId: agent.id }
+        });
+        await reconcileCoveredAgentInvoices({
+          userId: authUser.id,
+          businessId,
+          listingId: listing.id,
+          installedAgentId: agent.id
+        });
+      }
     }
   } catch (error) {
     console.error("Post-purchase auto-install failed (setup will install lazily)", {
@@ -377,12 +378,33 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
       userId: authUser.id,
       listingId: listing.id,
       status: "TRIALING",
-      NOT: { id: payment.id }
+      NOT: { id: payment.id },
+      ...(params.priorTrialPaymentId
+        ? { id: params.priorTrialPaymentId }
+        : purchasedInstalledAgentId
+          ? {
+              OR: [
+                { installedAgentId: purchasedInstalledAgentId },
+                {
+                  installedAgentId: null,
+                  OR: [
+                    ...(businessId ? [{ businessId }] : []),
+                    { businessId: null }
+                  ]
+                }
+              ]
+            }
+          : businessId
+            ? { businessId }
+            : {})
     },
     data: {
       status: "COMPLETED",
       invoiceKind: "TRIAL",
-      periodEnd: new Date()
+      periodEnd: new Date(),
+      ...(purchasedInstalledAgentId
+        ? { installedAgentId: purchasedInstalledAgentId }
+        : {})
     }
   });
 
@@ -396,10 +418,6 @@ export async function finalizePaidAgentPurchase(params: FinalizeAgentPurchasePar
         ?.subscriptions.cancel(trial.stripeSubscriptionId)
         .catch(() => undefined);
     }
-  }
-
-  if (phoneFeeCharged && unbilledPhoneFee) {
-    await markPhoneNumberFeeBilled(unbilledPhoneFee.platformPhoneNumberId);
   }
 
   try {
@@ -443,7 +461,7 @@ export async function recordAgentPurchaseFromIntent(intent: Stripe.PaymentIntent
     }),
     prisma.agentListing.findUnique({
       where: { id: listingId },
-      select: { id: true, name: true, priceCents: true }
+      select: { id: true, name: true, priceCents: true, pricingModel: true }
     }),
     prisma.business.findFirst({
       where: { id: (await resolvePrimaryBusinessId(userId)) ?? "" },

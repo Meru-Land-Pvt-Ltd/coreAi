@@ -25,6 +25,7 @@ import {
   rollupCustomerUsageLineItems,
   rollupRecordedUsageLineItems,
   usageInvoiceBillingRateMicroUsd,
+  usageInvoiceServiceUsesSnapshotPrice,
   type UsageInvoiceBillingCostMap,
   type UsageInvoiceLabelMap
 } from "./usage-invoice-line-items";
@@ -714,7 +715,7 @@ export async function getBusinessExecutionInvoices(c: Context) {
           serviceCosts
         };
       });
-      const agentBreakdown =
+      const usageAgentBreakdown =
         canonicalBreakdown.length > 0
           ? canonicalBreakdown
           : legacyAgentBreakdown(
@@ -760,12 +761,57 @@ export async function getBusinessExecutionInvoices(c: Context) {
           item.billedCostMicroUsd / MICRO_USD_PER_CENT
         )
       }));
+      // Persisted invoice rows are authoritative and can include one-time
+      // non-call charges such as the dedicated phone number. Historical
+      // invoices without stored rows still fall back to call-derived detail.
       const lineItems =
-        detailedLineItems.length > 0 ? detailedLineItems : storedLineItems;
+        storedLineItems.length > 0 ? storedLineItems : detailedLineItems;
       const totalMicroUsd = lineItems.reduce(
         (sum, item) => sum + item.amountMicroUsd,
         0
       );
+      const totalAmountCents = Math.round(
+        totalMicroUsd / MICRO_USD_PER_CENT
+      );
+      const agentBreakdown = invoice.installedAgentId
+        ? [
+            {
+              agentId: invoice.installedAgentId,
+              installedAgentId: invoice.installedAgentId,
+              agentName:
+                invoice.installedAgent?.name ??
+                usageAgentBreakdown[0]?.agentName ??
+                "Agent",
+              iconUrl:
+                invoice.installedAgent?.listing?.iconUrl ?? null,
+              executionCount,
+              callCount: executionCount,
+              durationMinutes: invoiceCalls
+                .filter(
+                  (call) =>
+                    call.installedAgentId === invoice.installedAgentId
+                )
+                .reduce(
+                  (sum, call) => sum + (call.durationMinutes ?? 0),
+                  0
+                ),
+              billedCostUsd: microUsdToUsd(totalMicroUsd),
+              amountCents: totalAmountCents,
+              serviceCosts: lineItems.map((item) => ({
+                serviceCode: item.serviceCode,
+                serviceName: item.serviceName,
+                invoiceLabel: item.invoiceLabel,
+                unit: item.unit,
+                quantity: item.quantity,
+                unitPriceUsd: item.unitPriceUsd,
+                billedCostUsd: microUsdToUsd(item.amountMicroUsd),
+                amountCents: Math.round(
+                  item.amountMicroUsd / MICRO_USD_PER_CENT
+                )
+              }))
+            }
+          ]
+        : usageAgentBreakdown;
 
       return {
         id: invoice.id,
@@ -787,7 +833,7 @@ export async function getBusinessExecutionInvoices(c: Context) {
         graceEndsAt: invoice.graceEndsAt?.toISOString() ?? null,
         totalMicroUsd,
         totalUsd: microUsdToUsd(totalMicroUsd),
-        amountCents: Math.round(totalMicroUsd / MICRO_USD_PER_CENT),
+        amountCents: totalAmountCents,
         paidAt: invoice.paidAt?.toISOString() ?? null,
         reminderCount: invoice.reminderCount,
         suspendedAt: invoice.suspendedAt?.toISOString() ?? null,
@@ -1015,7 +1061,12 @@ export async function payBusinessExecutionInvoice(c: Context) {
 
       let repricedTotalMicroUsd = 0;
       for (const lineItem of row.lineItems) {
-        const pricing = paymentBillingCosts.get(lineItem.serviceCode);
+        // The one-time phone-number fee is frozen at selection time. Metered
+        // usage continues to use the current active Admin billing rate.
+        const pricing =
+          usageInvoiceServiceUsesSnapshotPrice(lineItem.serviceCode)
+            ? undefined
+            : paymentBillingCosts.get(lineItem.serviceCode);
         const unitPriceMicroUsd =
           pricing?.billingCostMicroUsd ?? lineItem.unitPriceMicroUsd;
         const amountMicroUsd = pricing

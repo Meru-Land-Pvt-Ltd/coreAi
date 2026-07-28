@@ -2,11 +2,9 @@
  * Phone-number fee billing (real local DB for the PlatformPhoneNumber /
  * pricing-record paths; suite skips when unreachable).
  *
- * The platform flag is OFF (PHONE_NUMBER_FEE_ENABLED=false): the default state
- * must honestly say billing is not enabled. The enabled path (test seam
- * feeEnabled:true) bills ONE TIME per assigned number via feeBilledAt — never
- * per call, never twice on retry — and purchase line items are immutable
- * value snapshots.
+ * The platform flag is ON: the configured rate is billed ONE TIME per
+ * assigned number via feeBilledAt — never per call and never twice on retry.
+ * The explicit disabled seam remains covered for emergency rollback.
  */
 
 import { randomUUID } from "node:crypto";
@@ -81,9 +79,9 @@ afterAll(async () => {
 });
 
 describe("billing state", () => {
-  it("flag off (the production default) → enabled:false, no amount, the honest disabled message", async () => {
+  it("an explicit flag override reports disabled billing honestly", async () => {
     if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
-    const state = await getPhoneNumberBillingState();
+    const state = await getPhoneNumberBillingState({ feeEnabled: false });
     expect(state).toMatchObject({
       enabled: false,
       cadence: "ONE_TIME_PER_ASSIGNED_NUMBER",
@@ -93,9 +91,9 @@ describe("billing state", () => {
     });
   });
 
-  it("feeEnabled:true → enabled with the real active phone_number rate and service code", async () => {
+  it("the production default uses the active phone_number rate and service code", async () => {
     if (!dbAvailable || !phoneServiceSeeded) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
-    const state = await getPhoneNumberBillingState({ feeEnabled: true });
+    const state = await getPhoneNumberBillingState();
     expect(state.enabled).toBe(true);
     expect(state.cadence).toBe("ONE_TIME_PER_ASSIGNED_NUMBER");
     expect(state.amountCents ?? 0).toBeGreaterThan(0);
@@ -110,7 +108,7 @@ describe("one-time-per-assigned-number cadence", () => {
     const buyerUserId = `${RUN}-buyer-${randomUUID()}`;
     const number = await createPlatformNumber({ status: "ASSIGNED", buyerUserId });
 
-    const unbilled = await resolveUnbilledPhoneFee({ buyerUserId, feeEnabled: true });
+    const unbilled = await resolveUnbilledPhoneFee({ buyerUserId });
     expect(unbilled).not.toBeNull();
     expect(unbilled?.platformPhoneNumberId).toBe(number.id);
     expect(unbilled?.fee.amountCents ?? 0).toBeGreaterThan(0);
@@ -122,7 +120,7 @@ describe("one-time-per-assigned-number cadence", () => {
     expect(firstBilledAt).not.toBeNull();
 
     // Retry / regeneration: nothing further to bill.
-    expect(await resolveUnbilledPhoneFee({ buyerUserId, feeEnabled: true })).toBeNull();
+    expect(await resolveUnbilledPhoneFee({ buyerUserId })).toBeNull();
 
     // Marking again never moves feeBilledAt (first bill wins).
     await markPhoneNumberFeeBilled(number.id);
@@ -139,18 +137,20 @@ describe("one-time-per-assigned-number cadence", () => {
     expect(await resolveUnbilledPhoneFee({ buyerUserId, feeEnabled: true })).toBeNull();
   });
 
-  it("flag off → getPhoneNumberFee is zero and resolveUnbilledPhoneFee finds nothing to bill", async () => {
+  it("an explicit flag override returns no billable phone fee", async () => {
     if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     const buyerUserId = `${RUN}-buyer-flagoff-${randomUUID()}`;
     await createPlatformNumber({ status: "ASSIGNED", buyerUserId });
 
-    const fee = await getPhoneNumberFee();
+    const fee = await getPhoneNumberFee({ feeEnabled: false });
     expect(fee.amountCents).toBe(0);
-    expect(await resolveUnbilledPhoneFee({ buyerUserId })).toBeNull();
+    expect(
+      await resolveUnbilledPhoneFee({ buyerUserId, feeEnabled: false })
+    ).toBeNull();
   });
 });
 
-describe("purchase line items", () => {
+describe("line-item snapshot helper", () => {
   const phoneFee: PhoneNumberFee = {
     amountCents: 200,
     label: "AI Receptionist No.",

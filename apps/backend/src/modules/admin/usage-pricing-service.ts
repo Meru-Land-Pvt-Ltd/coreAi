@@ -99,6 +99,7 @@ export type BuyerExecutionPricing = {
     serviceBreakdown: BuyerServiceRate[];
   };
   sms: BuyerServiceRate | null;
+  calendar: BuyerServiceRate | null;
   phoneNumber: BuyerServiceRate | null;
 };
 
@@ -120,6 +121,14 @@ export function buyerExecutionPricingView(records: UsageServicePricingRecord[]):
   const perMinute = active.filter((record) => record.unit === "PER_MINUTE");
   const combined = sumPerMinuteBillingMicroUsd(active);
   const sms = active.find((record) => record.unit === "PER_SMS") ?? null;
+  const calendar =
+    active.find((record) => {
+      const serviceId = record.serviceId.trim().toLowerCase();
+      return (
+        serviceId === "google_calendar" ||
+        serviceId.endsWith("_google_calendar")
+      );
+    }) ?? null;
   const phone =
     active.find(
       (record) => record.unit === "PER_UNIT" && /phone|number/i.test(`${record.serviceId} ${record.name}`)
@@ -133,6 +142,7 @@ export function buyerExecutionPricingView(records: UsageServicePricingRecord[]):
       serviceBreakdown: perMinute.map(toBuyerRate)
     },
     sms: sms ? toBuyerRate(sms) : null,
+    calendar: calendar ? toBuyerRate(calendar) : null,
     phoneNumber: phone ? toBuyerRate(phone) : null
   };
 }

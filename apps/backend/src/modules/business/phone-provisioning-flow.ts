@@ -9,6 +9,11 @@ import {
 } from "../admin/twilio-number-service";
 import { workflowSupportsSmsReplies } from "../architect/twilio-business-routing";
 import { assignPlatformNumber, unassignPlatformNumber } from "./phone-assignment";
+import {
+  addPhoneNumberFeeToPendingInvoice,
+  addPhoneNumberFeeToPendingInvoiceTx
+} from "./phone-number-invoice";
+import { getPhoneNumberFee } from "./phone-provisioning";
 
 export type SafeAvailableNumber = {
   phoneNumber: string;
@@ -400,8 +405,36 @@ export async function purchaseNumberForBusiness(params: {
     return { kind: "created", request };
   });
 
-  if (precheck.kind === "existing") return precheck.outcome;
+  if (precheck.kind === "existing") {
+    if (
+      params.installedAgentId &&
+      precheck.outcome.status === "ACTIVE" &&
+      precheck.outcome.phoneNumber
+    ) {
+      const assigned = await prisma.platformPhoneNumber.findFirst({
+        where: {
+          phoneNumber: precheck.outcome.phoneNumber,
+          businessId: params.businessId,
+          installedAgentId: params.installedAgentId,
+          status: "ASSIGNED",
+          isPlatformSmsSender: false
+        },
+        select: { id: true }
+      });
+      if (assigned) {
+        await addPhoneNumberFeeToPendingInvoice({
+          platformPhoneNumberId: assigned.id,
+          businessId: params.businessId,
+          installedAgentId: params.installedAgentId
+        });
+      }
+    }
+    return precheck.outcome;
+  }
   const { request } = precheck;
+  const phoneNumberFee = params.installedAgentId
+    ? await getPhoneNumberFee()
+    : null;
 
   const fail = async (errorCode: string, errorMessage: string): Promise<PurchaseOutcome> => {
     await transitionRequest(request.id, "FAILED", {
@@ -536,6 +569,18 @@ export async function purchaseNumberForBusiness(params: {
         buyerUserId: params.requestedByUserId,
         forwardToPhone
       });
+      if (params.installedAgentId && phoneNumberFee) {
+        await addPhoneNumberFeeToPendingInvoiceTx(
+          tx,
+          {
+            platformPhoneNumberId: platformNumber.id,
+            businessId: params.businessId,
+            installedAgentId: params.installedAgentId,
+            chargedAt: new Date()
+          },
+          phoneNumberFee
+        );
+      }
     });
   } catch (error) {
     if (error instanceof PhoneNumberServiceError && error.code === "PHONE_NUMBER_ALREADY_ASSIGNED") {

@@ -29,7 +29,19 @@ export type BuyerExecutionPricing = {
       billingRateUsd: number;
     }>;
   };
-  sms: { billingRatePerSmsUsd: number | null } | null;
+  sms: {
+    billingRatePerSmsUsd: number | null;
+    billingRateUsd?: number;
+    serviceId?: string;
+    invoiceLabel?: string;
+    unit?: "PER_SMS";
+  } | null;
+  calendar?: {
+    serviceId: string;
+    invoiceLabel: string;
+    unit: "PER_MINUTE" | "PER_SMS" | "PER_CALL" | "PER_UNIT";
+    billingRateUsd: number;
+  } | null;
   phoneNumber: { billingRateUsd: number | null } | null;
   phoneNumberBilling?: PhoneNumberBillingState | null;
 };

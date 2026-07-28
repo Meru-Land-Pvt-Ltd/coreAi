@@ -6,7 +6,7 @@ export const PHONE_NUMBER_SERVICE_CODE = "phone_number";
 
 export const PHONE_NUMBER_LINE_LABEL = "AI Receptionist No.";
 
-export const PHONE_NUMBER_FEE_ENABLED = false;
+export const PHONE_NUMBER_FEE_ENABLED = true;
 
 export const PHONE_NUMBER_BILLING_DISABLED_MESSAGE =
   "Phone-number billing is currently not enabled.";

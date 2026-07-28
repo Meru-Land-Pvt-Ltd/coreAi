@@ -93,8 +93,12 @@ import { deleteTestCalendarEvent } from "../architect/test-calendar-events";
 import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
 import {
   findBuyerPlatformNumber,
+  getPhoneNumberFee,
   workflowNeedsPhoneNumber
 } from "./phone-provisioning";
+import {
+  addPhoneNumberFeeToPendingInvoiceTx
+} from "./phone-number-invoice";
 import {
   createOrUpdateBusinessEmailAlias,
   generateSuggestedAlias,
@@ -2801,6 +2805,21 @@ businessRoutes.post("/setup", async (c) => {
       }
     }
 
+    if (resolved.listingId) {
+      await prisma.payment.updateMany({
+        where: {
+          userId: authUser.id,
+          listingId: resolved.listingId,
+          installedAgentId: null,
+          OR: [{ businessId: business.id }, { businessId: null }]
+        },
+        data: {
+          businessId: business.id,
+          installedAgentId: installedAgent.id
+        }
+      });
+    }
+
     const billingNow = new Date();
     const [blockingUsageDebt, blockingAgentDebt] = await Promise.all([
       prisma.businessUsageInvoice.count({
@@ -2857,6 +2876,10 @@ businessRoutes.post("/setup", async (c) => {
         });
       }
     }
+
+    const selectedPhoneFee = targetPlatform || existingPhone
+      ? await getPhoneNumberFee()
+      : null;
 
     if (targetPlatform) {
       const targetNumber = normalizePhoneNumber(targetPlatform.phoneNumber);
@@ -2929,9 +2952,23 @@ businessRoutes.post("/setup", async (c) => {
             data: {
               status: "ASSIGNED",
               businessId: business.id,
+              buyerUserId: authUser.id,
+              installedAgentId: installedAgent.id,
               assignedAt: fresh.assignedAt ?? new Date()
             }
           });
+          if (selectedPhoneFee) {
+            await addPhoneNumberFeeToPendingInvoiceTx(
+              tx,
+              {
+                platformPhoneNumberId: targetPlatform.id,
+                businessId: business.id,
+                installedAgentId: installedAgent.id,
+                chargedAt: new Date()
+              },
+              selectedPhoneFee
+            );
+          }
 
           // Release any other number still reserved for this buyer at
           // purchase time (businessId null) — they went with a different one,
@@ -2963,13 +3000,46 @@ businessRoutes.post("/setup", async (c) => {
         return errorResponse(c, "That phone number is already assigned to another business.", 409, "PHONE_NUMBER_TAKEN");
       }
     } else if (existingPhone) {
-      businessPhone = await prisma.businessPhoneNumber.update({
-        where: { id: existingPhone.id },
-        data: {
-          forwardToPhone: forward,
-          installedAgentId: installedAgent.id,
-          isActive: true
+      businessPhone = await prisma.$transaction(async (tx) => {
+        const mapping = await tx.businessPhoneNumber.update({
+          where: { id: existingPhone.id },
+          data: {
+            forwardToPhone: forward,
+            installedAgentId: installedAgent.id,
+            isActive: true
+          }
+        });
+        const assigned = await tx.platformPhoneNumber.findFirst({
+          where: {
+            phoneNumber: existingPhone.phoneNumber,
+            businessId: business.id,
+            status: "ASSIGNED",
+            isPlatformSmsSender: false
+          },
+          select: { id: true }
+        });
+        if (assigned) {
+          await tx.platformPhoneNumber.update({
+            where: { id: assigned.id },
+            data: {
+              buyerUserId: authUser.id,
+              installedAgentId: installedAgent.id
+            }
+          });
+          if (selectedPhoneFee) {
+            await addPhoneNumberFeeToPendingInvoiceTx(
+              tx,
+              {
+                platformPhoneNumberId: assigned.id,
+                businessId: business.id,
+                installedAgentId: installedAgent.id,
+                chargedAt: new Date()
+              },
+              selectedPhoneFee
+            );
+          }
         }
+        return mapping;
       });
     }
 

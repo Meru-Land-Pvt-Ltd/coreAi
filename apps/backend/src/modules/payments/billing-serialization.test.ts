@@ -585,7 +585,7 @@ describe("payments routes source contract", () => {
     expect(routesSource).toContain("dateToIsoOrNull(business?.spendingAlertLastNotifiedAt)");
     expect(routesSource).toContain("dateToIsoOrNull(installedAgent?.pausedAt)");
     expect(routesSource).toContain("dateToIsoOrNull(payment.periodEnd)");
-    expect(routesSource).toContain("dateToIsoOrNull(latestPayment.periodEnd)");
+    expect(routesSource).toContain("dateToIsoOrNull(activeTrial.periodEnd)");
   });
 
   it("keeps the typed installed-agent map without unsafe casts", () => {

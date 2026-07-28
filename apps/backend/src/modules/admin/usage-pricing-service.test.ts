@@ -235,6 +235,10 @@ describe("buyer-safe pricing projection", () => {
     });
     expect(view.voice.serviceBreakdown[0]).not.toHaveProperty("serviceName");
     expect(view.sms?.billingRateUsd).toBeCloseTo(0.01, 6);
+    expect(view.calendar).toMatchObject({
+      invoiceLabel: "Appointment booking",
+      billingRateUsd: 0
+    });
     expect(view.phoneNumber?.billingRateUsd).toBeCloseTo(2.0, 6);
     // phone number billed at $2.00 even though vendor cost is $1.15 — and the
     // vendor figure must not be derivable from the buyer view.
