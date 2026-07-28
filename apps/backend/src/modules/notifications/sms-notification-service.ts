@@ -358,8 +358,6 @@ export type AppointmentConfirmationTemplateValues = {
   businessPhone: string;
 };
 
-// Transactional template — identifies both the business and Triven, and
-// carries the required STOP/HELP + rates notice. No promotional content.
 export function renderAppointmentConfirmationSms(values: AppointmentConfirmationTemplateValues): string {
   const service = values.serviceName && values.serviceName !== "your" ? `${values.serviceName} ` : "";
   const lines = [
@@ -372,8 +370,18 @@ export function renderAppointmentConfirmationSms(values: AppointmentConfirmation
   return lines.join("\n");
 }
 
-/** The buyer's dedicated voice/callback number to show inside SMS content. */
-async function resolveBusinessDisplayPhone(businessId: string): Promise<string> {
+async function resolveBusinessDisplayPhone(
+  businessId: string,
+  installedAgentId?: string | null
+): Promise<string> {
+  if (installedAgentId) {
+    const own = await prisma.businessPhoneNumber.findFirst({
+      where: { businessId, installedAgentId, isActive: true },
+      select: { phoneNumber: true }
+    });
+    if (own?.phoneNumber) return own.phoneNumber;
+  }
+
   const active = await prisma.businessPhoneNumber.findFirst({
     where: { businessId, isActive: true },
     orderBy: { createdAt: "desc" },
@@ -422,7 +430,7 @@ export async function sendAppointmentConfirmationSms(
 
   const timeZone = input.timeZone || business.profile?.timeZone || "America/New_York";
   const startAt = toDate(input.appointmentDate);
-  const businessPhone = await resolveBusinessDisplayPhone(input.businessId);
+  const businessPhone = await resolveBusinessDisplayPhone(input.businessId, input.installedAgentId);
 
   const body = renderAppointmentConfirmationSms({
     customerName: input.customerName || "there",

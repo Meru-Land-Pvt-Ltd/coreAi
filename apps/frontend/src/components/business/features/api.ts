@@ -503,8 +503,32 @@ export type BusinessPhoneAssignment = {
   installedAgentId: string | null;
 };
 
-export function getBusinessPhoneAssignment() {
-  return apiGet<BusinessPhoneAssignment | { assigned: false }>("/business/phone-numbers/assignment");
+/** Numbers this business owns, split by what the given agent may use. */
+export type BusinessPhoneAssignmentState = {
+  assigned?: boolean;
+  assignedToThisAgent: BusinessPhoneAssignment | null;
+  availableToAssign: BusinessPhoneAssignment[];
+  lockedToOtherAgents: Array<{ phoneNumber: string; installedAgentId: string | null }>;
+  canBuyMore: boolean;
+};
+
+export function getBusinessPhoneAssignment(installedAgentId?: string) {
+  const query = installedAgentId ? `?installedAgentId=${encodeURIComponent(installedAgentId)}` : "";
+  return apiGet<BusinessPhoneAssignmentState & Partial<BusinessPhoneAssignment>>(
+    `/business/phone-numbers/assignment${query}`
+  );
+}
+
+/** Lock a number the business already owns to this agent. */
+export function assignBusinessPhoneNumber(body: {
+  installedAgentId: string;
+  phoneNumber: string;
+  forwardToPhone?: string;
+}) {
+  return apiPost<{ assigned: true; phoneNumber: string; installedAgentId: string }>(
+    "/business/phone-numbers/assign",
+    body
+  );
 }
 
 export function searchBusinessPhoneNumbers(body: {

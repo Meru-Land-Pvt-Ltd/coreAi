@@ -64,8 +64,15 @@ export async function buildInstalledAgentRunStats(
     unattributedCostMicroUsd += call.billedCostMicroUsd ?? 0;
   }
 
-const attributeShared = (runs: number, costMicroUsd: number) => {
+  const attributeShared = (runs: number, costMicroUsd: number) => {
     if (runs <= 0 && costMicroUsd <= 0) return;
+
+    if (installedAgents.length !== 1 && phoneAgentIds.length > 1) {
+      console.warn("[run-stats] unattributed activity assigned to one of several phone-linked agents", {
+        phoneAgentCount: phoneAgentIds.length,
+        runs
+      });
+    }
 
     const target =
       installedAgents.length === 1
