@@ -1,11 +1,3 @@
-/**
- * Voice + LLM resolution tests for Vapi assistant deployment.
- *
- * Voice preset env ids are frozen into voice-presets.ts at import time, so
- * they are set on process.env BEFORE the connector is imported. Model/env
- * flags are read at call time and are toggled per test.
- */
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ADAM_MALE_ID = "pNInz6obpgDQGcFmaJgB";
@@ -36,36 +28,36 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const SKYLAR_FEMALE_ID = "db6b0ed5-d5d3-463d-ae85-518a07d3c2b4";
+const RONALD_MALE_ID = "5ee9feff-1265-424a-9d7f-8e4d431a12c7";
+
 describe("resolveVapiVoice", () => {
-  it("resolves the adam preset to the male ElevenLabs id with no explicit id", () => {
-    const result = resolveVapiVoice({ voice: "adam", voiceProvider: "11labs", voiceId: "" });
+  it("resolves the ronald preset to its Cartesia id with no explicit id", () => {
+    const result = resolveVapiVoice({ voice: "ronald", voiceProvider: "", voiceId: "" });
 
     expect(result.config).toEqual({
-      provider: "11labs",
-      voiceId: ADAM_MALE_ID,
-      model: env.VAPI_ELEVENLABS_MODEL
+      provider: "cartesia",
+      voiceId: RONALD_MALE_ID,
+      model: env.CARTESIA_TTS_MODEL
     });
   });
 
-  it("lets the adam preset win over a stale female fallback id", () => {
+  it("lets the preset's own provider win over a stale stored provider", () => {
     const result = resolveVapiVoice({
-      voice: "adam",
+      voice: "skylar",
       voiceProvider: "11labs",
       voiceId: FEMALE_DEFAULT_ID
     });
 
-    expect(result.config).toEqual({
-      provider: "11labs",
-      voiceId: ADAM_MALE_ID,
-      model: env.VAPI_ELEVENLABS_MODEL
-    });
+    expect(result.config.provider).toBe("cartesia");
+    expect(result.config.voiceId).toBe(SKYLAR_FEMALE_ID);
   });
 
   it("resolves presets even when the stored provider is missing (legacy configs)", () => {
-    const result = resolveVapiVoice({ voice: "adam", voiceProvider: "", voiceId: FEMALE_DEFAULT_ID });
+    const result = resolveVapiVoice({ voice: "skylar", voiceProvider: "", voiceId: FEMALE_DEFAULT_ID });
 
-    expect(result.config.provider).toBe("11labs");
-    expect(result.config.voiceId).toBe(ADAM_MALE_ID);
+    expect(result.config.provider).toBe("cartesia");
+    expect(result.config.voiceId).toBe(SKYLAR_FEMALE_ID);
   });
 
   it("preserves an explicit custom voice id", () => {
@@ -184,7 +176,7 @@ describe("deployVapiAssistant payload", () => {
     expect(body.name).toBe("Marketplace Demo — Some Extremely Long L");
   });
 
-  it("sends the male Adam voice and a working LLM even with a stale female id", async () => {
+  it("sends the male Ronald voice and a working LLM even with a stale female id", async () => {
     env.VAPI_API_KEY = "test-key";
     env.VAPI_ANTHROPIC_ENABLED = false;
     env.VAPI_DEFAULT_LLM_PROVIDER = "openai";
@@ -197,7 +189,7 @@ describe("deployVapiAssistant payload", () => {
       firstMessage: "Hello",
       systemPrompt: "You are a test assistant.",
       model: "claude-sonnet",
-      voice: "adam",
+      voice: "ronald",
       voiceProvider: "11labs",
       voiceId: FEMALE_DEFAULT_ID,
       serverUrl: "https://example.com/webhook"
@@ -213,21 +205,15 @@ describe("deployVapiAssistant payload", () => {
     };
 
     expect(body.voice).toMatchObject({
-      provider: "11labs",
-      voiceId: ADAM_MALE_ID,
-      model: env.VAPI_ELEVENLABS_MODEL
+      provider: "cartesia",
+      voiceId: RONALD_MALE_ID,
+      model: env.CARTESIA_TTS_MODEL
     });
     expect(body.model.provider).toBe("openai");
     expect(body.model.model).toBe("gpt-4o-mini");
   });
 });
 
-/**
- * Recording URL discovery must find every audio variant Vapi returns —
- * including artifact.presigned*Url fields (the only playable ones on
- * HIPAA-storage orgs) — sort presigned first, and never strip the signed
- * query parameters that ARE the access grant.
- */
 const SIGNED_QS =
   "X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=key%2F20260721%2Fauto%2Fs3%2Faws4_request&X-Amz-Signature=abc123";
 

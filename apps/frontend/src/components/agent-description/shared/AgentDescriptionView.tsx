@@ -758,9 +758,21 @@ export function AgentDescriptionView(
                     )}
                   </div>
 
-                  <p className="mt-1 text-[12.5px] text-slate-600">
-                    {pricingSubtext}
-                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <p className="text-[12.5px] text-slate-600">
+                      {pricingSubtext}
+                    </p>
+
+                    <a
+                      href="https://triven.ai/pricing"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid="agent-detail-see-pricing"
+                      className="inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-amber-600 transition hover:text-amber-700"
+                    >
+                      See pricing
+                    </a>
+                  </div>
 
                   <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                     <Link
