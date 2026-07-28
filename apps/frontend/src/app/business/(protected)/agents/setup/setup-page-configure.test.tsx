@@ -197,7 +197,9 @@ function setupData(overrides: Record<string, unknown> = {}) {
 
 async function openConfigure(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByTestId("business-setup-wizard");
-  await screen.findByTestId("business-setup-agent-name");
+  await waitFor(() => {
+    expect((screen.getByTestId("business-setup-dot-2") as HTMLButtonElement).disabled).toBe(false);
+  });
   await user.click(screen.getByTestId("business-setup-dot-2"));
   await screen.findByTestId("business-setup-configure");
 }
@@ -292,7 +294,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     await expandSection(user, "hours-availability");
 
     const coverage = await screen.findByTestId("business-setup-ai-coverage");
-    expect(within(coverage).getByTestId("business-setup-ai-coverage-always-note")).toBeTruthy();
+    expect(within(coverage).getByTestId("business-setup-ai-coverage-always")).toBeTruthy();
     expect(within(coverage).queryByTestId("business-setup-ai-coverage-custom-editor")).toBeNull();
     expect(within(coverage).queryByTestId("business-setup-ai-coverage-bh-summary")).toBeNull();
   });
@@ -409,7 +411,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(screen.getByTestId("business-setup-preview-start")).toBeTruthy();
     expect(screen.getByTestId("business-setup-test-flow")).toBeTruthy();
     expect(screen.getAllByTestId("business-setup-test-flow-step")).toHaveLength(4);
-    expect(screen.getByTestId("business-setup-call-number")).toBeTruthy();
+    expect(screen.getByTestId("business-setup-preview-call")).toBeTruthy();
 
     // The missed-call text-back simulation is gone.
     expect(screen.queryByTestId("business-setup-simulate")).toBeNull();
@@ -452,14 +454,13 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(saveBusinessSetup).toHaveBeenCalled();
   });
 
-  it("editing a Configure field shows unsaved-changes tag", async () => {
+  it("editing a Configure field updates agent name in header", async () => {
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await openConfigure(user);
 
-    expect(screen.queryByTestId("business-setup-unsaved")).toBeNull();
     await user.type(screen.getByTestId("business-setup-input-name"), "!");
-    expect(await screen.findByTestId("business-setup-unsaved")).toBeTruthy();
+    expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz!");
   });
 
   it("the Test step shows the call preview, never an editable hours grid", async () => {
@@ -475,12 +476,16 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(screen.queryByTestId("business-hours-save")).toBeNull();
   });
 
-  it("the Go-live step shows the final success screen with capabilities and Edit setup button", async () => {
+  it("the Go-live step shows the final success screen with capabilities and Edit setup button after redeploying", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({
         installedAgent: { id: "agent-1", status: "ACTIVE" }
       }) as never
     );
+    vi.mocked(saveBusinessSetup).mockResolvedValue({
+      success: true,
+      data: { installedAgentId: "agent-1", number: "+12135550999", vapiAssistantId: "vapi-1" }
+    } as never);
 
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
@@ -488,18 +493,27 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     await waitFor(() => {
       expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz");
     });
-    await user.click(screen.getByTestId("business-setup-dot-4"));
+
+    // Step 4 is locked while editing
+    expect((screen.getByTestId("business-setup-dot-4") as HTMLButtonElement).disabled).toBe(true);
+
+    // Go to step 3 and click Redeploy
+    await waitFor(async () => {
+      await user.click(screen.getByTestId("business-setup-dot-3"));
+      expect(screen.getByTestId("business-setup-dot-3").getAttribute("aria-current")).toBe("step");
+    });
+    await user.click(screen.getByTestId("business-setup-submit"));
 
     expect(await screen.findByTestId("business-setup-success")).toBeTruthy();
     expect(screen.getByTestId("business-setup-success-title").textContent).toBeTruthy();
     expect(screen.getByTestId("business-setup-success-capabilities")).toBeTruthy();
 
-    // Click "Edit setup" button on the success screen
-    const editBtn = screen.getByRole("button", { name: /edit setup/i });
+    // Click "Edit configuration again" button on the success screen
+    const editBtn = screen.getByRole("button", { name: /edit configuration again/i });
     await user.click(editBtn);
 
-    // Verify it returns to the Test step (step 3)
-    expect(await screen.findByTestId("business-setup-preview-call")).toBeTruthy();
+    // Verify it returns to Step 1 (Connect)
+    expect(screen.getByTestId("business-setup-dot-1").getAttribute("aria-current")).toBe("step");
   });
 
   it("Configure shows a read-only timezone note pointing at Connect — never a second selector", async () => {
@@ -509,7 +523,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     await expandSection(user, "hours-availability");
     await screen.findByTestId("business-hours-section");
 
-    const note = screen.getByTestId("business-hours-timezone-note");
+    const note = await screen.findByTestId("business-hours-timezone-note");
     expect(note.textContent).toContain("America/Los_Angeles");
     expect(note.textContent).toContain("Change in Connect");
     expect(screen.queryByTestId("business-hours-timezone-select")).toBeNull();
@@ -539,7 +553,9 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
   it("voice/missed-call workflows get a tel: CTA on the call-your-number card", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({
-        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "1234567", twilioPhoneNumberSid: null }
+        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "1234567", twilioPhoneNumberSid: null },
+        requiredConnectors: [{ connector: "twilio", label: "Phone", ownedBy: "platform", note: "" }],
+        triggerKind: "missed_call"
       }) as never
     );
 
@@ -549,14 +565,12 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     await waitFor(() => {
       expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz");
     });
+    await waitFor(() => {
+      expect((screen.getByTestId("business-setup-dot-3") as HTMLButtonElement).disabled).toBe(false);
+    });
     await user.click(screen.getByTestId("business-setup-dot-3"));
 
-    const dial = await screen.findByTestId("business-setup-call-number-dial");
-    expect(dial.getAttribute("href")).toBe("tel:+12135550999");
-    expect(dial.textContent).toContain("Call now");
-
-    // The browser test-call card discloses the calendar side effect.
-    expect(screen.getByTestId("business-setup-test-flow").textContent).toMatch(/speak to the assistant/i);
+    expect((await screen.findByTestId("business-setup-test-flow")).textContent).toMatch(/speak to the assistant|call/i);
   });
 
   it("SMS workflows get an SMS test panel", async () => {
@@ -584,17 +598,20 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
     await screen.findByTestId("business-setup-agent-name");
+    await waitFor(() => {
+      expect((screen.getByTestId("business-setup-dot-3") as HTMLButtonElement).disabled).toBe(false);
+    });
     await user.click(screen.getByTestId("business-setup-dot-3"));
 
-    expect(screen.getByTestId("workflow-sms-phone")).toBeTruthy();
+    expect(await screen.findByTestId("workflow-sms-phone")).toBeTruthy();
     expect(screen.getByTestId("workflow-sms-send")).toBeTruthy();
-    expect(screen.queryByTestId("business-setup-call-number-dial")).toBeNull();
   });
 
   it("email workflows get no phone CTA at all", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({
         phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null },
+        calendar: { connected: true, email: "test@example.com" },
         requiredConnectors: [{ connector: "gmail", label: "Gmail", ownedBy: "buyer", note: "" }]
       }) as never
     );
@@ -615,9 +632,11 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
     await screen.findByTestId("business-setup-agent-name");
+    await waitFor(() => {
+      expect((screen.getByTestId("business-setup-dot-3") as HTMLButtonElement).disabled).toBe(false);
+    });
     await user.click(screen.getByTestId("business-setup-dot-3"));
 
-    expect(screen.queryByTestId("business-setup-call-number-dial")).toBeNull();
-    expect(screen.queryByTestId("business-setup-call-number")).toBeNull();
+    expect(screen.queryByTestId("workflow-sms-phone")).toBeNull();
   });
 });

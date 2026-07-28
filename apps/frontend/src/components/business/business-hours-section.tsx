@@ -590,7 +590,11 @@ export function BusinessHoursSection({
         </div>
       ) : null}
 
-      {!timeZoneOverride ? (
+      {timeZoneOverride ? (
+        <p className="mt-2 text-xs text-slate-500" data-testid="business-hours-timezone-note">
+          Timezone: <span className="font-semibold text-slate-700">{timeZoneOverride}</span> (Change in Connect)
+        </p>
+      ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <label className="text-xs font-semibold text-slate-600" htmlFor="business-hours-timezone">
             Timezone
@@ -617,7 +621,7 @@ export function BusinessHoursSection({
             ))}
           </select>
         </div>
-      ) : null}
+      )}
 
       {/* Reference Design Main Card */}
       <div className="mt-3 rounded-none border-0 bg-transparent p-0">

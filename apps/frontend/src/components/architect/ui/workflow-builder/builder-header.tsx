@@ -178,8 +178,9 @@ export function BuilderHeader({
           <button
             type="button"
             onClick={onPreview}
+            disabled={running || saving}
             data-testid="builder-preview"
-            className="hidden items-center gap-2 rounded-xl border border-gray-200 px-3.5 py-2 text-sm text-slate-600 transition hover:border-amber-300 hover:text-slate-800 sm:flex"
+            className="hidden items-center gap-2 rounded-xl border border-gray-200 px-3.5 py-2 text-sm text-slate-600 transition hover:border-amber-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:flex"
           >
             <BuilderIcon name="eye" className="h-4 w-4" />
             <span className="hidden lg:inline">Preview</span>
@@ -187,7 +188,7 @@ export function BuilderHeader({
           <button
             type="button"
             onClick={onRunTest}
-            disabled={running || locked}
+            disabled={running || saving || locked}
             data-testid="builder-run-test"
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 sm:gap-2 sm:rounded-xl sm:px-3.5 sm:py-2 sm:text-sm"
           >
@@ -201,7 +202,7 @@ export function BuilderHeader({
               onSave();
               onTabChange("publish");
             }}
-            disabled={saving || publishLocked}
+            disabled={running || saving || publishLocked}
             data-testid="builder-publish-marketplace"
             className="hidden rounded-xl bg-amber-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60 md:inline-flex"
           >
