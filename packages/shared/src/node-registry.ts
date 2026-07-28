@@ -153,6 +153,26 @@ export const VOICE_PRESETS: AgentVoicePreset[] = [
     previewText: "Hi there, this is Ella. What can I do for you today?"
   },
   {
+    id: "jacqueline",
+    name: "Jacqueline",
+    provider: "cartesia",
+    voiceId: "9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
+    style: "Reassuring agent",
+    bestFor: "Empathic support, healthcare, complaint handling",
+    description: "Confident young-adult female voice for empathic customer support.",
+    previewText: "Hello, this is Jacqueline. I am here to help — what do you need?"
+  },
+  {
+    id: "blake",
+    name: "Blake",
+    provider: "cartesia",
+    voiceId: "a167e0f3-df7e-4d52-a9c3-f949145efdab",
+    style: "Helpful agent",
+    bestFor: "Home services, retail, high-energy front desk",
+    description: "Energetic adult male voice for engaging customer support.",
+    previewText: "Hey, this is Blake. Thanks for calling — how can I help?"
+  },
+  {
     id: "ronald",
     name: "Ronald",
     provider: "cartesia",

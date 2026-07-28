@@ -146,6 +146,8 @@ const envSchema = z.object({
   CARTESIA_TTS_MODEL: z.string().default("sonic-2"),
   CARTESIA_VOICE_SKYLAR_ID: z.string().optional(),
   CARTESIA_VOICE_ELLA_ID: z.string().optional(),
+  CARTESIA_VOICE_JACQUELINE_ID: z.string().optional(),
+  CARTESIA_VOICE_BLAKE_ID: z.string().optional(),
   CARTESIA_VOICE_RONALD_ID: z.string().optional(),
 
   DEEPGRAM_API_KEY: z.string().optional(),

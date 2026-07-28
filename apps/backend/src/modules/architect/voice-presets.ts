@@ -41,6 +41,8 @@ const ENV_VOICE_OVERRIDES: Record<string, string | undefined> = {
   default: env.ELEVENLABS_DEFAULT_VOICE_ID || env.VAPI_DEFAULT_VOICE_ID,
   skylar: env.CARTESIA_VOICE_SKYLAR_ID,
   ella: env.CARTESIA_VOICE_ELLA_ID,
+  jacqueline: env.CARTESIA_VOICE_JACQUELINE_ID,
+  blake: env.CARTESIA_VOICE_BLAKE_ID,
   ronald: env.CARTESIA_VOICE_RONALD_ID
 };
 
