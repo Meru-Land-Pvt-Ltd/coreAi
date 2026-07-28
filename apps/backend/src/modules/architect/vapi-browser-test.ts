@@ -24,6 +24,7 @@ import {
   findSandboxAgent,
   findSandboxBusiness
 } from "./test-deployment";
+import { isKnownVoicePresetId } from "./voice-presets";
 import {
   deployVapiAssistant,
   isRealId,
@@ -434,9 +435,12 @@ Live call handling:
       }
     });
   } catch (error) {
-    const isElevenLabs = selectedVoiceId || selectedVoice === "custom" || ["ruby", "sarah", "aria", "adam", "priya"].includes(selectedVoice || "");
-    if (isElevenLabs) {
-      console.warn("[vapi-browser-test] ElevenLabs voice deployment failed. Falling back to default Vapi voice Savannah.", error);
+    const isThirdPartyVoice =
+      Boolean(selectedVoiceId) ||
+      selectedVoice === "custom" ||
+      isKnownVoicePresetId(selectedVoice || "");
+    if (isThirdPartyVoice) {
+      console.warn("[vapi-browser-test] Third-party voice deployment failed. Falling back to the built-in Vapi voice.", error);
       assistant = await deployVapiAssistant({
         name: `Browser Test — ${workflow.name || businessName}`,
         firstMessage,

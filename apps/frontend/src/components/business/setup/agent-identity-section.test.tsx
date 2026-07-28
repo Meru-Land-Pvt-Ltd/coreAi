@@ -47,12 +47,12 @@ describe("AgentIdentitySection component", () => {
     const selectBtn = screen.getByTestId("business-setup-voice-select");
     await user.click(selectBtn);
 
-    const rubyOption = await screen.findByTestId("business-setup-voice-option-ruby");
-    expect(rubyOption.textContent).toContain("Ruby");
-    expect(rubyOption.textContent).toContain("Warm receptionist");
+    const voiceOption = await screen.findByTestId("business-setup-voice-option-skylar");
+    expect(voiceOption.textContent).toContain("Skylar");
+    expect(voiceOption.textContent).toContain("Friendly guide");
 
-    await user.click(rubyOption);
-    expect(onVoiceChoice).toHaveBeenCalledWith("ruby");
+    await user.click(voiceOption);
+    expect(onVoiceChoice).toHaveBeenCalledWith("skylar");
   });
 
   it("shows custom voice input field when voiceChoice is 'custom'", () => {

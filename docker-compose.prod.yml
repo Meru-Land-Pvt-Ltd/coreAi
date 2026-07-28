@@ -55,6 +55,10 @@ services:
       MISTRAL_API_KEY: ${MISTRAL_API_KEY}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       GROQ_API_KEY: ${GROQ_API_KEY}
+      # Voice keys (ELEVENLABS_API_KEY, CARTESIA_API_KEY) come from
+      # apps/backend/.env.production via env_file above. Do NOT list them here:
+      # this block overrides env_file, and an unset ${VAR} becomes an empty
+      # string instead of being skipped, which would silently blank the key.
 
       TWILIO_VALIDATE_SIGNATURE: ${TWILIO_VALIDATE_SIGNATURE}
       TWILIO_TEST_MODE: ${TWILIO_TEST_MODE}

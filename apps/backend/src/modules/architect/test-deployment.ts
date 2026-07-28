@@ -10,6 +10,7 @@ import { prisma } from "../../lib/prisma";
 import { getGmailConnectionStatus } from "./gmail-connector";
 import { deployVapiAssistant, isRealId, isVapiConfigured } from "./vapi-connector";
 import { resolveNodeTemplateVariables, sanitizeLegacyFallbacks } from "../agent-runtime/prompt-builder";
+import { isKnownVoicePresetId } from "./voice-presets";
 
 export const ARCHITECT_TEST_PURPOSE = "ARCHITECT_TEST";
 
@@ -365,9 +366,12 @@ export async function startArchitectTestDeployment(
       existingAssistantId
     });
   } catch (error) {
-    const isElevenLabs = selectedVoiceId || selectedVoice === "custom" || ["ruby", "sarah", "aria", "adam", "priya"].includes(selectedVoice || "");
-    if (isElevenLabs) {
-      console.warn("[test-deployment] ElevenLabs voice deployment failed. Falling back to default Vapi voice Savannah.", error);
+    const isThirdPartyVoice =
+      Boolean(selectedVoiceId) ||
+      selectedVoice === "custom" ||
+      isKnownVoicePresetId(selectedVoice || "");
+    if (isThirdPartyVoice) {
+      console.warn("[test-deployment] Third-party voice deployment failed. Falling back to the built-in Vapi voice.", error);
       assistant = await deployVapiAssistant({
     recordingEnabled,
         name: `Sandbox Test — ${workflow.name || businessName}`,

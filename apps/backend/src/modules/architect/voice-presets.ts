@@ -39,13 +39,22 @@ function allVoicePresets(): AgentVoicePreset[] {
 const ENV_VOICE_OVERRIDES: Record<string, string | undefined> = {
   [PLATFORM_DEFAULT_VOICE_ID]: env.ELEVENLABS_DEFAULT_VOICE_ID || env.VAPI_DEFAULT_VOICE_ID,
   default: env.ELEVENLABS_DEFAULT_VOICE_ID || env.VAPI_DEFAULT_VOICE_ID,
-  ruby: env.ELEVENLABS_VOICE_RUBY_ID || env.ELEVENLABS_VOICE_SARAH_ID,
-  sarah: env.ELEVENLABS_VOICE_SARAH_ID,
-  aria: env.ELEVENLABS_VOICE_ARIA_ID,
-  rachel: env.ELEVENLABS_VOICE_RACHEL_ID,
-  adam: env.ELEVENLABS_VOICE_ADAM_ID,
-  priya: env.ELEVENLABS_VOICE_PRIYA_ID
+  skylar: env.CARTESIA_VOICE_SKYLAR_ID,
+  ella: env.CARTESIA_VOICE_ELLA_ID,
+  ronald: env.CARTESIA_VOICE_RONALD_ID
 };
+
+/** Which TTS provider a preset id belongs to. */
+export function voiceProviderForPreset(presetId?: string | null): "11labs" | "cartesia" {
+  const id = clean(presetId).toLowerCase();
+  const preset = VOICE_PRESETS.find((entry) => entry.id === id);
+  return preset?.provider === "cartesia" ? "cartesia" : "11labs";
+}
+
+/** Cartesia voice ids are UUIDs; ElevenLabs ids are opaque 20-char strings. */
+function looksLikeCartesiaVoiceId(value?: string | null): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean(value));
+}
 
 type ErrorStatus = 400 | 401 | 402 | 403 | 404 | 409 | 422 | 500 | 503;
 
@@ -138,18 +147,12 @@ export function isKnownVoicePresetId(presetId?: string | null): boolean {
   return allVoicePresets().some((preset) => clean(preset.id).toLowerCase() === id);
 }
 
-const FALLBACK_PUBLIC_VOICE_IDS: Record<string, string> = {
-  adam: "pNInz6obpg7j8sWJ5bdA",  // Adam (Male)
-  ruby: "EXAVITQu4vr4xnSDxMaL",  // Bella (Female receptionist style)
-  aria: "21m00Tcm4TlvDq8ikWAM",  // Rachel (Female professional style)
-  priya: "AZnzlk1XvdvUeBnXmlld", // Domi (Female warm style)
-  sarah: "EXAVITQu4vr4xnSDxMaL"  // Bella (Female warm receptionist style)
-};
+const FALLBACK_PUBLIC_VOICE_IDS: Record<string, string> = {};
 
 export function resolvePresetVoiceId(presetId?: string | null): string {
   const id = clean(presetId).toLowerCase();
 
-  if (looksLikeElevenLabsVoiceId(id)) {
+  if (looksLikeCartesiaVoiceId(id) || looksLikeElevenLabsVoiceId(id)) {
     return id;
   }
 
@@ -158,7 +161,7 @@ export function resolvePresetVoiceId(presetId?: string | null): string {
   }
 
   const envOverride = clean(ENV_VOICE_OVERRIDES[id]);
-  if (envOverride && looksLikeElevenLabsVoiceId(envOverride)) {
+  if (envOverride && (looksLikeCartesiaVoiceId(envOverride) || looksLikeElevenLabsVoiceId(envOverride))) {
     return envOverride;
   }
 
@@ -249,6 +252,44 @@ export function voicePreviewDiagnostics() {
 
 const PREVIEW_TEXT_MAX = 300;
 
+async function generateCartesiaPreview(
+  voiceId: string,
+  text: string
+): Promise<{ audioBase64: string; mimeType: string }> {
+  let response: Response;
+
+  try {
+    response = await fetch("https://api.cartesia.ai/tts/bytes", {
+      method: "POST",
+      headers: {
+        "X-API-Key": env.CARTESIA_API_KEY as string,
+        "Cartesia-Version": env.CARTESIA_VERSION,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model_id: env.CARTESIA_TTS_MODEL,
+        transcript: text,
+        voice: { mode: "id", id: voiceId },
+        output_format: { container: "mp3", encoding: "mp3", sample_rate: 44100 },
+        language: "en"
+      })
+    });
+  } catch {
+    throw new VoicePreviewError("Could not reach Cartesia for the voice preview.", 503);
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new VoicePreviewError(
+      `Cartesia refused the preview (${response.status}). ${detail.slice(0, 160)}`.trim(),
+      toApiStatus(response.status)
+    );
+  }
+
+  const audio = Buffer.from(await response.arrayBuffer());
+  return { audioBase64: audio.toString("base64"), mimeType: "audio/mpeg" };
+}
+
 export async function generateVoicePreview(input: {
   presetId?: string | null;
   voiceId?: string | null;
@@ -267,13 +308,9 @@ export async function generateVoicePreview(input: {
     )} resolved=…${last4(voiceId)}`
   );
 
-  if (!configured) {
-    throw new VoicePreviewError("Voice preview is not configured. Add ELEVENLABS_API_KEY.", 503);
-  }
-
   if (!voiceId) {
     throw new VoicePreviewError(
-      "No voice id resolved. Pick a preset or enter a custom ElevenLabs voice ID.",
+      "No voice id resolved. Pick a preset or enter a custom voice ID.",
       422
     );
   }
@@ -282,6 +319,20 @@ export async function generateVoicePreview(input: {
     0,
     PREVIEW_TEXT_MAX
   );
+
+  const usesCartesia =
+    voiceProviderForPreset(input.presetId) === "cartesia" || looksLikeCartesiaVoiceId(voiceId);
+
+  if (usesCartesia) {
+    if (!clean(env.CARTESIA_API_KEY)) {
+      throw new VoicePreviewError("Voice preview is not configured. Add CARTESIA_API_KEY.", 503);
+    }
+    return generateCartesiaPreview(voiceId, text);
+  }
+
+  if (!configured) {
+    throw new VoicePreviewError("Voice preview is not configured. Add ELEVENLABS_API_KEY.", 503);
+  }
 
   let response: Response;
 
