@@ -190,4 +190,25 @@ describe("each agent's own Vapi assistant", () => {
     expect(idOf(a2.configJson)).toBe("assistant-for-agent-b");
     expect(idOf(a1.configJson)).not.toBe(idOf(a2.configJson));
   });
+
+  it("keeps two BUYERS of the same agent on separate assistants", async () => {
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
+
+    // agentA1 and agentB1 are the SAME product installed by different buyers.
+    await prisma.installedAgent.update({
+      where: { id: agentB1 },
+      data: { configJson: { vapiAssistantId: "assistant-for-buyer-b" } }
+    });
+
+    const [mine, theirs] = await Promise.all([
+      prisma.installedAgent.findUniqueOrThrow({ where: { id: agentA1 }, select: { businessId: true, configJson: true } }),
+      prisma.installedAgent.findUniqueOrThrow({ where: { id: agentB1 }, select: { businessId: true, configJson: true } })
+    ]);
+
+    const idOf = (config: unknown) => (config as { vapiAssistantId?: string })?.vapiAssistantId;
+    expect(mine.businessId).not.toBe(theirs.businessId);
+    expect(idOf(mine.configJson)).toBe("assistant-for-agent-a");
+    expect(idOf(theirs.configJson)).toBe("assistant-for-buyer-b");
+    expect(idOf(mine.configJson)).not.toBe(idOf(theirs.configJson));
+  });
 });

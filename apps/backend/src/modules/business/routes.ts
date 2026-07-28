@@ -653,7 +653,17 @@ businessRoutes.get("/dashboard", async (c) => {
   return successResponse(c, {
     business: { id: business.id, name: business.name, type: business.type },
     installedAgent: installedAgent
-      ? { id: installedAgent.id, name: installedAgent.name, status: installedAgent.status }
+      ? {
+        id: installedAgent.id,
+        name: installedAgent.name,
+        status: installedAgent.status,
+        vapiAssistantId:
+          installedAgent.configJson &&
+            typeof installedAgent.configJson === "object" &&
+            !Array.isArray(installedAgent.configJson)
+            ? ((installedAgent.configJson as Record<string, unknown>).vapiAssistantId as string | null) ?? null
+            : null
+      }
       : null,
     phoneNumber: phoneNumber
       ? { phoneNumber: phoneNumber.phoneNumber, forwardToPhone: phoneNumber.forwardToPhone }

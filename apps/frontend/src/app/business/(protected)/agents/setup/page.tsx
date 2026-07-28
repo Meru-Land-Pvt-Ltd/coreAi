@@ -454,9 +454,8 @@ function readLiveVapiAssistantId(data: unknown): string | null {
   const fromConfig = stringOrNull(configJson?.vapiAssistantId);
   if (fromConfig) return fromConfig;
 
-  const profile = objectOrNull(root.profile);
-  const fromProfile = stringOrNull(profile?.vapiAssistantId);
-  if (fromProfile) return fromProfile;
+  const fromAgent = stringOrNull(installedAgent?.vapiAssistantId);
+  if (fromAgent) return fromAgent;
 
   return null;
 }
