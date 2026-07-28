@@ -104,7 +104,7 @@ export function invoiceLifecycleDates(billingMonth: string) {
   };
 }
 
-function usageInvoiceNumber(params: {
+export function usageInvoiceNumber(params: {
   businessId: string;
   installedAgentId: string;
   billingMonth: string;

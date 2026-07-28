@@ -397,7 +397,12 @@ describe("paid agent installation (DB)", () => {
     // must not create a second Payment or a second InstalledAgent.
     const replay = await finalizePaidAgentPurchase({
       authUser: { id: buyer.userId, email: buyer.email, fullName: "Install Flow Buyer" },
-      listing: { id: paidListingId, name: "paid", priceCents: 9900 },
+      listing: {
+        id: paidListingId,
+        name: "paid",
+        priceCents: 9900,
+        pricingModel: "ONE_TIME"
+      },
       businessId: buyer.businessId,
       customerId: "cus_test_install_flow",
       paymentMethodId: "pm_test_paid",

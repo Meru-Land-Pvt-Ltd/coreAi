@@ -14,10 +14,14 @@ import {
   usageBalanceIsCollectible
 } from "./execution-billing";
 import {
-  buildAgentPurchaseLineItems,
-  listingNeedsPhoneNumber,
-  resolveUnbilledPhoneFee
+  buildAgentPurchaseLineItems
 } from "./phone-provisioning";
+import {
+  addUtcCalendarMonth,
+  nextSubscriptionInvoicePeriod,
+  paidPaymentCoversAgentInvoice,
+  reconcileCoveredAgentInvoices
+} from "./agent-payment-scope";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -34,14 +38,6 @@ function escapeEmailHtml(value: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
-}
-
-function utcMonthStart(date: Date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-}
-
-function nextUtcMonthStart(date: Date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
 }
 
 function graceEndFor(dueAt: Date) {
@@ -129,6 +125,7 @@ async function suspendAgentForPayment(paymentId: string, now: Date) {
       id: true,
       businessId: true,
       listingId: true,
+      installedAgentId: true,
       suspendedAt: true,
       userId: true
     }
@@ -137,7 +134,9 @@ async function suspendAgentForPayment(paymentId: string, now: Date) {
 
   const installedAgent = await prisma.installedAgent.findFirst({
     where: {
-      listingId: payment.listingId,
+      ...(payment.installedAgentId
+        ? { id: payment.installedAgentId }
+        : { listingId: payment.listingId }),
       ...(payment.businessId
         ? { businessId: payment.businessId }
         : { business: { ownerId: payment.userId } })
@@ -175,13 +174,18 @@ async function suspendAgentForPayment(paymentId: string, now: Date) {
 
 async function hasSuspendingSubscriptionDebt(
   businessId: string,
+  installedAgentId: string,
   listingId: string | null
 ) {
-  if (!listingId) return false;
   const blocking = await prisma.payment.aggregate({
     where: {
       businessId,
-      listingId,
+      OR: [
+        { installedAgentId },
+        ...(listingId
+          ? [{ installedAgentId: null, listingId }]
+          : [])
+      ],
       status: "OVERDUE",
       invoiceKind: { in: ["POST_TRIAL", "SUBSCRIPTION_RENEWAL"] },
       graceEndsAt: { lte: new Date() }
@@ -200,7 +204,7 @@ async function hasSuspendingSubscriptionDebt(
  */
 export async function restoreBusinessAfterBillingPayment(
   businessId: string,
-  _installedAgentId?: string | null
+  installedAgentId?: string | null
 ) {
   const usageStillBlocking =
     (await prisma.businessUsageInvoice.count({
@@ -213,12 +217,24 @@ export async function restoreBusinessAfterBillingPayment(
   if (usageStillBlocking) return false;
 
   const suspendedAgents = await prisma.installedAgent.findMany({
-    where: { businessId, status: "SUSPENDED_BILLING" },
+    where: {
+      businessId,
+      status: "SUSPENDED_BILLING",
+      ...(installedAgentId ? { id: installedAgentId } : {})
+    },
     select: { id: true, listingId: true }
   });
   const restoredAgentIds: string[] = [];
   for (const agent of suspendedAgents) {
-    if (await hasSuspendingSubscriptionDebt(businessId, agent.listingId)) continue;
+    if (
+      await hasSuspendingSubscriptionDebt(
+        businessId,
+        agent.id,
+        agent.listingId
+      )
+    ) {
+      continue;
+    }
     await prisma.installedAgent.update({
       where: { id: agent.id },
       data: { status: "ACTIVE" }
@@ -237,6 +253,7 @@ export async function restoreBusinessAfterBillingPayment(
       ? !restoredAgentIds.includes(phone.installedAgentId) &&
         (await hasSuspendingSubscriptionDebt(
           businessId,
+          phone.installedAgentId,
           (
             await prisma.installedAgent.findUnique({
               where: { id: phone.installedAgentId },
@@ -270,16 +287,10 @@ async function completedTrialLineItems(trial: {
   const pinned = parsePaymentLineItems(trial.lineItemsJson);
   if (pinned) return pinned;
 
-  const unbilledPhoneFee = (await listingNeedsPhoneNumber(trial.listing.id))
-    ? await resolveUnbilledPhoneFee({
-        buyerUserId: trial.userId,
-        businessId: trial.businessId
-      })
-    : null;
   return buildAgentPurchaseLineItems({
     agentLabel: trial.listing.name,
     agentPriceCents: trial.listing.priceCents,
-    phoneFee: unbilledPhoneFee?.fee ?? null
+    phoneFee: null
   });
 }
 
@@ -292,7 +303,8 @@ async function completeExpiredTrials(now: Date) {
           id: true,
           name: true,
           priceCents: true,
-          trialDays: true
+          trialDays: true,
+          pricingModel: true
         }
       }
     }
@@ -306,6 +318,21 @@ async function completeExpiredTrials(now: Date) {
     const days = Math.max(0, listing.trialDays || 0);
     const endsAt = trial.periodEnd ?? new Date(trial.createdAt.getTime() + days * DAY_MS);
     if (now < endsAt) continue;
+    const installedAgentId =
+      trial.installedAgentId ??
+      (
+        await prisma.installedAgent.findFirst({
+          where: {
+            listingId: trial.listingId,
+            ...(trial.businessId
+              ? { businessId: trial.businessId }
+              : { business: { ownerId: trial.userId } })
+          },
+          orderBy: { createdAt: "desc" },
+          select: { id: true }
+        })
+      )?.id ??
+      null;
 
     const invoiceKey = `post-trial:${trial.id}`;
     const lineItems = await completedTrialLineItems({
@@ -313,6 +340,10 @@ async function completeExpiredTrials(now: Date) {
       listing
     });
     const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
+    const invoicePeriodEnd =
+      listing.pricingModel === "SUBSCRIPTION"
+        ? addUtcCalendarMonth(endsAt)
+        : null;
 
     const outcome = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${invoiceKey}))`;
@@ -322,16 +353,84 @@ async function completeExpiredTrials(now: Date) {
       });
       const existing = await tx.payment.findUnique({ where: { invoiceKey } });
       if (fresh?.status !== "TRIALING") return { changed: false, created: false };
+      const paidPeriods = await tx.payment.findMany({
+        where: {
+          userId: trial.userId,
+          listingId: trial.listingId,
+          status: "SUCCEEDED",
+          NOT: { id: trial.id },
+          ...(installedAgentId
+            ? {
+                OR: [
+                  { installedAgentId },
+                  { installedAgentId: null }
+                ]
+              }
+            : {})
+        },
+        select: {
+          id: true,
+          userId: true,
+          businessId: true,
+          listingId: true,
+          installedAgentId: true,
+          status: true,
+          invoiceKind: true,
+          createdAt: true,
+          paidAt: true,
+          periodStart: true,
+          periodEnd: true,
+          dueAt: true
+        }
+      });
+      const coveredByPaidPeriod = paidPeriods.some((paid) =>
+        paidPaymentCoversAgentInvoice(
+          paid,
+          {
+            id: invoiceKey,
+            userId: trial.userId,
+            businessId: trial.businessId,
+            listingId: trial.listingId,
+            installedAgentId,
+            status: "OVERDUE",
+            invoiceKind: "POST_TRIAL",
+            createdAt: endsAt,
+            paidAt: null,
+            periodStart: endsAt,
+            periodEnd: invoicePeriodEnd,
+            dueAt: endsAt
+          },
+          listing.pricingModel
+        )
+      );
 
       await tx.payment.update({
         where: { id: trial.id },
         data: {
           status: "COMPLETED",
           invoiceKind: "TRIAL",
+          installedAgentId,
           periodEnd: endsAt,
           paidAt: endsAt
         }
       });
+      if (coveredByPaidPeriod) {
+        if (
+          existing &&
+          ["PENDING", "OVERDUE"].includes(existing.status)
+        ) {
+          await tx.payment.update({
+            where: { id: existing.id },
+            data: {
+              status: "CANCELED",
+              canceledAt: now,
+              suspendedAt: null,
+              paymentPendingAt: null
+            }
+          });
+        }
+        return { changed: true, created: false };
+      }
       if (existing || totalCents <= 0) {
         return { changed: true, created: false };
       }
@@ -341,13 +440,14 @@ async function completeExpiredTrials(now: Date) {
           userId: trial.userId,
           businessId: trial.businessId,
           listingId: trial.listingId,
+          installedAgentId,
           amountCents: totalCents,
           currency: trial.currency,
           status: "OVERDUE",
           invoiceKind: "POST_TRIAL",
           invoiceKey,
           periodStart: endsAt,
-          periodEnd: nextUtcMonthStart(endsAt),
+          periodEnd: invoicePeriodEnd,
           dueAt: endsAt,
           graceEndsAt: graceEndFor(endsAt),
           stripeCustomerId: trial.stripeCustomerId,
@@ -500,11 +600,12 @@ async function sendPendingTrialEndEmails(now: Date) {
     INNER JOIN "User" buyer ON buyer."id" = trial."userId"
     INNER JOIN "AgentListing" listing ON listing."id" = trial."listingId"
     LEFT JOIN "Business" business ON business."id" = trial."businessId"
-    LEFT JOIN "Payment" post_trial
+    INNER JOIN "Payment" post_trial
       ON post_trial."invoiceKey" = CONCAT('post-trial:', trial."id")
     WHERE trial."status" = 'COMPLETED'
       AND trial."invoiceKind" = 'TRIAL'
       AND trial."trialEndedEmailSentAt" IS NULL
+      AND post_trial."status" IN ('PENDING', 'OVERDUE')
     ORDER BY trial."updatedAt" ASC
     LIMIT 100
   `;
@@ -558,10 +659,8 @@ async function sendPendingTrialEndEmails(now: Date) {
   return { considered: pending.length, sent };
 }
 
-async function createCalendarSubscriptionInvoices(now: Date) {
-  const periodStart = utcMonthStart(now);
-  const periodEnd = nextUtcMonthStart(now);
-  const billingPeriod = billingMonthFor(periodStart);
+async function createDueSubscriptionInvoices(now: Date) {
+  const billingPeriod = billingMonthFor(now);
   const agents = await prisma.installedAgent.findMany({
     where: {
       installSource: { not: "ARCHITECT_SELF_TEST" },
@@ -578,45 +677,65 @@ async function createCalendarSubscriptionInvoices(now: Date) {
   let created = 0;
   for (const agent of agents) {
     if (!agent.listing || !agent.listingId) continue;
-    // Calendar billing starts on the first full month after this feature (or
-    // acquisition for new installs), preventing retroactive renewals.
-    const firstDue = nextUtcMonthStart(
-      agent.createdAt > agent.executionBillingStartedAt
-        ? agent.createdAt
-        : agent.executionBillingStartedAt
-    );
-    if (periodStart < firstDue) continue;
 
-    const invoiceKey =
-      `subscription:${agent.businessId}:${agent.listingId}:${billingPeriod}`;
-    const exists = await prisma.payment.findUnique({
-      where: { invoiceKey },
-      select: { id: true }
-    });
-    if (exists) continue;
-
-    const [latestPaid, unresolvedPostTrial] = await Promise.all([
+    const [latestPaid, unresolvedAgentInvoices] = await Promise.all([
       prisma.payment.findFirst({
         where: {
           userId: agent.business.ownerId,
           OR: [{ businessId: agent.businessId }, { businessId: null }],
           listingId: agent.listingId,
+          AND: [
+            {
+              OR: [
+                { installedAgentId: agent.id },
+                { installedAgentId: null }
+              ]
+            }
+          ],
           status: "SUCCEEDED"
         },
-        orderBy: { createdAt: "desc" }
+        orderBy: [
+          { periodEnd: "desc" },
+          { paidAt: "desc" },
+          { createdAt: "desc" }
+        ]
       }),
       prisma.payment.count({
         where: {
           userId: agent.business.ownerId,
           OR: [{ businessId: agent.businessId }, { businessId: null }],
           listingId: agent.listingId,
-          invoiceKind: "POST_TRIAL",
-          status: "OVERDUE"
+          AND: [
+            {
+              OR: [
+                { installedAgentId: agent.id },
+                { installedAgentId: null }
+              ]
+            }
+          ],
+          invoiceKind: {
+            in: ["POST_TRIAL", "SUBSCRIPTION_RENEWAL"]
+          },
+          status: { in: ["PENDING", "OVERDUE"] }
         }
       })
     ]);
-    if (!latestPaid || unresolvedPostTrial > 0) continue;
-    if (latestPaid.periodEnd && latestPaid.periodEnd > periodStart) continue;
+    if (!latestPaid || unresolvedAgentInvoices > 0) continue;
+    const {
+      start: periodStart,
+      end: periodEnd
+    } = nextSubscriptionInvoicePeriod(latestPaid);
+    if (now < periodStart) continue;
+    const renewalDate = periodStart.toISOString().slice(0, 10);
+    const invoiceKey = `subscription:${agent.id}:${renewalDate}`;
+    const legacyInvoiceKey =
+      `subscription:${agent.businessId}:${agent.listingId}:${billingMonthFor(periodStart)}`;
+    const exists = await prisma.payment.findFirst({
+      where: { invoiceKey: { in: [invoiceKey, legacyInvoiceKey] } },
+      select: { id: true }
+    });
+    if (exists) continue;
+
     const pinnedPlanCents =
       parsePaymentLineItems(latestPaid.lineItemsJson)?.[0]?.amountCents ??
       latestPaid.amountCents;
@@ -627,6 +746,7 @@ async function createCalendarSubscriptionInvoices(now: Date) {
           userId: agent.business.ownerId,
           businessId: agent.businessId,
           listingId: agent.listingId,
+          installedAgentId: agent.id,
           amountCents: pinnedPlanCents,
           currency: latestPaid.currency,
           status: "OVERDUE",
@@ -641,7 +761,9 @@ async function createCalendarSubscriptionInvoices(now: Date) {
           billingName: latestPaid.billingName,
           billingEmail: latestPaid.billingEmail,
           billingAddress: latestPaid.billingAddress,
-          description: `${monthLabel(billingPeriod)} subscription for ${agent.listing.name}`,
+          description: `${monthLabel(
+            billingMonthFor(periodStart)
+          )} subscription for ${agent.listing.name}`,
           lineItemsJson: [
             {
               label: `${agent.listing.name} monthly plan`,
@@ -774,17 +896,22 @@ async function processAgentDebtSuspensions(now: Date) {
       businessId: true,
       userId: true,
       listingId: true,
+      installedAgentId: true,
       amountCents: true
     }
   });
   const totals = new Map<string, number>();
   for (const payment of payments) {
-    const key = `${payment.businessId ?? `owner:${payment.userId}`}:${payment.listingId}`;
+    const key = `${
+      payment.businessId ?? `owner:${payment.userId}`
+    }:${payment.installedAgentId ?? `legacy-listing:${payment.listingId}`}`;
     totals.set(key, (totals.get(key) ?? 0) + payment.amountCents);
   }
   let suspended = 0;
   for (const payment of payments) {
-    const key = `${payment.businessId ?? `owner:${payment.userId}`}:${payment.listingId}`;
+    const key = `${
+      payment.businessId ?? `owner:${payment.userId}`
+    }:${payment.installedAgentId ?? `legacy-listing:${payment.listingId}`}`;
     if ((totals.get(key) ?? 0) < 50) continue;
     if (await suspendAgentForPayment(payment.id, now)) suspended += 1;
   }
@@ -831,8 +958,12 @@ export async function runBillingCycle(now = new Date()) {
   const executionReconciliation = await reconcileCanonicalExecutions(now);
   const trialEndingOneDayEmails = await sendPendingTrialEndingOneDayEmails(now);
   const trialCompletions = await completeExpiredTrials(now);
+  const subscriptionInvoices = await createDueSubscriptionInvoices(now);
+  const coveredAgentInvoices = await reconcileCoveredAgentInvoices({ now });
+  for (const businessId of coveredAgentInvoices.businessIds) {
+    await restoreBusinessAfterBillingPayment(businessId);
+  }
   const trialEndEmails = await sendPendingTrialEndEmails(now);
-  const subscriptionInvoices = await createCalendarSubscriptionInvoices(now);
   const usageInvoices = await processUsageInvoiceLifecycle(now);
   const agentSuspensions = await processAgentDebtSuspensions(now);
   return {
@@ -842,6 +973,7 @@ export async function runBillingCycle(now = new Date()) {
     trialCompletions,
     trialEndEmails,
     subscriptionInvoices,
+    coveredAgentInvoices,
     usageInvoices,
     agentSuspensions
   };

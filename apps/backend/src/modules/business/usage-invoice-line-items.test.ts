@@ -219,4 +219,45 @@ describe("customer-facing usage invoice lines", () => {
       billedCostMicroUsd: 2_000_000
     });
   });
+
+  it("keeps an issued one-time phone-number fee at its recorded rate", () => {
+    const [phoneFee] = repriceUsageInvoiceLineItems(
+      [
+        {
+          ...line(
+            "phone_number",
+            "Dedicated phone number",
+            "Dedicated phone number",
+            2_000_000,
+            2_000_000
+          ),
+          unit: "PER_UNIT",
+          quantity: 1
+        }
+      ],
+      new Map([
+        [
+          "phone_number",
+          {
+            unit: "PER_UNIT",
+            billingCostMicroUsd: 9_000_000
+          }
+        ]
+      ])
+    );
+
+    expect(phoneFee).toMatchObject({
+      unit: "PER_UNIT",
+      quantity: 1,
+      billingRateMicroUsd: 2_000_000,
+      billedCostMicroUsd: 2_000_000
+    });
+    if (!phoneFee) throw new Error("Expected a phone-number line");
+    expect(
+      customerFacingUsageLineItems([phoneFee], new Map())[0]
+    ).toMatchObject({
+      serviceCode: "phone_number",
+      invoiceLabel: "Dedicated phone number"
+    });
+  });
 });

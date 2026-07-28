@@ -9,6 +9,7 @@ import {
   formatUsdRate,
   useBuyerExecutionPricing
 } from "@/components/business/execution-pricing-summary";
+import { buildTransparentExecutionPricing } from "@/lib/transparent-execution-pricing";
 import {
   ASSIGNMENT_PATH,
   BUSINESS_LOGIN_PATH,
@@ -37,15 +38,6 @@ const pricingSteps = [
     badge: undefined,
     icon: "gauge"
   }
-] as const;
-
-const executionFeeIcons = [
-  "message",
-  "phone",
-  "mail",
-  "calendar",
-  "database",
-  "chat"
 ] as const;
 
 const priceOptions = [49, 100, 149, 249, 499];
@@ -117,8 +109,12 @@ export default function PricingPage() {
 
   const execPercent = getRangePercent(executions, 50, 1000);
   const feePercent = getRangePercent(feeCents, 10, 50);
-  const executionServices =
-    buyerPricing?.executionPricing.voice.serviceBreakdown?.slice(0, 6) ?? [];
+  const executionServices = buildTransparentExecutionPricing(
+    buyerPricing?.executionPricing
+  );
+  const executionPricingAvailable = executionServices.some(
+    (service) => service.billingRateUsd !== null
+  );
 
   return (
     <div className="min-h-screen bg-white font-sans text-slate-600 antialiased selection:bg-amber-500/20 selection:text-slate-900">
@@ -290,20 +286,20 @@ export default function PricingPage() {
 
             {executionPricingLoading ? (
               <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading execution pricing">
-                {Array.from({ length: 6 }).map((_, index) => (
+                {Array.from({ length: 3 }).map((_, index) => (
                   <div
                     key={index}
                     className="h-[92px] animate-pulse rounded-xl border border-gray-100 bg-white"
                   />
                 ))}
               </div>
-            ) : executionPricingError || !executionServices.length ? (
+            ) : executionPricingError || !executionPricingAvailable ? (
               <div className="mx-auto mt-12 max-w-xl rounded-xl border border-gray-200 bg-white p-6 text-center text-sm font-medium text-slate-500">
                 Service pricing is currently unavailable.
               </div>
             ) : (
               <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                {executionServices.map((service, index) => (
+                {executionServices.map((service) => (
                   <div
                     key={service.serviceId}
                     className="flex items-center justify-between gap-4 rounded-xl border border-gray-100 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
@@ -311,13 +307,13 @@ export default function PricingPage() {
                   >
                     <div className="flex min-w-0 items-center gap-4">
                       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
-                        <FeeIcon name={executionFeeIcons[index]} />
+                        <FeeIcon name={service.icon} />
                       </span>
                       <span
                         className="truncate font-semibold text-slate-900"
                         data-testid="pricing-execution-service-name"
                       >
-                        {service.invoiceLabel}
+                        {service.label}
                       </span>
                     </div>
 
@@ -326,7 +322,9 @@ export default function PricingPage() {
                         className="block text-xl font-extrabold tracking-tight text-amber-600"
                         data-testid="pricing-execution-service-billing-cost"
                       >
-                        {formatUsdRate(service.billingRateUsd)}
+                        {service.billingRateUsd === null
+                          ? "Unavailable"
+                          : formatUsdRate(service.billingRateUsd)}
                       </span>
                     </div>
                   </div>

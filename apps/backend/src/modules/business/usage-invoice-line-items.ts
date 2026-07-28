@@ -5,6 +5,15 @@ export const PLATFORM_USAGE_SERVICE_CODES = new Set([
   "google_calendar"
 ]);
 
+// One-time charges are fixed when the customer selects the resource. Unlike
+// metered usage, an already-issued phone-number line must not move when an
+// admin later changes the current rate.
+const SNAPSHOT_PRICED_SERVICE_CODES = new Set(["phone_number"]);
+
+export function usageInvoiceServiceUsesSnapshotPrice(serviceCode: string) {
+  return SNAPSHOT_PRICED_SERVICE_CODES.has(serviceCode);
+}
+
 export type UsageInvoiceLabelMap = ReadonlyMap<string, string | null>;
 export type UsageInvoiceBillingCostMap = ReadonlyMap<
   string,
@@ -23,6 +32,9 @@ export function repriceUsageInvoiceLineItems(
   billingCosts: UsageInvoiceBillingCostMap
 ): UsageLineItem[] {
   return items.map((item) => {
+    if (usageInvoiceServiceUsesSnapshotPrice(item.serviceCode)) {
+      return { ...item };
+    }
     const pricing = billingCosts.get(item.serviceCode);
     if (!pricing) return { ...item };
 
@@ -93,6 +105,9 @@ function customerServiceIdentity(
   const invoiceLabel =
     item.invoiceLabel?.trim() ||
     invoiceLabels.get(item.serviceCode)?.trim() ||
+    (item.serviceCode === "phone_number"
+      ? item.serviceName.trim()
+      : "") ||
     (item.serviceCode.startsWith("invoice_label_")
       ? item.serviceName.trim()
       : "") ||

@@ -27,8 +27,18 @@ describe("public execution pricing", () => {
     const app = new Hono();
     app.route("/payments", paymentRoutes);
 
-    const response = await app.request("/payments/execution-pricing");
+    const [response, calendarPricing] = await Promise.all([
+      app.request("/payments/execution-pricing"),
+      prisma.platformUsageService.findFirst({
+        where: { code: "google_calendar", isActive: true },
+        select: {
+          updatedCostMicroUsd: true,
+          actualCostMicroUsd: true
+        }
+      })
+    ]);
     expect(response.status).toBe(200);
+    expect(calendarPricing).not.toBeNull();
 
     const body = (await response.json()) as {
       success: boolean;
@@ -37,12 +47,36 @@ describe("public execution pricing", () => {
           voice?: {
             serviceBreakdown?: Array<Record<string, unknown>>;
           };
+          sms?: {
+            billingRatePerSmsUsd?: number | null;
+          } | null;
+          calendar?: {
+            serviceId?: string;
+            billingRateUsd?: number | null;
+          } | null;
         };
       };
     };
 
     expect(body.success).toBe(true);
     expect(Array.isArray(body.data?.executionPricing?.voice?.serviceBreakdown)).toBe(true);
+    expect(
+      typeof body.data?.executionPricing?.sms?.billingRatePerSmsUsd
+    ).toBe("number");
+    expect(body.data?.executionPricing?.calendar).toMatchObject({
+      serviceId: "google_calendar",
+      billingRateUsd:
+        (calendarPricing?.updatedCostMicroUsd ?? 0) / 1_000_000
+    });
+    if (
+      calendarPricing &&
+      calendarPricing.actualCostMicroUsd !==
+        calendarPricing.updatedCostMicroUsd
+    ) {
+      expect(body.data?.executionPricing?.calendar?.billingRateUsd).not.toBe(
+        calendarPricing.actualCostMicroUsd / 1_000_000
+      );
+    }
     expect(JSON.stringify(body)).not.toContain("actualCost");
   });
 });
