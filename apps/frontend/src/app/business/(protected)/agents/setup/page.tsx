@@ -528,7 +528,7 @@ function SetupWizard() {
   const [liveInstalledAgentId, setLiveInstalledAgentId] = useState<string | null>(null);
 
   const isEditParam = searchParams.get("mode") === "edit";
-  const isEditMode = isEditParam || deployed || Boolean(liveVapiAssistantId) || Boolean(liveInstalledAgentId);
+  const isEditMode = isEditParam || deployed || Boolean(liveVapiAssistantId);
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<CallRoutingResult | null>(null);
