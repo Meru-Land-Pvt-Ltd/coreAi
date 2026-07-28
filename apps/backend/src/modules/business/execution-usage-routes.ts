@@ -20,6 +20,7 @@ import { resolvePrimaryBusinessId } from "./primary-business";
 import { countStandaloneBillableSms } from "./usage-billing";
 import type { UsageLineItem } from "../../lib/usage-pricing";
 import {
+  alignPlatformQuantityToExecutionCount,
   customerFacingUsageLineItems,
   repriceUsageInvoiceLineItems,
   rollupCustomerUsageLineItems,
@@ -751,20 +752,23 @@ export async function getBusinessExecutionInvoices(c: Context) {
         invoiceLabels,
         invoiceBillingCosts
       );
-      const storedLineItems = customerFacingUsageLineItems(
-        repriceUsageInvoiceLineItems(
-          invoice.lineItems.map((item) => ({
-            serviceCode: item.serviceCode,
-            serviceName: item.serviceName,
-            unit: item.unit,
-            quantity: item.quantity,
-            billingRateMicroUsd: item.unitPriceMicroUsd,
-            actualCostMicroUsd: 0,
-            billedCostMicroUsd: item.amountMicroUsd
-          })),
-          invoiceBillingCosts
+      const storedLineItems = alignPlatformQuantityToExecutionCount(
+        customerFacingUsageLineItems(
+          repriceUsageInvoiceLineItems(
+            invoice.lineItems.map((item) => ({
+              serviceCode: item.serviceCode,
+              serviceName: item.serviceName,
+              unit: item.unit,
+              quantity: item.quantity,
+              billingRateMicroUsd: item.unitPriceMicroUsd,
+              actualCostMicroUsd: 0,
+              billedCostMicroUsd: item.amountMicroUsd
+            })),
+            invoiceBillingCosts
+          ),
+          invoiceLabels
         ),
-        invoiceLabels
+        executionCount
       ).map((item) => ({
         serviceCode: item.serviceCode,
         serviceName: item.invoiceLabel ?? item.serviceName,

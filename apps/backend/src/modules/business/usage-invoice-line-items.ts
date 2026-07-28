@@ -129,37 +129,46 @@ function normalizePlatformUnitsForExecution(items: UsageLineItem[]) {
         item.serviceCode === "platform_service" ||
         PLATFORM_USAGE_SERVICE_CODES.has(item.serviceCode)
       ) ||
-      item.unit !== "PER_UNIT" ||
       (item.quantity <= 0 && item.billedCostMicroUsd <= 0)
     ) {
       return item;
     }
 
-    const billingRateMicroUsd = usageInvoiceBillingRateMicroUsd(item);
-    const actualRateMicroUsd =
-      typeof item.actualRateMicroUsd === "number" &&
-      Number.isFinite(item.actualRateMicroUsd) &&
-      item.actualRateMicroUsd >= 0
-        ? item.actualRateMicroUsd
-        : item.quantity > 0
-          ? item.actualCostMicroUsd / item.quantity
-          : null;
+    if (item.unit === "PER_UNIT") {
+      const billingRateMicroUsd = usageInvoiceBillingRateMicroUsd(item);
+      const actualRateMicroUsd =
+        typeof item.actualRateMicroUsd === "number" &&
+        Number.isFinite(item.actualRateMicroUsd) &&
+        item.actualRateMicroUsd >= 0
+          ? item.actualRateMicroUsd
+          : item.quantity > 0
+            ? item.actualCostMicroUsd / item.quantity
+            : null;
+
+      return {
+        ...item,
+        quantity: 1,
+        ...(actualRateMicroUsd === null
+          ? {}
+          : {
+              actualRateMicroUsd,
+              actualCostMicroUsd: Math.round(actualRateMicroUsd)
+            }),
+        ...(billingRateMicroUsd === null
+          ? {}
+          : {
+              billingRateMicroUsd,
+              billedCostMicroUsd: Math.round(billingRateMicroUsd)
+            })
+      };
+    }
 
     return {
       ...item,
+      unit: "PER_UNIT" as const,
       quantity: 1,
-      ...(actualRateMicroUsd === null
-        ? {}
-        : {
-            actualRateMicroUsd,
-            actualCostMicroUsd: Math.round(actualRateMicroUsd)
-          }),
-      ...(billingRateMicroUsd === null
-        ? {}
-        : {
-            billingRateMicroUsd,
-            billedCostMicroUsd: Math.round(billingRateMicroUsd)
-          })
+      actualRateMicroUsd: item.actualCostMicroUsd,
+      billingRateMicroUsd: item.billedCostMicroUsd
     };
   });
 
@@ -200,30 +209,65 @@ export function customerFacingUsageLineItems(
   return [...grouped.values()];
 }
 
+/**
+ * Converts one canonical execution's raw service rows into invoice rows.
+ * All platform sub-services become exactly one Platform service unit for that
+ * execution; their costs remain combined in that single unit.
+ */
+export function customerFacingExecutionLineItems(
+  items: UsageLineItem[],
+  invoiceLabels: UsageInvoiceLabelMap
+) {
+  const rows = customerFacingUsageLineItems(
+    normalizePlatformUnitsForExecution(items),
+    invoiceLabels
+  );
+  const platform = rows.find(
+    (item) => item.serviceCode === "platform_service"
+  );
+  if (platform) {
+    platform.unit = "PER_UNIT";
+    platform.quantity = 1;
+    platform.billingRateMicroUsd = platform.billedCostMicroUsd;
+    platform.actualRateMicroUsd = platform.actualCostMicroUsd;
+  }
+  return rows;
+}
+
 export function rollupCustomerUsageLineItems(
   itemGroups: UsageLineItem[][],
   invoiceLabels: UsageInvoiceLabelMap
 ) {
   const perExecutionRows = itemGroups.flatMap((items) => {
-    const rows = customerFacingUsageLineItems(
-      normalizePlatformUnitsForExecution(items),
-      invoiceLabels
-    );
-    const platform = rows.find(
-      (item) =>
-        item.serviceCode === "platform_service" && item.unit === "PER_UNIT"
-    );
-
-    if (platform) {
-      platform.quantity = 1;
-      platform.billingRateMicroUsd = platform.billedCostMicroUsd;
-      platform.actualRateMicroUsd = platform.actualCostMicroUsd;
-    }
-
-    return rows;
+    return customerFacingExecutionLineItems(items, invoiceLabels);
   });
 
   return customerFacingUsageLineItems(perExecutionRows, invoiceLabels);
+}
+
+/**
+ * Historical invoice rows stored platform sub-services independently, so
+ * adding their quantities could produce values such as 17 calls + 2 calendar
+ * bookings = 19. The buyer-facing Platform service quantity is the canonical
+ * execution count; its combined amount remains unchanged.
+ */
+export function alignPlatformQuantityToExecutionCount(
+  items: UsageLineItem[],
+  executionCount: number
+) {
+  if (executionCount <= 0) return items.map((item) => ({ ...item }));
+
+  return items.map((item) =>
+    item.serviceCode === "platform_service"
+      ? {
+          ...item,
+          unit: "PER_UNIT" as const,
+          quantity: executionCount,
+          billingRateMicroUsd:
+            item.billedCostMicroUsd / executionCount
+        }
+      : { ...item }
+  );
 }
 
 /**

@@ -89,6 +89,83 @@ beforeEach(() => {
 });
 
 describe("business agent action menus", () => {
+  it("shows the same canonical agent totals used by Billing & Usage", async () => {
+    apiGetMock.mockImplementation(async (path: string) => {
+      if (path === "/payments/my-agents") {
+        return {
+          success: true,
+          data: {
+            agents: [
+              purchasedAgent({
+                stats: {
+                  runsThisMonth: 19,
+                  costThisMonthMicroUsd: 99_000_000
+                }
+              })
+            ]
+          }
+        };
+      }
+      if (path.startsWith("/business/billing/usage?month=")) {
+        const currentMonth = new Date().toISOString().slice(0, 7);
+        const requestedMonth = decodeURIComponent(path.split("month=")[1] ?? "");
+        return {
+          success: true,
+          data:
+            requestedMonth === currentMonth
+              ? {
+                  totalExecutions: 17,
+                  totalCalls: 19,
+                  agentRollup: [
+                    {
+                      agentId: "installed-1",
+                      installedAgentId: "installed-1",
+                      executionCount: 17,
+                      callCount: 19,
+                      billedCostMicroUsd: 1_843_000,
+                      billedCostUsd: 99
+                    }
+                  ]
+                }
+              : {
+                  totalExecutions: 0,
+                  totalCalls: 0,
+                  agentRollup: []
+                }
+        };
+      }
+      if (path === "/business/dashboard") {
+        return {
+          success: true,
+          data: {
+            subscription: { status: "active", active: true },
+            counts: { leads: 0, conversations: 0, appointments: 0 },
+            monthlyMetrics: {
+              callsHandled: 19,
+              callsHandledPrevMonth: 0,
+              bookings: 0,
+              bookingsPrevMonth: 0
+            },
+            recentMissedCalls: [],
+            calendarConnected: false,
+            activities: []
+          }
+        };
+      }
+      return { success: false, error: "Unexpected API path" };
+    });
+
+    render(<BusinessDashboardPage />);
+
+    expect(await screen.findByText("17 runs")).toBeTruthy();
+    expect(screen.getByTestId("business-protected-dashboard-agent-cost-text").textContent).toBe("$1.84");
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId("business-protected-dashboard-metric-text")[0]?.textContent
+      ).toBe("17")
+    );
+  });
+
   it("shows only View details before setup on My Agents", async () => {
     mockApiAgents([purchasedAgent({ installedAgentId: null, installedAgentStatus: null })]);
     render(<BusinessMyAgentsPage />);

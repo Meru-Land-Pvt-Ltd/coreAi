@@ -58,6 +58,12 @@ export function usageInvoiceDisplayQuantity(service: UsageInvoiceRateInput) {
 export function calculateUsageInvoiceLineAmountUsd(
   service: UsageInvoiceRateInput
 ) {
+  if (
+    service.serviceCode === "phone_number" ||
+    service.serviceCode === "platform_service"
+  ) {
+    return roundTo(service.billedCostUsd, 3);
+  }
   const rate = effectiveUsageInvoiceRateUsd(service);
   if (rate === null || (rate === 0 && service.billedCostUsd > 0)) {
     return roundTo(service.billedCostUsd, 3);

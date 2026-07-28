@@ -11,6 +11,14 @@ import { AgentPauseConfirmationModal } from "@/components/business/agent-pause-c
 import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { BUSINESS_AGENTS_PATH, BUSINESS_BILLING_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH, businessSetupPath, businessAgentDetailPath } from "@/lib/routes";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
+import {
+    billingMonthKey,
+    canonicalAgentBilledCostMicroUsd,
+    canonicalAgentExecutionCount,
+    canonicalTotalExecutionCount,
+    findCanonicalAgentUsage,
+    type CanonicalExecutionUsage
+} from "@/components/business/canonical-execution-usage";
 
 type ApiPurchasedAgent = {
     purchaseId: string;
@@ -234,7 +242,7 @@ const metrics: MetricCard[] = [
         subtitle: "this month · vs last month",
         trend: "0%",
         icon: "phone",
-        tooltip: "Unique live phone/browser-call sessions handled by your agents, plus captured missed calls. Test and preview calls are excluded."
+        tooltip: "Total canonical live agent executions recorded for billing this month. Test and preview runs are excluded."
     },
     {
         label: "Appointments Booked",
@@ -355,12 +363,30 @@ function formatUsageCostUsd(microUsd: number): string {
     return `$${(microUsd / 1_000_000).toFixed(2)}`;
 }
 
-function mapPurchasedToDashboardAgent(entry: ApiPurchasedAgent): Agent {
+function mapPurchasedToDashboardAgent(
+    entry: ApiPurchasedAgent,
+    usage: CanonicalExecutionUsage | null
+): Agent {
     const { listing } = entry;
-    const runsThisMonth = entry.stats?.runsThisMonth ?? 0;
+    const canonicalUsage = usage
+        ? findCanonicalAgentUsage(usage, entry.installedAgentId)
+        : null;
+    const hasCanonicalAgentScope =
+        usage !== null && Boolean(entry.installedAgentId);
+    const runsThisMonth = hasCanonicalAgentScope
+        ? canonicalUsage
+            ? canonicalAgentExecutionCount(canonicalUsage)
+            : 0
+        : entry.stats?.runsThisMonth ?? 0;
     // Missing usage data must never render as a misleading $0.00.
-    const hasUsageData = typeof entry.stats?.costThisMonthMicroUsd === "number";
-    const costMicroUsd = entry.stats?.costThisMonthMicroUsd ?? 0;
+    const hasUsageData =
+        hasCanonicalAgentScope ||
+        typeof entry.stats?.costThisMonthMicroUsd === "number";
+    const costMicroUsd = hasCanonicalAgentScope
+        ? canonicalUsage
+            ? canonicalAgentBilledCostMicroUsd(canonicalUsage)
+            : 0
+        : entry.stats?.costThisMonthMicroUsd ?? 0;
     const trialEnded = isTrialEnded(
         entry.purchasedAt,
         entry.purchaseStatus,
@@ -397,6 +423,8 @@ export default function BusinessDashboardPage() {
     const [overviewState, setOverviewState] = useState<"loading" | "ready" | "error">("loading");
     const [agents, setAgents] = useState<Agent[]>([]);
     const [agentsState, setAgentsState] = useState<"loading" | "ready" | "error">("loading");
+    const [canonicalUsage, setCanonicalUsage] = useState<CanonicalExecutionUsage | null>(null);
+    const [previousCanonicalUsage, setPreviousCanonicalUsage] = useState<CanonicalExecutionUsage | null>(null);
 
     const {
         pricing: executionPricing,
@@ -430,7 +458,12 @@ export default function BusinessDashboardPage() {
         const totalSpendCents = overview?.totalSpendCents ?? 0;
         const monthly = overview?.monthlyMetrics;
         const bookingsThisMonth = monthly?.bookings ?? overview?.bookings?.total ?? 0;
-        const callsHandled = monthly?.callsHandled ?? 0;
+        const callsHandled = canonicalUsage
+            ? canonicalTotalExecutionCount(canonicalUsage)
+            : monthly?.callsHandled ?? 0;
+        const callsHandledPrevMonth = previousCanonicalUsage
+            ? canonicalTotalExecutionCount(previousCanonicalUsage)
+            : monthly?.callsHandledPrevMonth ?? 0;
 
         return metrics.map((metric) => {
             if (metric.label === "Total Spend") {
@@ -447,12 +480,18 @@ export default function BusinessDashboardPage() {
                 return {
                     ...metric,
                     value: String(callsHandled),
-                    trend: formatTrend(callsHandled, monthly?.callsHandledPrevMonth ?? 0)
+                    trend: formatTrend(callsHandled, callsHandledPrevMonth)
                 };
             }
             return metric;
         });
-    }, [overview?.totalSpendCents, overview?.bookings?.total, overview?.monthlyMetrics]);
+    }, [
+        canonicalUsage,
+        previousCanonicalUsage,
+        overview?.totalSpendCents,
+        overview?.bookings?.total,
+        overview?.monthlyMetrics
+    ]);
 
     const liveActivities = useMemo(
         () =>
@@ -497,11 +536,32 @@ export default function BusinessDashboardPage() {
 
         async function loadAgents() {
             setAgentsState("loading");
-            const result = await apiGet<MyAgentsResponse>("/payments/my-agents");
+            const [result, usageResult, previousUsageResult] = await Promise.all([
+                apiGet<MyAgentsResponse>("/payments/my-agents"),
+                apiGet<CanonicalExecutionUsage>(
+                    `/business/billing/usage?month=${encodeURIComponent(billingMonthKey(0))}`
+                ),
+                apiGet<CanonicalExecutionUsage>(
+                    `/business/billing/usage?month=${encodeURIComponent(billingMonthKey(-1))}`
+                )
+            ]);
             if (!active) return;
 
+            const currentUsage =
+                usageResult.success && usageResult.data ? usageResult.data : null;
+            const previousUsage =
+                previousUsageResult.success && previousUsageResult.data
+                    ? previousUsageResult.data
+                    : null;
+            setCanonicalUsage(currentUsage);
+            setPreviousCanonicalUsage(previousUsage);
+
             if (result.success && result.data) {
-                setAgents((result.data.agents ?? []).map(mapPurchasedToDashboardAgent));
+                setAgents(
+                    (result.data.agents ?? []).map((agent) =>
+                        mapPurchasedToDashboardAgent(agent, currentUsage)
+                    )
+                );
                 setAgentsState("ready");
             } else {
                 setAgents([]);
@@ -1016,7 +1076,7 @@ function AgentRow({
 
             <div className="flex items-center justify-between gap-4 pl-5 sm:justify-end sm:gap-6 sm:pl-0 md:gap-8">
                 <div className="text-left sm:text-right">
-                    <p className="text-sm font-semibold text-slate-700" title="Unique live workflow executions: one per handled call plus captured missed calls. Test runs are excluded." data-testid="business-protected-dashboard-agent-runs-text">{agent.runs} runs</p>
+                    <p className="text-sm font-semibold text-slate-700" title="Canonical live executions recorded for this agent in the selected billing month. Test runs are excluded." data-testid="business-protected-dashboard-agent-runs-text">{agent.runs} runs</p>
                     <p className="text-xs text-slate-400" data-testid="business-protected-dashboard-this-month-text">this month</p>
                 </div>
 
