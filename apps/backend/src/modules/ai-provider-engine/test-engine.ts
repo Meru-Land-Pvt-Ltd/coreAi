@@ -198,7 +198,7 @@ async function runTests() {
       ],
       messages: [{ role: "user", content: "What is my name?" }],
     };
-    const turn2Resp = await engine.continueConversation(providerId, turn2);
+    const turn2Resp = await engine.executeWithProvider(providerId, turn2);
     log("Turn 2 status", turn2Resp.status);
     log("Turn 2 text", turn2Resp.text);
     if (turn2Resp.status === "error") {

@@ -220,9 +220,9 @@ type RunnerContext = {
     callerNumber: string;
     callerName?: string;
     businessName: string;
-    status: string;
-    timestamp: string;
-    reason: string;
+    status?: string;
+    timestamp?: string;
+    reason?: string;
   };
   gmail?: {
     emails?: {
