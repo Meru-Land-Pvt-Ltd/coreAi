@@ -6,6 +6,7 @@ import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
 import { llmProviderAvailability } from "../ai-provider-engine/llm-probe";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
+import { apiErrorStatus } from "../../lib/error-utils";
 import { prisma } from "../../lib/prisma";
 import { MarketplaceDemoError, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
 import { requireAuth, requireRole } from "../../middleware/auth";
@@ -89,6 +90,12 @@ import {
 } from "../business/execution-ledger";
 import { loadArchitectDashboardActivity } from "./dashboard-activity";
 import {
+  handleTelegramBotWebhook,
+  handleTelegramManagerWebhook,
+  registerTelegramManagerWebhook,
+  TelegramConnectorError
+} from "./telegram-connector";
+import {
   buildArchitectAgentAnalyticsCsv,
   loadArchitectAgentAnalytics,
   parseArchitectAnalyticsRange
@@ -163,11 +170,16 @@ architectRoutes.post("/connectors/twilio/inbound-sms/:workflowId", handleTwilioI
 architectRoutes.post("/connectors/twilio/message-status", handleTwilioMessageStatus);
 architectRoutes.post("/connectors/twilio/missed-call/:workflowId", handleTwilioMissedCall);
 architectRoutes.post("/connectors/vapi/webhook", handleVapiWebhook);
+architectRoutes.post("/connectors/telegram/manager-webhook", handleTelegramManagerWebhook);
+architectRoutes.post("/connectors/telegram/webhook/:connectionId", handleTelegramBotWebhook);
 // Stripe signs this public Connect webhook; it must be registered before auth.
 architectRoutes.post("/payouts/stripe/webhook", handleStripeConnectWebhook);
 // Public GET probe: Vapi only POSTs here; this keeps curl diagnostics honest.
 architectRoutes.get("/connectors/vapi/webhook", (c) =>
   successResponse(c, { ok: true, note: "Vapi webhook is up. Tool calls arrive via POST." })
+);
+architectRoutes.get("/connectors/telegram/webhook/:connectionId", (c) =>
+  successResponse(c, { ok: true, note: "Telegram webhook is up. Updates arrive via POST." })
 );
 
 architectRoutes.get("/connectors/voice/status", (c) => successResponse(c, getVoiceAnswerStatus()));
@@ -499,6 +511,20 @@ architectRoutes.use(
     code: "ARCHITECT_ACCESS_REQUIRED"
   })
 );
+
+architectRoutes.post("/connectors/telegram/manager/setup", async (c) => {
+  try {
+    return successResponse(c, await registerTelegramManagerWebhook(), "Telegram manager webhook configured.");
+  } catch (error) {
+    const status = error instanceof TelegramConnectorError ? error.status : 502;
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Telegram manager setup failed.",
+      apiErrorStatus(status, 500),
+      error instanceof TelegramConnectorError ? error.code : "TELEGRAM_MANAGER_SETUP_FAILED"
+    );
+  }
+});
 
 architectRoutes.get("/ai/providers", async (c) => {
   const registry = getProviderRegistry();
@@ -874,6 +900,14 @@ const workflowRunInputSchema = z.object({
   appointmentStartAt: z.string().trim().optional(),
   appointmentEndAt: z.string().trim().optional(),
   appointmentService: z.string().trim().optional(),
+  latestMessage: z.string().trim().optional(),
+  telegramChatId: z.string().trim().optional(),
+  telegramUserId: z.string().trim().optional(),
+  telegramUsername: z.string().trim().optional(),
+  telegramMessageId: z.string().trim().optional(),
+  telegramUpdateId: z.string().trim().optional(),
+  telegramChatType: z.string().trim().optional(),
+  telegramPhoneNumber: z.string().trim().optional(),
   testEmail: z.string().trim().email("Enter a valid test email address").optional(),
   useTestCalendar: z.boolean().optional(),
   testSessionId: z.string().trim().max(64).optional(),

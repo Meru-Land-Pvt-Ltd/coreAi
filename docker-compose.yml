@@ -44,7 +44,6 @@ services:
       DATABASE_URL: "postgresql://coreai:Priyanshu30@postgres:5432/coreai"
       REDIS_URL: "redis://redis:6379"
       FRONTEND_URL: "http://localhost:3000"
-      BACKEND_URL: "http://localhost:8787"
       PORT: 8787
       VAPI_PUBLIC_KEY: "${VAPI_PUBLIC_KEY}"
     depends_on:
@@ -54,6 +53,24 @@ services:
         condition: service_healthy
     ports:
       - "8787:8787"
+
+  telegram-worker:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: coreai-telegram-worker
+    restart: unless-stopped
+    command: ["npm", "run", "start:telegram-worker"]
+    env_file:
+      - apps/backend/.env
+    environment:
+      DATABASE_URL: "postgresql://coreai:Priyanshu30@postgres:5432/coreai"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   frontend:
     build:

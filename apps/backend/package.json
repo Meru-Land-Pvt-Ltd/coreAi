@@ -3,8 +3,10 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:telegram-worker": "tsx watch src/telegram-worker.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "start:telegram-worker": "node dist/telegram-worker.js",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",

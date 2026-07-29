@@ -278,6 +278,10 @@ model Business {
   smsConsents     SmsConsent[]
   specialHours    BusinessSpecialHours[]
   executionUsages AgentUsageExecution[]
+  telegramBots    TelegramBotConnection[]
+  telegramStates  TelegramConversationState[]
+  telegramActions TelegramMessageExecution[]
+  businessServices BusinessService[]
 
   @@index([ownerId])
   @@index([type])
@@ -394,12 +398,156 @@ model InstalledAgent {
   executionUsages           AgentUsageExecution[]
   usageInvoices             BusinessUsageInvoice[]
   payments                  Payment[]
+  telegramBot               TelegramBotConnection?
+  telegramStates            TelegramConversationState[]
+  telegramActions           TelegramMessageExecution[]
+  businessServices          BusinessService[]
+  appointments              Appointment[]
 
   @@unique([businessId, listingId])
   @@index([businessId])
   @@index([workflowId])
   @@index([listingId])
   @@index([status])
+}
+
+/// One dedicated Telegram bot for one installed agent. Bot access tokens and
+/// webhook secrets are AES-GCM encrypted before they reach these columns.
+model TelegramBotConnection {
+  id                     String         @id @default(cuid())
+  businessId             String
+  installedAgentId       String         @unique
+  requestedUsername      String         @unique
+  webhookConnectionId    String         @unique @default(cuid())
+  botUserId              String?        @unique
+  botUsername            String?        @unique
+  botDisplayName         String
+  botTokenEncrypted      String?
+  webhookSecretEncrypted String
+  managerBotId           String?
+  provisioningMode       String         @default("MANAGED")
+  provisioningStatus     String         @default("PENDING_APPROVAL")
+  webhookStatus          String         @default("PENDING")
+  setupNonceHash         String?
+  telegramOwnerUserId    String?
+  ownerChatId            String?
+  ownerNotificationStatus String        @default("NOT_CONNECTED")
+  ownerNotificationNonceHash String?
+  status                 String         @default("PENDING")
+  lastWebhookAt          DateTime?
+  lastSuccessfulSendAt   DateTime?
+  lastProviderErrorCode  String?
+  lastError              String?
+  credentialRotatedAt    DateTime?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+  business               Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent         InstalledAgent @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  conversationStates     TelegramConversationState[]
+  processedUpdates       TelegramProcessedUpdate[]
+  messageExecutions      TelegramMessageExecution[]
+
+  @@index([businessId])
+  @@index([status])
+  @@index([telegramOwnerUserId, status])
+}
+
+model TelegramConversationState {
+  id                   String                @id @default(cuid())
+  businessId           String
+  installedAgentId     String
+  telegramConnectionId String
+  telegramBotId        String
+  telegramChatId       String
+  telegramUserId       String
+  chatStatus           String                @default("ACTIVE")
+  lastDeliveryError    String?
+  state                String                @default("STARTED")
+  contextJson          Json?
+  expiresAt            DateTime
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  business             Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent       InstalledAgent        @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  telegramConnection   TelegramBotConnection @relation(fields: [telegramConnectionId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, installedAgentId, telegramConnectionId, telegramChatId])
+  @@index([telegramConnectionId, telegramUserId])
+  @@index([telegramConnectionId, chatStatus])
+  @@index([expiresAt])
+}
+
+model TelegramProcessedUpdate {
+  id                   String                @id @default(cuid())
+  telegramConnectionId String
+  updateId             String
+  status               String                @default("RECEIVED")
+  payloadJson          Json
+  workflowRunId        String?
+  errorCode            String?
+  errorMessage         String?
+  attempts             Int                   @default(0)
+  processedAt          DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  telegramConnection   TelegramBotConnection @relation(fields: [telegramConnectionId], references: [id], onDelete: Cascade)
+
+  @@unique([telegramConnectionId, updateId])
+  @@index([status, createdAt])
+}
+
+model TelegramMessageExecution {
+  id                   String                @id @default(cuid())
+  workflowExecutionId  String?
+  nodeId               String
+  businessId           String
+  installedAgentId     String
+  telegramConnectionId String
+  chatId               String
+  messageId            String?
+  idempotencyKey       String?               @unique
+  actionType           String
+  status               String                @default("PENDING")
+  requestJson          Json?
+  responseJson         Json?
+  errorCode            String?
+  errorMessage         String?
+  attempts             Int                   @default(0)
+  createdAt            DateTime              @default(now())
+  sentAt               DateTime?
+  updatedAt            DateTime              @updatedAt
+  business             Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent       InstalledAgent        @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  telegramConnection   TelegramBotConnection @relation(fields: [telegramConnectionId], references: [id], onDelete: Cascade)
+
+  @@index([telegramConnectionId, status])
+  @@index([businessId, installedAgentId, createdAt])
+}
+
+model BusinessService {
+  id                    String         @id @default(cuid())
+  businessId            String
+  installedAgentId      String?
+  slug                  String
+  name                  String
+  description           String?
+  durationMinutes       Int            @default(30)
+  priceCents            Int?
+  priceVisible          Boolean        @default(false)
+  active                Boolean        @default(true)
+  calendarId            String?
+  routingRuleJson       Json?
+  staffMappingJson      Json?
+  bufferMinutes         Int            @default(10)
+  minimumNoticeMinutes  Int            @default(0)
+  maximumAdvanceDays    Int            @default(30)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  business              Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent        InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, installedAgentId, slug])
+  @@index([businessId, installedAgentId, active])
 }
 
 model BusinessKnowledgeBase {
@@ -509,10 +657,15 @@ model Lead {
 model Appointment {
   id                 String    @id @default(cuid())
   businessId         String
+  installedAgentId   String?
   conversationId     String?
   customerPhone      String
   customerName       String?
+  customerEmail      String?
   service            String?
+  source             String?
+  bookingReference   String?   @unique
+  idempotencyKey     String?   @unique
   providerName       String?
   bookingCallId      String?
   startAt            DateTime
@@ -531,8 +684,10 @@ model Appointment {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   business           Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent     InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
 
   @@index([businessId])
+  @@index([installedAgentId])
   @@index([customerPhone])
   @@index([startAt])
   @@index([calendarEventId])

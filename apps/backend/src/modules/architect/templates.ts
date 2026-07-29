@@ -1,4 +1,4 @@
-import { buildVoiceBookingWorkflow, getNodeDefinition, VOICE_NODE_TYPES } from "@coreai/shared";
+import { buildVoiceBookingWorkflow, getNodeDefinition, TELEGRAM_NODE_TYPES, VOICE_NODE_TYPES } from "@coreai/shared";
 
 export type WorkflowTemplate = {
   id: string;
@@ -15,7 +15,7 @@ export type WorkflowTemplate = {
   recommended?: boolean;
   workflowJson: {
     nodes: Array<{ id: string; type: "coreNode"; position: { x: number; y: number }; data: Record<string, unknown> }>;
-    edges: Array<{ id: string; source: string; target: string }>;
+    edges: Array<{ id: string; source: string; target: string; sourceHandle?: string }>;
   };
   status: "ACTIVE" | "DRAFT";
   createdAt: string;
@@ -109,6 +109,141 @@ function buildDentalReceptionistWorkflow() {
   return { nodes, edges: base.edges };
 }
 
+function buildTelegramAppointmentWorkflow(): WorkflowTemplate["workflowJson"] {
+  const specs: NodeSpec[] = [
+    {
+      id: "telegram-trigger",
+      type: TELEGRAM_NODE_TYPES.trigger,
+      data: {
+        telegramBookingMode: "true",
+        telegramEventType: "message",
+        telegramChatAccess: "private",
+        telegramIgnoreBots: "true"
+      }
+    },
+    {
+      id: "start-message",
+      type: TELEGRAM_NODE_TYPES.sendMessage,
+      title: "Welcome Message",
+      data: { telegramMessageText: "Welcome to {{business.name}}." }
+    },
+    {
+      id: "start-buttons",
+      type: TELEGRAM_NODE_TYPES.sendButtons,
+      title: "Main Menu",
+      data: {
+        telegramMessageText: "Choose an option:",
+        telegramButtonsJson:
+          '[[{"text":"View services","callbackData":"nav:services"},{"text":"Book appointment","callbackData":"nav:book"}],[{"text":"Help","callbackData":"nav:help"}]]'
+      }
+    },
+    {
+      id: "request-contact",
+      type: TELEGRAM_NODE_TYPES.requestContact,
+      title: "Request Customer Contact"
+    },
+    {
+      id: "answer-callback",
+      type: TELEGRAM_NODE_TYPES.answerCallback,
+      title: "Acknowledge Selection",
+      data: { telegramCallbackText: "Selection received." }
+    },
+    {
+      id: "calendar-availability",
+      type: VOICE_NODE_TYPES.calendarAvailability
+    },
+    {
+      id: "book-appointment",
+      type: VOICE_NODE_TYPES.bookAppointment
+    },
+    {
+      id: "save-lead",
+      type: "action.save_lead"
+    },
+    {
+      id: "customer-confirmation",
+      type: TELEGRAM_NODE_TYPES.sendMessage,
+      title: "Customer Confirmation",
+      data: {
+        telegramMessageText:
+          "Appointment confirmed\n\nBusiness: {{business.name}}\nService: {{appointment.service}}\nDate: {{appointment.date}}\nTime: {{appointment.time}}"
+      }
+    },
+    {
+      id: "owner-confirmation",
+      type: TELEGRAM_NODE_TYPES.sendMessage,
+      title: "Owner Notification",
+      data: {
+        telegramRecipientSource: "business_owner",
+        telegramMessageText:
+          "New Telegram booking\n\nCustomer: {{customer.name}}\nPhone: {{customer.phone}}\nService: {{appointment.service}}"
+      }
+    },
+    {
+      id: "optional-email",
+      type: VOICE_NODE_TYPES.sendEmail,
+      title: "Optional Email Notification"
+    },
+    {
+      id: "edit-summary",
+      type: TELEGRAM_NODE_TYPES.editMessage,
+      title: "Edit Booking Summary",
+      data: { telegramMessageText: "Confirmed" }
+    },
+    {
+      id: "send-photo",
+      type: TELEGRAM_NODE_TYPES.sendPhoto,
+      data: { telegramPhotoSource: "TELEGRAM_FILE_ID_OR_HTTPS_URL" }
+    },
+    {
+      id: "send-document",
+      type: TELEGRAM_NODE_TYPES.sendDocument,
+      data: { telegramDocumentSource: "TELEGRAM_FILE_ID_OR_HTTPS_URL" }
+    },
+    {
+      id: "send-voice",
+      type: TELEGRAM_NODE_TYPES.sendVoice,
+      data: { telegramVoiceSource: "TELEGRAM_FILE_ID_OR_HTTPS_URL" }
+    },
+    {
+      id: "send-location",
+      type: TELEGRAM_NODE_TYPES.sendLocation,
+      data: { telegramLatitude: "40.7128", telegramLongitude: "-74.0060" }
+    },
+    {
+      id: "delete-message",
+      type: TELEGRAM_NODE_TYPES.deleteMessage,
+      title: "Delete Demo Message"
+    }
+  ];
+  const nodes = tnodes(specs).map((node, index) => ({
+    ...node,
+    position: {
+      x: index === 0 ? 80 : 380 + ((index - 1) % 4) * 290,
+      y: index === 0 ? 430 : 80 + Math.floor((index - 1) / 4) * 230
+    }
+  }));
+  const edges: WorkflowTemplate["workflowJson"]["edges"] = [
+    { id: "tg-start", source: "telegram-trigger", target: "start-message", sourceHandle: "/start" },
+    { id: "tg-start-menu", source: "start-message", target: "start-buttons" },
+    { id: "tg-book", source: "telegram-trigger", target: "request-contact", sourceHandle: "/book" },
+    { id: "tg-book-callback", source: "request-contact", target: "answer-callback" },
+    { id: "tg-availability", source: "answer-callback", target: "calendar-availability" },
+    { id: "tg-create", source: "calendar-availability", target: "book-appointment" },
+    { id: "tg-lead", source: "book-appointment", target: "save-lead" },
+    { id: "tg-customer", source: "save-lead", target: "customer-confirmation" },
+    { id: "tg-owner", source: "customer-confirmation", target: "owner-confirmation" },
+    { id: "tg-email", source: "owner-confirmation", target: "optional-email" },
+    { id: "tg-edit", source: "optional-email", target: "edit-summary" },
+    { id: "tg-media", source: "telegram-trigger", target: "send-photo", sourceHandle: "/media-demo" },
+    { id: "tg-document", source: "send-photo", target: "send-document" },
+    { id: "tg-voice", source: "send-document", target: "send-voice" },
+    { id: "tg-location", source: "send-voice", target: "send-location" },
+    { id: "tg-manage", source: "telegram-trigger", target: "delete-message", sourceHandle: "/message-demo" }
+  ];
+  return { nodes, edges };
+}
+
 const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | "updatedAt">> = [
   {
     id: "tpl-dental-receptionist",
@@ -123,6 +258,21 @@ const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | 
     tags: ["Dental", "Medical", "Scheduling"],
     recommended: true,
     workflowJson: buildDentalReceptionistWorkflow()
+  },
+  {
+    id: "tpl-telegram-appointment-booking",
+    slug: "telegram-appointment-booking-assistant",
+    title: "Telegram Appointment Booking Assistant",
+    category: "Scheduling",
+    difficulty: "Intermediate",
+    description:
+      "A dedicated business Telegram bot with services, persistent booking state, Google Calendar booking, confirmations, and media/action examples.",
+    forks: 0,
+    rating: 5,
+    reviewCount: 0,
+    tags: ["Telegram", "Scheduling", "Multi-channel"],
+    recommended: true,
+    workflowJson: buildTelegramAppointmentWorkflow()
   },
   {
     id: "tpl-missed-call",

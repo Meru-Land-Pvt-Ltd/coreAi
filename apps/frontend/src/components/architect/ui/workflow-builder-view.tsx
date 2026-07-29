@@ -245,6 +245,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     return nodes.some((node) => voiceTypes.has(String(node.data.type ?? "")));
   }, [nodes]);
 
+  const isTelegramWorkflow = useMemo(
+    () => nodes.some((node) => String(node.data.type ?? "") === "trigger.telegram_message"),
+    [nodes]
+  );
+
   const needsCalendarConnection = useMemo(
     () =>
       nodes.some((node) => {
@@ -1234,6 +1239,17 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         testEmail: testEmail.trim() || undefined,
         inboundSmsBody: effectiveTriggerMessage,
         latestMessage: effectiveTriggerMessage,
+        ...(isTelegramWorkflow
+          ? {
+              telegramChatId: "architect-dry-run-chat",
+              telegramUserId: "architect-dry-run-user",
+              telegramUsername: "test_customer",
+              telegramMessageId: "1",
+              telegramUpdateId: `dry-run-${Date.now()}`,
+              telegramChatType: "private",
+              telegramPhoneNumber: normalizedCallerNumber || "+15555550100"
+            }
+          : {}),
         attachments: effectiveAttachments
       }
     };

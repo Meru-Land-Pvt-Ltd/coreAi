@@ -11,6 +11,7 @@
     "dev": "npm run dev:backend & npm run dev:frontend",
     "dev:frontend": "npm run dev --workspace=@coreai/frontend",
     "dev:backend": "npm run dev --workspace=@coreai/backend",
+    "dev:telegram-worker": "npm run dev:telegram-worker --workspace=@coreai/backend",
     "build": "npm run build:shared && npm run build:backend && npm run build:frontend",
     "build:shared": "npm run build --workspace=@coreai/shared",
     "build:frontend": "npm run build --workspace=@coreai/frontend",

@@ -1,3 +1,5 @@
+import { FileText, Image as ImageIcon, MapPin, Pencil, Send, Trash2 } from "lucide-react";
+
 export function BuilderIcon({
   name,
   className = "h-4 w-4"
@@ -5,6 +7,15 @@ export function BuilderIcon({
   name: string;
   className?: string;
 }) {
+  if (name === "telegram") {
+    return <Send className={className} aria-hidden="true" />;
+  }
+  if (name === "image") return <ImageIcon className={className} aria-hidden="true" />;
+  if (name === "file") return <FileText className={className} aria-hidden="true" />;
+  if (name === "map-pin") return <MapPin className={className} aria-hidden="true" />;
+  if (name === "edit") return <Pencil className={className} aria-hidden="true" />;
+  if (name === "trash") return <Trash2 className={className} aria-hidden="true" />;
+
   if (name === "phone" || name === "phone-outgoing") {
     return (
       <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

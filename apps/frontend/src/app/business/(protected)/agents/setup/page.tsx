@@ -27,6 +27,7 @@ import { AgentIdentitySection } from "@/components/business/setup/agent-identity
 import { KnowledgeSection } from "@/components/business/setup/knowledge-section";
 import { AgentBehaviorSection } from "@/components/business/setup/agent-behavior-section";
 import { HoursAvailabilitySection } from "@/components/business/setup/hours-availability-section";
+import { TelegramSetupSection } from "@/components/business/setup/telegram-setup-section";
 import { type ApptNumberField } from "@/components/business/setup/appointment-hours-editor";
 import { validateBookingRules } from "@/components/business/setup/booking-rules-panel";
 import {
@@ -539,6 +540,7 @@ function SetupWizard() {
   const [isAddressValid, setIsAddressValid] = useState(false);
   const [businessType, setBusinessType] = useState("");
   const [connectStepValidated, setConnectStepValidated] = useState(false);
+  const [telegramConnected, setTelegramConnected] = useState(false);
   const [contactName, setContactName] = useState("");
   const [servicesText, setServicesText] = useState("");
   const [faqs, setFaqs] = useState<BusinessFaq[]>([]);
@@ -1479,6 +1481,7 @@ function SetupWizard() {
   const needsSms = needs.has("twilio") && triggerKind === "inbound_sms";
   const needsVoice = needs.has("vapi") || triggerKind === "voice";
   const needsMail = needs.has("triven_mail");
+  const needsTelegram = needs.has("telegram");
   const mailComplete = mailAlias?.status === "ACTIVE";
 
   // showPhone: always true (number verification is universal)
@@ -1491,6 +1494,7 @@ function SetupWizard() {
   const showSmsNote = triggerKind === "inbound_sms" || needsSms;
   const showMail = !connectorsKnown || needsMail;
   const showVoice = !connectorsKnown ? triggerKind === "voice" : needsVoice;
+  const showTelegram = needsTelegram;
 
   const connectTitle =
     showPhone && showCalendar ? "Connect your phone & calendar" : showPhone ? "Connect your phone" : "Connect your services";
@@ -1500,7 +1504,8 @@ function SetupWizard() {
     (!showCallForwarding || forwardToPhone.trim().length >= 5 || answeringMode === "AI_FIRST") &&
     (!needsCalendar || calendar.connected) &&
     (!needsGmail || calendar.connected) &&
-    (!needsMail || mailComplete);
+    (!needsMail || mailComplete) &&
+    (!needsTelegram || telegramConnected);
   const connectReady = connectComplete;
   const configureComplete = businessComplete && buyerSetupComplete && (!showVoice || voiceComplete);
   const testPassed = browserTestOutcome === "passed" || Boolean(testResult?.readyForCall);
@@ -1619,6 +1624,17 @@ function SetupWizard() {
           required: true,
           complete: mailComplete,
           blocker: mailComplete ? undefined : "Choose your proxy email alias in the Connect step (Mail Setup)."
+        }
+      ]
+      : []),
+    ...(needsTelegram
+      ? [
+        {
+          key: "telegram",
+          label: "Telegram bot",
+          required: true,
+          complete: telegramConnected,
+          blocker: telegramConnected ? undefined : "Connect and verify this agent's dedicated Telegram bot."
         }
       ]
       : []),
@@ -1781,6 +1797,8 @@ function SetupWizard() {
               showCalendar={showCalendar}
               showSmsNote={showSmsNote}
               showMail={showMail}
+              showTelegram={showTelegram}
+              onTelegramConnectedChange={setTelegramConnected}
               businessName={businessName}
               onMailAliasChange={setMailAlias}
               phoneNumbers={phoneNumbers}
@@ -2222,6 +2240,8 @@ function StepConnect({
   showCalendar,
   showSmsNote,
   showMail,
+  showTelegram,
+  onTelegramConnectedChange,
   phoneNumbers,
   selectedPhoneId,
   assignedNumber,
@@ -2259,6 +2279,8 @@ function StepConnect({
   showCalendar: boolean;
   showSmsNote: boolean;
   showMail: boolean;
+  showTelegram: boolean;
+  onTelegramConnectedChange: (connected: boolean) => void;
   businessName: string;
   onMailAliasChange: (alias: BusinessEmailAliasData | null) => void;
   phoneNumbers: PlatformPhoneOption[];
@@ -2584,6 +2606,14 @@ function StepConnect({
       ) : null}
 
       {showMail ? <MailSetupSection businessName={businessName} onAliasChange={onMailAliasChange} /> : null}
+
+      {showTelegram ? (
+        <TelegramSetupSection
+          installedAgentId={installedAgentIdForPhone}
+          businessName={businessName}
+          onConnectedChange={onTelegramConnectedChange}
+        />
+      ) : null}
 
       <ForwardingStepsModal
         isOpen={showStepsModal}

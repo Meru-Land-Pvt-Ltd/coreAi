@@ -1,4 +1,4 @@
-import { CORE_CONNECTOR_ACTIONS, MAX_WORKFLOW_CHAIN_DEPTH, VOICE_NODE_TYPES, normalizeTimeZone, zonedWallClockToUtc } from "@coreai/shared";
+import { CORE_CONNECTOR_ACTIONS, MAX_WORKFLOW_CHAIN_DEPTH, TELEGRAM_NODE_TYPES, VOICE_NODE_TYPES, normalizeTimeZone, zonedWallClockToUtc } from "@coreai/shared";
 import { createTestCalendarEvent } from "./test-calendar-events";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -33,6 +33,12 @@ import {
   buildCompactMemoryString,
   type AiBrainNodeConfig,
 } from "../memory";
+import {
+  executeTelegramActionWithRetry,
+  TELEGRAM_ACTION_TYPES,
+  type TelegramActionInput,
+  type TelegramButton
+} from "./telegram-actions";
 
 /** Threaded through the runner to bound workflow-to-workflow chaining. */
 type WorkflowChain = {
@@ -91,6 +97,16 @@ export type WorkflowRunInput = {
   listingId?: string;
   latestMessage?: string;
   assistantName?: string;
+  telegramChatId?: string;
+  telegramConnectionId?: string;
+  telegramUserId?: string;
+  telegramUsername?: string;
+  telegramMessageId?: string;
+  telegramUpdateId?: string;
+  telegramChatType?: string;
+  telegramPhoneNumber?: string;
+  trigger?: unknown;
+  telegramEvent?: unknown;
   attachments?: Array<{
     name: string;
     mimeType: string;
@@ -169,6 +185,27 @@ type RunnerNodeData = {
   llmMaxTokens?: unknown;
   llmOutputFormat?: unknown;
   llmOutputKey?: unknown;
+  telegramRecipientSource?: unknown;
+  telegramChatIdExpression?: unknown;
+  telegramMessageIdExpression?: unknown;
+  telegramCallbackIdExpression?: unknown;
+  telegramMessageText?: unknown;
+  telegramCallbackText?: unknown;
+  telegramCaption?: unknown;
+  telegramButtonsJson?: unknown;
+  telegramParseMode?: unknown;
+  telegramShowAlert?: unknown;
+  telegramCallbackUrl?: unknown;
+  telegramReplyToMessageId?: unknown;
+  telegramDisableNotification?: unknown;
+  telegramProtectContent?: unknown;
+  telegramContactButtonText?: unknown;
+  telegramPhotoSource?: unknown;
+  telegramDocumentSource?: unknown;
+  telegramVoiceSource?: unknown;
+  telegramLatitude?: unknown;
+  telegramLongitude?: unknown;
+  telegramLivePeriod?: unknown;
 };
 
 type RunnerNode = {
@@ -222,6 +259,30 @@ type RunnerContext = {
     timestamp: string;
     reason: string;
   };
+  telegram?: {
+    chat_id: string;
+    user_id: string;
+    username?: string;
+    message_id: string;
+    update_id?: string;
+    chat_type: string;
+    text: string;
+    phone_number?: string;
+  };
+  trigger?: {
+    telegram?: unknown;
+  };
+  telegramEvent?: unknown;
+  telegramConnectionId?: string;
+  telegramAction?: {
+    success: boolean;
+    chatId: string;
+    messageId: string | null;
+    actionType: string;
+    telegramConnectionId: string;
+    dryRun?: boolean;
+  };
+  workflowRunId?: string;
   gmail?: {
     emails?: {
       id: string;
@@ -446,6 +507,68 @@ function sortNodesForRun(nodes: RunnerNode[], edges: RunnerEdge[]) {
   return [...executionOrder, ...disconnected];
 }
 
+function telegramRouteCandidates(context: RunnerContext): Set<string> {
+  const event = context.telegramEvent && typeof context.telegramEvent === "object"
+    ? (context.telegramEvent as Record<string, unknown>)
+    : {};
+  const callback = event.callback && typeof event.callback === "object"
+    ? (event.callback as Record<string, unknown>)
+    : {};
+  const eventType = asString(event.eventType, "message").toLowerCase();
+  const callbackData = asString(callback.data).toLowerCase();
+  const command = (context.telegram?.text ?? "")
+    .trim()
+    .split(/\s+/, 1)[0]
+    ?.toLowerCase()
+    .replace(/^\/+/, "")
+    .split("@", 1)[0] ?? "";
+  return new Set(
+    [
+      "*",
+      "default",
+      eventType,
+      command,
+      command ? `/${command}` : "",
+      callbackData,
+      callbackData ? `callback:${callbackData}` : "",
+      callbackData.split(":", 1)[0] || ""
+    ].filter(Boolean)
+  );
+}
+
+/** Telegram graphs may route directly from the trigger with source handles. */
+function sortTelegramNodesForRun(nodes: RunnerNode[], edges: RunnerEdge[], context: RunnerContext): RunnerNode[] {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const start =
+    nodes.find((node) => asString(node.data?.type) === TELEGRAM_NODE_TYPES.trigger) ??
+    nodes.find((node) => asString(node.data?.nodeKind) === "trigger");
+  if (!start || edges.length === 0) return sortNodesForRun(nodes, edges);
+  const routes = telegramRouteCandidates(context);
+  const result: RunnerNode[] = [];
+  const queue = [start.id];
+  const visited = new Set<string>();
+  while (queue.length > 0) {
+    const nodeId = queue.shift();
+    if (!nodeId || visited.has(nodeId)) continue;
+    visited.add(nodeId);
+    const node = nodeById.get(nodeId);
+    if (node) result.push(node);
+    const outgoing = edges.filter((edge) => edge.source === nodeId);
+    const handled = outgoing.filter((edge) => Boolean(edge.sourceHandle));
+    const selected =
+      handled.length > 0
+        ? outgoing.filter((edge) => {
+            if (!edge.sourceHandle) return false;
+            return routes.has(edge.sourceHandle.trim().toLowerCase());
+          })
+        : outgoing;
+    for (const edge of selected) {
+      if (!visited.has(edge.target)) queue.push(edge.target);
+    }
+  }
+  return result;
+}
+
 function resolveContextPath(context: RunnerContext, path: string): unknown {
   if (path in context) {
     return (context as Record<string, unknown>)[path];
@@ -476,7 +599,7 @@ function createLog(
 ): WorkflowRunLog {
   return {
     nodeId: node.id,
-    label: asString(node.data?.label ?? node.data?.title, node.id),
+    label: asString(node.data?.title ?? node.data?.label, node.id),
     status,
     message,
     output
@@ -521,8 +644,14 @@ function shouldUseProviderEngine(node: RunnerNode, mode: WorkflowRunMode): boole
   return false;
 }
 
-function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
-  const callerNumber = optionalString(input?.callerNumber) ?? "+15555550100";
+function seedWorkflowContext(
+  input: WorkflowRunInput | undefined,
+  options: { isTelegramWorkflow: boolean; mode: WorkflowRunMode }
+): RunnerContext {
+  const telegramPhone = optionalString(input?.telegramPhoneNumber);
+  const callerNumber = options.isTelegramWorkflow
+    ? telegramPhone ?? optionalString(input?.callerNumber) ?? (options.mode === "test" ? "+15555550100" : undefined)
+    : optionalString(input?.callerNumber) ?? "+15555550100";
   const callerName = optionalString(input?.callerName) ?? "Jordan Lee";
   const businessName =
     optionalString(input?.businessName) ??
@@ -552,16 +681,77 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
       vapiPhoneNumberId: optionalString(input?.vapiPhoneNumberId) ?? env.VAPI_DEFAULT_PHONE_NUMBER_ID,
       hours: input?.businessHours,
       assistantName: optionalString(input?.assistantName)
-    },
-    missedCall: {
+    }
+  };
+
+  if (options.isTelegramWorkflow) {
+    const text =
+      optionalString(input?.latestMessage) ??
+      optionalString(input?.inboundSmsBody) ??
+      (options.mode === "test" ? "/services" : "");
+    context.telegram = {
+      chat_id: optionalString(input?.telegramChatId) ?? (options.mode === "test" ? "architect-dry-run-chat" : ""),
+      user_id: optionalString(input?.telegramUserId) ?? (options.mode === "test" ? "architect-dry-run-user" : ""),
+      username: optionalString(input?.telegramUsername) ?? (options.mode === "test" ? "test_customer" : undefined),
+      message_id: optionalString(input?.telegramMessageId) ?? (options.mode === "test" ? "1" : ""),
+      update_id: optionalString(input?.telegramUpdateId),
+      chat_type: optionalString(input?.telegramChatType) ?? "private",
+      text,
+      phone_number: telegramPhone
+    };
+    const liveEvent =
+      input?.telegramEvent && typeof input.telegramEvent === "object" && !Array.isArray(input.telegramEvent)
+        ? input.telegramEvent
+        : null;
+    const dryRunEvent = {
+      provider: "TELEGRAM",
+      updateId: optionalString(input?.telegramUpdateId) ?? "10001",
+      eventType: text.startsWith("/") ? "command" : "message",
+      businessId: optionalString(input?.businessId) ?? "dry-run-business",
+      installedAgentId: optionalString(input?.installedAgentId) ?? "dry-run-installed-agent",
+      telegramConnectionId: optionalString(input?.telegramConnectionId) ?? "dry-run-telegram-connection",
+      bot: { id: "700000001", username: "dry_run_business_bot" },
+      chat: { id: context.telegram.chat_id, type: context.telegram.chat_type },
+      sender: {
+        id: context.telegram.user_id,
+        isBot: false,
+        username: context.telegram.username ?? "",
+        firstName: callerName,
+        lastName: "",
+        languageCode: "en"
+      },
+      message: {
+        id: context.telegram.message_id,
+        text,
+        caption: "",
+        date: timestamp
+      },
+      callback: { id: "", data: "" },
+      contact: {
+        phoneNumber: telegramPhone ?? "",
+        firstName: callerName,
+        lastName: "",
+        userId: context.telegram.user_id
+      },
+      media: { type: "", fileId: "", fileName: "", mimeType: "" },
+      location: { latitude: null, longitude: null }
+    };
+    context.telegramEvent = liveEvent ?? dryRunEvent;
+    context.trigger = { telegram: liveEvent ?? dryRunEvent };
+    context.telegramConnectionId =
+      optionalString(input?.telegramConnectionId) ??
+      (options.mode === "test" ? "dry-run-telegram-connection" : undefined);
+    context.latestMessage = text;
+  } else {
+    context.missedCall = {
       callerNumber: callerNumber ?? "",
       callerName,
       businessName,
       status,
       timestamp,
       reason
-    }
-  };
+    };
+  }
 
   if (callerNumber) context.caller_number = callerNumber;
   if (callerName) context.caller_name = callerName;
@@ -587,6 +777,27 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
 }
 
 function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
+  if (asString(node.data?.type) === "trigger.telegram_message") {
+    if (!context.telegram?.chat_id || !context.telegram.message_id) {
+      logs.push(createLog(node, "error", "Telegram trigger is missing a chat ID or message ID."));
+      return;
+    }
+
+    logs.push(
+      createLog(node, "success", "Telegram bot event received.", {
+        chatId: context.telegram.chat_id,
+        userId: context.telegram.user_id,
+        username: context.telegram.username,
+        messageId: context.telegram.message_id,
+        chatType: context.telegram.chat_type,
+        text: context.telegram.text,
+        hasSharedPhone: Boolean(context.telegram.phone_number),
+        normalizedEvent: context.telegramEvent
+      })
+    );
+    return;
+  }
+
   if (asString(node.data?.type) === "trigger.manual") {
     logs.push(
       createLog(node, "success", "Input fired.", {
@@ -982,7 +1193,7 @@ async function runVapiConnectorNode({
   mode: WorkflowRunMode;
 }) {
   const action = asString(node.data?.connectorAction, "start_voice_call");
-  const customerPhone = context.caller_number || context.missedCall?.callerNumber || "";
+  const customerPhone = customerPhoneFromContext(context);
 
   if (!customerPhone) {
     logs.push(createLog(node, "error", "Vapi call failed because caller phone number is missing."));
@@ -1130,14 +1341,31 @@ async function runGoogleCalendarConnectorNode({
     return;
   }
 
-  const customerPhone = context.caller_number || context.missedCall?.callerNumber || "";
+  const customerPhone = customerPhoneFromContext(context);
   const businessName = context.business?.name ?? "the business";
   const calendarId = renderTemplate(node.data?.calendarId, context) || context.business?.calendarId || "primary";
   const timeZone = normalizeTimeZone(context.business?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE);
   const service = renderTemplate(node.data?.appointmentService, context) || asString(context.appointmentService, "Appointment");
   context.appointmentService = service;
   const defaultWindow = getDefaultAppointmentWindow(timeZone);
-  const startAtRaw = renderTemplate(node.data?.appointmentStartAt, context) || asString(context.appointmentStartAt, defaultWindow.startAt.toISOString());
+  const configuredStartAt =
+    renderTemplate(node.data?.appointmentStartAt, context) || asString(context.appointmentStartAt);
+
+  if (mode === "live" && context.telegram && !customerPhone) {
+    logs.push(
+      createLog(node, "waiting", "Waiting for the Telegram customer to share their phone number before booking.")
+    );
+    return;
+  }
+
+  if (mode === "live" && context.telegram && !configuredStartAt) {
+    logs.push(
+      createLog(node, "waiting", "Waiting for the Telegram customer to select an available appointment slot.")
+    );
+    return;
+  }
+
+  const startAtRaw = configuredStartAt || defaultWindow.startAt.toISOString();
   const endAtRaw = renderTemplate(node.data?.appointmentEndAt, context) || asString(context.appointmentEndAt);
   // A naive "YYYY-MM-DDTHH:mm[:ss]" is the tester's wall-clock time in the
   // execution timezone — never the server's local zone.
@@ -1271,7 +1499,7 @@ async function runGmailConnectorNode({
 }
 
 function customerPhoneFromContext(context: RunnerContext) {
-  return context.caller_number || context.missedCall?.callerNumber || "";
+  return context.telegram?.phone_number || context.caller_number || context.missedCall?.callerNumber || "";
 }
 
 async function runSaveLeadNode({
@@ -1288,7 +1516,12 @@ async function runSaveLeadNode({
   const businessId = context.business?.id;
   const phoneNumber = customerPhoneFromContext(context);
 
-  if (!businessId || !phoneNumber) {
+  if (mode === "live" && context.telegram && !phoneNumber) {
+    logs.push(createLog(node, "waiting", "Waiting for the Telegram customer to share their phone number."));
+    return;
+  }
+
+  if (mode === "live" && (!businessId || !phoneNumber)) {
     logs.push(createLog(node, "error", "Save Lead failed because business or caller phone is missing."));
     return;
   }
@@ -1298,6 +1531,10 @@ async function runSaveLeadNode({
   const name = context.caller_name;
 
   if (mode === "live") {
+    if (!businessId || !phoneNumber) {
+      logs.push(createLog(node, "error", "Save Lead failed because business or caller phone is missing."));
+      return;
+    }
     const lead = await prisma.lead.upsert({
       where: { businessId_phoneNumber: { businessId, phoneNumber } },
       update: { status, name: name || undefined },
@@ -1815,6 +2052,232 @@ async function runEmailConnectorNode({
   logs.push(createLog(node, "success", "Email queued via the business's Triven proxy address.", { to, subject }));
 }
 
+function telegramBoolean(value: unknown, fallback = false): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.trim().toLowerCase() === "true";
+  return fallback;
+}
+
+function parseTelegramButtons(value: unknown, context: RunnerContext): TelegramButton[][] {
+  const rendered = renderTemplate(value, context);
+  if (!rendered.trim()) return [];
+  const parsed = JSON.parse(rendered) as unknown;
+  if (!Array.isArray(parsed)) throw new Error("Telegram buttons must be a JSON array of rows.");
+  return parsed.map((row) => {
+    if (!Array.isArray(row)) throw new Error("Each Telegram button row must be a JSON array.");
+    return row.map((button) => {
+      if (!button || typeof button !== "object" || Array.isArray(button)) {
+        throw new Error("Each Telegram button must be an object.");
+      }
+      const item = button as Record<string, unknown>;
+      const buttonText = asString(item.text).trim();
+      const callbackData = asString(item.callbackData ?? item.callback_data).trim();
+      const url = asString(item.url).trim();
+      if (!buttonText || (!callbackData && !url)) {
+        throw new Error("Every Telegram button needs text and either callbackData or url.");
+      }
+      return {
+        text: buttonText,
+        ...(callbackData ? { callbackData } : {}),
+        ...(url ? { url } : {})
+      };
+    });
+  });
+}
+
+function telegramActionType(nodeType: string): TelegramActionInput["actionType"] | null {
+  const mapping: Record<string, TelegramActionInput["actionType"]> = {
+    [TELEGRAM_NODE_TYPES.sendMessage]: TELEGRAM_ACTION_TYPES.sendMessage,
+    [TELEGRAM_NODE_TYPES.sendButtons]: TELEGRAM_ACTION_TYPES.sendButtons,
+    [TELEGRAM_NODE_TYPES.answerCallback]: TELEGRAM_ACTION_TYPES.answerCallback,
+    [TELEGRAM_NODE_TYPES.requestContact]: TELEGRAM_ACTION_TYPES.requestContact,
+    [TELEGRAM_NODE_TYPES.sendPhoto]: TELEGRAM_ACTION_TYPES.sendPhoto,
+    [TELEGRAM_NODE_TYPES.sendDocument]: TELEGRAM_ACTION_TYPES.sendDocument,
+    [TELEGRAM_NODE_TYPES.sendVoice]: TELEGRAM_ACTION_TYPES.sendVoice,
+    [TELEGRAM_NODE_TYPES.sendLocation]: TELEGRAM_ACTION_TYPES.sendLocation,
+    [TELEGRAM_NODE_TYPES.editMessage]: TELEGRAM_ACTION_TYPES.editMessage,
+    [TELEGRAM_NODE_TYPES.deleteMessage]: TELEGRAM_ACTION_TYPES.deleteMessage
+  };
+  return mapping[nodeType] ?? null;
+}
+
+async function resolveTelegramActionChatId(node: RunnerNode, context: RunnerContext): Promise<string> {
+  const source = asString(node.data?.telegramRecipientSource, "trigger_chat");
+  if (source === "business_owner") {
+    if (!context.telegramConnectionId) throw new Error("Telegram connection is missing.");
+    const connection = await prisma.telegramBotConnection.findFirst({
+      where: {
+        id: context.telegramConnectionId,
+        businessId: context.business?.id,
+        installedAgentId: context.installedAgentId
+      },
+      select: { ownerChatId: true, ownerNotificationStatus: true }
+    });
+    if (!connection?.ownerChatId || connection.ownerNotificationStatus !== "CONNECTED") {
+      throw new Error("The business owner Telegram notification chat is not connected.");
+    }
+    return connection.ownerChatId;
+  }
+  if (source === "stored_customer") {
+    if (!context.business?.id || !context.installedAgentId || !context.telegramConnectionId) {
+      throw new Error("Telegram tenant context is incomplete.");
+    }
+    const state = await prisma.telegramConversationState.findFirst({
+      where: {
+        businessId: context.business.id,
+        installedAgentId: context.installedAgentId,
+        telegramConnectionId: context.telegramConnectionId,
+        telegramUserId: context.telegram?.user_id,
+        chatStatus: "ACTIVE"
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { telegramChatId: true }
+    });
+    if (!state) throw new Error("No stored Telegram chat was found for this customer.");
+    return state.telegramChatId;
+  }
+  const expression = asString(
+    node.data?.telegramChatIdExpression,
+    source === "manual" ? "" : "{{trigger.telegram.chat.id}}"
+  );
+  return renderTemplate(expression, context).trim() || context.telegram?.chat_id || "";
+}
+
+function dryRunTelegramActionChatId(node: RunnerNode, context: RunnerContext): string {
+  const source = asString(node.data?.telegramRecipientSource, "trigger_chat");
+  if (source === "business_owner") return "architect-dry-run-owner-chat";
+  if (source === "stored_customer") return "architect-dry-run-customer-chat";
+  const expression = asString(
+    node.data?.telegramChatIdExpression,
+    source === "manual" ? "" : "{{trigger.telegram.chat.id}}"
+  );
+  return renderTemplate(expression, context).trim() || context.telegram?.chat_id || "architect-dry-run-chat";
+}
+
+function publishTelegramActionOutput(context: RunnerContext, output: RunnerContext["telegramAction"]) {
+  context.telegramAction = output;
+  context["telegram.action.success"] = output?.success ?? false;
+  context["telegram.action.chatId"] = output?.chatId ?? "";
+  context["telegram.action.messageId"] = output?.messageId ?? "";
+  context["telegram.action.actionType"] = output?.actionType ?? "";
+  context["telegram.action.telegramConnectionId"] = output?.telegramConnectionId ?? "";
+}
+
+async function runTelegramConnectorNode({
+  node,
+  context,
+  logs,
+  mode
+}: {
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+}) {
+  const nodeType = asString(node.data?.type);
+  const actionType = telegramActionType(nodeType);
+  if (!actionType) {
+    logs.push(createLog(node, "error", `Unsupported Telegram action node: ${nodeType}`));
+    return;
+  }
+  const chatId =
+    mode === "test"
+      ? dryRunTelegramActionChatId(node, context)
+      : await resolveTelegramActionChatId(node, context);
+  const messageId = renderTemplate(node.data?.telegramMessageIdExpression, context).trim();
+  const callbackQueryId = renderTemplate(
+    node.data?.telegramCallbackIdExpression ?? "{{trigger.telegram.callback.id}}",
+    context
+  ).trim();
+  const textBody = renderTemplate(
+    nodeType === TELEGRAM_NODE_TYPES.answerCallback
+      ? node.data?.telegramCallbackText
+      : node.data?.telegramMessageText,
+    context
+  );
+  const parseModeValue = asString(node.data?.telegramParseMode);
+  const parseMode =
+    parseModeValue === "HTML" || parseModeValue === "MarkdownV2" ? parseModeValue : undefined;
+  const source =
+    nodeType === TELEGRAM_NODE_TYPES.sendPhoto
+      ? renderTemplate(node.data?.telegramPhotoSource, context)
+      : nodeType === TELEGRAM_NODE_TYPES.sendDocument
+        ? renderTemplate(node.data?.telegramDocumentSource, context)
+        : nodeType === TELEGRAM_NODE_TYPES.sendVoice
+          ? renderTemplate(node.data?.telegramVoiceSource, context)
+          : undefined;
+  const buttons =
+    nodeType === TELEGRAM_NODE_TYPES.sendButtons || nodeType === TELEGRAM_NODE_TYPES.editMessage
+      ? parseTelegramButtons(node.data?.telegramButtonsJson, context)
+      : undefined;
+
+  if (mode === "test") {
+    const output = {
+      success: true,
+      chatId: chatId || "architect-dry-run-chat",
+      messageId:
+        actionType === TELEGRAM_ACTION_TYPES.answerCallback ||
+        actionType === TELEGRAM_ACTION_TYPES.deleteMessage
+          ? null
+          : `dry-run-${node.id}`,
+      actionType,
+      telegramConnectionId: context.telegramConnectionId || "dry-run-telegram-connection",
+      dryRun: true
+    };
+    publishTelegramActionOutput(context, output);
+    logs.push(
+      createLog(node, "success", "Telegram action dry run passed - no Telegram API request was sent.", output)
+    );
+    return;
+  }
+
+  if (!context.business?.id || !context.installedAgentId || !context.telegramConnectionId) {
+    throw new Error("Telegram live execution requires business, installed-agent, and connection context.");
+  }
+  if (
+    nodeType === TELEGRAM_NODE_TYPES.requestContact &&
+    context.telegram?.chat_type &&
+    context.telegram.chat_type !== "private"
+  ) {
+    throw new Error("Telegram contact requests are only supported in private chats.");
+  }
+  const output = await executeTelegramActionWithRetry({
+    actionType,
+    businessId: context.business.id,
+    installedAgentId: context.installedAgentId,
+    telegramConnectionId: context.telegramConnectionId,
+    nodeId: node.id,
+    workflowExecutionId: context.workflowRunId,
+    idempotencyKey: context.workflowRunId ? `${context.workflowRunId}:${node.id}` : undefined,
+    chatId,
+    messageId: messageId || undefined,
+    callbackQueryId: callbackQueryId || undefined,
+    text: textBody,
+    caption: renderTemplate(node.data?.telegramCaption, context),
+    parseMode,
+    buttons,
+    source,
+    latitude: Number(renderTemplate(node.data?.telegramLatitude, context)),
+    longitude: Number(renderTemplate(node.data?.telegramLongitude, context)),
+    livePeriod: Number(renderTemplate(node.data?.telegramLivePeriod, context)) || undefined,
+    showAlert: telegramBoolean(node.data?.telegramShowAlert),
+    url: renderTemplate(node.data?.telegramCallbackUrl, context) || undefined,
+    replyToMessageId: renderTemplate(node.data?.telegramReplyToMessageId, context) || undefined,
+    disableNotification: telegramBoolean(node.data?.telegramDisableNotification),
+    protectContent: telegramBoolean(node.data?.telegramProtectContent),
+    contactButtonText: renderTemplate(node.data?.telegramContactButtonText, context) || undefined
+  });
+  const actionOutput = {
+    success: output.success,
+    chatId: output.chatId,
+    messageId: output.messageId,
+    actionType: output.actionType,
+    telegramConnectionId: output.telegramConnectionId
+  };
+  publishTelegramActionOutput(context, actionOutput);
+  logs.push(createLog(node, "success", "Telegram action completed.", actionOutput));
+}
+
 async function runConnectorNode({
   userId,
   node,
@@ -1832,7 +2295,13 @@ async function runConnectorNode({
 }) {
   // Normalize separator variants ("google_calendar", "Google-Calendar") to the
   // canonical space-separated form before dispatching.
+  const nodeType = asString(node.data?.type);
   const connector = asString(node.data?.connector, "SMS").toLowerCase().replace(/[_-]+/g, " ");
+
+  if (telegramActionType(nodeType) || connector === "telegram" || connector === "telegram bot") {
+    await runTelegramConnectorNode({ node, context, logs, mode });
+    return;
+  }
 
   if (connector === "triven" || connector === "coreai" || connector === "core") {
     await runCoreConnectorNode({ userId, node, context, logs, mode, chain });
@@ -1895,11 +2364,16 @@ async function runConnectorNode({
 }
 
 function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
+  const isTelegramWorkflow = Boolean(context.telegram);
   // Voice booking: End Flow closes a voice workflow (no missed-call output key/wording).
   const isEndFlow = asString(node.data?.type) === VOICE_NODE_TYPES.endFlow;
-  const isVoiceWorkflow = isEndFlow || Boolean(context.voiceConversation || context.calendarAvailability);
+  const isVoiceWorkflow =
+    !isTelegramWorkflow && (isEndFlow || Boolean(context.voiceConversation || context.calendarAvailability));
 
-  const outputKey = asString(node.data?.outputKey, isVoiceWorkflow ? "voiceBookingResult" : "missedCallTextBackResult");
+  const outputKey = asString(
+    node.data?.outputKey,
+    isTelegramWorkflow ? "telegramResult" : isVoiceWorkflow ? "voiceBookingResult" : "missedCallTextBackResult"
+  );
 
   // If one or more LLM Call nodes ran, surface the final LLM output as the
   // primary result value, with the full pipeline map attached so every node's
@@ -1928,9 +2402,15 @@ function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowR
         context.draftEmail ??
         context.ai ??
         context.gmail ??
+        context.telegram ??
         context.missedCall ??
         null)
   };
+
+  if (isTelegramWorkflow) {
+    logs.push(createLog(node, "success", "Telegram workflow run completed.", context.output));
+    return;
+  }
 
   if (isVoiceWorkflow) {
     logs.push(
@@ -2089,7 +2569,10 @@ export async function runWorkflowTest({
 }) {
   const parsedWorkflow = parseRunnerWorkflowJson(workflowJson);
   const logs: WorkflowRunLog[] = [];
-  const context: RunnerContext = seedMissedCallContext(input);
+  const isTelegramWorkflow = parsedWorkflow.nodes.some(
+    (node) => asString(node.data?.type) === "trigger.telegram_message"
+  );
+  const context: RunnerContext = seedWorkflowContext(input, { isTelegramWorkflow, mode });
   const chain: WorkflowChain = { depth: chainDepth, visited: chainVisited, workflowId };
 
   // Set assistantName on context.business if not set
@@ -2130,12 +2613,16 @@ export async function runWorkflowTest({
     externalCallId,
     inputJson: input as Record<string, unknown> | undefined,
   });
+  context.workflowRunId = workflowRunId;
 
   let executionOrder = 0;
   let runFailed = false;
 
   try {
-    for (const node of sortNodesForRun(parsedWorkflow.nodes, parsedWorkflow.edges)) {
+    const nodesToRun = isTelegramWorkflow
+      ? sortTelegramNodesForRun(parsedWorkflow.nodes, parsedWorkflow.edges, context)
+      : sortNodesForRun(parsedWorkflow.nodes, parsedWorkflow.edges);
+    for (const node of nodesToRun) {
       if (runFailed) {
         break;
       }
@@ -2165,6 +2652,7 @@ export async function runWorkflowTest({
             output: {
               callerNumber: context.caller_number,
               inboundSms: context.inboundSms,
+              telegram: context.telegram,
               missedCall: context.missedCall,
             },
             files: triggerFiles,

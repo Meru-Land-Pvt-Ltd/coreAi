@@ -345,6 +345,102 @@ export function saveBusinessSetup(body: BusinessSetupInput) {
   return apiPost<BusinessSetupData>("/business/setup", body);
 }
 
+export type TelegramConnectionSummary = {
+  id: string;
+  status: string;
+  provisioningMode: "MANAGED" | "MANUAL";
+  provisioningStatus: string;
+  webhookStatus: string;
+  ownerNotificationStatus: string;
+  requestedUsername: string;
+  botUsername: string | null;
+  botDisplayName: string;
+  botUrl: string | null;
+  lastWebhookAt: string | null;
+  lastSuccessfulSendAt: string | null;
+  lastProviderErrorCode: string | null;
+  lastError: string | null;
+  credentialRotatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TelegramSetupStatus = {
+  connection: TelegramConnectionSummary | null;
+  managedProvisioningAvailable: boolean;
+  managedProvisioningReason: string | null;
+  manualProvisioningAvailable: boolean;
+};
+
+export function getBusinessTelegramStatus(installedAgentId: string) {
+  return apiGet<TelegramSetupStatus>(
+    `/business/agents/${encodeURIComponent(installedAgentId)}/telegram/status`
+  );
+}
+
+export function startBusinessTelegramManagedSetup(
+  installedAgentId: string,
+  body: { botDisplayName: string }
+) {
+  return apiPost<{
+    connectionId: string;
+    status: string;
+    provisioningMode: string;
+    provisioningStatus?: string;
+    requestedUsername?: string;
+    botUsername?: string | null;
+    botUrl?: string | null;
+    approvalUrl?: string | null;
+  }>(`/business/agents/${encodeURIComponent(installedAgentId)}/telegram/setup`, body);
+}
+
+export function connectBusinessTelegramManualBot(
+  installedAgentId: string,
+  body: { botDisplayName: string; botToken: string }
+) {
+  return apiPost<{
+    connectionId: string;
+    status: string;
+    provisioningMode: string;
+    provisioningStatus: string;
+    botUsername: string | null;
+    botDisplayName: string;
+    botUrl: string | null;
+  }>(`/business/agents/${encodeURIComponent(installedAgentId)}/telegram/manual`, body);
+}
+
+export function refreshBusinessTelegramHealth(installedAgentId: string) {
+  return apiPost<{
+    ok: boolean;
+    botUsername: string | null;
+    webhookStatus: string;
+    pendingUpdateCount: number;
+    lastWebhookAt: string | null;
+    lastSuccessfulSendAt: string | null;
+    lastError: string | null;
+  }>(`/business/agents/${encodeURIComponent(installedAgentId)}/telegram/health`, {});
+}
+
+export function startBusinessTelegramOwnerAuthorization(installedAgentId: string) {
+  return apiPost<{ authorizationUrl: string; status: string }>(
+    `/business/agents/${encodeURIComponent(installedAgentId)}/telegram/owner-authorization`,
+    {}
+  );
+}
+
+export function sendBusinessTelegramTestMessage(installedAgentId: string) {
+  return apiPost<{ success: boolean; messageId: string; chatConnected: boolean }>(
+    `/business/agents/${encodeURIComponent(installedAgentId)}/telegram/test-message`,
+    {}
+  );
+}
+
+export function disconnectBusinessTelegram(installedAgentId: string) {
+  return apiDelete<{ disconnected: boolean }>(
+    `/business/agents/${encodeURIComponent(installedAgentId)}/telegram`
+  );
+}
+
 /** Current appointment schedule (booking hours, slot config, confirmation state). */
 export function getAppointmentSchedule() {
   return apiGet<AppointmentScheduleData>("/business/setup/appointment-schedule");

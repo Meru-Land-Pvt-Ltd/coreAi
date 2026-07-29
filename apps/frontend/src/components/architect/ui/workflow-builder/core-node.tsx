@@ -26,6 +26,7 @@ const nodePalette: Record<NodeAccent, {
 export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
   const palette = nodePalette[data.accent] ?? nodePalette.slate;
   const isCondition = data.nodeKind === "condition";
+  const isTelegramTrigger = data.type === "trigger.telegram_message";
   const hasInput = data.nodeKind !== "trigger";
   const cssVars = { "--glow-rgb": palette.rgb } as CSSProperties;
 
@@ -84,6 +85,26 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
           />
           <span className="absolute -bottom-[23px] left-[30%] -translate-x-1/2 text-[10px] font-bold text-green-600" data-testid="architect-ui-workflow-builder-core-node-yes-text">Yes</span>
           <span className="absolute -bottom-[23px] left-[70%] -translate-x-1/2 text-[10px] font-bold text-red-500" data-testid="architect-ui-workflow-builder-core-node-no-text">No</span>
+        </>
+      ) : isTelegramTrigger ? (
+        <>
+          {[
+            { id: "/start", label: "Start command", left: "14%" },
+            { id: "/book", label: "Book command", left: "38%" },
+            { id: "/media-demo", label: "Media demo command", left: "62%" },
+            { id: "/message-demo", label: "Message demo command", left: "86%" }
+          ].map((route) => (
+            <Handle
+              key={route.id}
+              id={route.id}
+              type="source"
+              position={Position.Bottom}
+              className="core-port"
+              style={{ left: route.left, background: palette.handle }}
+              title={route.label}
+              aria-label={route.label}
+            />
+          ))}
         </>
       ) : (
         <Handle

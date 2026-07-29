@@ -123,6 +123,16 @@ import { businessOnboardingRoutes } from "./onboarding-routes";
 import { businessHoursRoutes } from "./business-hours";
 import { fetchVapiCallById, isPresignedRecordingUrl } from "../architect/vapi-connector";
 import { updateBusinessSpendingAlert } from "./spending-alert";
+import {
+  connectTelegramManualBot,
+  createTelegramOwnerAuthorization,
+  createTelegramManagedBotSetup,
+  disconnectTelegramBot,
+  getTelegramConnectionStatus,
+  refreshTelegramConnectionHealth,
+  sendTelegramConnectionTest,
+  TelegramConnectorError
+} from "../architect/telegram-connector";
 
 export const businessRoutes = new Hono();
 
@@ -178,6 +188,155 @@ businessRoutes.use("*", requireRole(["BUSINESS"]));
 
 businessRoutes.post("/billing/checkout", createCheckoutSession);
 businessRoutes.get("/billing/status", getBillingStatus);
+
+const telegramBotSetupSchema = z.object({
+  botDisplayName: z.string().trim().min(1, "Bot name is required").max(64)
+});
+
+const telegramManualSetupSchema = telegramBotSetupSchema.extend({
+  botToken: z
+    .string()
+    .trim()
+    .min(20, "Enter the token provided by BotFather")
+    .max(256)
+});
+
+businessRoutes.post("/agents/:installedAgentId/telegram/setup", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = telegramBotSetupSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(
+      c,
+      parsed.error.issues[0]?.message || "Invalid Telegram setup request.",
+      422,
+      "VALIDATION_ERROR"
+    );
+  }
+
+  try {
+    const result = await createTelegramManagedBotSetup({
+      ownerId: authUser.id,
+      installedAgentId: c.req.param("installedAgentId"),
+      botDisplayName: parsed.data.botDisplayName
+    });
+    return successResponse(c, result, "Telegram bot setup started.", 201);
+  } catch (error) {
+    const status = error instanceof TelegramConnectorError ? error.status : 500;
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Telegram bot setup failed.",
+      apiErrorStatus(status, 500),
+      error instanceof TelegramConnectorError ? error.code : "TELEGRAM_SETUP_FAILED"
+    );
+  }
+});
+
+businessRoutes.get("/agents/:installedAgentId/telegram/status", async (c) => {
+  const authUser = c.get("authUser");
+  const status = await getTelegramConnectionStatus(
+    authUser.id,
+    c.req.param("installedAgentId")
+  );
+  return successResponse(c, status);
+});
+
+businessRoutes.post("/agents/:installedAgentId/telegram/manual", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = telegramManualSetupSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(
+      c,
+      parsed.error.issues[0]?.message || "Invalid Telegram setup request.",
+      422,
+      "VALIDATION_ERROR"
+    );
+  }
+  try {
+    const result = await connectTelegramManualBot({
+      ownerId: authUser.id,
+      installedAgentId: c.req.param("installedAgentId"),
+      botDisplayName: parsed.data.botDisplayName,
+      botToken: parsed.data.botToken
+    });
+    return successResponse(c, result, "Telegram bot connected.");
+  } catch (error) {
+    const status = error instanceof TelegramConnectorError ? error.status : 500;
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Telegram bot connection failed.",
+      apiErrorStatus(status, 500),
+      error instanceof TelegramConnectorError ? error.code : "TELEGRAM_SETUP_FAILED"
+    );
+  }
+});
+
+businessRoutes.post("/agents/:installedAgentId/telegram/health", async (c) => {
+  const authUser = c.get("authUser");
+  try {
+    return successResponse(
+      c,
+      await refreshTelegramConnectionHealth(authUser.id, c.req.param("installedAgentId"))
+    );
+  } catch (error) {
+    const status = error instanceof TelegramConnectorError ? error.status : 502;
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Telegram health check failed.",
+      apiErrorStatus(status, 500),
+      error instanceof TelegramConnectorError ? error.code : "TELEGRAM_HEALTH_FAILED"
+    );
+  }
+});
+
+businessRoutes.post("/agents/:installedAgentId/telegram/owner-authorization", async (c) => {
+  const authUser = c.get("authUser");
+  try {
+    return successResponse(
+      c,
+      await createTelegramOwnerAuthorization(authUser.id, c.req.param("installedAgentId")),
+      "Owner notification authorization started."
+    );
+  } catch (error) {
+    const status = error instanceof TelegramConnectorError ? error.status : 500;
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Owner authorization failed.",
+      apiErrorStatus(status, 500),
+      error instanceof TelegramConnectorError ? error.code : "TELEGRAM_OWNER_SETUP_FAILED"
+    );
+  }
+});
+
+businessRoutes.post("/agents/:installedAgentId/telegram/test-message", async (c) => {
+  const authUser = c.get("authUser");
+  try {
+    return successResponse(
+      c,
+      await sendTelegramConnectionTest(authUser.id, c.req.param("installedAgentId")),
+      "Live Telegram test message sent."
+    );
+  } catch (error) {
+    const status = error instanceof TelegramConnectorError ? error.status : 502;
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Telegram test message failed.",
+      apiErrorStatus(status, 500),
+      error instanceof TelegramConnectorError ? error.code : "TELEGRAM_TEST_FAILED"
+    );
+  }
+});
+
+businessRoutes.delete("/agents/:installedAgentId/telegram", async (c) => {
+  const authUser = c.get("authUser");
+  const disconnected = await disconnectTelegramBot(
+    authUser.id,
+    c.req.param("installedAgentId")
+  );
+  if (!disconnected) {
+    return errorResponse(c, "Telegram bot connection was not found.", 404, "TELEGRAM_CONNECTION_NOT_FOUND");
+  }
+  return successResponse(c, { disconnected: true }, "Telegram bot disconnected.");
+});
 businessRoutes.get("/billing/usage", getBusinessExecutionUsage);
 businessRoutes.get("/billing/usage-invoices", getBusinessExecutionInvoices);
 businessRoutes.post("/billing/usage-invoices/:id/pay", payBusinessExecutionInvoice);
@@ -1028,7 +1187,10 @@ async function loadBusinessForOwner(ownerId: string) {
       profile: true,
       knowledgeBases: { orderBy: { createdAt: "asc" } },
       phoneNumbers: includeActivePhoneNumbers(),
-      installedAgents: { orderBy: { createdAt: "desc" }, include: { workflow: true, listing: true } }
+      installedAgents: {
+        orderBy: { createdAt: "desc" },
+        include: { workflow: true, listing: true, telegramBot: true }
+      }
     }
   });
 }
@@ -2261,6 +2423,9 @@ function buildSetupReadiness(
   const phoneComplete = Boolean(phone) && (answeringMode === "AI_FIRST" || Boolean(phone?.forwardToPhone));
   const smsComplete = Boolean(phone);
   const voiceComplete = Boolean(profile?.vapiAssistantId);
+  const telegramComplete =
+    installedAgent?.telegramBot?.status === "ACTIVE" &&
+    installedAgent.telegramBot.webhookStatus === "HEALTHY";
 
   const checklist: SetupChecklistItem[] = [
     {
@@ -2297,6 +2462,16 @@ function buildSetupReadiness(
       blocker:
         needs.has("google_calendar") && !calendarComplete
           ? "Google Calendar is required before live booking."
+          : undefined
+    },
+    {
+      key: "telegram",
+      label: "Telegram bot",
+      required: needs.has("telegram"),
+      complete: telegramComplete,
+      blocker:
+        needs.has("telegram") && !telegramComplete
+          ? "Connect and verify the dedicated Telegram bot before going live."
           : undefined
     },
     {

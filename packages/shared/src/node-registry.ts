@@ -79,6 +79,20 @@ export const VOICE_NODE_TYPES = {
   endFlow: "flow.end"
 } as const;
 
+export const TELEGRAM_NODE_TYPES = {
+  trigger: "trigger.telegram_message",
+  sendMessage: "action.telegram_send_message",
+  sendButtons: "action.telegram_send_buttons",
+  answerCallback: "action.telegram_answer_callback",
+  requestContact: "action.telegram_request_contact",
+  sendPhoto: "action.telegram_send_photo",
+  sendDocument: "action.telegram_send_document",
+  sendVoice: "action.telegram_send_voice",
+  sendLocation: "action.telegram_send_location",
+  editMessage: "action.telegram_edit_message",
+  deleteMessage: "action.telegram_delete_message"
+} as const;
+
 export const VOICE_TEMPLATE_NODE_ORDER: string[] = [
   VOICE_NODE_TYPES.phoneCallTrigger,
   VOICE_NODE_TYPES.voiceConversation,
@@ -320,6 +334,246 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     launchCritical: true,
     comingSoon: false,
     runtime: { nodeKind: "trigger" }
+  }),
+  def({
+    type: TELEGRAM_NODE_TYPES.trigger,
+    label: "Telegram Bot Trigger",
+    category: "trigger",
+    description: "Starts the workflow from a private message, command, callback, contact, media, or location event.",
+    requiredConfig: [
+      "telegramBotNameTemplate",
+      "telegramBotDescription",
+      "telegramBotShortDescription",
+      "telegramWelcomeMessage",
+      "telegramFallbackMessage"
+    ],
+    backendExecutable: true,
+    launchCritical: true,
+    comingSoon: false,
+    runtime: { nodeKind: "trigger", connector: "Telegram" },
+    defaultConfig: {
+      telegramBotNameTemplate: "{{business.name}} Booking Assistant",
+      telegramBotDescription: "View services and book an appointment with {{business.name}}.",
+      telegramBotShortDescription: "Book an appointment with {{business.name}}.",
+      telegramWelcomeMessage: "Welcome to {{business.name}}. Choose a service or book an appointment below.",
+      telegramFallbackMessage: "I didn't understand that. Use /services to view services or /book to book an appointment.",
+      telegramEventType: "message",
+      telegramCommand: "",
+      telegramKeywords: "",
+      telegramMatchType: "contains",
+      telegramChatAccess: "private",
+      telegramIgnoreBots: "true",
+      telegramBookingMode: "true",
+      telegramServicesCommand: "true",
+      telegramBookCommand: "true",
+      telegramMyBookingsCommand: "true",
+      telegramRescheduleCommand: "true",
+      telegramCancelCommand: "true",
+      telegramHelpCommand: "true",
+      telegramRequestPhone: "true",
+      telegramRequestEmail: "false",
+      telegramRequestNotes: "false"
+    },
+    capability: "telegram.update.received",
+    producedVariables: [
+      "trigger.telegram.updateId",
+      "trigger.telegram.eventType",
+      "trigger.telegram.chat.id",
+      "trigger.telegram.chat.type",
+      "trigger.telegram.sender.id",
+      "trigger.telegram.sender.username",
+      "trigger.telegram.sender.firstName",
+      "trigger.telegram.sender.lastName",
+      "trigger.telegram.message.id",
+      "trigger.telegram.message.text",
+      "trigger.telegram.message.caption",
+      "trigger.telegram.callback.id",
+      "trigger.telegram.callback.data",
+      "trigger.telegram.contact.phoneNumber",
+      "trigger.telegram.media.type",
+      "trigger.telegram.media.fileId",
+      "trigger.telegram.location.latitude",
+      "trigger.telegram.location.longitude",
+      "telegram.chat_id",
+      "telegram.user_id",
+      "telegram.username",
+      "telegram.message_id",
+      "telegram.text"
+    ]
+  }),
+  def({
+    type: TELEGRAM_NODE_TYPES.sendMessage,
+    label: "Telegram Send Message",
+    category: "action",
+    description: "Sends a text message through the installed business bot.",
+    requiredConfig: ["telegramMessageText"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "Telegram Bot", connectorAction: "send_message" },
+    defaultConfig: {
+      telegramRecipientSource: "trigger_chat",
+      telegramChatIdExpression: "{{trigger.telegram.chat.id}}",
+      telegramMessageText: "{{ai.output}}",
+      telegramParseMode: "none",
+      telegramDisableNotification: "false",
+      telegramProtectContent: "false"
+    },
+    capability: "telegram.send_message",
+    requiredVariables: ["trigger.telegram.chat.id"],
+    producedVariables: [
+      "telegram.action.success",
+      "telegram.action.chatId",
+      "telegram.action.messageId",
+      "telegram.action.actionType",
+      "telegram.action.telegramConnectionId"
+    ]
+  }),
+  def({
+    type: TELEGRAM_NODE_TYPES.sendButtons,
+    label: "Telegram Send Buttons",
+    category: "action",
+    description: "Sends text with callback or URL buttons arranged in rows.",
+    requiredConfig: ["telegramMessageText", "telegramButtonsJson"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "Telegram Bot", connectorAction: "send_buttons" },
+    defaultConfig: {
+      telegramRecipientSource: "trigger_chat",
+      telegramChatIdExpression: "{{trigger.telegram.chat.id}}",
+      telegramMessageText: "Choose an option:",
+      telegramButtonsJson:
+        '[[{"text":"View services","callbackData":"nav:services"},{"text":"Book","callbackData":"nav:book"}]]',
+      telegramParseMode: "none"
+    },
+    capability: "telegram.send_buttons",
+    requiredVariables: ["trigger.telegram.chat.id"],
+    producedVariables: ["telegram.action.success", "telegram.action.chatId", "telegram.action.messageId"]
+  }),
+  def({
+    type: TELEGRAM_NODE_TYPES.answerCallback,
+    label: "Telegram Answer Callback",
+    category: "action",
+    description: "Acknowledges a Telegram inline-button callback query.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "Telegram Bot", connectorAction: "answer_callback" },
+    defaultConfig: {
+      telegramCallbackIdExpression: "{{trigger.telegram.callback.id}}",
+      telegramCallbackText: "",
+      telegramShowAlert: "false"
+    },
+    capability: "telegram.answer_callback",
+    requiredVariables: ["trigger.telegram.callback.id"],
+    producedVariables: ["telegram.action.success", "telegram.action.actionType"]
+  }),
+  def({
+    type: TELEGRAM_NODE_TYPES.requestContact,
+    label: "Telegram Request Contact",
+    category: "action",
+    description: "Asks a private-chat user to share their phone contact, with a manual-entry fallback.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "Telegram Bot", connectorAction: "request_contact" },
+    defaultConfig: {
+      telegramRecipientSource: "trigger_chat",
+      telegramChatIdExpression: "{{trigger.telegram.chat.id}}",
+      telegramMessageText: "Share your phone number or type it in international format.",
+      telegramContactButtonText: "Share my phone number"
+    },
+    capability: "telegram.request_contact",
+    requiredVariables: ["trigger.telegram.chat.id"],
+    producedVariables: ["telegram.action.success", "telegram.action.chatId", "telegram.action.messageId"]
+  }),
+  ...([
+    [TELEGRAM_NODE_TYPES.sendPhoto, "Telegram Send Photo", "send_photo", "telegramPhotoSource", "Photo"],
+    [TELEGRAM_NODE_TYPES.sendDocument, "Telegram Send Document", "send_document", "telegramDocumentSource", "Document"],
+    [TELEGRAM_NODE_TYPES.sendVoice, "Telegram Send Voice", "send_voice", "telegramVoiceSource", "Voice"]
+  ] as const).map(([type, label, connectorAction, sourceField, mediaLabel]) =>
+    def({
+      type,
+      label,
+      category: "action",
+      description: `Sends a ${mediaLabel.toLowerCase()} using a Telegram file ID or public HTTPS URL.`,
+      requiredConfig: [sourceField],
+      backendExecutable: true,
+      launchCritical: false,
+      comingSoon: false,
+      runtime: { nodeKind: "connector", connector: "Telegram Bot", connectorAction },
+      defaultConfig: {
+        telegramRecipientSource: "trigger_chat",
+        telegramChatIdExpression: "{{trigger.telegram.chat.id}}",
+        [sourceField]: "",
+        telegramCaption: ""
+      },
+      capability: `telegram.${connectorAction}`,
+      requiredVariables: ["trigger.telegram.chat.id"],
+      producedVariables: ["telegram.action.success", "telegram.action.chatId", "telegram.action.messageId"]
+    })
+  ),
+  def({
+    type: TELEGRAM_NODE_TYPES.sendLocation,
+    label: "Telegram Send Location",
+    category: "action",
+    description: "Sends a geographic location through the installed business bot.",
+    requiredConfig: ["telegramLatitude", "telegramLongitude"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "Telegram Bot", connectorAction: "send_location" },
+    defaultConfig: {
+      telegramRecipientSource: "trigger_chat",
+      telegramChatIdExpression: "{{trigger.telegram.chat.id}}",
+      telegramLatitude: "",
+      telegramLongitude: ""
+    },
+    capability: "telegram.send_location",
+    requiredVariables: ["trigger.telegram.chat.id"],
+    producedVariables: ["telegram.action.success", "telegram.action.chatId", "telegram.action.messageId"]
+  }),
+  def({
+    type: TELEGRAM_NODE_TYPES.editMessage,
+    label: "Telegram Edit Message",
+    category: "action",
+    description: "Edits text, caption, or buttons on a previously sent Telegram message.",
+    requiredConfig: ["telegramMessageIdExpression"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "Telegram Bot", connectorAction: "edit_message" },
+    defaultConfig: {
+      telegramRecipientSource: "trigger_chat",
+      telegramChatIdExpression: "{{trigger.telegram.chat.id}}",
+      telegramMessageIdExpression: "{{telegram.action.messageId}}",
+      telegramMessageText: ""
+    },
+    capability: "telegram.edit_message",
+    requiredVariables: ["trigger.telegram.chat.id"],
+    producedVariables: ["telegram.action.success", "telegram.action.chatId", "telegram.action.messageId"]
+  }),
+  def({
+    type: TELEGRAM_NODE_TYPES.deleteMessage,
+    label: "Telegram Delete Message",
+    category: "action",
+    description: "Deletes a Telegram message when Telegram permissions and age limits allow it.",
+    requiredConfig: ["telegramMessageIdExpression"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "Telegram Bot", connectorAction: "delete_message" },
+    defaultConfig: {
+      telegramRecipientSource: "trigger_chat",
+      telegramChatIdExpression: "{{trigger.telegram.chat.id}}",
+      telegramMessageIdExpression: "{{telegram.action.messageId}}"
+    },
+    capability: "telegram.delete_message",
+    requiredVariables: ["trigger.telegram.chat.id"],
+    producedVariables: ["telegram.action.success", "telegram.action.chatId", "telegram.action.messageId"]
   }),
   def({
     type: "trigger.vapi_tool_call",
@@ -796,6 +1050,13 @@ const REQ = {
     ownedBy: "platform",
     config: ["emailAlias", "forwardToEmail"],
     note: "Sends from the buyer's <alias>@reply.triven.ai proxy address — the buyer picks the alias in Mail Setup."
+  },
+  telegram: {
+    connector: "telegram",
+    label: "Telegram bot",
+    ownedBy: "buyer",
+    config: ["botDisplayName", "businessPhone", "calendarConnection", "ownerApproval"],
+    note: "A separate managed bot is created for this business during install; Triven applies the commands and webhook automatically."
   }
 } satisfies Record<string, ConnectorRequirement>;
 
@@ -807,6 +1068,17 @@ const REQ = {
 export const REQUIRED_CONNECTORS_BY_TYPE: Record<string, ConnectorRequirement[]> = {
   "trigger.twilio_missed_call": [REQ.phoneProvider],
   "trigger.twilio_inbound_sms": [REQ.twilioSms],
+  [TELEGRAM_NODE_TYPES.trigger]: [REQ.telegram],
+  [TELEGRAM_NODE_TYPES.sendMessage]: [REQ.telegram],
+  [TELEGRAM_NODE_TYPES.sendButtons]: [REQ.telegram],
+  [TELEGRAM_NODE_TYPES.answerCallback]: [REQ.telegram],
+  [TELEGRAM_NODE_TYPES.requestContact]: [REQ.telegram],
+  [TELEGRAM_NODE_TYPES.sendPhoto]: [REQ.telegram],
+  [TELEGRAM_NODE_TYPES.sendDocument]: [REQ.telegram],
+  [TELEGRAM_NODE_TYPES.sendVoice]: [REQ.telegram],
+  [TELEGRAM_NODE_TYPES.sendLocation]: [REQ.telegram],
+  [TELEGRAM_NODE_TYPES.editMessage]: [REQ.telegram],
+  [TELEGRAM_NODE_TYPES.deleteMessage]: [REQ.telegram],
   "trigger.vapi_tool_call": [REQ.vapi],
   "action.send_sms": [REQ.twilioSms],
   "action.start_vapi_call": [REQ.vapi],

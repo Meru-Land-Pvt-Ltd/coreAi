@@ -1,6 +1,7 @@
 import {
   EMAIL_TEMPLATE_VARIABLES,
   LLM_PROVIDERS,
+  TELEGRAM_NODE_TYPES,
   VOICE_NODE_TYPES,
   defaultLlmModelForProvider,
   findUnknownPromptVariables,
@@ -108,6 +109,10 @@ export function NodeInspector({
 
   if (type === "ai.llm_call") panel = <LlmNodeInspector {...base} />;
   else if (type === "ai.memory") panel = <MemoryNodeProps {...base} />;
+  else if (type === TELEGRAM_NODE_TYPES.trigger) panel = <TelegramTriggerProps {...base} />;
+  else if (Object.values(TELEGRAM_NODE_TYPES).includes(type as (typeof TELEGRAM_NODE_TYPES)[keyof typeof TELEGRAM_NODE_TYPES])) {
+    panel = <TelegramActionProps {...base} />;
+  }
   else if (type === VOICE_NODE_TYPES.phoneCallTrigger) panel = <PhoneCallTriggerProps {...base} />;
   else if (type === VOICE_NODE_TYPES.voiceConversation) panel = <AiVoiceConversationProps {...base} />;
   else if (type === VOICE_NODE_TYPES.calendarAvailability) {
@@ -230,19 +235,24 @@ export function TextInput({
   value,
   onChange,
   placeholder,
-  mono = false
+  mono = false,
+  maxLength,
+  testId = "node-inspector-label-input"
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   mono?: boolean;
+  maxLength?: number;
+  testId?: string;
 }) {
   return (
     <input
-      data-testid="node-inspector-label-input"
+      data-testid={testId}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
+      maxLength={maxLength}
       spellCheck={false}
       className={`${mono ? "font-mono" : ""
         } w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:outline-none ring-0 focus:ring-0 focus:border-amber-400 transition-colors shadow-none`}
@@ -255,20 +265,25 @@ export function TextArea({
   onChange,
   height = "h-20",
   mono = false,
-  placeholder
+  placeholder,
+  maxLength,
+  testId = "node-inspector-prompt-textarea"
 }: {
   value: string;
   onChange: (value: string) => void;
   height?: string;
   mono?: boolean;
   placeholder?: string;
+  maxLength?: number;
+  testId?: string;
 }) {
   return (
     <textarea
-      data-testid="node-inspector-prompt-textarea"
+      data-testid={testId}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
+      maxLength={maxLength}
       spellCheck={false}
       className={`${height} ${mono ? "font-mono text-xs leading-relaxed" : ""
         } w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:outline-none ring-0 focus:ring-0 focus:border-amber-400 transition-colors shadow-none`}
@@ -1352,6 +1367,405 @@ function EndFlowProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 }
 
 /* ----------------- Generic panels for the remaining nodes ----------------- */
+
+function TelegramTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="Bot profile">
+        <Label>Bot name template</Label>
+        <TextInput
+          value={str("telegramBotNameTemplate", "{{business.name}} Booking Assistant")}
+          onChange={set("telegramBotNameTemplate")}
+          maxLength={64}
+          testId="telegram-bot-name-template"
+        />
+
+        <div className="mt-4">
+          <Label>Description</Label>
+          <TextArea
+            value={str("telegramBotDescription")}
+            onChange={set("telegramBotDescription")}
+            height="h-24"
+            maxLength={512}
+            testId="telegram-bot-description"
+          />
+        </div>
+
+        <div className="mt-4">
+          <Label>Short description</Label>
+          <TextArea
+            value={str("telegramBotShortDescription")}
+            onChange={set("telegramBotShortDescription")}
+            height="h-16"
+            maxLength={120}
+            testId="telegram-bot-short-description"
+          />
+        </div>
+
+        <div className="mt-4">
+          <Label>Bot username</Label>
+          <ReadOnly value="Generated uniquely for each business during install" testId="telegram-bot-username-policy" />
+        </div>
+      </Section>
+
+      <Section title="Trigger event">
+        <Label>Event type</Label>
+        <SelectBox
+          value={str("telegramEventType", "message")}
+          onChange={set("telegramEventType")}
+          testId="telegram-event-type"
+          options={[
+            { value: "message", label: "Any new private message" },
+            { value: "command", label: "Bot command" },
+            { value: "keyword", label: "Keyword or text match" },
+            { value: "callback_query", label: "Callback query" },
+            { value: "contact", label: "Contact received" },
+            { value: "photo", label: "Photo received" },
+            { value: "document", label: "Document received" },
+            { value: "voice", label: "Voice received" },
+            { value: "location", label: "Location received" }
+          ]}
+        />
+
+        {str("telegramEventType", "message") === "command" ? (
+          <div className="mt-4">
+            <Label>Command</Label>
+            <TextInput
+              value={str("telegramCommand")}
+              onChange={set("telegramCommand")}
+              placeholder="book"
+              testId="telegram-command"
+            />
+          </div>
+        ) : null}
+
+        {str("telegramEventType", "message") === "keyword" ? (
+          <div className="mt-4 space-y-4">
+            <div>
+              <Label>Keywords</Label>
+              <TextInput
+                value={str("telegramKeywords")}
+                onChange={set("telegramKeywords")}
+                placeholder="book, appointment, services"
+                testId="telegram-keywords"
+              />
+            </div>
+            <div>
+              <Label>Match type</Label>
+              <SelectBox
+                value={str("telegramMatchType", "contains")}
+                onChange={set("telegramMatchType")}
+                options={[
+                  { value: "contains", label: "Contains" },
+                  { value: "exact", label: "Exact" },
+                  { value: "starts_with", label: "Starts with" },
+                  { value: "regex", label: "Regular expression" }
+                ]}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <BoolField
+            label="Ignore bots"
+            value={flag("telegramIgnoreBots", true)}
+            onChange={set("telegramIgnoreBots")}
+          />
+          <BoolField
+            label="Booking commands"
+            value={flag("telegramBookingMode", true)}
+            onChange={set("telegramBookingMode")}
+          />
+        </div>
+      </Section>
+
+      <Section title="Conversation">
+        <Label>Welcome message</Label>
+        <TextArea
+          value={str("telegramWelcomeMessage")}
+          onChange={set("telegramWelcomeMessage")}
+          height="h-24"
+          maxLength={4096}
+          testId="telegram-welcome-message"
+        />
+
+        <div className="mt-4">
+          <Label>Fallback message</Label>
+          <TextArea
+            value={str("telegramFallbackMessage")}
+            onChange={set("telegramFallbackMessage")}
+            height="h-24"
+            maxLength={4096}
+            testId="telegram-fallback-message"
+          />
+        </div>
+
+        <div className="mt-4">
+          <Label>Chat access</Label>
+          <SelectBox
+            value={str("telegramChatAccess", "private")}
+            onChange={set("telegramChatAccess")}
+            testId="telegram-chat-access"
+            options={[
+              { value: "private", label: "Private chats only" },
+              { value: "private_and_groups", label: "Private chats and approved groups" }
+            ]}
+          />
+        </div>
+      </Section>
+
+      <Section title="Command menu">
+        <div className="grid grid-cols-2 gap-3">
+          <BoolField label="/services" value={flag("telegramServicesCommand", true)} onChange={set("telegramServicesCommand")} />
+          <BoolField label="/book" value={flag("telegramBookCommand", true)} onChange={set("telegramBookCommand")} />
+          <BoolField label="/mybookings" value={flag("telegramMyBookingsCommand", true)} onChange={set("telegramMyBookingsCommand")} />
+          <BoolField label="/reschedule" value={flag("telegramRescheduleCommand", true)} onChange={set("telegramRescheduleCommand")} />
+          <BoolField label="/cancel" value={flag("telegramCancelCommand", true)} onChange={set("telegramCancelCommand")} />
+          <BoolField label="/help" value={flag("telegramHelpCommand", true)} onChange={set("telegramHelpCommand")} />
+        </div>
+        <p className="mt-3 text-[11px] leading-5 text-slate-400">/start is always enabled.</p>
+      </Section>
+
+      <Section title="Customer details">
+        <div className="grid grid-cols-2 gap-3">
+          <BoolField
+            label="Request phone"
+            value={flag("telegramRequestPhone", true)}
+            onChange={set("telegramRequestPhone")}
+          />
+          <BoolField
+            label="Request email"
+            value={flag("telegramRequestEmail", false)}
+            onChange={set("telegramRequestEmail")}
+          />
+          <BoolField
+            label="Request notes"
+            value={flag("telegramRequestNotes", false)}
+            onChange={set("telegramRequestNotes")}
+          />
+        </div>
+      </Section>
+
+      <Section title="Business setup" last>
+        <RequirementNotice title="Created separately for every business" testId="telegram-business-setup-requirement">
+          The buyer supplies the bot name and business phone, connects the booking calendar, and approves bot creation.
+          Triven generates a collision-free username and applies these settings automatically.
+        </RequirementNotice>
+      </Section>
+    </>
+  );
+}
+
+function TelegramActionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
+  const type = String(selectedNode.data.type ?? "");
+  const isCallback = type === TELEGRAM_NODE_TYPES.answerCallback;
+  const isDelete = type === TELEGRAM_NODE_TYPES.deleteMessage;
+  const isEdit = type === TELEGRAM_NODE_TYPES.editMessage;
+  const isButtons = type === TELEGRAM_NODE_TYPES.sendButtons;
+  const isRequestContact = type === TELEGRAM_NODE_TYPES.requestContact;
+  const mediaField =
+    type === TELEGRAM_NODE_TYPES.sendPhoto
+      ? "telegramPhotoSource"
+      : type === TELEGRAM_NODE_TYPES.sendDocument
+        ? "telegramDocumentSource"
+        : type === TELEGRAM_NODE_TYPES.sendVoice
+          ? "telegramVoiceSource"
+          : null;
+  const isLocation = type === TELEGRAM_NODE_TYPES.sendLocation;
+
+  return (
+    <>
+      <Section title="Business bot">
+        <RequirementNotice title="Buyer connects Telegram" testId="telegram-action-buyer-requirement">
+          This action uses the dedicated bot connected to the installed agent. Credentials are never stored in the
+          Architect workflow.
+        </RequirementNotice>
+      </Section>
+
+      {!isCallback ? (
+        <Section title="Recipient">
+          <Label>Recipient source</Label>
+          <SelectBox
+            value={str("telegramRecipientSource", "trigger_chat")}
+            onChange={set("telegramRecipientSource")}
+            testId="telegram-recipient-source"
+            options={[
+              { value: "trigger_chat", label: "Current Telegram trigger chat" },
+              { value: "stored_customer", label: "Stored customer Telegram chat" },
+              { value: "manual", label: "Mapped or manual chat ID" },
+              { value: "business_owner", label: "Configured business owner chat" }
+            ]}
+          />
+          <div className="mt-4">
+            <Label>Chat ID expression</Label>
+            <TextInput
+              mono
+              value={str("telegramChatIdExpression", "{{trigger.telegram.chat.id}}")}
+              onChange={set("telegramChatIdExpression")}
+              testId="telegram-chat-id-expression"
+            />
+          </div>
+        </Section>
+      ) : null}
+
+      {isCallback ? (
+        <Section title="Callback response">
+          <Label>Callback query ID</Label>
+          <TextInput
+            mono
+            value={str("telegramCallbackIdExpression", "{{trigger.telegram.callback.id}}")}
+            onChange={set("telegramCallbackIdExpression")}
+          />
+          <div className="mt-4">
+            <Label>Response text</Label>
+            <TextInput
+              value={str("telegramCallbackText")}
+              onChange={set("telegramCallbackText")}
+              maxLength={200}
+            />
+          </div>
+          <div className="mt-4">
+            <BoolField
+              label="Show alert"
+              value={flag("telegramShowAlert", false)}
+              onChange={set("telegramShowAlert")}
+            />
+          </div>
+          <div className="mt-4">
+            <Label>Callback URL</Label>
+            <TextInput value={str("telegramCallbackUrl")} onChange={set("telegramCallbackUrl")} />
+          </div>
+        </Section>
+      ) : null}
+
+      {!isDelete && !isLocation && !mediaField && !isCallback ? (
+        <Section title={isRequestContact ? "Contact request" : isEdit ? "Message update" : "Message"}>
+          <Label>Text</Label>
+          <TextArea
+            value={str("telegramMessageText")}
+            onChange={set("telegramMessageText")}
+            height="h-28"
+            maxLength={4096}
+            testId="telegram-message-text"
+          />
+          {isRequestContact ? (
+            <div className="mt-4">
+              <Label>Contact button text</Label>
+              <TextInput
+                value={str("telegramContactButtonText", "Share my phone number")}
+                onChange={set("telegramContactButtonText")}
+                maxLength={64}
+              />
+            </div>
+          ) : null}
+          {isButtons || isEdit ? (
+            <div className="mt-4">
+              <Label>Buttons JSON</Label>
+              <TextArea
+                mono
+                value={str("telegramButtonsJson")}
+                onChange={set("telegramButtonsJson")}
+                height="h-28"
+                testId="telegram-buttons-json"
+              />
+            </div>
+          ) : null}
+          {!isRequestContact ? (
+            <div className="mt-4">
+              <Label>Formatting</Label>
+              <SelectBox
+                value={str("telegramParseMode", "none")}
+                onChange={set("telegramParseMode")}
+                options={[
+                  { value: "none", label: "Plain text" },
+                  { value: "HTML", label: "HTML" },
+                  { value: "MarkdownV2", label: "Markdown V2" }
+                ]}
+              />
+            </div>
+          ) : null}
+        </Section>
+      ) : null}
+
+      {mediaField ? (
+        <Section title="Media">
+          <Label>Telegram file ID or public HTTPS URL</Label>
+          <TextInput
+            mono
+            value={str(mediaField)}
+            onChange={set(mediaField)}
+            testId="telegram-media-source"
+          />
+          <div className="mt-4">
+            <Label>Caption</Label>
+            <TextArea
+              value={str("telegramCaption")}
+              onChange={set("telegramCaption")}
+              height="h-20"
+              maxLength={1024}
+            />
+          </div>
+        </Section>
+      ) : null}
+
+      {isLocation ? (
+        <Section title="Location">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Latitude</Label>
+              <TextInput mono value={str("telegramLatitude")} onChange={set("telegramLatitude")} />
+            </div>
+            <div>
+              <Label>Longitude</Label>
+              <TextInput mono value={str("telegramLongitude")} onChange={set("telegramLongitude")} />
+            </div>
+          </div>
+          <div className="mt-4">
+            <Label>Live period (seconds)</Label>
+            <TextInput mono value={str("telegramLivePeriod")} onChange={set("telegramLivePeriod")} />
+          </div>
+        </Section>
+      ) : null}
+
+      {isEdit || isDelete ? (
+        <Section title="Target message">
+          <Label>Message ID expression</Label>
+          <TextInput
+            mono
+            value={str("telegramMessageIdExpression", "{{telegram.action.messageId}}")}
+            onChange={set("telegramMessageIdExpression")}
+            testId="telegram-message-id-expression"
+          />
+        </Section>
+      ) : null}
+
+      {!isCallback && !isDelete ? (
+        <Section title="Delivery" last>
+          <div className="grid grid-cols-2 gap-3">
+            <BoolField
+              label="Silent notification"
+              value={flag("telegramDisableNotification", false)}
+              onChange={set("telegramDisableNotification")}
+            />
+            <BoolField
+              label="Protect content"
+              value={flag("telegramProtectContent", false)}
+              onChange={set("telegramProtectContent")}
+            />
+          </div>
+        </Section>
+      ) : (
+        <Section title="Output" last>
+          <ReadOnly value="{{telegram.action.success}}" />
+        </Section>
+      )}
+    </>
+  );
+}
 
 function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);

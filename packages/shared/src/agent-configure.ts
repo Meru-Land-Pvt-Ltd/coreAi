@@ -16,6 +16,7 @@ export type RequiredIntegrationKey =
   | "email"
   | "crm"
   | "webhook"
+  | "telegram"
   | "vapi"
   | "twilio";
 
@@ -40,6 +41,11 @@ export const REQUIRED_INTEGRATION_DEFS: RequiredIntegrationDef[] = [
   { key: "vapi", label: "AI voice (Vapi)", description: "AI voice conversations with callers" },
   { key: "twilio", label: "Telephony (Twilio)", description: "Call forwarding and missed-call detection" },
   { key: "sms", label: "SMS messaging", description: "Send and receive text messages" },
+  {
+    key: "telegram",
+    label: "Telegram bot",
+    description: "A dedicated customer bot created for each installed business"
+  },
   { key: "crm", label: "CRM connection", description: "Sync captured leads automatically" },
   { key: "webhook", label: "Custom webhook", description: "Send events to the buyer's systems" }
 ];
@@ -551,6 +557,7 @@ const INCLUDED_FEATURE_BY_NODE_TYPE: Record<string, string> = {
   "trigger.phone_call": "Inbound phone call handling",
   "trigger.twilio_missed_call": "Missed call detection and automatic follow-up",
   "trigger.twilio_inbound_sms": "Two-way SMS conversation handling",
+  "trigger.telegram_message": "Telegram customer service and appointment booking",
   "trigger.vapi_tool_call": "Voice AI call handling",
   "ai.voice_conversation": "Natural AI voice conversation",
   "ai.context_reply": "AI replies based on your business context",
@@ -749,6 +756,7 @@ export function emptyRequiredIntegrations(): RequiredIntegrations {
     email: false,
     crm: false,
     webhook: false,
+    telegram: false,
     vapi: false,
     twilio: false
   };
@@ -1463,6 +1471,11 @@ export function deriveRequiredIntegrationsFromWorkflow(
 
     // CRM
     if (combined.includes("crm")) integrations.crm = true;
+
+    // Telegram
+    if (type === "trigger.telegram_message" || combined.includes("telegram")) {
+      integrations.telegram = true;
+    }
 
     // Webhook
     if (type === "trigger.webhook" || type === "action.http_request") {

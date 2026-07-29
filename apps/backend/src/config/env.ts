@@ -6,6 +6,9 @@ const booleanFromEnv = z.preprocess(
   z.boolean()
 );
 
+const emptyEnvStringToUndefined = (value: unknown) =>
+  typeof value === "string" && value.trim() === "" ? undefined : value;
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(8787),
@@ -88,6 +91,26 @@ const envSchema = z.object({
   TWILIO_DEFAULT_BOOKING_URL: z.string().optional(),
   TWILIO_DEFAULT_TEAM_PHONE: z.string().optional(),
   TWILIO_NUMBER_POOL: z.string().optional(),
+
+  TELEGRAM_API_BASE_URL: z.string().url().default("https://api.telegram.org"),
+  /** Platform manager bot. Individual business bot tokens are encrypted in PostgreSQL. */
+  TELEGRAM_MANAGER_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_MANAGER_BOT_USERNAME: z.preprocess(
+    emptyEnvStringToUndefined,
+    z
+      .string()
+      .regex(/^@?[A-Za-z0-9_]{5,32}$/, "Enter the Telegram manager bot username")
+      .optional()
+  ),
+  TELEGRAM_MANAGER_WEBHOOK_SECRET: z.preprocess(
+    emptyEnvStringToUndefined,
+    z
+      .string()
+      .min(24)
+      .max(256)
+      .regex(/^[A-Za-z0-9_-]+$/, "Telegram webhook secret contains unsupported characters")
+      .optional()
+  ),
 
   /** Buyer knowledge documents: max stored files per business. */
   KNOWLEDGE_MAX_FILES_PER_BUSINESS: z.coerce.number().int().positive().default(20),
@@ -314,6 +337,17 @@ if (parsedEnv.NODE_ENV === "production") {
   if (!parsedEnv.TWILIO_MESSAGING_SERVICE_SID || !parsedEnv.TWILIO_SHARED_SMS_NUMBER) {
     console.warn(
       "[env] TWILIO_MESSAGING_SERVICE_SID / TWILIO_SHARED_SMS_NUMBER are not set. Live outbound SMS uses the shared Triven Messaging Service and will fail until both are configured."
+    );
+  }
+
+  const telegramManagerValues = [
+    parsedEnv.TELEGRAM_MANAGER_BOT_TOKEN,
+    parsedEnv.TELEGRAM_MANAGER_BOT_USERNAME,
+    parsedEnv.TELEGRAM_MANAGER_WEBHOOK_SECRET
+  ];
+  if (telegramManagerValues.some(Boolean) && !telegramManagerValues.every(Boolean)) {
+    problems.push(
+      "TELEGRAM_MANAGER_BOT_TOKEN, TELEGRAM_MANAGER_BOT_USERNAME, and TELEGRAM_MANAGER_WEBHOOK_SECRET must be set together."
     );
   }
 

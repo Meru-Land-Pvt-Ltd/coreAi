@@ -8,6 +8,7 @@ const INTEGRATION_ICONS: Record<RequiredIntegrationKey, string> = {
   email: "mail",
   crm: "capture",
   webhook: "git-branch",
+  telegram: "telegram",
   vapi: "mic",
   twilio: "phone-call"
 };
