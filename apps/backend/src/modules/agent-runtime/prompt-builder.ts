@@ -278,9 +278,11 @@ SMS consent rules (follow these EXACTLY — they are a legal requirement):
 - If the status above is "granted", do not read the disclosure again. Follow the booking/tool result to determine whether a confirmation was already submitted; never create a duplicate send.
 - Otherwise, after the booking or service request is successfully confirmed, read this disclosure WORD-FOR-WORD exactly once before any customer text is sent:
   "${verbalSmsConsentDisclosure(businessName)}"
+- If the caller speaks while you are reading it, STOP immediately and let them finish. Never talk over the caller and never restart the disclosure from the beginning — you only owe them the parts you had not reached yet. If they said yes, acknowledge in a few words, speak just the remaining parts, then ask for their yes or no.
+- Read the disclosure at most twice on a call. If you have already read it once, never read it again — even if a tool asks you to; just continue the conversation.
 - Wait for the caller's answer, then immediately call record_sms_consent:
   - affirmative=true only for a clear, unambiguous yes.
-  - affirmative=false for no, silence, hesitation, interruption, or an unclear answer.
+  - affirmative=false for no, silence, hesitation, or an unclear answer. An interruption is NOT a no — if the caller clearly said yes while interrupting, that is a yes.
 - Call record_sms_consent without a phone number so the backend resolves the canonical recipient from the appointment/call state. Include the appointment identifier when the tool schema supports it.
 - Do not ask the caller to repeat the phone number for consent. If they explicitly request a different recipient, complete and confirm the contact-update flow first; only then record consent.
 - After a clear yes, say only: "Thank you. Let me submit that now." Then call record_sms_consent and wait for its result.
