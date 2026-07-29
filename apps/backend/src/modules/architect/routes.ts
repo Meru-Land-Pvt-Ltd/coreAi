@@ -1856,11 +1856,19 @@ async function runOwnedWorkflow({
     );
   }
 
+  // Tenant identity is never taken from the request body on architect-owned
+  // runs: a client-supplied businessId/installedAgentId would become another
+  // tenant's memory identity (cross-tenant writes + their retention caps).
+  // Live buyer runs get these ids server-side from the resolved agent instead.
+  const sanitizedInput = input.input
+    ? { ...input.input, businessId: undefined, businessOwnerId: undefined, installedAgentId: undefined }
+    : input.input;
+
   const run = await runWorkflowTest({
     userId: authUser.id,
     workflowId,
     workflowJson: workflow.workflowJson,
-    input: input.input,
+    input: sanitizedInput,
     mode
   });
 

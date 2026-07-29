@@ -40,6 +40,7 @@ import { GoogleDisclosureModal } from "@/components/common/google-disclosure-mod
 import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
 import { GOOGLE_CALENDAR_DISCLOSURE, GOOGLE_DISCLOSURE_ACTION_AGREED } from "@coreai/shared";
 import {
+  getLatestBusinessTestEvent,
   checkMailAliasAvailability,
   deleteBusinessTestEvent,
   disconnectBusinessCalendar,
@@ -539,6 +540,8 @@ function SetupWizard() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<CallRoutingResult | null>(null);
   const [browserTestOutcome, setBrowserTestOutcome] = useState<"passed" | "failed" | null>(null);
+  // Latest test booking, so the guided appointment step can open the actual event.
+  const [lastTestEvent, setLastTestEvent] = useState<BusinessTestCalendarEvent | null>(null);
 
   const [businessName, setBusinessName] = useState("");
   const [listing, setListing] = useState<any>(null);
@@ -2027,6 +2030,7 @@ function SetupWizard() {
               showCalendarTest={showCalendar}
               calendarConnected={calendar.connected}
               timeZone={timeZone}
+              lastTestEvent={lastTestEvent}
               agentName={(typeof listing?.name === "string" ? listing.name : "") || assistantName}
               calendarId={calendarId}
               serviceName={
@@ -3895,6 +3899,7 @@ function StepTest({
   showCalendarTest = false,
   calendarConnected = false,
   timeZone = "",
+  lastTestEvent = null,
   agentName = "",
   calendarId = "",
   serviceName = "",
@@ -3917,6 +3922,7 @@ function StepTest({
   showCalendarTest?: boolean;
   calendarConnected?: boolean;
   timeZone?: string;
+  lastTestEvent?: BusinessTestCalendarEvent | null;
   agentName?: string;
   calendarId?: string;
   serviceName?: string;
@@ -4074,6 +4080,8 @@ function StepTest({
                         <WorkflowAppointmentStepPanel
                           calendarConnected={calendarConnected}
                           timeZone={timeZone}
+                          eventUrl={lastTestEvent?.htmlLink ?? null}
+                          eventStartAt={lastTestEvent?.startAt ?? null}
                           onComplete={() => completeStep(step.id, index)}
                         />
                       )}
@@ -4515,15 +4523,61 @@ function WorkflowVoiceStepPanel({
 function WorkflowAppointmentStepPanel({
   calendarConnected,
   timeZone,
+  eventUrl,
+  eventStartAt,
   onComplete
 }: {
   calendarConnected: boolean;
   timeZone: string;
+  /** Google's own link to the created event (htmlLink). */
+  eventUrl?: string | null;
+  /** ISO start — used to open the right DAY when there is no event link. */
+  eventStartAt?: string | null;
   onComplete: () => void;
 }) {
+  // Nothing upstream reliably supplies the booking (the guided test books
+  // server-side), so ask for the latest one when the step opens.
+  const [fetchedEvent, setFetchedEvent] = useState<BusinessTestCalendarEvent | null>(null);
+
+  useEffect(() => {
+    if (!calendarConnected || eventUrl) return;
+    let active = true;
+    void getLatestBusinessTestEvent().then((res) => {
+      if (active && res.success && res.data?.event) setFetchedEvent(res.data.event);
+    });
+    return () => {
+      active = false;
+    };
+  }, [calendarConnected, eventUrl]);
+
+  const resolvedEventUrl = eventUrl || fetchedEvent?.htmlLink || null;
+
+  // Prefer the event itself. Opening the calendar root made the buyer hunt for
+  // the appointment they were just told about.
+  const dayUrl = (() => {
+    const startIso = eventStartAt || fetchedEvent?.startAt;
+    if (!startIso) return null;
+    const date = new Date(startIso);
+    if (Number.isNaN(date.getTime())) return null;
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timeZone || undefined,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date);
+    const get = (type: string) => parts.find((part) => part.type === type)?.value;
+    const [y, m, d] = [get("year"), get("month"), get("day")];
+    return y && m && d
+      ? `https://calendar.google.com/calendar/u/0/r/day/${y}/${Number(m)}/${Number(d)}`
+      : null;
+  })();
+
   const calendarUrl = calendarConnected
-    ? `https://calendar.google.com/calendar/r${timeZone ? `?ctz=${encodeURIComponent(timeZone)}` : ""}`
+    ? resolvedEventUrl ||
+      dayUrl ||
+      `https://calendar.google.com/calendar/r${timeZone ? `?ctz=${encodeURIComponent(timeZone)}` : ""}`
     : null;
+  const opensExactEvent = Boolean(calendarConnected && resolvedEventUrl);
 
   return (
     <div className="space-y-4">
@@ -4560,7 +4614,7 @@ function WorkflowAppointmentStepPanel({
               <line x1="8" y1="2" x2="8" y2="6" />
               <line x1="3" y1="10" x2="21" y2="10" />
             </svg>
-            Open Calendar
+            {opensExactEvent ? "Open Appointment" : "Open Calendar"}
           </a>
         ) : null}
         <button
@@ -5126,11 +5180,6 @@ function StepGoLive({
     </div>
   );
 }
-/* ------------------------------------------------------------------ */
-/* Business calendar booking test — real agent logic; bookings create  */
-/* clearly-marked [TRIVEN BUSINESS TEST] events on the connected       */
-/* business calendar. Never counts as production activity.             */
-/* ------------------------------------------------------------------ */
 
 /** Visual meta for the per-turn node execution timeline. */
 const NODE_STATUS_META: Record<BusinessTestExecutedNode["status"], { label: string; pill: string; dot: string }> = {
@@ -5158,12 +5207,15 @@ function chatTimeLabel(iso?: string): string {
 function BusinessCalendarTestSection({
   calendarConnected,
   timeZone,
-  onResult
+  onResult,
+  onCalendarEvent
 }: {
   calendarConnected: boolean;
   timeZone: string;
   /** Reports each turn's full result to the step-level test summary. */
   onResult?: (result: BusinessChatTestResult) => void;
+  /** Reports each test booking upward so the guided step can link to it. */
+  onCalendarEvent?: (event: BusinessTestCalendarEvent) => void;
 }) {
   const [messages, setMessages] = useState<BusinessChatTestMessage[]>([]);
   const [input, setInput] = useState("");
@@ -5211,7 +5263,10 @@ function BusinessCalendarTestSection({
       // Latest turn's node timeline replaces the previous one — including
       // failed/skipped nodes, which must stay visible.
       setExecutedNodes(res.data.executedNodes ?? []);
-      if (res.data.calendarEvent) setCalendarEvent(res.data.calendarEvent);
+      if (res.data.calendarEvent) {
+        setCalendarEvent(res.data.calendarEvent);
+        onCalendarEvent?.(res.data.calendarEvent);
+      }
       setCalendarError(res.data.calendarError ?? null);
       setConfigError(res.data.configError ?? null);
       onResult?.(res.data);

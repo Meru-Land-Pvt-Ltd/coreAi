@@ -157,7 +157,7 @@ export function normalizeExtractedText(raw: string): string {
     .trim();
 }
 
-async function extractDocumentText(
+export async function extractDocumentText(
   kind: KnowledgeFileKind,
   bytes: Buffer
 ): Promise<{ text: string; pageCount?: number }> {

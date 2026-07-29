@@ -37,6 +37,7 @@ model User {
   loginHistory         UserLoginHistory[]
   activeSessions       UserActiveSession[]
   roleMemberships      UserRoleMembership[]
+  memoryRecords        MemoryRecord[]
 
   @@unique([email, role])
   @@index([role])
@@ -105,6 +106,7 @@ model WorkflowDefinition {
   listings             AgentListing[]
   installedAgents      InstalledAgent[]
   workflowRuns         WorkflowRun[]
+  memoryRecords        MemoryRecord[]
   architect            User                 @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
   @@index([architectUserId])
@@ -278,6 +280,7 @@ model Business {
   smsConsents     SmsConsent[]
   specialHours    BusinessSpecialHours[]
   executionUsages AgentUsageExecution[]
+  memoryRecords   MemoryRecord[]
 
   @@index([ownerId])
   @@index([type])
@@ -394,6 +397,7 @@ model InstalledAgent {
   executionUsages           AgentUsageExecution[]
   usageInvoices             BusinessUsageInvoice[]
   payments                  Payment[]
+  memoryRecords             MemoryRecord[]
 
   @@unique([businessId, listingId])
   @@index([businessId])
@@ -1400,6 +1404,70 @@ model ContextLink {
   @@index([fromNodeRunId])
   @@index([toNodeRunId])
   @@index([linkStatus])
+}
+
+model MemoryRecord {
+  id               String   @id @default(cuid())
+  scopeKey         String /// Compound retrieval scope (tenant|workflow|node|conversation)
+  businessId       String?
+  installedAgentId String?
+  architectUserId  String?
+  workflowId       String?
+  workflowRunId    String?
+  threadId         String?
+  nodeId           String? /// Memory node canvas id
+  testSessionId    String?
+  callerKey        String? /// Customer/caller identity (phone) when known
+  sourceType       String   @default("node_output") /// node_output | attachment | notes | variables
+  sourceLabel      String?
+  content          String /// Complete original text before chunking
+  tokenCount       Int      @default(0)
+  contentHash      String
+  embeddingStatus  String   @default("pending") /// pending | complete | unavailable
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  business       Business?           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent InstalledAgent?     @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  workflow       WorkflowDefinition? @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  architect      User?               @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  chunks         MemoryChunk[]
+
+  @@unique([scopeKey, contentHash])
+  @@index([scopeKey])
+  @@index([businessId, createdAt])
+  @@index([architectUserId, createdAt])
+  @@index([testSessionId])
+  @@index([createdAt])
+}
+
+model MemoryChunk {
+  id             String                       @id @default(cuid())
+  recordId       String?
+  scopeKey       String /// Same compound scope as the parent MemoryRecord
+  workflowRunId  String?
+  nodeRunId      String?
+  threadId       String?
+  workflowId     String?
+  nodeId         String? /// Memory node canvas id
+  sourceType     String                       @default("node_output") /// node_output | attachment | notes | variables
+  sourceLabel    String?
+  chunkIndex     Int                          @default(0)
+  content        String
+  tokenCount     Int                          @default(0)
+  contentHash    String
+  embedding      Unsupported("vector(1536)")?
+  embeddingModel String?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+
+  record MemoryRecord? @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@unique([scopeKey, contentHash])
+  @@index([recordId])
+  @@index([scopeKey])
+  @@index([workflowRunId])
+  @@index([threadId])
 }
 
 enum EmailAliasStatus {

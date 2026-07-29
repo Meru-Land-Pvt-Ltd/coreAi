@@ -35,11 +35,6 @@ type NodePropsPanel = {
   variableNodePrefixes?: string[];
 };
 
-/**
- * Amber inline warning for {{variables}} the platform cannot fill. Unknown
- * variables never error a call — they are silently stripped before the prompt
- * reaches Vapi — so this note is how a typo gets caught while typing.
- */
 function UnknownVariablesNote({
   text,
   nodePrefixes,
@@ -413,10 +408,6 @@ function CalendarConnect({ calendar }: { calendar: CalendarConnection }) {
   );
 }
 
-/**
- * Architect-mode connector display: requirement badges only.
- * No OAuth and no "Connect" button in architect template builder.
- */
 function ConnectorRequirements({ node }: { node: BuilderNode }) {
   const type = String(node.data.type ?? "");
   const requirements = getNodeDefinition(type)?.requiredConnectors ?? [];
@@ -790,11 +781,6 @@ function AdvancedVariableGroup({
   );
 }
 
-/**
- * Collapsed-by-default technical panel: variable mappings and developer
- * details. The default inspector stays plain-language; power users expand
- * this to wire {{variables}} between steps.
- */
 function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
   const [open, setOpen] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -1661,7 +1647,7 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
             </button>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-            Paste <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-violet-700">{"{{memory}}"}</code> into any downstream AI step prompt to pass all previous steps and attached files automatically.
+            Memory is passed to connected AI steps automatically — no setup needed. Optionally paste <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-violet-700">{"{{memory}}"}</code> into a prompt to control exactly where it appears.
           </p>
         </div>
       </Section>
@@ -1677,8 +1663,6 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const lastOutput = str("lastTestOutput");
 
-  // Provider first, then its models — same pairing the AI Brain node uses, so
-  // a model can never be sent to a provider that cannot run it.
   const { availability: aiAvailability } = useLlmAvailability();
   const aiSelection = resolveLlmSelection(str("provider"), str("model"));
   const aiModelId = aiSelection.modelId ?? defaultLlmModelForProvider(aiSelection.providerId) ?? "";
@@ -1705,9 +1689,6 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
             onUpdateNodeData("model", defaultLlmModelForProvider(providerId) ?? "");
           }}
           options={LLM_PROVIDERS.map((provider) => ({
-            // Same rule as the AI Brain node: a provider the backend cannot
-            // run is greyed out rather than failing at run time. The label
-            // stays clean — the disabled state is the whole signal.
             value: provider.id,
             label: provider.displayName,
             disabled: isProviderDisabled(aiAvailability, provider.id)

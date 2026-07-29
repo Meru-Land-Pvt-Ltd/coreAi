@@ -172,7 +172,9 @@ export function contextBundleToExecuteRequest(
           nodeId: bundle.previousMemory.nodeId,
           nodeType: bundle.previousMemory.nodeType,
           summary: bundle.previousMemory.summary,
-          output: bundle.previousMemory.output,
+          // Memory Node output is the full raw memory string; the smart-memory
+          // layer already delivers it (resolved) — never forward it raw here.
+          output: bundle.previousMemory.nodeType === "ai.memory" ? undefined : bundle.previousMemory.output,
         }
       : undefined,
     metadata: {

@@ -95,10 +95,19 @@ export type AgentTurnState = {
   endReached: boolean;
 };
 
+export type AgentMemoryIdentity = {
+  businessId?: string;
+  installedAgentId?: string;
+  architectUserId?: string;
+  testSessionId?: string;
+};
+
 export type AgentRuntimeContext = {
   mode: AgentRuntimeMode;
   channel: AgentChannel;
   workflowId: string;
+  memoryIdentity?: AgentMemoryIdentity;
+  memoryScopeKey?: string;
   currentNodeId: string;
   userMessage: string;
   history: AgentMessage[];

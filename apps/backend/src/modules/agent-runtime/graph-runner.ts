@@ -11,12 +11,14 @@ import {
   type AgentBusinessContext,
   type AgentCallerContext,
   type AgentChannel,
+  type AgentMemoryIdentity,
   type AgentMessage,
   type AgentRuntimeContext,
   type AgentRuntimeLog,
   type AgentRuntimeMode,
   type AgentToolCall
 } from "./runtime-context";
+import { resolveSmartMemoryForQuery } from "../memory/smart-memory";
 import {
   AFTER_HOURS_CLARIFY_QUESTION,
   AFTER_HOURS_RED_FLAG_QUESTION,
@@ -244,6 +246,8 @@ function buildRuntimeSystemPrompt(params: {
   nodeInstructions: string;
   firstMessage: string;
   graph: ParsedGraph;
+  /** Memory Node output resolved for this turn — delivered automatically. */
+  memoryContext?: string;
 }): string {
   const { context, tools, nodeInstructions, firstMessage, graph } = params;
   const { business, conversation, turn } = context;
@@ -339,6 +343,11 @@ ${workflowMap}
     openingLine: firstMessage,
     nodeInstructions,
     extraSections: [
+      ...(params.memoryContext?.trim()
+        ? [
+            `Memory from earlier workflow steps, documents, and notes (provided automatically by the Memory Node):\n${params.memoryContext.trim()}`
+          ]
+        : []),
       ...(business.factsLines?.length
         ? [
             `Verified business facts (answer these directly and exactly; NEVER invent a street, city, state, postal code, landmark, or link that is not listed):\n${business.factsLines.map((line) => `- ${line}`).join("\n")}`
@@ -599,6 +608,8 @@ export type AgentWorkflowInput = {
   requestedDate?: string;
   /** Test-form pre-selected appointment time ("HH:mm", 24h). */
   requestedTime?: string;
+  /** Tenant identity for persistent Memory Node scoping. */
+  memoryIdentity?: AgentMemoryIdentity;
 };
 
 export type AgentWorkflowResult = {
@@ -734,6 +745,7 @@ export async function runAgentWorkflow(params: {
     mode,
     channel: input.channel,
     workflowId,
+    ...(input.memoryIdentity ? { memoryIdentity: input.memoryIdentity } : {}),
     currentNodeId: "",
     userMessage: input.message,
     history: input.history,
@@ -764,11 +776,37 @@ export async function runAgentWorkflow(params: {
     if (result.status === "waiting") break;
   }
 
+  let memoryContext = "";
+  let promptInstructions = nodeInstructions;
+  if (context.memoryScopeKey) {
+    const rawMemory = stringVariable(context, "memory");
+    if (rawMemory) {
+      const resolved = await resolveSmartMemoryForQuery({
+        scopeKey: context.memoryScopeKey,
+        query: [nodeInstructions, input.message].filter(Boolean).join("\n\n"),
+        rawMemory
+      });
+      if (promptInstructions.includes("{{memory}}")) {
+        // Builder chose the placement — honour it and skip the automatic section.
+        promptInstructions = promptInstructions.replaceAll("{{memory}}", resolved.memory);
+      } else {
+        memoryContext = resolved.memory;
+      }
+    }
+  }
+
   let reply: string;
 
   try {
     const llmReply = await providers.llm.complete({
-      systemPrompt: buildRuntimeSystemPrompt({ context, tools, nodeInstructions, firstMessage, graph }),
+      systemPrompt: buildRuntimeSystemPrompt({
+        context,
+        tools,
+        nodeInstructions: promptInstructions,
+        firstMessage,
+        graph,
+        memoryContext
+      }),
       history: input.history,
       message: input.message
     });

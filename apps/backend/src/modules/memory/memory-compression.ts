@@ -1,7 +1,3 @@
-/**
- * Strips duplicate and empty data before we send context to an AI provider.
- * Keeps token usage lower and prompts easier for the model to follow.
- */
 import type { MergedWorkflowMemory, NodeMemoryRecord } from "./types";
 
 const MAX_CONTEXT_ITEMS = 20;
@@ -85,11 +81,106 @@ export type ExecutedNodeSummary = {
   output?: unknown;
 };
 
-/**
- * Pure deterministic compact text builder for Memory Node.
- * Formats all prior node executions, manual uploads, and variables into a single
- * token-dense string 'memory' without calling any LLM.
- */
+export function extractExecutedNodeText(node: ExecutedNodeSummary): string {
+  let textOutput = "";
+
+  if (node.output !== undefined && node.output !== null) {
+    if (typeof node.output === "string") {
+      textOutput = node.output.trim();
+    } else if (typeof node.output === "object") {
+      const record = node.output as Record<string, unknown>;
+      if (typeof record.text === "string" && record.text.trim()) {
+        textOutput = record.text.trim();
+      } else if (typeof record.body === "string" && record.body.trim()) {
+        textOutput = record.body.trim();
+      } else if (typeof record.output === "string" && record.output.trim()) {
+        textOutput = record.output.trim();
+      } else if (typeof record.message === "string" && record.message.trim()) {
+        textOutput = record.message.trim();
+      } else {
+        // Filter out internal UI keys if object is printed
+        const cleanEntries = Object.entries(record).filter(
+          ([k]) =>
+            ![
+              "icon",
+              "accent",
+              "kind",
+              "nodeKind",
+              "type",
+              "footer",
+              "subtitle",
+              "providerId",
+              "modelName",
+              "nodeRunId",
+              "outputKey"
+            ].includes(k)
+        );
+        if (cleanEntries.length > 0) {
+          textOutput = cleanEntries
+            .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`)
+            .join(", ");
+        }
+      }
+    } else {
+      textOutput = String(node.output);
+    }
+  }
+
+  if (!textOutput && node.message) {
+    textOutput = node.message;
+  }
+
+  return textOutput;
+}
+
+export function extractMemoryVariableLines(
+  variables: Record<string, unknown>,
+  maxValueChars = 300
+): string[] {
+  const varLines: string[] = [];
+  const IGNORED_KEYS = new Set([
+    "node",
+    "business",
+    "missedCall",
+    "llmPipeline",
+    "ai",
+    "condition",
+    "capturedLead",
+    "sentSms",
+    "queuedSms",
+    "vapiCall",
+    "voiceConversation",
+    "inboundSms",
+    "handoff",
+    "nextWorkflow",
+    "smsNotification"
+  ]);
+
+  for (const [key, value] of Object.entries(variables)) {
+    if (key.startsWith("_") || key.startsWith("memory") || IGNORED_KEYS.has(key)) continue;
+
+    // Skip internal node metadata aliases
+    if (typeof value === "object" && value !== null) {
+      const obj = value as Record<string, unknown>;
+      if (obj.icon || obj.nodeKind || obj.type || obj.accent) continue;
+    }
+
+    let valStr = "";
+    if (typeof value === "string") {
+      valStr = value.trim();
+    } else if (typeof value === "number" || typeof value === "boolean") {
+      valStr = String(value);
+    }
+
+    if (valStr && !key.includes(".") && !key.includes(" ")) {
+      if (maxValueChars > 0 && valStr.length > maxValueChars) valStr = valStr.slice(0, maxValueChars) + "...";
+      varLines.push(`${key}: ${valStr}`);
+    }
+  }
+
+  return varLines;
+}
+
 export function buildCompactMemoryString(params: {
   executedNodes?: ExecutedNodeSummary[];
   variables?: Record<string, unknown>;
@@ -98,7 +189,6 @@ export function buildCompactMemoryString(params: {
 }): string {
   const sections: string[] = [];
 
-  // 1. Manual Uploads & Custom Notes
   const docLines: string[] = [];
   if (params.customNotes?.trim()) {
     docLines.push(`• Notes: ${params.customNotes.trim()}`);
@@ -119,58 +209,11 @@ export function buildCompactMemoryString(params: {
     sections.push(`[DOCUMENTS]\n${docLines.join("\n")}`);
   }
 
-  // 2. Clean Previous Step Execution Outputs (Extracting pure text results)
   if (params.executedNodes && params.executedNodes.length > 0) {
     const stepLines: string[] = [];
     params.executedNodes.forEach((node) => {
       const label = node.label || node.nodeId;
-      let textOutput = "";
-
-      if (node.output !== undefined && node.output !== null) {
-        if (typeof node.output === "string") {
-          textOutput = node.output.trim();
-        } else if (typeof node.output === "object") {
-          const record = node.output as Record<string, unknown>;
-          if (typeof record.text === "string" && record.text.trim()) {
-            textOutput = record.text.trim();
-          } else if (typeof record.body === "string" && record.body.trim()) {
-            textOutput = record.body.trim();
-          } else if (typeof record.output === "string" && record.output.trim()) {
-            textOutput = record.output.trim();
-          } else if (typeof record.message === "string" && record.message.trim()) {
-            textOutput = record.message.trim();
-          } else {
-            // Filter out internal UI keys if object is printed
-            const cleanEntries = Object.entries(record).filter(
-              ([k]) =>
-                ![
-                  "icon",
-                  "accent",
-                  "kind",
-                  "nodeKind",
-                  "type",
-                  "footer",
-                  "subtitle",
-                  "providerId",
-                  "modelName",
-                  "nodeRunId",
-                  "outputKey"
-                ].includes(k)
-            );
-            if (cleanEntries.length > 0) {
-              textOutput = cleanEntries
-                .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`)
-                .join(", ");
-            }
-          }
-        } else {
-          textOutput = String(node.output);
-        }
-      }
-
-      if (!textOutput && node.message) {
-        textOutput = node.message;
-      }
+      const textOutput = extractExecutedNodeText(node);
 
       if (textOutput) {
         stepLines.push(`[${label}]\n${textOutput}`);
@@ -182,48 +225,8 @@ export function buildCompactMemoryString(params: {
     }
   }
 
-  // 3. Clean Key Variables (Excluding internal node UI configs, canvas objects, and system metadata)
   if (params.variables && Object.keys(params.variables).length > 0) {
-    const varLines: string[] = [];
-    const IGNORED_KEYS = new Set([
-      "node",
-      "business",
-      "missedCall",
-      "llmPipeline",
-      "ai",
-      "condition",
-      "capturedLead",
-      "sentSms",
-      "queuedSms",
-      "vapiCall",
-      "voiceConversation",
-      "inboundSms",
-      "handoff",
-      "nextWorkflow",
-      "smsNotification"
-    ]);
-
-    for (const [key, value] of Object.entries(params.variables)) {
-      if (key.startsWith("_") || key.startsWith("memory") || IGNORED_KEYS.has(key)) continue;
-
-      // Skip internal node metadata aliases
-      if (typeof value === "object" && value !== null) {
-        const obj = value as Record<string, unknown>;
-        if (obj.icon || obj.nodeKind || obj.type || obj.accent) continue;
-      }
-
-      let valStr = "";
-      if (typeof value === "string") {
-        valStr = value.trim();
-      } else if (typeof value === "number" || typeof value === "boolean") {
-        valStr = String(value);
-      }
-
-      if (valStr && !key.includes(".") && !key.includes(" ")) {
-        if (valStr.length > 300) valStr = valStr.slice(0, 300) + "...";
-        varLines.push(`${key}: ${valStr}`);
-      }
-    }
+    const varLines = extractMemoryVariableLines(params.variables);
 
     if (varLines.length > 0) {
       sections.push(`[KEY VARIABLES]\n${varLines.join("\n")}`);

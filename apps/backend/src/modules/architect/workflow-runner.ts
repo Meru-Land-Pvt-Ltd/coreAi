@@ -30,7 +30,9 @@ import {
   failWorkflowRun,
   runAiBrainNode,
   memoryBroker,
-  buildCompactMemoryString,
+  buildSmartMemory,
+  resolveSmartMemoryForQuery,
+  mergeMemoryIntoPrompt,
   type AiBrainNodeConfig,
 } from "../memory";
 
@@ -483,6 +485,58 @@ function createLog(
   };
 }
 
+/**
+ * Memory scope for the active run, keyed by the run's context object. A
+ * WeakMap (not a context key) so workflow-controlled writes — e.g. an LLM
+ * node with llmOutputKey — can never redirect memory resolution to another
+ * tenant's scope.
+ */
+const memoryScopeByContext = new WeakMap<object, string>();
+
+/**
+ * Automatic Memory Node → AI delivery: when a Memory Node ran earlier in this
+ * run, resolve the memory for THIS AI node's own instruction (each AI node
+ * gets memory selected for its own task) and merge it into the prompt. The
+ * builder never has to reference {{memory}}; if they did, the placeholder's
+ * raw expansion is swapped for the resolved version.
+ */
+export async function deliverMemoryToAiConfig(config: AiBrainNodeConfig, context: RunnerContext): Promise<void> {
+  const scopeKey = memoryScopeByContext.get(context as object) ?? "";
+  const rawMemory = asString(context.memory);
+  if (!scopeKey || !rawMemory) return;
+
+  const data = (config.data ?? {}) as Record<string, unknown>;
+  const query = [asString(data.llmRequirements), asString(data.llmPrompt), asString(data.prompt), asString(data.instructions)]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const resolved = await resolveSmartMemoryForQuery({ scopeKey, query, rawMemory });
+
+  // llmPrompt/llmSystemPrompt are included because the provider mapping reads
+  // them ahead of the rendered fields for legacy LLM Call nodes.
+  const promptFields = ["instructions", "prompt", "llmRequirements", "llmPrompt", "llmSystemPrompt"] as const;
+  const builderPlacedMemory = promptFields.some((field) => asString(data[field]).includes(rawMemory));
+  if (builderPlacedMemory) {
+    for (const field of promptFields) {
+      const value = asString(data[field]);
+      if (value.includes(rawMemory)) {
+        data[field] = mergeMemoryIntoPrompt(value, resolved.memory, rawMemory);
+      }
+    }
+  } else {
+    // llmContext reaches the provider request for every AI node shape
+    // ("Additional context / knowledge"), regardless of which prompt fields
+    // the builder filled in.
+    data.llmContext = mergeMemoryIntoPrompt(asString(data.llmContext), resolved.memory, rawMemory);
+  }
+  config.data = data;
+}
+
+/** Test-only hook: associate a memory scope with a runner context. */
+export function setMemoryScopeForContext(context: RunnerContext, scopeKey: string): void {
+  memoryScopeByContext.set(context as object, scopeKey);
+}
+
 function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainNodeConfig {
   const isLlmCall = asString(node.data?.type) === "ai.llm_call";
 
@@ -493,6 +547,10 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
         model: node.data?.llmModel ?? node.data?.model,
         instructions: renderTemplate(node.data?.llmSystemPrompt ?? node.data?.instructions, context),
         prompt: renderTemplate(node.data?.llmPrompt ?? node.data?.prompt, context),
+        // The provider mapping reads these raw fields ahead of the rendered
+        // ones — keep them rendered too so {{memory}} and friends resolve.
+        llmSystemPrompt: renderTemplate(node.data?.llmSystemPrompt, context),
+        llmPrompt: renderTemplate(node.data?.llmPrompt, context),
         llmRequirements: renderTemplate(node.data?.llmRequirements, context),
         temperature: node.data?.llmTemperature ?? node.data?.temperature,
         maxTokens: node.data?.llmMaxTokens ?? node.data?.maxTokens,
@@ -2008,6 +2066,10 @@ function seedNodeVariablesInContext(context: Record<string, any>, nodes: any[]) 
 
 async function runMemoryNodeInRunner({
   workflowRunId,
+  workflowId,
+  businessId,
+  installedAgentId,
+  triggeredByUserId,
   threadId,
   executionOrder,
   node,
@@ -2015,6 +2077,10 @@ async function runMemoryNodeInRunner({
   logs
 }: {
   workflowRunId?: string;
+  workflowId?: string;
+  businessId?: string;
+  installedAgentId?: string;
+  triggeredByUserId?: string;
   threadId?: string;
   executionOrder: number;
   node: RunnerNode;
@@ -2025,12 +2091,29 @@ async function runMemoryNodeInRunner({
   const customNotes =
     asString(node.data?.customMemoryNotes) || asString(node.data?.notes) || asString(node.data?.customNotes);
 
-  const compactMemoryText = buildCompactMemoryString({
+  const smartMemory = await buildSmartMemory({
     executedNodes: logs.map((l) => ({ nodeId: l.nodeId, label: l.label, status: l.status, message: l.message, output: l.output })),
     variables: context as Record<string, unknown>,
     attachments,
-    customNotes
+    customNotes,
+    scope: {
+      businessId,
+      installedAgentId,
+      // Architect identity only when no business owns the run — keeps dry-run
+      // memory separate per architect without mixing into buyer scopes.
+      architectUserId: businessId ? undefined : triggeredByUserId,
+      workflowId,
+      workflowRunId,
+      // No threadId here: the runner's threadId is a fresh synthetic id per
+      // run, which would break cross-call continuity. Conversations continue
+      // per test session (canvas runs) or per caller (live runs) instead.
+      nodeId: node.id,
+      testSessionId: asString(context.testSessionId) || undefined,
+      callerKey: context.missedCall?.callerNumber || undefined
+    }
   });
+  const compactMemoryText = smartMemory.memory;
+  memoryScopeByContext.set(context as object, smartMemory.scopeKey);
 
   context.memory = compactMemoryText;
   (context as Record<string, unknown>)["memory"] = compactMemoryText;
@@ -2191,6 +2274,10 @@ export async function runWorkflowTest({
           if (asString(node.data?.type) === "ai.memory") {
             await runMemoryNodeInRunner({
               workflowRunId,
+              workflowId,
+              businessId: input?.businessId,
+              installedAgentId: input?.installedAgentId,
+              triggeredByUserId: userId,
               threadId,
               executionOrder: executionOrder++,
               node,
@@ -2201,11 +2288,14 @@ export async function runWorkflowTest({
           }
 
           if (shouldUseProviderEngine(node, mode)) {
+            const aiConfig = toAiBrainNodeConfig(node, context);
+            await deliverMemoryToAiConfig(aiConfig, context);
+
             const result = await runAiBrainNode({
               workflowRunId,
               threadId,
               executionOrder: executionOrder++,
-              node: toAiBrainNodeConfig(node, context),
+              node: aiConfig,
             });
 
             const isLlmCall = asString(node.data?.type) === "ai.llm_call";
