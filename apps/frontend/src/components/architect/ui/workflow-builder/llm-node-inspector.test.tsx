@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LlmNodeInspector } from "./llm-node-inspector";
 import { NodeInspector } from "./node-inspector";
@@ -238,6 +238,16 @@ describe("providers the backend cannot run", () => {
     const claudeOption = await screen.findByTestId("llm-provider-option-claude");
     expect(claudeOption).toHaveProperty("disabled", false);
     expect(claudeOption.textContent).toContain("models");
+  });
+
+  it("auto-switches away from disabled default provider (openai) to the first available provider", async () => {
+    getProvidersMock.mockResolvedValue(providersResponse(["claude"]));
+    const { onUpdateNodeData } = renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
+
+    await waitFor(() => {
+      expect(onUpdateNodeData).toHaveBeenCalledWith("llmProvider", "claude");
+      expect(onUpdateNodeData).toHaveBeenCalledWith("llmModel", "claude-sonnet-5");
+    });
   });
 });
 

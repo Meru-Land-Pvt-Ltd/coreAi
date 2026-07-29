@@ -8,7 +8,7 @@ import {
   getNodeDefinition,
   resolveLlmSelection
 } from "@coreai/shared";
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
@@ -1681,6 +1681,17 @@ function AiProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodeP
   const { availability: aiAvailability } = useLlmAvailability();
   const aiSelection = resolveLlmSelection(str("provider"), str("model"));
   const aiModelId = aiSelection.modelId ?? defaultLlmModelForProvider(aiSelection.providerId) ?? "";
+
+  useEffect(() => {
+    if (!aiAvailability) return;
+    if (isProviderDisabled(aiAvailability, aiSelection.providerId)) {
+      const firstUsable = LLM_PROVIDERS.find((p) => !isProviderDisabled(aiAvailability, p.id));
+      if (firstUsable && firstUsable.id !== aiSelection.providerId) {
+        onUpdateNodeData("provider", firstUsable.id);
+        onUpdateNodeData("model", defaultLlmModelForProvider(firstUsable.id) ?? "");
+      }
+    }
+  }, [aiAvailability, aiSelection.providerId, onUpdateNodeData]);
 
   return (
     <>

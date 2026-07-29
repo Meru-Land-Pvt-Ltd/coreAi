@@ -58,6 +58,18 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Auto-switch away from a disabled provider (e.g. OpenAI when disabled) to the first usable provider
+  useEffect(() => {
+    if (!availability) return;
+    if (isProviderDisabled(availability, selection.providerId)) {
+      const firstUsable = LLM_PROVIDERS.find((p) => !isProviderDisabled(availability, p.id));
+      if (firstUsable && firstUsable.id !== selection.providerId) {
+        onUpdateNodeData("llmProvider", firstUsable.id);
+        onUpdateNodeData("llmModel", defaultLlmModelForProvider(firstUsable.id) ?? "");
+      }
+    }
+  }, [availability, selection.providerId, onUpdateNodeData]);
+
   // Switching provider also switches to that provider's first model, so the
   // node never keeps a model the new provider cannot run.
   const handleProviderChange = (providerId: string) => {

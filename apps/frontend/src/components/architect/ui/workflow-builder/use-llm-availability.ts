@@ -29,7 +29,7 @@ function fetchAvailability(): Promise<LlmAvailability | null> {
 
       for (const provider of providers) {
         // As long as a provider is configured with an API key, allow selecting it in the workflow builder
-        usable[provider.id] = provider.configured || Boolean(provider.available);
+        usable[provider.id] = typeof provider.available === "boolean" ? provider.available : provider.configured;
         if (provider.unavailableKind) kinds[provider.id] = provider.unavailableKind;
         if (provider.unavailableReason) reasons[provider.id] = provider.unavailableReason;
       }

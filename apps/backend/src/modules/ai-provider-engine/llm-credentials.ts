@@ -1,4 +1,5 @@
 import { env } from "../../config/env";
+import { llmProviderBlockReason } from "./llm-health";
 
 const LLM_PROVIDER_ENV_KEYS = {
   openai: ["OPENAI_API_KEY"],
@@ -52,14 +53,29 @@ export type ResolvedLlmProvider = {
 };
 
 export function resolveConfiguredLlmProvider(preferred: string): ResolvedLlmProvider | null {
+  const isUsable = (candidate: string) => {
+    const status = llmCredentialStatus(candidate);
+    if (status === "missing") return false;
+    if (status === "unknown") return true;
+    return !llmProviderBlockReason(candidate);
+  };
+
+  if (isUsable(preferred)) return { providerId: preferred };
+
+  const alternative = FALLBACK_ORDER.find(
+    (candidate) => candidate !== preferred && isUsable(candidate)
+  );
+
+  if (alternative) return { providerId: alternative, fallbackFrom: preferred };
+
   const status = llmCredentialStatus(preferred);
   if (status !== "missing") return { providerId: preferred };
 
-  const alternative = FALLBACK_ORDER.find(
+  const configuredAlt = FALLBACK_ORDER.find(
     (candidate) => candidate !== preferred && llmCredentialStatus(candidate) === "configured"
   );
 
-  return alternative ? { providerId: alternative, fallbackFrom: preferred } : null;
+  return configuredAlt ? { providerId: configuredAlt, fallbackFrom: preferred } : null;
 }
 
 export function hasAnyLlmCredentials(): boolean {
