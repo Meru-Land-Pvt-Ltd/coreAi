@@ -1250,3 +1250,96 @@ export type LLMProviderResponse = {
 export function getLLMProviders() {
   return apiGet<LLMProviderResponse>("/architect/ai/providers");
 }
+
+export type WhatsAppConnection = {
+  id: string;
+  displayName: string | null;
+  businessName: string | null;
+  phoneNumber: string;
+  status: "CONNECTED" | "DISCONNECTED" | "ERROR" | "PENDING";
+  qualityRating: string | null;
+  lastConnectedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  webhookCallbackUrl: string;
+};
+
+export type WhatsAppConnectionOwnerView = WhatsAppConnection & {
+  phoneNumberId: string;
+  businessAccountId: string;
+};
+
+export type ConnectWhatsAppBody = {
+  accessToken: string;
+  phoneNumberId: string;
+  phoneNumber: string;
+  businessAccountId?: string;
+  businessName?: string;
+  displayName?: string;
+  webhookVerifyToken?: string;
+  appSecret?: string;
+};
+
+export function listWhatsAppConnections() {
+  return apiGet<{ connections: WhatsAppConnection[] }>("/architect/whatsapp/connections");
+}
+
+export function listWhatsAppConnectionsOwnerView() {
+  return apiGet<{ connections: WhatsAppConnectionOwnerView[] }>("/architect/whatsapp/connections?view=owner");
+}
+
+export function connectWhatsApp(body: ConnectWhatsAppBody) {
+  return apiPost<{ connection: WhatsAppConnection }>("/architect/whatsapp/connections", body);
+}
+
+export function renameWhatsAppConnection(id: string, displayName: string) {
+  return apiPatch<{ connection: WhatsAppConnection }>(`/integrations/whatsapp/connections/${id}`, {
+    displayName
+  });
+}
+
+export function deleteWhatsAppConnection(id: string) {
+  return apiDelete<{ deleted: boolean }>(`/architect/whatsapp/connections/${id}`);
+}
+
+export function testWhatsAppConnection(id: string) {
+  return apiPost<{
+    result: {
+      ok: boolean;
+      phoneNumberId: string;
+      displayPhoneNumber: string;
+      verifiedName: string | null;
+      qualityRating: string | null;
+    };
+  }>(`/architect/whatsapp/connections/${id}/test`, {});
+}
+
+export function refreshWhatsAppConnection(id: string) {
+  return apiPost<{ connection: WhatsAppConnection }>(`/architect/whatsapp/connections/${id}/refresh`, {});
+}
+
+export function disconnectWhatsAppConnection(id: string) {
+  return apiPost<{ connection: WhatsAppConnection }>(`/architect/whatsapp/connections/${id}/disconnect`, {});
+}
+
+export function startWhatsAppEmbeddedSignup(phoneNumber: string) {
+  return apiPost<{ redirectUrl: string }>("/integrations/whatsapp/start", {
+    phoneNumber
+  });
+}
+
+export function callbackWhatsAppEmbeddedSignup(params: {
+  code: string;
+  phoneNumberId: string;
+  wabaId: string;
+  phoneNumber: string;
+}) {
+  const qs = new URLSearchParams({
+    code: params.code,
+    phoneNumberId: params.phoneNumberId,
+    wabaId: params.wabaId,
+    phoneNumber: params.phoneNumber
+  });
+  return apiGet<{ connection: WhatsAppConnection }>(`/integrations/whatsapp/callback?${qs.toString()}`);
+}

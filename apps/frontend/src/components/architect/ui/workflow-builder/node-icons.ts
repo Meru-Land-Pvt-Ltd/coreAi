@@ -5,6 +5,7 @@ export const nodeIconAccent: Record<string, NodeAccent> = {
   sparkles: "violet",
   diamond: "orange",
   message: "green",
+  whatsapp: "green",
   mail: "blue",
   capture: "blue",
   database: "violet"

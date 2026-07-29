@@ -35,6 +35,7 @@ import { ARCHITECT_PAYOUTS_PATH } from "@/lib/routes";
 import { getAuthUser, logout, saveAuthSession, updateAuthUser, type AuthUser } from "@/lib/auth";
 import { readProfilePhotoFile } from "@/lib/profile-photo";
 import { requestSignedDpa } from "@/lib/dpa";
+import { COUNTRY_CODES, joinPhoneNumber, splitPhoneNumber } from "@/lib/phone-country-codes";
 
 type SettingsTab =
   | "profile"
@@ -74,19 +75,6 @@ const TIMEZONES = [
   "America/New_York (Eastern Time)",
   "Europe/London (GMT)",
   "Asia/Kolkata (India Standard Time)"
-];
-
-const COUNTRY_CODES = [
-  { code: "+1", label: "US / Canada" },
-  { code: "+44", label: "United Kingdom" },
-  { code: "+91", label: "India" },
-  { code: "+61", label: "Australia" },
-  { code: "+971", label: "UAE" },
-  { code: "+65", label: "Singapore" },
-  { code: "+49", label: "Germany" },
-  { code: "+33", label: "France" },
-  { code: "+81", label: "Japan" },
-  { code: "+55", label: "Brazil" }
 ];
 
 const NOTIFICATION_ROWS: Array<{
@@ -157,25 +145,6 @@ function getInitials(name: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("") || "A";
-}
-
-function splitPhoneNumber(value: string) {
-  const phone = value.trim();
-  const countryCode = COUNTRY_CODES.find((country) => phone.startsWith(`${country.code} `) || phone === country.code);
-
-  if (!countryCode) {
-    return { countryCode: COUNTRY_CODES[0]!.code, phone };
-  }
-
-  return {
-    countryCode: countryCode.code,
-    phone: phone.replace(countryCode.code, "").trim()
-  };
-}
-
-function joinPhoneNumber(countryCode: string, phone: string) {
-  const trimmedPhone = phone.trim();
-  return trimmedPhone ? `${countryCode} ${trimmedPhone}` : countryCode;
 }
 
 function Toggle({

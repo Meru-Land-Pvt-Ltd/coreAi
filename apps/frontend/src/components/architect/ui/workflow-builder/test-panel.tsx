@@ -13,6 +13,7 @@ import { logColor } from "./run-context";
 import { getCalendarAppointment, getCapturedLead, getDraftEmail, getGmailRead, getSentEmail, getSentSms, getVapiCall } from "./run-context";
 import { BrowserVoiceCallTest } from "./browser-voice-call-test";
 import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
+import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
 import { marked } from "marked";
 
 function Markdown({ content, className = "" }: { content: string; className?: string }) {
@@ -35,10 +36,13 @@ export function TestPanel({
   needsCalendarConnection = false,
   needsTwilioConnection = false,
   needsVapiConnection = false,
+  needsWhatsAppConnection = false,
   gmailConnected,
   gmailEmail,
   calendarConnected,
   connectingGmail,
+  whatsappConnected = false,
+  connectingWhatsApp = false,
   running,
   startingLive,
   stoppingLive,
@@ -77,6 +81,7 @@ export function TestPanel({
   onSendConversationMessage,
   onResetConversationTest,
   onBrowserCallEnded,
+  onConnectWhatsApp,
   onCallerNumberChange,
   onCallerNameChange,
   onBusinessNameChange,
@@ -102,10 +107,13 @@ export function TestPanel({
   needsCalendarConnection?: boolean;
   needsTwilioConnection?: boolean;
   needsVapiConnection?: boolean;
+  needsWhatsAppConnection?: boolean;
   gmailConnected: boolean;
   gmailEmail: string | null;
   calendarConnected: boolean;
   connectingGmail: boolean;
+  whatsappConnected?: boolean;
+  connectingWhatsApp?: boolean;
   running: boolean;
   startingLive: boolean;
   stoppingLive: boolean;
@@ -138,6 +146,7 @@ export function TestPanel({
   onConnectGmail: () => void;
   onDisconnectGoogle: () => void;
   onRefreshConnections: () => void;
+  onConnectWhatsApp: () => void;
   onRunTest: () => void;
   onStartLiveTest: () => void;
   onStopLiveTest: () => void;
@@ -680,6 +689,50 @@ export function TestPanel({
                     Uses a sandbox assistant for this workflow.
                   </p>
                 </div>
+              </div>
+            ) : null}
+
+            {needsWhatsAppConnection ? (
+              <div
+                className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3.5"
+                data-testid="builder-test-whatsapp-card"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                    <WhatsAppIcon className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800" data-testid="builder-test-whatsapp-status">
+                      {whatsappConnected ? "WhatsApp Business connected" : "WhatsApp Business"}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500" data-testid="builder-test-whatsapp-note">
+                      {whatsappConnected
+                        ? "Connected for WhatsApp triggers and sends."
+                        : "Connect so the agent can send and receive WhatsApp messages."}
+                    </p>
+                  </div>
+                </div>
+
+                {whatsappConnected ? (
+                  <button
+                    type="button"
+                    onClick={onConnectWhatsApp}
+                    data-testid="builder-test-connect-whatsapp"
+                    className="shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition hover:border-gray-300"
+                  >
+                    Manage
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onConnectWhatsApp}
+                    disabled={connectingWhatsApp}
+                    data-testid="builder-test-connect-whatsapp"
+                    className="shrink-0 rounded-xl bg-amber-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
+                  >
+                    {connectingWhatsApp ? "Connecting…" : "Connect"}
+                  </button>
+                )}
               </div>
             ) : null}
           </div>

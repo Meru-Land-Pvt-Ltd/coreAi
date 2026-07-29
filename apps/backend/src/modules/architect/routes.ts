@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys } from "@coreai/shared";
+import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys, workflowJsonForTemplate } from "@coreai/shared";
 import { llmCredentialStatus } from "../ai-provider-engine/llm-credentials";
 import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
 import { llmProviderAvailability } from "../ai-provider-engine/llm-probe";
@@ -35,6 +35,8 @@ import {
   handleTwilioVoiceAction,
   handleVapiWebhook
 } from "./twilio-business-routing";
+import { whatsappRoutes } from "../whatsapp/routes";
+import { handleWhatsAppWebhookPost, verifyWhatsAppWebhookChallenge } from "../whatsapp/webhook";
 import {
   getWorkflowConfigure,
   getWorkflowMarketplacePreview,
@@ -169,6 +171,10 @@ architectRoutes.post("/payouts/stripe/webhook", handleStripeConnectWebhook);
 architectRoutes.get("/connectors/vapi/webhook", (c) =>
   successResponse(c, { ok: true, note: "Vapi webhook is up. Tool calls arrive via POST." })
 );
+
+// Meta WhatsApp Cloud API webhooks (verify challenge + inbound messages).
+architectRoutes.get("/connectors/whatsapp", verifyWhatsAppWebhookChallenge);
+architectRoutes.post("/connectors/whatsapp", handleWhatsAppWebhookPost);
 
 architectRoutes.get("/connectors/voice/status", (c) => successResponse(c, getVoiceAnswerStatus()));
 
@@ -577,6 +583,7 @@ architectRoutes.post("/media/upload", async (c) => {
 
 architectRoutes.route("/payouts", architectPayoutRoutes);
 architectRoutes.route("/settings", architectSettingsRoutes);
+architectRoutes.route("/whatsapp", whatsappRoutes);
 
 architectRoutes.get("/dashboard/activity", async (c) => {
   try {
@@ -1368,13 +1375,17 @@ architectRoutes.post("/workflows", async (c) => {
       return errorResponse(c, "Cannot create empty workflow draft.", 422, "EMPTY_WORKFLOW_DRAFT");
     }
 
+    const workflowJson = input.isTemplate
+      ? workflowJsonForTemplate(input.workflowJson)
+      : input.workflowJson;
+
     const workflow = await prisma.workflowDefinition.create({
       data: {
         architectUserId: authUser.id,
         name: input.name,
         description: input.description || null,
         isTemplate: input.isTemplate,
-        workflowJson: input.workflowJson as never
+        workflowJson: workflowJson as never
       }
     });
 
@@ -1444,6 +1455,15 @@ architectRoutes.put("/workflows/:workflowId", async (c) => {
       return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
     }
 
+    const becomingTemplate = input.isTemplate === true;
+    const alreadyTemplate = existingWorkflow.isTemplate;
+    let nextWorkflowJson = input.workflowJson as unknown | undefined;
+    if (nextWorkflowJson !== undefined && (becomingTemplate || (alreadyTemplate && input.isTemplate !== false))) {
+      nextWorkflowJson = workflowJsonForTemplate(nextWorkflowJson);
+    } else if (becomingTemplate && nextWorkflowJson === undefined) {
+      nextWorkflowJson = workflowJsonForTemplate(existingWorkflow.workflowJson);
+    }
+
     const workflow = await prisma.workflowDefinition.update({
       where: {
         id: workflowId
@@ -1454,8 +1474,8 @@ architectRoutes.put("/workflows/:workflowId", async (c) => {
           ? { description: input.description || null }
           : {}),
         ...(input.isTemplate !== undefined ? { isTemplate: input.isTemplate } : {}),
-        ...(input.workflowJson !== undefined
-          ? { workflowJson: input.workflowJson as never }
+        ...(nextWorkflowJson !== undefined
+          ? { workflowJson: nextWorkflowJson as never }
           : {})
       }
     });

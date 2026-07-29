@@ -35,6 +35,7 @@ import {
   getArchitectWorkflow,
   getGmailConnectorStatus,
   getGmailOAuthUrl,
+  listWhatsAppConnections,
   postGmailDisclosureConsent,
   getLatestArchitectTestEvent,
   getWorkflowConfigure,
@@ -66,6 +67,7 @@ function browserTimeZone(): string {
   }
 }
 import { getAuthUser } from "@/lib/auth";
+import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
 import { BuilderHeader } from "./workflow-builder/builder-header";
 import { BuilderStatusBar } from "./workflow-builder/builder-status-bar";
 import { ComponentLibrary } from "./workflow-builder/component-library";
@@ -124,6 +126,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [gmailEmail, setGmailEmail] = useState<string | null>(null);
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
+  const [whatsappConnected, setWhatsAppConnected] = useState(false);
+  const [connectingWhatsApp, setConnectingWhatsApp] = useState(false);
+  const [whatsappConnectOpen, setWhatsAppConnectOpen] = useState(false);
   const [googleDisclosureOpen, setGoogleDisclosureOpen] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgentName);
   const [tagline, setTagline] = useState(defaultAgentDescription);
@@ -240,6 +245,16 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     [nodes]
   );
 
+  const hasWhatsAppFlow = useMemo(
+    () =>
+      nodes.some((node) => {
+        const type = String(node.data.type ?? "").toLowerCase();
+        const connector = String(node.data.connector ?? "").toLowerCase();
+        return type.includes("whatsapp") || connector === "whatsapp";
+      }),
+    [nodes]
+  );
+
   // Voice workflow = uses the generic voice-booking nodes (phone trigger / AI
   // voice conversation). The Dental AI Receptionist template is one of these.
   const isVoiceWorkflow = useMemo(() => {
@@ -271,8 +286,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     testDeployment?.status === "READY" || Boolean(testDeployment?.assignedPhoneNumber);
   const needsTwilioConnection = liveSandboxActive && (isVoiceWorkflow || hasSmsFlow);
   const needsVapiConnection = liveSandboxActive && isVoiceWorkflow;
+  const needsWhatsAppConnection = hasWhatsAppFlow;
   const needsAnyTestConnection =
-    needsGoogleConnection || needsCalendarConnection || needsTwilioConnection || needsVapiConnection;
+    needsGoogleConnection ||
+    needsCalendarConnection ||
+    needsTwilioConnection ||
+    needsVapiConnection ||
+    needsWhatsAppConnection;
 
   const isDentalWorkflow = useMemo(() => {
     const name = `${agentName} ${workflow?.name ?? ""}`.toLowerCase();
@@ -469,6 +489,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
   }
 
+  async function loadWhatsAppStatus() {
+    const result = await listWhatsAppConnections();
+    if (!result.success) return;
+
+    const connections = result.data?.connections ?? [];
+    setWhatsAppConnected(connections.some((c) => c.status === "CONNECTED"));
+  }
+
   async function loadTestDeployment() {
     const id = currentWorkflowIdRef.current;
     if (!id) return;
@@ -482,6 +510,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   /** Opens the mandatory pre-OAuth disclosure — OAuth starts only from its agree action. */
   function connectGmail() {
     setGoogleDisclosureOpen(true);
+  }
+
+  function connectWhatsApp() {
+    setWhatsAppConnectOpen(true);
   }
 
   async function handleGoogleDisclosureAgreed() {
@@ -544,7 +576,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   async function refreshConnections() {
     setMessage("Refreshing connection status...");
-    await Promise.all([loadGmailStatus(), loadTestDeployment()]);
+    await Promise.all([loadGmailStatus(), loadWhatsAppStatus(), loadTestDeployment()]);
     setMessage("Connection status refreshed");
   }
 
@@ -611,6 +643,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   useEffect(() => {
     void loadWorkflow();
     void loadGmailStatus();
+    void loadWhatsAppStatus();
     void loadTestDeployment();
   }, [workflowId]);
 
@@ -1343,6 +1376,17 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onCancel={() => setGoogleDisclosureOpen(false)}
       />
 
+      <WhatsAppConnectModal
+        open={whatsappConnectOpen}
+        onClose={() => {
+          setWhatsAppConnectOpen(false);
+          setConnectingWhatsApp(false);
+        }}
+        onConnected={() => {
+          void loadWhatsAppStatus();
+        }}
+      />
+
       <BuilderHeader
         agentName={agentName}
         message={message}
@@ -1541,10 +1585,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             needsCalendarConnection={needsCalendarConnection}
             needsTwilioConnection={needsTwilioConnection}
             needsVapiConnection={needsVapiConnection}
+            needsWhatsAppConnection={needsWhatsAppConnection}
             gmailConnected={gmailConnected}
             gmailEmail={gmailEmail}
             calendarConnected={calendarConnected}
             connectingGmail={connectingGmail}
+            whatsappConnected={whatsappConnected}
+            connectingWhatsApp={connectingWhatsApp}
             running={running}
             startingLive={startingLive}
             stoppingLive={stoppingLive}
@@ -1598,6 +1645,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onTestEmailChange={setTestEmail}
             onTriggerMessageChange={handleTriggerMessageChange}
             onTriggerAttachmentsChange={handleTriggerAttachmentsChange}
+            onConnectWhatsApp={connectWhatsApp}
           />
         ) : null}
 

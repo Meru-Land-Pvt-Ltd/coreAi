@@ -21,6 +21,8 @@ import {
   validateConfigureForSubmit,
   validateConfigureForTemplateGallery,
   workflowUsesSms,
+  workflowUsesWhatsApp,
+  workflowJsonForTemplate,
   type AgentConfigureBasics,
   type AgentConfigureCompliance,
   type AgentConfigureData,
@@ -279,12 +281,12 @@ export function ConfigurePanel({
 }) {
   const [configure, setConfigure] = useState<AgentConfigureData>(() =>
     sanitizeConfigureSteps(
-      defaultAgentConfigure({
-        name: agentName,
-        tagline,
-        priceDollars: Number(price) || null,
-        workflowJson: workflowFlow
-      })
+    defaultAgentConfigure({
+      name: agentName,
+      tagline,
+      priceDollars: Number(price) || null,
+      workflowJson: workflowFlow
+    })
     )
   );
   const [loading, setLoading] = useState(Boolean(workflowId));
@@ -468,7 +470,7 @@ export function ConfigurePanel({
       const id = workflowId || (await ensureWorkflowId());
       if (!id) {
         if (!options.quietMissingWorkflow) {
-          pushToast("Add a node in Build so the draft can be saved first.", "error");
+        pushToast("Add a node in Build so the draft can be saved first.", "error");
         }
         return false;
       }
@@ -713,12 +715,13 @@ export function ConfigurePanel({
 
     const flow = workflowFlowRef.current;
     const current = configureRef.current;
+    const templateFlow = flow ? workflowJsonForTemplate(flow) : undefined;
     try {
       await updateArchitectWorkflow(id, {
         isTemplate: true,
         name: current.basics.agentName.trim(),
         description: current.basics.tagline.trim() || current.basics.shortDescription.trim(),
-        ...(flow ? { workflowJson: flow } : {})
+        ...(templateFlow ? { workflowJson: templateFlow } : {})
       });
       onSave?.();
       setTemplateSaveModalOpen(false);
@@ -848,6 +851,7 @@ export function ConfigurePanel({
   );
 
   const workflowHasSms = workflowUsesSms(workflowFlow);
+  const workflowHasWhatsApp = workflowUsesWhatsApp(workflowFlow);
 
   /** Integrations the current workflow nodes actually require — used for auto-seed and sync. */
   const workflowDerivedIntegrations = useMemo(
@@ -1318,55 +1322,55 @@ export function ConfigurePanel({
                 </div>
 
                 <div className="grid gap-7 px-5 py-5 sm:grid-cols-2 sm:px-6 sm:py-6">
-                  <div>
-                    <label htmlFor="configure-template-type" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
-                      Template type
-                    </label>
-                    <div className="relative">
-                      <select
-                        id="configure-template-type"
-                        data-testid="configure-template-type-select"
-                        value={configure.template.templateType}
-                        disabled={isLocked}
-                        onChange={(event) => updateTemplate({ templateType: event.target.value })}
-                        className="w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 pr-10 text-[15px] font-medium text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
-                      >
-                        {AGENT_TEMPLATE_TYPES.map((type) => (
-                          <option key={type}>{type}</option>
-                        ))}
-                      </select>
-                      <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                        <BuilderIcon name="chevron" className="h-4 w-4" />
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label htmlFor="configure-setup-time" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
-                      Setup time estimate
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                        <BuilderIcon name="clock" className="h-[18px] w-[18px]" />
-                      </span>
-                      <select
-                        id="configure-setup-time"
-                        data-testid="configure-setup-time-select"
-                        value={configure.template.setupTimeEstimate}
-                        disabled={isLocked}
-                        onChange={(event) => updateTemplate({ setupTimeEstimate: event.target.value })}
-                        className="fld w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-11 pr-10 text-[15px] font-medium text-slate-800 disabled:opacity-60"
-                      >
-                        {SETUP_TIME_OPTIONS.map((option) => (
-                          <option key={option}>{option}</option>
-                        ))}
-                      </select>
-                      <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                        <BuilderIcon name="chevron" className="h-4 w-4" />
-                      </span>
-                    </div>
+                <div>
+                  <label htmlFor="configure-template-type" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
+                    Template type
+                  </label>
+                  <div className="relative">
+                    <select
+                      id="configure-template-type"
+                      data-testid="configure-template-type-select"
+                      value={configure.template.templateType}
+                      disabled={isLocked}
+                      onChange={(event) => updateTemplate({ templateType: event.target.value })}
+                      className="w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 pr-10 text-[15px] font-medium text-slate-800 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50 disabled:opacity-60"
+                    >
+                      {AGENT_TEMPLATE_TYPES.map((type) => (
+                        <option key={type}>{type}</option>
+                      ))}
+                    </select>
+                    <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                      <BuilderIcon name="chevron" className="h-4 w-4" />
+                    </span>
                   </div>
                 </div>
+
+                <div>
+                  <label htmlFor="configure-setup-time" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
+                    Setup time estimate
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                      <BuilderIcon name="clock" className="h-[18px] w-[18px]" />
+                    </span>
+                    <select
+                      id="configure-setup-time"
+                      data-testid="configure-setup-time-select"
+                      value={configure.template.setupTimeEstimate}
+                      disabled={isLocked}
+                      onChange={(event) => updateTemplate({ setupTimeEstimate: event.target.value })}
+                        className="fld w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-11 pr-10 text-[15px] font-medium text-slate-800 disabled:opacity-60"
+                    >
+                      {SETUP_TIME_OPTIONS.map((option) => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                    <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                      <BuilderIcon name="chevron" className="h-4 w-4" />
+                    </span>
+                  </div>
+                </div>
+              </div>
               </div>
 
 
@@ -1397,7 +1401,12 @@ export function ConfigurePanel({
                   value={configure.template.requiredIntegrations}
                   onToggle={toggleIntegration}
                   disabled={isLocked}
-                  hiddenKeys={workflowHasSms || configure.template.requiredIntegrations.sms ? [] : ["sms"]}
+                  hiddenKeys={[
+                    ...(workflowHasSms || configure.template.requiredIntegrations.sms ? [] : (["sms"] as RequiredIntegrationKey[])),
+                    ...(workflowHasWhatsApp || configure.template.requiredIntegrations.whatsapp
+                      ? []
+                      : (["whatsapp"] as RequiredIntegrationKey[]))
+                  ]}
                 />
                 {workflowHasSms ? (
                   <p
@@ -1406,6 +1415,15 @@ export function ConfigurePanel({
                   >
                     <BuilderIcon name="info" className="mt-0.5 h-4 w-4 flex-none text-amber-500" />
                     This workflow currently includes SMS. Replace it with Email follow-up if you want to avoid A2P/SMS setup.
+                  </p>
+                ) : null}
+                {workflowHasWhatsApp ? (
+                  <p
+                    className="mt-3 flex items-start gap-2 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3 text-[12.5px] text-emerald-900/90"
+                    data-testid="configure-whatsapp-notice"
+                  >
+                    <BuilderIcon name="whatsapp" className="mt-0.5 h-4 w-4 flex-none text-emerald-600" />
+                    This workflow uses WhatsApp. Connect a Meta Cloud API number under Architect → WhatsApp before testing.
                   </p>
                 ) : null}
               </div>

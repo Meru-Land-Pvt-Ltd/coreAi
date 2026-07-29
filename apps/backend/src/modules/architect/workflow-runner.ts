@@ -33,6 +33,8 @@ import {
   buildCompactMemoryString,
   type AiBrainNodeConfig,
 } from "../memory";
+import { WhatsAppService } from "../whatsapp/service";
+import { WhatsAppServiceError } from "../whatsapp/types";
 
 /** Threaded through the runner to bound workflow-to-workflow chaining. */
 type WorkflowChain = {
@@ -96,6 +98,20 @@ export type WorkflowRunInput = {
     mimeType: string;
     data: string; // base64 string
   }>;
+  /** Inbound WhatsApp message event (from Meta webhook dispatch). */
+  whatsapp?: {
+    type: "WHATSAPP_MESSAGE";
+    connectionId: string;
+    contact: { name: string | null; phone: string };
+    customer: { name: string | null; phone: string };
+    message: {
+      id: string;
+      type: string;
+      text: string | null;
+      mediaUrl: string | null;
+    };
+    timestamp: string;
+  };
 };
 
 type RunnerNodeData = {
@@ -113,6 +129,23 @@ type RunnerNodeData = {
   gmailBody?: unknown;
   smsTo?: unknown;
   smsBody?: unknown;
+  connectionId?: unknown;
+  recipient?: unknown;
+  message?: unknown;
+  whatsappMessageType?: unknown;
+  whatsappTo?: unknown;
+  whatsappBody?: unknown;
+  listenFor?: unknown;
+  ignoreGroups?: unknown;
+  ignoreStatusMessages?: unknown;
+  mediaType?: unknown;
+  mediaId?: unknown;
+  mediaLink?: unknown;
+  caption?: unknown;
+  filename?: unknown;
+  templateName?: unknown;
+  languageCode?: unknown;
+  messageId?: unknown;
   sendAt?: unknown;
   vapiAssistantId?: unknown;
   vapiPhoneNumberId?: unknown;
@@ -213,6 +246,33 @@ type RunnerContext = {
   inboundSms?: {
     body: string;
     attachments?: any[];
+  };
+  contact?: {
+    name?: string | null;
+    phone?: string;
+  };
+  customer?: {
+    name?: string | null;
+    phone?: string;
+  };
+  message?: {
+    id?: string;
+    type?: string;
+    text?: string | null;
+    mediaUrl?: string | null;
+  };
+  whatsapp?: {
+    type: "WHATSAPP_MESSAGE";
+    connectionId: string;
+    contact: { name: string | null; phone: string };
+    customer: { name: string | null; phone: string };
+    message: {
+      id: string;
+      type: string;
+      text: string | null;
+      mediaUrl: string | null;
+    };
+    timestamp: string;
   };
   missedCall?: {
     callerNumber: string;
@@ -583,6 +643,22 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
   if (input?.useTestCalendar === true) context.useTestCalendar = true;
   if (optionalString(input?.testSessionId)) context.testSessionId = optionalString(input?.testSessionId);
 
+  if (input?.whatsapp) {
+    context.whatsapp = input.whatsapp;
+    context.contact = input.whatsapp.contact;
+    context.customer = input.whatsapp.customer;
+    context.message = input.whatsapp.message;
+    context.caller_number = input.whatsapp.contact.phone;
+    if (input.whatsapp.contact.name) context.caller_name = input.whatsapp.contact.name;
+    if (input.whatsapp.message.text) {
+      context.latestMessage = input.whatsapp.message.text;
+      context.inboundSms = {
+        body: input.whatsapp.message.text,
+        attachments: context.inboundSms?.attachments
+      };
+    }
+  }
+
   return context;
 }
 
@@ -592,6 +668,18 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
       createLog(node, "success", "Input fired.", {
         message: context.inboundSms?.body || context.latestMessage || "No custom message",
         attachmentsCount: Array.isArray(context.inboundSms?.attachments) ? context.inboundSms.attachments.length : 0
+      })
+    );
+    return;
+  }
+
+  if (asString(node.data?.type) === "trigger.whatsapp_message_received") {
+    logs.push(
+      createLog(node, "success", "WhatsApp message received.", {
+        connectionId: context.whatsapp?.connectionId,
+        contact: context.contact ?? context.whatsapp?.contact,
+        message: context.message ?? context.whatsapp?.message,
+        timestamp: context.whatsapp?.timestamp
       })
     );
     return;
@@ -1891,7 +1979,314 @@ async function runConnectorNode({
     return;
   }
 
+  if (connector === "whatsapp") {
+    await runWhatsAppConnectorNode({
+      userId,
+      node,
+      context,
+      logs,
+      mode
+    });
+    return;
+  }
+
   logs.push(createLog(node, "error", `Unsupported connector: ${connector}`));
+}
+
+async function runWhatsAppConnectorNode({
+  userId,
+  node,
+  context,
+  logs,
+  mode
+}: {
+  userId: string;
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+}) {
+  const action = asString(node.data?.connectorAction, "send_text");
+  const connectionId =
+    asString(node.data?.connectionId) || asString(context.whatsapp?.connectionId);
+
+  const recipient =
+    renderTemplate(node.data?.recipient ?? node.data?.whatsappTo, context) ||
+    context.contact?.phone ||
+    context.customer?.phone ||
+    context.caller_number ||
+    "";
+
+  if (!connectionId) {
+    logs.push(createLog(node, "error", "WhatsApp send failed: connectionId is required."));
+    return;
+  }
+  try {
+    const whatsappResult = { status: "sent" as string | null, wamid: null as string | null };
+    const setContextResult = () => {
+      const base = (context.whatsapp ?? {}) as Record<string, unknown>;
+      context.whatsapp = {
+        ...base,
+        status: whatsappResult.status,
+        wamid: whatsappResult.wamid
+      } as any;
+    };
+
+    if (action === "send_text" || action === "send_whatsapp" || action === "send_message") {
+      const whatsappMessageType = asString(node.data?.whatsappMessageType ?? "text").toLowerCase();
+      const recipientValue = recipient;
+      const messageFallback =
+        renderTemplate(node.data?.message ?? node.data?.whatsappBody ?? node.data?.smsBody, context) ||
+        context.ai?.output ||
+        "";
+
+      if (!recipientValue) {
+        logs.push(createLog(node, "error", "WhatsApp send failed: recipient is required."));
+        return;
+      }
+
+      if (whatsappMessageType === "text") {
+        const message = messageFallback;
+        if (!message) {
+          logs.push(createLog(node, "error", "WhatsApp text send failed: message is required."));
+          return;
+        }
+
+        if (mode !== "live") {
+          whatsappResult.status = "dry_run";
+          whatsappResult.wamid = null;
+          setContextResult();
+          logs.push(
+            createLog(node, "success", "Dry run passed. WhatsApp text would be sent.", {
+              connectionId,
+              recipient: recipientValue,
+              message
+            })
+          );
+          return;
+        }
+
+        const result = await WhatsAppService.sendText({
+          connectionId,
+          recipient: recipientValue,
+          message,
+          architectUserId: userId
+        });
+        whatsappResult.status = "sent";
+        whatsappResult.wamid = result.wamid;
+        setContextResult();
+        logs.push(createLog(node, "success", "WhatsApp message sent.", { wamid: result.wamid, to: result.to }));
+        return;
+      }
+
+      if (whatsappMessageType === "image" || whatsappMessageType === "document" || whatsappMessageType === "audio" || whatsappMessageType === "video") {
+        const mediaType = whatsappMessageType as "image" | "document" | "audio" | "video";
+        const mediaId = renderTemplate(node.data?.mediaId, context) || "";
+        const mediaLink = renderTemplate(node.data?.mediaLink, context) || "";
+        const caption = renderTemplate(node.data?.caption ?? messageFallback, context) || undefined;
+        const filename = renderTemplate(node.data?.filename, context) || undefined;
+
+        if (!mediaId && !mediaLink) {
+          logs.push(createLog(node, "error", "WhatsApp send failed: mediaId or mediaLink is required."));
+          return;
+        }
+
+        if (mode !== "live") {
+          whatsappResult.status = "dry_run";
+          whatsappResult.wamid = null;
+          setContextResult();
+          logs.push(
+            createLog(node, "success", `Dry run passed. WhatsApp ${mediaType} would be sent.`, {
+              connectionId,
+              recipient: recipientValue,
+              mediaType
+            })
+          );
+          return;
+        }
+
+        const result = await WhatsAppService.sendMedia({
+          connectionId,
+          architectUserId: userId,
+          recipient: recipientValue,
+          mediaType,
+          mediaId: mediaId || undefined,
+          mediaLink: mediaLink || undefined,
+          caption,
+          filename
+        });
+        whatsappResult.status = "sent";
+        whatsappResult.wamid = result.wamid;
+        setContextResult();
+        logs.push(createLog(node, "success", `WhatsApp ${mediaType} sent.`, { wamid: result.wamid, to: result.to }));
+        return;
+      }
+
+      if (whatsappMessageType === "template") {
+        const templateName = asString(node.data?.templateName);
+        const languageCode = renderTemplate(node.data?.languageCode, context) || "en_US";
+        if (!templateName) {
+          logs.push(createLog(node, "error", "WhatsApp template send failed: templateName is required."));
+          return;
+        }
+
+        if (mode !== "live") {
+          whatsappResult.status = "dry_run";
+          whatsappResult.wamid = null;
+          setContextResult();
+          logs.push(
+            createLog(node, "success", "Dry run passed. WhatsApp template would be sent.", {
+              connectionId,
+              recipient: recipientValue,
+              templateName
+            })
+          );
+          return;
+        }
+
+        const result = await WhatsAppService.sendTemplate({
+          connectionId,
+          architectUserId: userId,
+          recipient: recipientValue,
+          templateName,
+          languageCode
+        });
+        whatsappResult.status = "sent";
+        whatsappResult.wamid = result.wamid;
+        setContextResult();
+        logs.push(createLog(node, "success", "WhatsApp template sent.", { wamid: result.wamid, to: result.to }));
+        return;
+      }
+    }
+
+    if (action === "send_media") {
+      const mediaType = asString(node.data?.mediaType);
+      const mediaId = renderTemplate(node.data?.mediaId, context) || "";
+      const mediaLink = renderTemplate(node.data?.mediaLink, context) || "";
+      const caption = renderTemplate(node.data?.caption ?? node.data?.message, context) || undefined;
+      const filename = renderTemplate(node.data?.filename, context) || undefined;
+
+      if (!recipient) {
+        logs.push(createLog(node, "error", "WhatsApp send failed: recipient is required."));
+        return;
+      }
+      if (!mediaType) {
+        logs.push(createLog(node, "error", "WhatsApp send failed: mediaType is required."));
+        return;
+      }
+      if (!mediaId && !mediaLink) {
+        logs.push(createLog(node, "error", "WhatsApp send failed: mediaId or mediaLink is required."));
+        return;
+      }
+
+      if (mode !== "live") {
+        whatsappResult.status = "dry_run";
+        whatsappResult.wamid = null;
+        setContextResult();
+        logs.push(
+          createLog(node, "success", `Dry run passed. WhatsApp ${mediaType} would be sent.`, {
+            connectionId,
+            recipient,
+            mediaType
+          })
+        );
+        return;
+      }
+
+      const result = await WhatsAppService.sendMedia({
+        connectionId,
+        architectUserId: userId,
+        recipient,
+        mediaType: mediaType as "image" | "document" | "audio" | "video",
+        mediaId: mediaId || undefined,
+        mediaLink: mediaLink || undefined,
+        caption,
+        filename
+      });
+      whatsappResult.status = "sent";
+      whatsappResult.wamid = result.wamid;
+      setContextResult();
+      logs.push(createLog(node, "success", `WhatsApp ${mediaType} sent.`, { wamid: result.wamid, to: result.to }));
+      return;
+    }
+
+    if (action === "send_template") {
+      const templateName = asString(node.data?.templateName);
+      const languageCode = renderTemplate(node.data?.languageCode, context) || "en_US";
+      if (!recipient) {
+        logs.push(createLog(node, "error", "WhatsApp template send failed: recipient is required."));
+        return;
+      }
+      if (!templateName) {
+        logs.push(createLog(node, "error", "WhatsApp template send failed: templateName is required."));
+        return;
+      }
+
+      if (mode !== "live") {
+        whatsappResult.status = "dry_run";
+        whatsappResult.wamid = null;
+        setContextResult();
+        logs.push(
+          createLog(node, "success", "Dry run passed. WhatsApp template would be sent.", {
+            connectionId,
+            recipient,
+            templateName
+          })
+        );
+        return;
+      }
+
+      const result = await WhatsAppService.sendTemplate({
+        connectionId,
+        architectUserId: userId,
+        recipient,
+        templateName,
+        languageCode
+      });
+      whatsappResult.status = "sent";
+      whatsappResult.wamid = result.wamid;
+      setContextResult();
+      logs.push(createLog(node, "success", "WhatsApp template sent.", { wamid: result.wamid, to: result.to }));
+      return;
+    }
+
+    if (action === "mark_read") {
+      const messageId = renderTemplate(node.data?.messageId, context);
+      if (!messageId) {
+        logs.push(createLog(node, "error", "WhatsApp mark_read failed: messageId is required."));
+        return;
+      }
+
+      if (mode !== "live") {
+        whatsappResult.status = "dry_run";
+        whatsappResult.wamid = messageId;
+        setContextResult();
+        logs.push(createLog(node, "success", "Dry run passed. WhatsApp message would be marked as read.", { connectionId, messageId }));
+        return;
+      }
+
+      await WhatsAppService.markRead({
+        connectionId,
+        messageId,
+        architectUserId: userId
+      });
+      whatsappResult.status = "read";
+      whatsappResult.wamid = messageId;
+      setContextResult();
+      logs.push(createLog(node, "success", "WhatsApp message marked as read.", { messageId }));
+      return;
+    }
+
+    logs.push(createLog(node, "error", `Unsupported WhatsApp action: ${action}`));
+  } catch (error) {
+    const messageText =
+      error instanceof WhatsAppServiceError
+        ? error.message
+        : error instanceof Error
+          ? error.message
+          : "WhatsApp send failed";
+    logs.push(createLog(node, "error", messageText));
+  }
 }
 
 function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {

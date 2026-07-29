@@ -17,7 +17,8 @@ export type RequiredIntegrationKey =
   | "crm"
   | "webhook"
   | "vapi"
-  | "twilio";
+  | "twilio"
+  | "whatsapp";
 
 export type RequiredIntegrations = Record<RequiredIntegrationKey, boolean>;
 
@@ -40,6 +41,7 @@ export const REQUIRED_INTEGRATION_DEFS: RequiredIntegrationDef[] = [
   { key: "vapi", label: "AI voice (Vapi)", description: "AI voice conversations with callers" },
   { key: "twilio", label: "Telephony (Twilio)", description: "Call forwarding and missed-call detection" },
   { key: "sms", label: "SMS messaging", description: "Send and receive text messages" },
+  { key: "whatsapp", label: "WhatsApp Business", description: "Send and receive WhatsApp messages via Meta Cloud API" },
   { key: "crm", label: "CRM connection", description: "Sync captured leads automatically" },
   { key: "webhook", label: "Custom webhook", description: "Send events to the buyer's systems" }
 ];
@@ -698,6 +700,12 @@ export function workflowUsesSms(workflowJson: unknown): boolean {
   return workflowNodeTypes(workflowJson).some((type) => type.includes("sms"));
 }
 
+export function workflowUsesWhatsApp(workflowJson: unknown): boolean {
+  return workflowNodeTypes(workflowJson).some(
+    (type) => type.includes("whatsapp") || type === "trigger.whatsapp_message_received"
+  );
+}
+
 /** True when the workflow is a voice/call agent (Vapi, phone call, voice conversation). */
 export function workflowUsesVoice(workflowJson: unknown): boolean {
   return workflowNodeTypes(workflowJson).some(
@@ -750,7 +758,8 @@ export function emptyRequiredIntegrations(): RequiredIntegrations {
     crm: false,
     webhook: false,
     vapi: false,
-    twilio: false
+    twilio: false,
+    whatsapp: false
   };
 }
 
@@ -1443,6 +1452,16 @@ export function deriveRequiredIntegrationsFromWorkflow(
     if (type === "trigger.twilio_inbound_sms" || type === "action.send_sms" ||
         type === "communication.send_sms" || combined.includes("sms")) {
       integrations.sms = true;
+    }
+
+    // WhatsApp
+    if (
+      type === "trigger.whatsapp_message_received" ||
+      type === "action.send_whatsapp" ||
+      type === "communication.send_whatsapp" ||
+      combined.includes("whatsapp")
+    ) {
+      integrations.whatsapp = true;
     }
 
     // Google Calendar

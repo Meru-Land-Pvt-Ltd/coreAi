@@ -21,6 +21,7 @@ import { legalRoutes } from "./modules/legal/routes";
 import { publicBookingRoutes } from "./modules/public/booking-routes";
 import { chatbotRoutes } from "./modules/chatbot/routes";
 import { supportRoutes } from "./modules/support/routes";
+import { integrationsRoutes } from "./modules/integrations/routes";
 
 export const app = new Hono();
 
@@ -41,6 +42,7 @@ app.route("/health", healthRoutes);
 app.route("/auth", authRoutes);
 app.route("/architect", architectRoutes);
 app.route("/business", businessRoutes);
+app.route("/integrations", integrationsRoutes);
 app.route("/mail", mailRoutes);
 app.route("/admin", adminRoutes);
 app.route("/payments", paymentRoutes);
