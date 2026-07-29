@@ -548,7 +548,7 @@ function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
       knowledge: input?.knowledge ?? [],
       calendarId: optionalString(input?.calendarId) ?? env.GOOGLE_CALENDAR_ID ?? "primary",
       timeZone: optionalString(input?.timeZone) ?? env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
-      vapiAssistantId: optionalString(input?.vapiAssistantId) ?? env.VAPI_DEFAULT_ASSISTANT_ID,
+      vapiAssistantId: optionalString(input?.vapiAssistantId),
       vapiPhoneNumberId: optionalString(input?.vapiPhoneNumberId) ?? env.VAPI_DEFAULT_PHONE_NUMBER_ID,
       hours: input?.businessHours,
       assistantName: optionalString(input?.assistantName)

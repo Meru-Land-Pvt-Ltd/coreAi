@@ -1,6 +1,11 @@
 import { normalizeTimeZone, VOICE_TOOL_NAMES } from "@coreai/shared";
 import { normalizeAiProvider, type ResolvedVoicePipeline } from "../compliance/workspace-ai-guard";
-import { PLATFORM_DEFAULT_VOICE_ID, isKnownVoicePresetId, resolvePresetVoiceId } from "./voice-presets";
+import {
+  PLATFORM_DEFAULT_VOICE_ID,
+  isKnownVoicePresetId,
+  resolvePresetVoiceId,
+  voiceProviderForPreset
+} from "./voice-presets";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { getProviderRegistry } from "../ai-provider-engine/ai-provider-engine";
@@ -95,8 +100,8 @@ export function getVoiceAnswerStatus() {
     vapiApiKeyConfigured,
     defaultAssistantConfigured,
     defaultAssistantNote: defaultAssistantConfigured
-      ? "Legacy global fallback assistant is configured."
-      : "Production multi-business setup does not require VAPI_DEFAULT_ASSISTANT_ID. Buyer deploy stores InstalledAgent.configJson.vapiAssistantId.",
+      ? "VAPI_DEFAULT_ASSISTANT_ID is set but IGNORED — assistants are per installed agent, stored in InstalledAgent.configJson.vapiAssistantId."
+      : "Assistants are created per installed agent at deploy and stored in InstalledAgent.configJson.vapiAssistantId.",
     defaultPhoneNumberIdConfigured,
     defaultPhoneNumberIdNote: defaultPhoneNumberIdConfigured
       ? "Legacy global fallback phone number id is configured."
@@ -119,20 +124,7 @@ export async function ensureBusinessVapiAssistant(businessId: string): Promise<s
   const existing = business.profile?.vapiAssistantId;
   if (isRealId(existing)) return existing as string;
 
-  const legacyFallbackAssistantId = env.VAPI_DEFAULT_ASSISTANT_ID;
-
-  if (!isRealId(legacyFallbackAssistantId)) {
-    return null;
-  }
-
-  if (business.profile) {
-    await prisma.businessProfile.update({
-      where: { businessId },
-      data: { vapiAssistantId: legacyFallbackAssistantId }
-    });
-  }
-
-  return legacyFallbackAssistantId ?? null;
+  return null;
 }
 
 export type VapiCallDetails = {
@@ -261,7 +253,9 @@ export type VapiBusinessContext = {
 };
 
 function requireVapiConfig(assistantId?: string | null, phoneNumberId?: string | null) {
-  const resolvedAssistantId = clean(assistantId) || clean(env.VAPI_DEFAULT_ASSISTANT_ID);
+  // Assistant ids come from the database (InstalledAgent.configJson), never
+  // from a platform-wide env default — two buyers must never share one.
+  const resolvedAssistantId = clean(assistantId);
   const resolvedPhoneNumberId = clean(phoneNumberId) || clean(env.VAPI_DEFAULT_PHONE_NUMBER_ID);
 
   if (!env.VAPI_API_KEY || !resolvedAssistantId || !resolvedPhoneNumberId) {
@@ -436,7 +430,9 @@ export async function createVapiInboundTwiml({
   businessHours?: VapiBusinessHoursVariables | null;
   firstMessageOverride?: string | null;
 }): Promise<string | null> {
-  const resolvedAssistantId = clean(assistantId) || clean(env.VAPI_DEFAULT_ASSISTANT_ID);
+  // Assistant ids come from the database (InstalledAgent.configJson), never
+  // from a platform-wide env default — two buyers must never share one.
+  const resolvedAssistantId = clean(assistantId);
 
   if (!env.VAPI_API_KEY || !isRealId(resolvedAssistantId) || !callerNumber) {
     return null;
@@ -556,23 +552,26 @@ export function resolveVapiVoice(input: {
     }
   });
 
-  const idBased = (voiceId: string) => {
+  const idBased = (voiceId: string, presetProvider?: "11labs" | "cartesia") => {
     if (!voiceId || !looksLikeVoiceId(voiceId) || matchVapiBuiltinVoice(voiceId)) {
       return vapiBuiltin(voiceId);
     }
 
-    const provider = explicitProvider && explicitProvider !== "vapi" ? explicitProvider : "11labs";
+    const provider =
+      presetProvider ??
+      (explicitProvider && explicitProvider !== "vapi" ? explicitProvider : "11labs");
 
     return {
       config: {
         provider,
         voiceId,
-        ...(provider === "11labs" ? { model: env.VAPI_ELEVENLABS_MODEL } : {})
+        ...(provider === "11labs" ? { model: env.VAPI_ELEVENLABS_MODEL } : {}),
+        ...(provider === "cartesia" ? { model: env.CARTESIA_TTS_MODEL } : {})
       }
     };
   };
   if (isKnownPreset) {
-    return idBased(resolvePresetVoiceId(voiceName));
+    return idBased(resolvePresetVoiceId(voiceName), voiceProviderForPreset(voiceName));
   }
 
   const customVoiceId = looksLikeVoiceId(explicitVoiceId)

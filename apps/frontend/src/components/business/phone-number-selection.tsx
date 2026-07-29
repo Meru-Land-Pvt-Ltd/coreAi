@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  assignBusinessPhoneNumber,
   getBusinessPhoneAssignment,
   getPhoneCities,
   getPhoneCountries,
@@ -116,6 +117,9 @@ export function PhoneNumberSelectionSection({
   // search/assign flow is hidden and only the assigned number is shown.
   const [assignment, setAssignment] = useState<BusinessPhoneAssignment | null>(null);
   const [assignmentChecked, setAssignmentChecked] = useState(false);
+  const [availableToAssign, setAvailableToAssign] = useState<BusinessPhoneAssignment[]>([]);
+  const [otherAgentNumberCount, setOtherAgentNumberCount] = useState(0);
+  const [assigning, setAssigning] = useState("");
   const [country, setCountry] = useState("");
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
@@ -161,13 +165,24 @@ export function PhoneNumberSelectionSection({
   // Existing assignment check — reloads and new tabs land on the assigned
   // number instead of the search flow, so a second purchase is impossible.
   useEffect(() => {
-    void getBusinessPhoneAssignment().then((res) => {
+    void getBusinessPhoneAssignment(installedAgentId ?? undefined).then((res) => {
       setAssignmentChecked(true);
-      if (res.success && res.data && "assigned" in res.data && res.data.assigned) {
-        setAssignment(res.data);
+      if (!res.success || !res.data) return;
+
+      // This agent's own number, if it already has one.
+      const own = res.data.assignedToThisAgent;
+      if (own) {
+        setAssignment(own);
+      } else if ("assigned" in res.data && res.data.assigned && !("assignedToThisAgent" in res.data)) {
+        // Older backend that only returns the flat shape.
+        setAssignment(res.data as BusinessPhoneAssignment);
       }
+
+      // Numbers the business paid for and has not locked to any agent.
+      setAvailableToAssign(res.data.availableToAssign ?? []);
+      setOtherAgentNumberCount((res.data.lockedToOtherAgents ?? []).length);
     });
-  }, []);
+  }, [installedAgentId]);
 
   // Country picked → load that country's states (never purchases anything).
   useEffect(() => {
@@ -332,6 +347,21 @@ export function PhoneNumberSelectionSection({
     );
   }
 
+  const handleAssign = async (phoneNumber: string) => {
+    if (!installedAgentId) return;
+    setAssigning(phoneNumber);
+    const res = await assignBusinessPhoneNumber({ installedAgentId, phoneNumber });
+    setAssigning("");
+    if (res.success && res.data) {
+      const claimed = availableToAssign.find((row) => row.phoneNumber === phoneNumber) ?? null;
+      setAssignment(claimed);
+      setAvailableToAssign([]);
+      onProvisioned?.(phoneNumber);
+    } else {
+      setPurchaseError(res.error ?? "Could not assign that number.");
+    }
+  };
+
   // Existing active assignment: show the number, never the search/assign flow.
   if (assignment) {
     return (
@@ -368,6 +398,52 @@ export function PhoneNumberSelectionSection({
     );
   }
 
+  // The business already paid for a number no agent has claimed — assign it
+  // rather than buying another. Same card language as the assigned state.
+  if (availableToAssign.length > 0 && installedAgentId) {
+    return (
+      <div className="flex items-start gap-3.5" data-testid="business-setup-phone-available-list">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-amber-500 shrink-0 mt-0.5">
+          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z" />
+        </svg>
+        <div className="w-full">
+          <p className="text-sm font-semibold text-slate-800">Assign a number to this agent</p>
+          <p className="mt-1 text-xs text-slate-500">
+            You already have {availableToAssign.length === 1 ? "a number" : "numbers"} that no agent is using. Each agent keeps its own number.
+          </p>
+
+          <div className="mt-3 space-y-2">
+            {availableToAssign.map((option) => (
+              <div
+                key={option.phoneNumber}
+                className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+                data-testid="business-setup-phone-available-option"
+              >
+                <div className="min-w-0">
+                  <p className="font-mono text-sm font-bold text-slate-900">{option.phoneNumber}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {[option.locality, option.region, option.country].filter(Boolean).join(", ") || "Location on file"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleAssign(option.phoneNumber)}
+                  disabled={Boolean(assigning)}
+                  className="shrink-0 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  data-testid="business-setup-phone-assign-confirm"
+                >
+                  {assigning === option.phoneNumber ? "Assigning…" : "Assign"}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {purchaseError ? <p className="mt-2 text-xs text-red-600">{purchaseError}</p> : null}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-start gap-3.5" data-testid="business-setup-number-selection">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-amber-500 shrink-0 mt-0.5">
@@ -378,6 +454,12 @@ export function PhoneNumberSelectionSection({
         <p className="mt-1 text-xs text-slate-500">
           {catalogueNote || "Number availability depends on carrier inventory and local regulatory requirements."}
         </p>
+        {otherAgentNumberCount > 0 ? (
+          <p className="mt-1 text-xs text-slate-500" data-testid="business-setup-phone-other-agents-note">
+            Your other {otherAgentNumberCount === 1 ? "agent is" : "agents are"} using{" "}
+            {otherAgentNumberCount === 1 ? "a number" : `${otherAgentNumberCount} numbers`}. Each agent needs its own.
+          </p>
+        ) : null}
 
         {catalogueLoading ? (
           <p className="mt-3 text-sm text-slate-500" data-testid="business-setup-phone-locations-loading">

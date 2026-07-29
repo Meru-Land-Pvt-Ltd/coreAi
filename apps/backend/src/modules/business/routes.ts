@@ -27,8 +27,11 @@ import {
   supportsLocalityFilter
 } from "../../lib/phone-locations";
 import { PhoneNumberServiceError } from "../admin/twilio-number-service";
+import { assignPlatformNumber } from "./phone-assignment";
 import {
-  getBusinessPhoneAssignment,
+  getAgentPhoneAssignment,
+  listBusinessPhoneAssignments,
+  listUnassignedBusinessNumbers,
   getProvisioningRequestStatus,
   purchaseNumberForBusiness,
   searchNumbersForBusiness
@@ -93,8 +96,12 @@ import { deleteTestCalendarEvent } from "../architect/test-calendar-events";
 import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
 import {
   findBuyerPlatformNumber,
+  getPhoneNumberFeeForPlatformNumber,
   workflowNeedsPhoneNumber
 } from "./phone-provisioning";
+import {
+  addPhoneNumberFeeToPendingInvoiceTx
+} from "./phone-number-invoice";
 import {
   createOrUpdateBusinessEmailAlias,
   generateSuggestedAlias,
@@ -650,7 +657,17 @@ businessRoutes.get("/dashboard", async (c) => {
   return successResponse(c, {
     business: { id: business.id, name: business.name, type: business.type },
     installedAgent: installedAgent
-      ? { id: installedAgent.id, name: installedAgent.name, status: installedAgent.status }
+      ? {
+        id: installedAgent.id,
+        name: installedAgent.name,
+        status: installedAgent.status,
+        vapiAssistantId:
+          installedAgent.configJson &&
+            typeof installedAgent.configJson === "object" &&
+            !Array.isArray(installedAgent.configJson)
+            ? ((installedAgent.configJson as Record<string, unknown>).vapiAssistantId as string | null) ?? null
+            : null
+      }
       : null,
     phoneNumber: phoneNumber
       ? { phoneNumber: phoneNumber.phoneNumber, forwardToPhone: phoneNumber.forwardToPhone }
@@ -1238,11 +1255,177 @@ businessRoutes.get("/phone-numbers/assignment", async (c) => {
   const businessId = await requireOwnedBusinessId(authUser.id);
 
   if (!businessId) {
-    return successResponse(c, { assigned: false });
+    return successResponse(c, { assigned: false, availableToAssign: [], lockedToOtherAgents: [] });
   }
 
-  const assignment = await getBusinessPhoneAssignment(businessId);
-  return successResponse(c, assignment ?? { assigned: false });
+  const requestedAgentId = c.req.query("installedAgentId")?.trim() || undefined;
+  const installedAgentId = await resolveOwnedInstalledAgentId(authUser.id, businessId, requestedAgentId);
+  if (installedAgentId === null) {
+    return errorResponse(c, "Agent not found for this business.", 404, "AGENT_NOT_FOUND");
+  }
+
+  const [assignedToThisAgent, availableToAssign, owned] = await Promise.all([
+    installedAgentId ? getAgentPhoneAssignment(businessId, installedAgentId) : Promise.resolve(null),
+    listUnassignedBusinessNumbers(businessId),
+    listBusinessPhoneAssignments(businessId)
+  ]);
+
+  // Numbers held by the buyer's OTHER agents — shown so the buyer understands
+  // why they cannot reuse one, never as something they can pick.
+  const lockedElsewhere = await prisma.businessPhoneNumber.findMany({
+    where: {
+      businessId,
+      isActive: true,
+      installedAgentId: installedAgentId ? { not: installedAgentId } : { not: null }
+    },
+    select: { phoneNumber: true, installedAgentId: true }
+  });
+
+  return successResponse(c, {
+    // Kept so existing callers that read the flat shape keep working.
+    ...(assignedToThisAgent ?? { assigned: false }),
+    assignedToThisAgent,
+    availableToAssign,
+    lockedToOtherAgents: lockedElsewhere,
+    ownedCount: owned.length,
+    /** False while a paid-for number is sitting unassigned. */
+    canBuyMore: availableToAssign.length === 0 && !assignedToThisAgent
+  });
+});
+
+const phoneAssignSchema = z.object({
+  installedAgentId: z.string().trim().min(1),
+  phoneNumber: z.string().trim().min(5),
+  forwardToPhone: z.string().trim().optional()
+});
+
+/** Lock a number the business already owns to one of its agents. */
+businessRoutes.post("/phone-numbers/assign", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) {
+    return errorResponse(c, "No business found for this account.", 404, "BUSINESS_NOT_FOUND");
+  }
+
+  const parsed = phoneAssignSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return errorResponse(c, "installedAgentId and phoneNumber are required.", 422, "INVALID_INPUT");
+  }
+
+  const installedAgentId = await resolveOwnedInstalledAgentId(
+    authUser.id,
+    businessId,
+    parsed.data.installedAgentId
+  );
+  if (!installedAgentId) {
+    return errorResponse(c, "Agent not found for this business.", 404, "AGENT_NOT_FOUND");
+  }
+
+  try {
+    const pricingNumber = await prisma.platformPhoneNumber.findFirst({
+      where: {
+        phoneNumber: parsed.data.phoneNumber,
+        businessId,
+        status: "ASSIGNED",
+        isPlatformSmsSender: false
+      },
+      select: { id: true }
+    });
+    if (!pricingNumber) {
+      return errorResponse(
+        c,
+        "That number is not one of your business's numbers.",
+        409,
+        "PHONE_NUMBER_TAKEN"
+      );
+    }
+    const phoneNumberFee = await getPhoneNumberFeeForPlatformNumber(
+      pricingNumber.id,
+      { refreshFromTwilio: true }
+    );
+
+    const assigned = await prisma.$transaction(async (tx) => {
+      // Same lock the purchase flow takes — assignment and provisioning must
+      // never interleave for one business.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`business-number-assignment:${businessId}`}))`;
+
+      const platform = await tx.platformPhoneNumber.findFirst({
+        where: {
+          phoneNumber: parsed.data.phoneNumber,
+          businessId,
+          status: "ASSIGNED",
+          isPlatformSmsSender: false
+        }
+      });
+      if (!platform) {
+        throw new PhoneNumberServiceError(
+          "That number is not one of your business's numbers.",
+          409,
+          "PHONE_NUMBER_TAKEN"
+        );
+      }
+
+      const lockedTo = await tx.businessPhoneNumber.findFirst({
+        where: { phoneNumber: parsed.data.phoneNumber, isActive: true, installedAgentId: { not: null } },
+        select: { installedAgentId: true }
+      });
+      if (lockedTo && lockedTo.installedAgentId !== installedAgentId) {
+        throw new PhoneNumberServiceError(
+          "That number is already assigned to another agent.",
+          409,
+          "PHONE_NUMBER_LOCKED_TO_AGENT"
+        );
+      }
+
+      const agentNumber = await tx.businessPhoneNumber.findFirst({
+        where: { businessId, installedAgentId, isActive: true },
+        select: { phoneNumber: true }
+      });
+      if (agentNumber && agentNumber.phoneNumber !== parsed.data.phoneNumber) {
+        throw new PhoneNumberServiceError(
+          "This agent already has a number. Each agent keeps one number.",
+          409,
+          "AGENT_ALREADY_HAS_NUMBER"
+        );
+      }
+
+      await assignPlatformNumber(tx, {
+        platform,
+        businessId,
+        installedAgentId,
+        buyerUserId: authUser.id,
+        forwardToPhone: parsed.data.forwardToPhone ?? null
+      });
+      await addPhoneNumberFeeToPendingInvoiceTx(
+        tx,
+        {
+          platformPhoneNumberId: platform.id,
+          businessId,
+          installedAgentId,
+          chargedAt: new Date()
+        },
+        phoneNumberFee
+      );
+
+      return platform.phoneNumber;
+    });
+
+    return successResponse(c, { assigned: true, phoneNumber: assigned, installedAgentId });
+  } catch (error) {
+    if (error instanceof PhoneNumberServiceError) {
+      return errorResponse(c, error.message, error.status as 409, error.code);
+    }
+    // The unique index is the real lock — a race lands here.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return errorResponse(
+        c,
+        "That number was just assigned to another agent.",
+        409,
+        "PHONE_NUMBER_LOCKED_TO_AGENT"
+      );
+    }
+    throw error;
+  }
 });
 
 businessRoutes.get("/phone-numbers/provisioning/:clientRequestId", async (c) => {
@@ -1277,12 +1460,7 @@ businessRoutes.post("/agents/:installedAgentId/pause", async (c) => {
     return errorResponse(c, "Only an active agent can be paused.", 409, "AGENT_NOT_ACTIVE");
   }
 
-  // Compare-and-set on status: the row transitions ACTIVE→PAUSED atomically
-  // and records pausedAt in the same statement. A concurrent pause loses the
-  // race harmlessly (count 0) and reads back the settled state. Live paths
-  // re-read status per webhook AND immediately before every Vapi POST, so an
-  // execution can no longer slip through between gate and provider call.
-  const pausedAt = new Date();
+ const pausedAt = new Date();
   const transitioned = await prisma.installedAgent.updateMany({
     where: { id: agent.id, status: "ACTIVE" },
     data: { status: "PAUSED", pausedAt }
@@ -2051,10 +2229,14 @@ function buildSetupReadiness(
   listingId?: string | null
 ) {
   const profile = business?.profile ?? null;
-  const phone = business?.phoneNumbers?.[0] ?? null;
   const installedAgent = listingId
     ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
     : business?.installedAgents?.[0] ?? null;
+  // One number per agent: showing the business's first number here would make
+  // a second agent's wizard claim it already has the first agent's number.
+  const phone = installedAgent
+    ? business?.phoneNumbers?.find((row) => row.installedAgentId === installedAgent.id) ?? null
+    : business?.phoneNumbers?.find((row) => !row.installedAgentId) ?? null;
   const workflowJson = installedAgent?.workflow?.workflowJson ?? null;
 
   const config = (installedAgent?.configJson ?? null) as Record<string, unknown> | null;
@@ -2480,7 +2662,12 @@ businessRoutes.post("/setup", async (c) => {
       }
     });
 
-    const existingPhone = existing?.phoneNumbers?.[0] ?? null;
+    const phoneAgentForSetup = input.listingId
+      ? existing?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
+      : existing?.installedAgents?.[0] ?? null;
+    const existingPhone = phoneAgentForSetup
+      ? existing?.phoneNumbers?.find((row) => row.installedAgentId === phoneAgentForSetup.id) ?? null
+      : null;
 
     let targetPlatform: Awaited<ReturnType<typeof prisma.platformPhoneNumber.findFirst>> = null;
     const selectedId = input.selectedPlatformPhoneNumberId?.trim();
@@ -2801,11 +2988,27 @@ businessRoutes.post("/setup", async (c) => {
       }
     }
 
+    if (resolved.listingId) {
+      await prisma.payment.updateMany({
+        where: {
+          userId: authUser.id,
+          listingId: resolved.listingId,
+          installedAgentId: null,
+          OR: [{ businessId: business.id }, { businessId: null }]
+        },
+        data: {
+          businessId: business.id,
+          installedAgentId: installedAgent.id
+        }
+      });
+    }
+
     const billingNow = new Date();
     const [blockingUsageDebt, blockingAgentDebt] = await Promise.all([
       prisma.businessUsageInvoice.count({
         where: {
           businessId: business.id,
+          installedAgentId: installedAgent.id,
           status: "OVERDUE",
           OR: [
             { suspendedAt: { not: null } },
@@ -2819,9 +3022,19 @@ businessRoutes.post("/setup", async (c) => {
               userId: authUser.id,
               listingId: resolved.listingId,
               status: "OVERDUE",
-              OR: [
-                { suspendedAt: { not: null } },
-                { graceEndsAt: { lte: billingNow } }
+              AND: [
+                {
+                  OR: [
+                    { installedAgentId: installedAgent.id },
+                    { installedAgentId: null }
+                  ]
+                },
+                {
+                  OR: [
+                    { suspendedAt: { not: null } },
+                    { graceEndsAt: { lte: billingNow } }
+                  ]
+                }
               ]
             }
           })
@@ -2858,6 +3071,28 @@ businessRoutes.post("/setup", async (c) => {
       }
     }
 
+    const selectedPlatformNumberId =
+      targetPlatform?.id ??
+      (
+        existingPhone
+          ? await prisma.platformPhoneNumber.findFirst({
+              where: {
+                phoneNumber: existingPhone.phoneNumber,
+                businessId: business.id,
+                status: "ASSIGNED",
+                isPlatformSmsSender: false
+              },
+              select: { id: true }
+            })
+          : null
+      )?.id ??
+      null;
+    const selectedPhoneFee = selectedPlatformNumberId
+      ? await getPhoneNumberFeeForPlatformNumber(selectedPlatformNumberId, {
+          refreshFromTwilio: true
+        })
+      : null;
+
     if (targetPlatform) {
       const targetNumber = normalizePhoneNumber(targetPlatform.phoneNumber);
 
@@ -2885,7 +3120,11 @@ businessRoutes.post("/setup", async (c) => {
             throw new Error("PHONE_NUMBER_TAKEN");
           }
 
-          if (existingPhone && existingPhone.phoneNumber !== targetNumber) {
+          if (
+            existingPhone &&
+            existingPhone.phoneNumber !== targetNumber &&
+            existingPhone.installedAgentId === installedAgent.id
+          ) {
             await tx.platformPhoneNumber.updateMany({
               where: { phoneNumber: existingPhone.phoneNumber, businessId: business.id },
               data: {
@@ -2929,9 +3168,23 @@ businessRoutes.post("/setup", async (c) => {
             data: {
               status: "ASSIGNED",
               businessId: business.id,
+              buyerUserId: authUser.id,
+              installedAgentId: installedAgent.id,
               assignedAt: fresh.assignedAt ?? new Date()
             }
           });
+          if (selectedPhoneFee) {
+            await addPhoneNumberFeeToPendingInvoiceTx(
+              tx,
+              {
+                platformPhoneNumberId: targetPlatform.id,
+                businessId: business.id,
+                installedAgentId: installedAgent.id,
+                chargedAt: new Date()
+              },
+              selectedPhoneFee
+            );
+          }
 
           // Release any other number still reserved for this buyer at
           // purchase time (businessId null) — they went with a different one,
@@ -2963,13 +3216,46 @@ businessRoutes.post("/setup", async (c) => {
         return errorResponse(c, "That phone number is already assigned to another business.", 409, "PHONE_NUMBER_TAKEN");
       }
     } else if (existingPhone) {
-      businessPhone = await prisma.businessPhoneNumber.update({
-        where: { id: existingPhone.id },
-        data: {
-          forwardToPhone: forward,
-          installedAgentId: installedAgent.id,
-          isActive: true
+      businessPhone = await prisma.$transaction(async (tx) => {
+        const mapping = await tx.businessPhoneNumber.update({
+          where: { id: existingPhone.id },
+          data: {
+            forwardToPhone: forward,
+            installedAgentId: installedAgent.id,
+            isActive: true
+          }
+        });
+        const assigned = await tx.platformPhoneNumber.findFirst({
+          where: {
+            phoneNumber: existingPhone.phoneNumber,
+            businessId: business.id,
+            status: "ASSIGNED",
+            isPlatformSmsSender: false
+          },
+          select: { id: true }
+        });
+        if (assigned) {
+          await tx.platformPhoneNumber.update({
+            where: { id: assigned.id },
+            data: {
+              buyerUserId: authUser.id,
+              installedAgentId: installedAgent.id
+            }
+          });
+          if (selectedPhoneFee) {
+            await addPhoneNumberFeeToPendingInvoiceTx(
+              tx,
+              {
+                platformPhoneNumberId: assigned.id,
+                businessId: business.id,
+                installedAgentId: installedAgent.id,
+                chargedAt: new Date()
+              },
+              selectedPhoneFee
+            );
+          }
         }
+        return mapping;
       });
     }
 

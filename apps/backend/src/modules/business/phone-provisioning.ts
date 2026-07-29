@@ -1,17 +1,24 @@
 import type { PlatformPhoneNumber } from "@prisma/client";
 import { requiredConnectorsForWorkflow } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
+import {
+  fetchTwilioMonthlyNumberPrice,
+  PhoneNumberServiceError
+} from "../admin/twilio-number-service";
 
 export const PHONE_NUMBER_SERVICE_CODE = "phone_number";
 
-export const PHONE_NUMBER_LINE_LABEL = "AI Receptionist No.";
+export const PHONE_NUMBER_LINE_LABEL = "Dedicated Business Phone Number";
 
-export const PHONE_NUMBER_FEE_ENABLED = false;
+export const PHONE_NUMBER_FEE_ENABLED = true;
 
 export const PHONE_NUMBER_BILLING_DISABLED_MESSAGE =
   "Phone-number billing is currently not enabled.";
 
-export const PHONE_NUMBER_BILLING_CADENCE = "ONE_TIME_PER_ASSIGNED_NUMBER" as const;
+export const PHONE_NUMBER_BILLING_CADENCE = "MONTHLY_PER_ASSIGNED_NUMBER" as const;
+
+export const PHONE_NUMBER_DYNAMIC_PRICING_MESSAGE =
+  "Monthly price is calculated from the assigned number's Twilio cost.";
 
 const PHONE_CONNECTOR_KEYS = new Set(["phone_provider", "twilio"]);
 
@@ -69,44 +76,121 @@ export type PhoneNumberFee = {
   pricingVersion?: string;
 };
 
-export async function getPhoneNumberFee(options?: {
-  /** Test seam only — production callers always use the module flag. */
-  feeEnabled?: boolean;
-}): Promise<PhoneNumberFee> {
-  const enabled = options?.feeEnabled ?? PHONE_NUMBER_FEE_ENABLED;
-  if (!enabled) {
-    return { amountCents: 0, label: PHONE_NUMBER_LINE_LABEL };
+type PhonePricingSnapshot = {
+  provider: PlatformPhoneNumber["provider"];
+  country: string | null;
+  providerMonthlyPriceMicroUsd: number | null;
+  billingMonthlyPriceMicroUsd: number | null;
+  pricingCurrency: string | null;
+  pricingNumberType: string | null;
+  pricingFetchedAt: Date | null;
+};
+
+function feeFromSnapshot(snapshot: PhonePricingSnapshot): PhoneNumberFee | null {
+  if (
+    snapshot.billingMonthlyPriceMicroUsd === null ||
+    snapshot.billingMonthlyPriceMicroUsd <= 0 ||
+    snapshot.pricingCurrency?.toLowerCase() !== "usd"
+  ) {
+    return null;
   }
 
-  const service =
-    (await prisma.platformUsageService.findFirst({
-      where: { code: PHONE_NUMBER_SERVICE_CODE, isActive: true },
-      select: { id: true, code: true, name: true, updatedCostMicroUsd: true, updatedAt: true }
-    })) ??
-    (await prisma.platformUsageService.findFirst({
-      where: {
-        isActive: true,
-        unit: "PER_UNIT",
-        OR: [{ code: { contains: "phone" } }, { code: { contains: "number" } }]
-      },
-      orderBy: { sortOrder: "asc" },
-      select: { id: true, code: true, name: true, updatedCostMicroUsd: true, updatedAt: true }
-    }));
-
-  if (!service) return { amountCents: 0, label: PHONE_NUMBER_LINE_LABEL };
-
   return {
-    amountCents: Math.max(0, Math.round(service.updatedCostMicroUsd / 10_000)),
-    label: service.name || PHONE_NUMBER_LINE_LABEL,
-    serviceCode: service.code,
-    pricingVersion: `${service.id}@${service.updatedAt.toISOString()}`
+    amountCents: Math.round(snapshot.billingMonthlyPriceMicroUsd / 10_000),
+    label: PHONE_NUMBER_LINE_LABEL,
+    serviceCode: PHONE_NUMBER_SERVICE_CODE,
+    pricingVersion: [
+      snapshot.provider.toLowerCase(),
+      snapshot.pricingNumberType ?? "local",
+      snapshot.providerMonthlyPriceMicroUsd ?? "unknown",
+      snapshot.pricingFetchedAt?.toISOString() ?? "unknown"
+    ].join(":")
   };
+}
+
+/**
+ * Resolve the fixed monthly fee for one concrete number. Pricing comes from
+ * Twilio, never PlatformUsageService/admin execution pricing.
+ */
+export async function getPhoneNumberFeeForPlatformNumber(
+  platformPhoneNumberId: string,
+  options?: { refreshFromTwilio?: boolean }
+): Promise<PhoneNumberFee> {
+  const number = await prisma.platformPhoneNumber.findUnique({
+    where: { id: platformPhoneNumberId },
+    select: {
+      provider: true,
+      country: true,
+      providerMonthlyPriceMicroUsd: true,
+      billingMonthlyPriceMicroUsd: true,
+      pricingCurrency: true,
+      pricingNumberType: true,
+      pricingFetchedAt: true
+    }
+  });
+  if (!number) {
+    throw new PhoneNumberServiceError(
+      "Phone number not found while resolving monthly billing.",
+      404,
+      "NUMBER_NOT_FOUND"
+    );
+  }
+
+  const existingFee = feeFromSnapshot(number);
+  if (existingFee && !options?.refreshFromTwilio) return existingFee;
+  if (number.provider !== "TWILIO") {
+    throw new PhoneNumberServiceError(
+      "Monthly pricing is only available for Twilio phone numbers.",
+      422,
+      "PHONE_NUMBER_PRICING_PROVIDER_UNSUPPORTED"
+    );
+  }
+  if (!number.country) {
+    throw new PhoneNumberServiceError(
+      "The phone number has no country, so its monthly Twilio price cannot be resolved.",
+      422,
+      "PHONE_NUMBER_PRICING_COUNTRY_MISSING"
+    );
+  }
+
+  const pricing = await fetchTwilioMonthlyNumberPrice({
+    country: number.country,
+    numberType: "local"
+  });
+  const updated = await prisma.platformPhoneNumber.update({
+    where: { id: platformPhoneNumberId },
+    data: {
+      providerMonthlyPriceMicroUsd: pricing.providerMonthlyPriceMicroUsd,
+      billingMonthlyPriceMicroUsd: pricing.billingMonthlyPriceMicroUsd,
+      pricingCurrency: pricing.currency.toLowerCase(),
+      pricingNumberType: pricing.numberType,
+      pricingFetchedAt: pricing.fetchedAt
+    },
+    select: {
+      provider: true,
+      country: true,
+      providerMonthlyPriceMicroUsd: true,
+      billingMonthlyPriceMicroUsd: true,
+      pricingCurrency: true,
+      pricingNumberType: true,
+      pricingFetchedAt: true
+    }
+  });
+  const fee = feeFromSnapshot(updated);
+  if (!fee) {
+    throw new PhoneNumberServiceError(
+      "The assigned number's Twilio price could not be converted into a monthly fee.",
+      502,
+      "PHONE_NUMBER_PRICE_INVALID"
+    );
+  }
+  return fee;
 }
 
 export type PhoneNumberBillingState = {
   enabled: boolean;
   cadence: typeof PHONE_NUMBER_BILLING_CADENCE;
-  /** Buyer-payable amount when enabled and configured; null when disabled. */
+  /** Varies by assigned number, so it is null until a number is selected. */
   amountCents: number | null;
   currency: "usd";
   serviceCode: string;
@@ -115,9 +199,8 @@ export type PhoneNumberBillingState = {
 };
 
 /**
- * Buyer-safe phone-number billing metadata. When the platform flag is off this
- * reports enabled=false with the honest disabled message — the UI must never
- * show a payable rate that the billing engine silently never charges.
+ * Buyer-safe phone-number billing metadata. The actual amount is determined
+ * from Twilio for the selected number, so no admin execution rate is exposed.
  */
 export async function getPhoneNumberBillingState(options?: {
   feeEnabled?: boolean;
@@ -134,14 +217,13 @@ export async function getPhoneNumberBillingState(options?: {
     };
   }
 
-  const fee = await getPhoneNumberFee({ feeEnabled: true });
   return {
     enabled: true,
     cadence: PHONE_NUMBER_BILLING_CADENCE,
-    amountCents: fee.amountCents,
+    amountCents: null,
     currency: "usd",
-    serviceCode: fee.serviceCode ?? PHONE_NUMBER_SERVICE_CODE,
-    message: null
+    serviceCode: PHONE_NUMBER_SERVICE_CODE,
+    message: PHONE_NUMBER_DYNAMIC_PRICING_MESSAGE
   };
 }
 
@@ -181,37 +263,5 @@ export async function findBuyerPlatformNumber(input: {
       ]
     },
     orderBy: { assignedAt: "desc" }
-  });
-}
-
-/* ------------------------------ fee tracking ------------------------------ */
-
-export type UnbilledPhoneFee = {
-  platformPhoneNumberId: string;
-  fee: PhoneNumberFee;
-};
-
-export async function resolveUnbilledPhoneFee(input: {
-  buyerUserId: string;
-  businessId?: string | null;
-  /** Test seam only — production callers always use the module flag. */
-  feeEnabled?: boolean;
-}): Promise<UnbilledPhoneFee | null> {
-  const number = await findBuyerPlatformNumber(input);
-  if (!number || number.feeBilledAt) return null;
-
-  const fee = await getPhoneNumberFee(
-    input.feeEnabled === undefined ? undefined : { feeEnabled: input.feeEnabled }
-  );
-  if (fee.amountCents <= 0) return null;
-
-  return { platformPhoneNumberId: number.id, fee };
-}
-
-/** Record that the number fee was billed (idempotent — first bill wins). */
-export async function markPhoneNumberFeeBilled(platformPhoneNumberId: string): Promise<void> {
-  await prisma.platformPhoneNumber.updateMany({
-    where: { id: platformPhoneNumberId, feeBilledAt: null },
-    data: { feeBilledAt: new Date() }
   });
 }

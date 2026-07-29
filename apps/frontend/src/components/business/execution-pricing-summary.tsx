@@ -29,7 +29,19 @@ export type BuyerExecutionPricing = {
       billingRateUsd: number;
     }>;
   };
-  sms: { billingRatePerSmsUsd: number | null } | null;
+  sms: {
+    billingRatePerSmsUsd: number | null;
+    billingRateUsd?: number;
+    serviceId?: string;
+    invoiceLabel?: string;
+    unit?: "PER_SMS";
+  } | null;
+  calendar?: {
+    serviceId: string;
+    invoiceLabel: string;
+    unit: "PER_MINUTE" | "PER_SMS" | "PER_CALL" | "PER_UNIT";
+    billingRateUsd: number;
+  } | null;
   phoneNumber: { billingRateUsd: number | null } | null;
   phoneNumberBilling?: PhoneNumberBillingState | null;
 };
@@ -199,11 +211,11 @@ export function ExecutionPricingSummary({
         </div>
       ) : null}
       <div className="flex items-center justify-between gap-2">
-        <span>Dedicated phone number</span>
+        <span>Dedicated Business Phone Number</span>
         <span data-testid="execution-pricing-phone">
           {phoneState && phoneState.enabled && phoneState.amountCents
-            ? `$${(phoneState.amountCents / 100).toFixed(2)} per number`
-            : "Phone-number billing is currently not enabled."}
+            ? `$${(phoneState.amountCents / 100).toFixed(2)} per month`
+            : phoneState?.message ?? "Phone-number billing is currently not enabled."}
         </span>
       </div>
     </div>

@@ -463,6 +463,49 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz!");
   });
 
+  it("a purchased but never-deployed agent shows Go live, not Redeploy", async () => {
+    vi.mocked(getBusinessSetup).mockResolvedValue(
+      setupData({
+        // Straight from checkout: row exists, PROVISIONING, no assistant.
+        installedAgent: { id: "agent-1", status: "PROVISIONING" },
+        installedAgentId: "agent-1"
+      }) as never
+    );
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+    await screen.findByTestId("business-setup-wizard");
+    await user.click(screen.getByTestId("business-setup-dot-4"));
+
+    const wizard = await screen.findByTestId("business-setup-wizard");
+    expect(wizard.textContent).not.toContain("Redeploy");
+    expect(wizard.textContent).toContain("Go live");
+  });
+
+  /**
+   * BusinessProfile.vapiAssistantId is business-wide. One deployed agent used
+   * to make every OTHER agent of that business look deployed.
+   */
+  it("does not treat a sibling agent's deployment as this agent's", async () => {
+    vi.mocked(getBusinessSetup).mockResolvedValue(
+      setupData({
+        // Another agent of this business is live, so the profile carries an id.
+        profile: { vapiAssistantId: "assistant-of-a-different-agent" },
+        // This agent is freshly purchased and has none of its own.
+        installedAgent: { id: "agent-2", status: "PROVISIONING", vapiAssistantId: null },
+        installedAgentId: "agent-2"
+      }) as never
+    );
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+    await screen.findByTestId("business-setup-wizard");
+    await user.click(screen.getByTestId("business-setup-dot-4"));
+
+    const wizard = await screen.findByTestId("business-setup-wizard");
+    expect(wizard.textContent).not.toContain("Redeploy");
+  });
+
   it("the Test step shows the call preview, never an editable hours grid", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(setupData({ installedAgent: null, installedAgentId: null }) as never);
     render(<BusinessAgentSetupPage />);

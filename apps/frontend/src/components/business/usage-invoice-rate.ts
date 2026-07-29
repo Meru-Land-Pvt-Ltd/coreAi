@@ -1,4 +1,5 @@
 export type UsageInvoiceRateInput = {
+  serviceCode?: string;
   unit: string;
   quantity: number;
   billedCostUsd: number;
@@ -42,6 +43,12 @@ export function formatUsageInvoiceAmountUsd(value: number) {
   })}`;
 }
 
+export function usageInvoicePayableCents(lineAmountsUsd: number[]) {
+  return Math.round(
+    lineAmountsUsd.reduce((sum, amount) => sum + amount, 0) * 100
+  );
+}
+
 function roundTo(value: number, fractionDigits: number) {
   const factor = 10 ** fractionDigits;
   return Math.round((value + Number.EPSILON) * factor) / factor;
@@ -57,6 +64,12 @@ export function usageInvoiceDisplayQuantity(service: UsageInvoiceRateInput) {
 export function calculateUsageInvoiceLineAmountUsd(
   service: UsageInvoiceRateInput
 ) {
+  if (
+    service.serviceCode === "phone_number" ||
+    service.serviceCode === "platform_service"
+  ) {
+    return roundTo(service.billedCostUsd, 3);
+  }
   const rate = effectiveUsageInvoiceRateUsd(service);
   if (rate === null || (rate === 0 && service.billedCostUsd > 0)) {
     return roundTo(service.billedCostUsd, 3);
@@ -70,5 +83,23 @@ export function calculateUsageInvoiceLineAmountUsd(
 export function formatUsageInvoiceRate(service: UsageInvoiceRateInput) {
   const rate = effectiveUsageInvoiceRateUsd(service);
   if (rate === null) return "—";
+  if (service.serviceCode === "phone_number") {
+    return formatInvoiceRateUsd(rate);
+  }
   return `${formatInvoiceRateUsd(rate)} / ${usageRateUnitLabel(service.unit)}`;
+}
+
+export function usageInvoiceRowOrder(serviceCode: string) {
+  if (serviceCode === "phone_number") return 0;
+  if (serviceCode === "phone_call_minutes") return 1;
+  if (serviceCode === "platform_service") return 3;
+  return 2;
+}
+
+export function phoneCallBreakdownOrder(serviceCode: string) {
+  if (serviceCode === "twilio_voice") return 0;
+  if (serviceCode === "deepgram_nova3") return 1;
+  if (serviceCode === "openai_gpt4o_mini") return 2;
+  if (serviceCode === "elevenlabs_flash_v25") return 3;
+  return 4;
 }

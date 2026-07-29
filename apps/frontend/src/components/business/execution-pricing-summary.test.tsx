@@ -91,7 +91,7 @@ describe("ExecutionPricingSummary loaded full variant", () => {
     expect(screen.getByTestId("execution-pricing-billing-type").textContent).toBe("Usage based");
   });
 
-  it("renders the phone-number rate when phone-number billing is enabled", () => {
+  it("renders an assigned-number monthly rate when an amount is available", () => {
     const payload = pricingPayload({
       phoneNumberBilling: {
         enabled: true,
@@ -103,7 +103,7 @@ describe("ExecutionPricingSummary loaded full variant", () => {
     });
     render(<ExecutionPricingSummary pricing={payload} loading={false} />);
 
-    expect(screen.getByTestId("execution-pricing-phone").textContent).toBe("$2.00 per number");
+    expect(screen.getByTestId("execution-pricing-phone").textContent).toBe("$2.00 per month");
   });
 
   it("renders agent price Free for 0 cents alongside Usage based execution charges", () => {

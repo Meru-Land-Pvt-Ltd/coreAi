@@ -14,9 +14,62 @@
 
 export const SYNTHETIC_ACCRUAL_ID_PREFIX = "accrued-";
 
+export function billingPeriodForAnchor(
+  purchasedAt: string | undefined,
+  referenceAt: string,
+  fallbackMonth: string
+) {
+  const anchor = purchasedAt ? new Date(purchasedAt) : null;
+  const reference = new Date(referenceAt);
+  if (
+    !anchor ||
+    Number.isNaN(anchor.getTime()) ||
+    Number.isNaN(reference.getTime())
+  ) {
+    const [year, monthNumber] = fallbackMonth.split("-").map(Number);
+    return {
+      start: new Date(Date.UTC(year, monthNumber - 1, 1)).toISOString(),
+      end: new Date(Date.UTC(year, monthNumber, 1)).toISOString()
+    };
+  }
+  const anniversary = (offset: number) => {
+    const absoluteMonth =
+      anchor.getUTCFullYear() * 12 + anchor.getUTCMonth() + offset;
+    const year = Math.floor(absoluteMonth / 12);
+    const month = ((absoluteMonth % 12) + 12) % 12;
+    const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    return new Date(
+      Date.UTC(
+        year,
+        month,
+        Math.min(anchor.getUTCDate(), lastDay),
+        anchor.getUTCHours(),
+        anchor.getUTCMinutes(),
+        anchor.getUTCSeconds(),
+        anchor.getUTCMilliseconds()
+      )
+    );
+  };
+  let offset =
+    (reference.getUTCFullYear() - anchor.getUTCFullYear()) * 12 +
+    reference.getUTCMonth() -
+    anchor.getUTCMonth();
+  let start = anniversary(offset);
+  if (reference < start) {
+    offset -= 1;
+    start = anniversary(offset);
+  }
+  return {
+    start: start.toISOString(),
+    end: anniversary(offset + 1).toISOString()
+  };
+}
+
 export type AccrualCheckInvoice = {
   id?: string;
   billingMonth?: string | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
   status?: string | null;
   isAccruing?: boolean | null;
 };
@@ -59,6 +112,26 @@ function invoiceAgentKeys(invoice: AgentScopedAccrualInvoice) {
   return keys;
 }
 
+function overlapsCalendarMonth(
+  invoice: AccrualCheckInvoice,
+  month: string
+) {
+  if (invoice.billingMonth === month) return true;
+  if (!invoice.periodStart || !invoice.periodEnd) return false;
+  const [year, monthNumber] = month.split("-").map(Number);
+  if (!year || !monthNumber) return false;
+  const monthStart = Date.UTC(year, monthNumber - 1, 1);
+  const monthEnd = Date.UTC(year, monthNumber, 1);
+  const periodStart = new Date(invoice.periodStart).getTime();
+  const periodEnd = new Date(invoice.periodEnd).getTime();
+  return (
+    Number.isFinite(periodStart) &&
+    Number.isFinite(periodEnd) &&
+    periodStart < monthEnd &&
+    periodEnd > monthStart
+  );
+}
+
 /**
  * One synthetic statement per agent with chargeable execution usage. A real
  * current-month invoice suppresses only its own agent, never other agents.
@@ -70,7 +143,7 @@ export function syntheticAgentAccruals<T extends AgentAccrualUsage>(params: {
 }) {
   const persistedAgentKeys = new Set<string>();
   for (const invoice of params.invoices) {
-    if (invoice.billingMonth !== params.currentMonth) continue;
+    if (!overlapsCalendarMonth(invoice, params.currentMonth)) continue;
     if (isSyntheticAccrualId(invoice.id)) continue;
     if ((invoice.status ?? "").toUpperCase() === "VOID") continue;
     for (const key of invoiceAgentKeys(invoice)) persistedAgentKeys.add(key);
@@ -100,7 +173,7 @@ export function findPersistedCurrentAccrual<T extends AccrualCheckInvoice>(
   currentMonth: string
 ): T | undefined {
   return invoices.find((invoice) => {
-    if (invoice.billingMonth !== currentMonth) return false;
+    if (!overlapsCalendarMonth(invoice, currentMonth)) return false;
     if (isSyntheticAccrualId(invoice.id)) return false;
     const status = (invoice.status ?? "").toUpperCase();
     if (status === "VOID") return false;

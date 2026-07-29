@@ -220,11 +220,12 @@ function demoIndustry(listing: { category: string | null; industryTags: string[]
   return listing.industryTags[0]?.trim() || listing.category?.trim() || "service";
 }
 
-function buildDemoSystemPrompt(params: {
+export function buildDemoSystemPrompt(params: {
   assistantName: string;
   demoBusinessName: string;
   industry: string;
   listingName: string;
+  listingDescription: string;
   customInfo?: DemoCallCustomInfo;
 }): string {
   const bizName = params.customInfo?.businessName?.trim() || params.demoBusinessName;
@@ -238,7 +239,10 @@ function buildDemoSystemPrompt(params: {
     : bizName;
 
   const lines = [
-    `You are ${params.assistantName}, the dedicated AI voice receptionist for ${businessIdentity}, a ${bizType} practice/business.`,
+    `You are ${params.assistantName}, the AI voice receptionist for ${businessIdentity}, a ${bizType} practice/business.`,
+    `This call is a short LIVE DEMO of "${params.listingName}" on the Triven marketplace, for someone deciding whether to buy this agent.`,
+    ``,
+    `About this agent: ${params.listingDescription}`,
     ``
   ];
 
@@ -254,9 +258,12 @@ function buildDemoSystemPrompt(params: {
     `DEMO RULES & BEHAVIOR:`,
     `- Answer caller inquiries naturally, warmly, and concisely (1-2 natural sentences per turn) as the dedicated AI receptionist for ${bizName}.`,
     `- Use the exact business details provided above: Business Name (${bizName})${docName ? `, Practitioner Name (${docName})` : ""}${address ? `, Address (${address})` : ""}${services ? `, Services (${services})` : ""}.`,
-    `- Stay strictly in character as the business receptionist. If asked about underlying AI software, platform architecture, or technical details, politely stay in character as the receptionist for ${bizName}.`,
-    `- You cannot actually finalize bookings or send texts during this live demo. Walk callers through what WOULD happen naturally (e.g. "I can note down your preferred appointment time and send a confirmation SMS!").`,
-    `- If asked about buying or configuring this agent: state that after purchasing on the marketplace, the agent will be set up with their real business phone number, custom details, and Google Calendar integration.`
+    `- Play the receptionist role for ordinary caller questions — booking, hours, services, directions — exactly as you would for a real ${bizType}.`,
+    `- You ARE allowed to talk about being a demo, and you should when it helps the caller evaluate you. If they ask what this is, whether you are real, how you work, what you can do, or what happens on a real call, answer honestly and briefly as a live demo, then offer to keep going.`,
+    `- Any details you were not given above (hours, prices, staff) are plausible examples — say so when a caller asks whether they are real.`,
+    `- You cannot actually finalize bookings or send texts on this demo call. Walk the caller through what WOULD happen for a real customer, step by step (e.g. "on a real call I'd take your preferred time, book it into the calendar, and text you a confirmation").`,
+    `- If asked about buying or configuring this agent: after purchase it is set up with the buyer's real business phone number, their own business details, and Google Calendar integration.`,
+    `- Never pretend a text, booking, or email was actually sent on this call.`
   );
 
   return lines.join("\n");
@@ -379,6 +386,7 @@ async function startDemoCallInternal(params: {
     demoBusinessName,
     industry,
     listingName: listing.name,
+    listingDescription: listing.shortDescription || listing.description || "an AI voice receptionist",
     customInfo
   });
 
@@ -387,7 +395,7 @@ async function startDemoCallInternal(params: {
   let firstMessage: string;
   if (customBizName) {
     const docText = customDocName ? ` speaking on behalf of ${customDocName}` : "";
-    firstMessage = `Hi! Thanks for calling ${customBizName}. This is ${assistantName}${docText} — how can I help you today?`;
+    firstMessage = `Hi! Thanks for calling ${customBizName}. This is ${assistantName}${docText} — this is a live demo, so ask me anything. How can I help?`;
   } else {
     firstMessage = `Hi! Thanks for calling ${demoBusinessName}. This is ${assistantName} — this is a live demo, so feel free to ask me anything. How can I help?`;
   }

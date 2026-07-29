@@ -3,7 +3,10 @@ import {
   calculateUsageInvoiceLineAmountUsd,
   effectiveUsageInvoiceRateUsd,
   formatUsageInvoiceAmountUsd,
-  formatUsageInvoiceRate
+  formatUsageInvoiceRate,
+  phoneCallBreakdownOrder,
+  usageInvoicePayableCents,
+  usageInvoiceRowOrder
 } from "./usage-invoice-rate";
 
 describe("usage invoice rate formatting", () => {
@@ -33,6 +36,10 @@ describe("usage invoice rate formatting", () => {
   it("shows usage line amounts with exactly three decimal places", () => {
     expect(formatUsageInvoiceAmountUsd(0.009 * 9.27)).toBe("$0.083");
     expect(formatUsageInvoiceAmountUsd(9.27)).toBe("$9.270");
+  });
+
+  it("rounds the complete payable invoice total to two decimal places", () => {
+    expect(usageInvoicePayableCents([2, 1.843, 0.06, 0.039])).toBe(394);
   });
 
   it("calculates line amounts from the rounded values displayed on the invoice", () => {
@@ -80,5 +87,59 @@ describe("usage invoice rate formatting", () => {
         billedCostUsd: 2
       })
     ).toBe("$2.00 / unit");
+  });
+
+  it("shows the dedicated number price without a unit suffix", () => {
+    expect(
+      formatUsageInvoiceRate({
+        serviceCode: "phone_number",
+        unit: "PER_UNIT",
+        quantity: 1,
+        unitPriceUsd: 2,
+        billedCostUsd: 2
+      })
+    ).toBe("$2.00");
+  });
+
+  it("orders invoice rows with the number first and platform last", () => {
+    const codes = [
+      "platform_service",
+      "sms_confirmation",
+      "phone_call_minutes",
+      "phone_number",
+      "google_calendar"
+    ];
+    expect(
+      codes.sort(
+        (left, right) =>
+          usageInvoiceRowOrder(left) - usageInvoiceRowOrder(right)
+      )
+    ).toEqual([
+      "phone_number",
+      "phone_call_minutes",
+      "sms_confirmation",
+      "google_calendar",
+      "platform_service"
+    ]);
+  });
+
+  it("orders the phone-call breakdown like the configured workflow", () => {
+    const codes = [
+      "elevenlabs_flash_v25",
+      "openai_gpt4o_mini",
+      "twilio_voice",
+      "deepgram_nova3"
+    ];
+    expect(
+      codes.sort(
+        (left, right) =>
+          phoneCallBreakdownOrder(left) - phoneCallBreakdownOrder(right)
+      )
+    ).toEqual([
+      "twilio_voice",
+      "deepgram_nova3",
+      "openai_gpt4o_mini",
+      "elevenlabs_flash_v25"
+    ]);
   });
 });

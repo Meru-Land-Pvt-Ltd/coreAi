@@ -8,6 +8,7 @@ import {
 } from "../payments/stripe";
 import {
   billingMonthFor,
+  invoiceAttachedExecutions,
   MICRO_USD_PER_CENT,
   monthBounds,
   monthLabel,
@@ -15,16 +16,22 @@ import {
   rollupExecutions,
   usageBalanceIsCollectible
 } from "./execution-billing";
+import {
+  agentBillingAnchorAt,
+  agentBillingPeriodFor
+} from "./agent-payment-scope";
 import { restoreBusinessAfterBillingPayment } from "./billing-cycle";
 import { resolvePrimaryBusinessId } from "./primary-business";
 import { countStandaloneBillableSms } from "./usage-billing";
 import type { UsageLineItem } from "../../lib/usage-pricing";
 import {
+  alignPlatformQuantityToExecutionCount,
   customerFacingUsageLineItems,
   repriceUsageInvoiceLineItems,
   rollupCustomerUsageLineItems,
   rollupRecordedUsageLineItems,
   usageInvoiceBillingRateMicroUsd,
+  usageInvoiceServiceUsesSnapshotPrice,
   type UsageInvoiceBillingCostMap,
   type UsageInvoiceLabelMap
 } from "./usage-invoice-line-items";
@@ -69,6 +76,18 @@ async function loadOwnedBusiness(ownerId: string) {
               iconUrl: true,
               pricingModel: true,
               trialDays: true
+            }
+          },
+          payments: {
+            orderBy: [{ periodStart: "asc" }, { createdAt: "asc" }],
+            select: {
+              status: true,
+              invoiceKind: true,
+              periodStart: true,
+              periodEnd: true,
+              paidAt: true,
+              dueAt: true,
+              createdAt: true
             }
           }
         }
@@ -204,9 +223,13 @@ export async function getBusinessExecutionUsage(c: Context) {
   const agentsForMonth = business.installedAgents.filter(
     (agent) => agent.createdAt < selectedBounds.end
   );
-  const statsByAgent = rollupExecutions(executions);
+  // Billing-facing screens must use the same execution scope as the invoice.
+  // Trial/free/history rows are canonical activity, but they are not attached
+  // to a usage invoice and must not inflate the payable execution count.
+  const invoicedExecutions = invoiceAttachedExecutions(executions);
+  const statsByAgent = rollupExecutions(invoicedExecutions);
   const chargedCallIds = new Set(
-    executions
+    invoicedExecutions
       .filter(
         (execution) =>
           execution.source === "VAPI" &&
@@ -214,8 +237,9 @@ export async function getBusinessExecutionUsage(c: Context) {
       )
       .map((execution) => execution.sourceId)
   );
+  const invoicedCalls = calls.filter((call) => chargedCallIds.has(call.callId));
   const callDurationByAgent = new Map<string, number>();
-  for (const call of calls) {
+  for (const call of invoicedCalls) {
     if (!call.installedAgentId) continue;
     callDurationByAgent.set(
       call.installedAgentId,
@@ -226,6 +250,16 @@ export async function getBusinessExecutionUsage(c: Context) {
   // Start from installed agents, not execution rows, so a just-purchased agent
   // appears immediately with zero executions.
   const agentRollup = agentsForMonth.map((agent) => {
+    const purchasePayment = agent.payments.find(
+      (payment) =>
+        payment.status === "SUCCEEDED" &&
+        payment.invoiceKind === "PURCHASE"
+    );
+    const billingAnchor = agentBillingAnchorAt({
+      agentCreatedAt: agent.createdAt,
+      referenceAt: selectedBounds.end,
+      payments: agent.payments
+    });
     const stats = statsByAgent.get(agent.id) ?? {
       installedAgentId: agent.id,
       executionCount: 0,
@@ -236,7 +270,7 @@ export async function getBusinessExecutionUsage(c: Context) {
       legacyBilledCostMicroUsd: 0,
       displayCostMicroUsd: 0
     };
-    const recordedLineItemGroups = calls
+    const recordedLineItemGroups = invoicedCalls
       .filter(
         (call) =>
           call.installedAgentId === agent.id &&
@@ -296,7 +330,12 @@ export async function getBusinessExecutionUsage(c: Context) {
       iconUrl: agent.listing?.iconUrl ?? null,
       status: agent.status,
       acquiredAt: agent.createdAt.toISOString(),
-      purchasedAt: agent.createdAt.toISOString(),
+      purchasedAt: (
+        purchasePayment?.paidAt ??
+        purchasePayment?.createdAt ??
+        agent.createdAt
+      ).toISOString(),
+      billingAnchorAt: billingAnchor.toISOString(),
       executionFeeCents: agent.executionFeeCents,
       executionFeeUsd: agent.executionFeeCents / 100,
       executionCount: stats.executionCount,
@@ -329,18 +368,18 @@ export async function getBusinessExecutionUsage(c: Context) {
     (sum, agent) => sum + agent.billedCostMicroUsd,
     0
   );
-  const totalActualMicroUsd = executions.reduce(
+  const totalActualMicroUsd = invoicedExecutions.reduce(
     (sum, row) => sum + row.actualCostMicroUsd,
     0
   );
-  const totalDurationMinutes = calls.reduce(
+  const totalDurationMinutes = invoicedCalls.reduce(
     (sum, call) => sum + (call.durationMinutes ?? 0),
     0
   );
-  const totalExecutions = executions.length;
+  const totalExecutions = invoicedExecutions.length;
   const totalCostUsd = microUsdToUsd(totalMicroUsd);
   const executionByCallId = new Map(
-    executions
+    invoicedExecutions
       .filter((execution) => execution.source === "VAPI")
       .map((execution) => [execution.sourceId, execution])
   );
@@ -368,11 +407,11 @@ export async function getBusinessExecutionUsage(c: Context) {
       totalExecutions > 0 ? totalCostUsd / totalExecutions : 0,
     averageCostPerCustomerInteractionUsd:
       totalExecutions > 0 ? totalCostUsd / totalExecutions : 0,
-    updatedAt: executions[0]?.occurredAt.toISOString() ?? null,
+    updatedAt: invoicedExecutions[0]?.occurredAt.toISOString() ?? null,
     standaloneSms: { count: standaloneSmsCount },
     agentRollup,
     serviceRollup: rollupRecordedUsageLineItems(
-      calls
+      invoicedCalls
         .filter(
           (call) =>
             chargedCallIds.has(call.callId) &&
@@ -395,7 +434,7 @@ export async function getBusinessExecutionUsage(c: Context) {
         service.billedCostMicroUsd / MICRO_USD_PER_CENT
       )
     })),
-    executions: executions.map((execution) => ({
+    executions: invoicedExecutions.map((execution) => ({
       id: execution.id,
       installedAgentId: execution.installedAgentId,
       agentName: agentsById.get(execution.installedAgentId)?.name ?? "Agent",
@@ -415,7 +454,7 @@ export async function getBusinessExecutionUsage(c: Context) {
       legacyBilledCostUsd: microUsdToUsd(execution.legacyBilledCostMicroUsd),
       usageInvoiceId: execution.usageInvoiceId
     })),
-    calls: calls.map((call) => {
+    calls: invoicedCalls.map((call) => {
       const execution = executionByCallId.get(call.callId);
       const repricedCallMicroUsd =
         execution &&
@@ -673,7 +712,32 @@ export async function getBusinessExecutionInvoices(c: Context) {
         if (call) invoiceCallsById.set(call.callId, call);
       }
       const invoiceCalls = [...invoiceCallsById.values()];
-      const status = normalizeUsageInvoiceStatus(invoice.status);
+      const storedStatus = normalizeUsageInvoiceStatus(invoice.status);
+      const billingAgent = invoice.installedAgentId
+        ? business.installedAgents.find(
+            (agent) => agent.id === invoice.installedAgentId
+          ) ?? null
+        : null;
+      const normalizedPeriod =
+        billingAgent &&
+        !invoice.paidAt &&
+        !invoice.closedAt &&
+        ["PENDING", "OPEN", "OVERDUE"].includes(storedStatus)
+          ? agentBillingPeriodFor(
+              agentBillingAnchorAt({
+                agentCreatedAt: billingAgent.createdAt,
+                referenceAt: invoice.issuedAt,
+                payments: billingAgent.payments
+              }),
+              invoice.issuedAt
+            )
+          : null;
+      const status =
+        storedStatus === "OVERDUE" &&
+        normalizedPeriod &&
+        normalizedPeriod.dueAt > new Date()
+          ? "PENDING"
+          : storedStatus;
       const canonicalStats = rollupExecutions(invoice.executions);
       const canonicalBreakdown = [...canonicalStats.values()].map((stats) => {
         const agent = business.installedAgents.find(
@@ -714,7 +778,7 @@ export async function getBusinessExecutionInvoices(c: Context) {
           serviceCosts
         };
       });
-      const agentBreakdown =
+      const usageAgentBreakdown =
         canonicalBreakdown.length > 0
           ? canonicalBreakdown
           : legacyAgentBreakdown(
@@ -732,20 +796,23 @@ export async function getBusinessExecutionInvoices(c: Context) {
         invoiceLabels,
         invoiceBillingCosts
       );
-      const storedLineItems = customerFacingUsageLineItems(
-        repriceUsageInvoiceLineItems(
-          invoice.lineItems.map((item) => ({
-            serviceCode: item.serviceCode,
-            serviceName: item.serviceName,
-            unit: item.unit,
-            quantity: item.quantity,
-            billingRateMicroUsd: item.unitPriceMicroUsd,
-            actualCostMicroUsd: 0,
-            billedCostMicroUsd: item.amountMicroUsd
-          })),
-          invoiceBillingCosts
+      const storedLineItems = alignPlatformQuantityToExecutionCount(
+        customerFacingUsageLineItems(
+          repriceUsageInvoiceLineItems(
+            invoice.lineItems.map((item) => ({
+              serviceCode: item.serviceCode,
+              serviceName: item.serviceName,
+              unit: item.unit,
+              quantity: item.quantity,
+              billingRateMicroUsd: item.unitPriceMicroUsd,
+              actualCostMicroUsd: 0,
+              billedCostMicroUsd: item.amountMicroUsd
+            })),
+            invoiceBillingCosts
+          ),
+          invoiceLabels
         ),
-        invoiceLabels
+        executionCount
       ).map((item) => ({
         serviceCode: item.serviceCode,
         serviceName: item.invoiceLabel ?? item.serviceName,
@@ -760,12 +827,57 @@ export async function getBusinessExecutionInvoices(c: Context) {
           item.billedCostMicroUsd / MICRO_USD_PER_CENT
         )
       }));
+      // Persisted invoice rows are authoritative and can include fixed monthly
+      // non-call charges such as the assigned business number. Historical
+      // invoices without stored rows still fall back to call-derived detail.
       const lineItems =
-        detailedLineItems.length > 0 ? detailedLineItems : storedLineItems;
+        storedLineItems.length > 0 ? storedLineItems : detailedLineItems;
       const totalMicroUsd = lineItems.reduce(
         (sum, item) => sum + item.amountMicroUsd,
         0
       );
+      const totalAmountCents = Math.round(
+        totalMicroUsd / MICRO_USD_PER_CENT
+      );
+      const agentBreakdown = invoice.installedAgentId
+        ? [
+            {
+              agentId: invoice.installedAgentId,
+              installedAgentId: invoice.installedAgentId,
+              agentName:
+                invoice.installedAgent?.name ??
+                usageAgentBreakdown[0]?.agentName ??
+                "Agent",
+              iconUrl:
+                invoice.installedAgent?.listing?.iconUrl ?? null,
+              executionCount,
+              callCount: executionCount,
+              durationMinutes: invoiceCalls
+                .filter(
+                  (call) =>
+                    call.installedAgentId === invoice.installedAgentId
+                )
+                .reduce(
+                  (sum, call) => sum + (call.durationMinutes ?? 0),
+                  0
+                ),
+              billedCostUsd: microUsdToUsd(totalMicroUsd),
+              amountCents: totalAmountCents,
+              serviceCosts: lineItems.map((item) => ({
+                serviceCode: item.serviceCode,
+                serviceName: item.serviceName,
+                invoiceLabel: item.invoiceLabel,
+                unit: item.unit,
+                quantity: item.quantity,
+                unitPriceUsd: item.unitPriceUsd,
+                billedCostUsd: microUsdToUsd(item.amountMicroUsd),
+                amountCents: Math.round(
+                  item.amountMicroUsd / MICRO_USD_PER_CENT
+                )
+              }))
+            }
+          ]
+        : usageAgentBreakdown;
 
       return {
         id: invoice.id,
@@ -780,14 +892,23 @@ export async function getBusinessExecutionInvoices(c: Context) {
         status,
         tabStatus: status === "PAID" ? "PAID" : status,
         currency: invoice.currency,
-        periodStart: invoice.periodStart.toISOString(),
-        periodEnd: invoice.periodEnd.toISOString(),
+        periodStart: (
+          normalizedPeriod?.start ?? invoice.periodStart
+        ).toISOString(),
+        periodEnd: (
+          normalizedPeriod?.end ?? invoice.periodEnd
+        ).toISOString(),
         issuedAt: invoice.issuedAt.toISOString(),
-        dueAt: invoice.dueAt.toISOString(),
-        graceEndsAt: invoice.graceEndsAt?.toISOString() ?? null,
+        dueAt: (
+          normalizedPeriod?.dueAt ?? invoice.dueAt
+        ).toISOString(),
+        graceEndsAt:
+          normalizedPeriod?.graceEndsAt.toISOString() ??
+          invoice.graceEndsAt?.toISOString() ??
+          null,
         totalMicroUsd,
         totalUsd: microUsdToUsd(totalMicroUsd),
-        amountCents: Math.round(totalMicroUsd / MICRO_USD_PER_CENT),
+        amountCents: totalAmountCents,
         paidAt: invoice.paidAt?.toISOString() ?? null,
         reminderCount: invoice.reminderCount,
         suspendedAt: invoice.suspendedAt?.toISOString() ?? null,
@@ -1015,7 +1136,12 @@ export async function payBusinessExecutionInvoice(c: Context) {
 
       let repricedTotalMicroUsd = 0;
       for (const lineItem of row.lineItems) {
-        const pricing = paymentBillingCosts.get(lineItem.serviceCode);
+        // The monthly assigned-number fee is frozen from Twilio at assignment.
+        // Metered usage continues to use the current active Admin billing rate.
+        const pricing =
+          usageInvoiceServiceUsesSnapshotPrice(lineItem.serviceCode)
+            ? undefined
+            : paymentBillingCosts.get(lineItem.serviceCode);
         const unitPriceMicroUsd =
           pricing?.billingCostMicroUsd ?? lineItem.unitPriceMicroUsd;
         const amountMicroUsd = pricing

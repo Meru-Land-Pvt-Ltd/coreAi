@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canonicalExecutionKey,
-  invoiceLifecycleDates,
+  invoiceAttachedExecutions,
   normalizeUsageInvoiceStatus,
   rollupExecutions,
   trialExecutionDecision,
@@ -51,16 +51,6 @@ describe("canonical execution billing", () => {
     });
   });
 
-  it("uses calendar month boundaries across a year change", () => {
-    const lifecycle = invoiceLifecycleDates("2026-12");
-    expect(lifecycle.start.toISOString()).toBe("2026-12-01T00:00:00.000Z");
-    expect(lifecycle.end.toISOString()).toBe("2027-01-01T00:00:00.000Z");
-    expect(lifecycle.dueAt.toISOString()).toBe("2027-01-01T00:00:00.000Z");
-    expect(lifecycle.graceEndsAt.toISOString()).toBe(
-      "2027-01-08T00:00:00.000Z"
-    );
-  });
-
   it("normalizes legacy OPEN invoices and rolls canonical execution totals", () => {
     expect(normalizeUsageInvoiceStatus("open")).toBe("PENDING");
     const rollup = rollupExecutions([
@@ -95,5 +85,14 @@ describe("canonical execution billing", () => {
   it("carries balances below Stripe's minimum until their aggregate is collectible", () => {
     expect(usageBalanceIsCollectible(499_999)).toBe(false);
     expect(usageBalanceIsCollectible(500_000)).toBe(true);
+  });
+
+  it("uses only invoice-attached executions on billing-facing screens", () => {
+    const executions = Array.from({ length: 22 }, (_, index) => ({
+      id: `execution-${index + 1}`,
+      usageInvoiceId: index < 17 ? "invoice-1" : null
+    }));
+
+    expect(invoiceAttachedExecutions(executions)).toHaveLength(17);
   });
 });

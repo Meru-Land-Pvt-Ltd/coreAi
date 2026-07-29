@@ -454,9 +454,8 @@ function readLiveVapiAssistantId(data: unknown): string | null {
   const fromConfig = stringOrNull(configJson?.vapiAssistantId);
   if (fromConfig) return fromConfig;
 
-  const profile = objectOrNull(root.profile);
-  const fromProfile = stringOrNull(profile?.vapiAssistantId);
-  if (fromProfile) return fromProfile;
+  const fromAgent = stringOrNull(installedAgent?.vapiAssistantId);
+  if (fromAgent) return fromAgent;
 
   return null;
 }
@@ -529,7 +528,7 @@ function SetupWizard() {
   const [liveInstalledAgentId, setLiveInstalledAgentId] = useState<string | null>(null);
 
   const isEditParam = searchParams.get("mode") === "edit";
-  const isEditMode = isEditParam || deployed || Boolean(liveVapiAssistantId) || Boolean(liveInstalledAgentId);
+  const isEditMode = isEditParam || deployed || Boolean(liveVapiAssistantId);
 
   useEffect(() => {
     if (isEditMode && !redeploySuccess && step === 4) {

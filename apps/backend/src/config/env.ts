@@ -140,6 +140,16 @@ const envSchema = z.object({
 
   ELEVENLABS_API_KEY: z.string().optional(),
 
+  /** Cartesia TTS — the provider behind the Skylar/Ronald voice presets. */
+  CARTESIA_API_KEY: z.string().optional(),
+  CARTESIA_VERSION: z.string().default("2024-06-10"),
+  CARTESIA_TTS_MODEL: z.string().default("sonic-2"),
+  CARTESIA_VOICE_SKYLAR_ID: z.string().optional(),
+  CARTESIA_VOICE_ELLA_ID: z.string().optional(),
+  CARTESIA_VOICE_JACQUELINE_ID: z.string().optional(),
+  CARTESIA_VOICE_BLAKE_ID: z.string().optional(),
+  CARTESIA_VOICE_RONALD_ID: z.string().optional(),
+
   DEEPGRAM_API_KEY: z.string().optional(),
 
   MISTRAL_API_KEY: z.string().optional(),

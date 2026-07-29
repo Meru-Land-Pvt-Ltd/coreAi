@@ -3,6 +3,7 @@ import { prisma } from "../../lib/prisma";
 import { twilioRestAuthHeader } from "../architect/twilio-connector";
 
 const TWILIO_API_BASE = "https://api.twilio.com/2010-04-01";
+const TWILIO_PRICING_API_BASE = "https://pricing.twilio.com/v1";
 
 /** Webhook paths every platform number points at (shared, multi-tenant). */
 const VOICE_WEBHOOK_PATH = "/architect/connectors/twilio/voice";
@@ -188,6 +189,136 @@ async function twilioApiRequest<T>(
   return json;
 }
 
+/* -------------------------------- pricing --------------------------------- */
+
+type TwilioPhoneNumberPrice = {
+  number_type?: string;
+  current_price?: string;
+  base_price?: string;
+};
+
+type TwilioPhoneNumberCountryPricing = {
+  country?: string;
+  price_unit?: string;
+  phone_number_prices?: TwilioPhoneNumberPrice[];
+};
+
+export type TwilioMonthlyNumberPrice = {
+  country: string;
+  numberType: string;
+  currency: "USD";
+  providerMonthlyPriceMicroUsd: number;
+  billingMonthlyPriceMicroUsd: number;
+  fetchedAt: Date;
+};
+
+/**
+ * Buyer price rule for an assigned number:
+ * round(Twilio's current monthly USD price) + 1 USD.
+ */
+export function calculatePhoneNumberBillingPriceMicroUsd(
+  providerMonthlyPriceUsd: number
+): number {
+  if (!Number.isFinite(providerMonthlyPriceUsd) || providerMonthlyPriceUsd < 0) {
+    throw new PhoneNumberServiceError(
+      "Twilio returned an invalid monthly phone-number price.",
+      502,
+      "TWILIO_NUMBER_PRICE_INVALID"
+    );
+  }
+  return (Math.round(providerMonthlyPriceUsd) + 1) * 1_000_000;
+}
+
+export function resolveTwilioMonthlyNumberPrice(input: {
+  country: string;
+  numberType: string;
+  data: TwilioPhoneNumberCountryPricing;
+  fetchedAt?: Date;
+}): TwilioMonthlyNumberPrice {
+  const currency = (input.data.price_unit ?? "").trim().toUpperCase();
+  if (currency !== "USD") {
+    throw new PhoneNumberServiceError(
+      `Phone-number billing requires Twilio pricing in USD; this account returned ${currency || "no currency"}.`,
+      422,
+      "TWILIO_NUMBER_PRICE_CURRENCY_UNSUPPORTED"
+    );
+  }
+
+  const price = (input.data.phone_number_prices ?? []).find(
+    (item) =>
+      item.number_type?.trim().toLowerCase() ===
+      input.numberType.toLowerCase()
+  );
+  const providerMonthlyPriceUsd = Number(price?.current_price);
+  if (
+    !price ||
+    !Number.isFinite(providerMonthlyPriceUsd) ||
+    providerMonthlyPriceUsd < 0
+  ) {
+    throw new PhoneNumberServiceError(
+      `Twilio did not return a current monthly ${input.numberType} number price for ${input.country}.`,
+      422,
+      "TWILIO_NUMBER_PRICE_UNAVAILABLE"
+    );
+  }
+
+  return {
+    country: input.country,
+    numberType: input.numberType,
+    currency: "USD",
+    providerMonthlyPriceMicroUsd: Math.round(
+      providerMonthlyPriceUsd * 1_000_000
+    ),
+    billingMonthlyPriceMicroUsd:
+      calculatePhoneNumberBillingPriceMicroUsd(providerMonthlyPriceUsd),
+    fetchedAt: input.fetchedAt ?? new Date()
+  };
+}
+
+/**
+ * Twilio's IncomingPhoneNumber resource does not contain pricing. The Pricing
+ * API provides this account's current recurring price by country and number
+ * type, including account-specific discounts.
+ */
+export async function fetchTwilioMonthlyNumberPrice(input: {
+  country: string;
+  numberType?: "local";
+}): Promise<TwilioMonthlyNumberPrice> {
+  const country = input.country.trim().toUpperCase();
+  const numberType = (input.numberType ?? "local").toLowerCase();
+  if (!/^[A-Z]{2}$/.test(country)) {
+    throw new PhoneNumberServiceError(
+      "Country must be a 2-letter ISO code before phone-number pricing can be fetched.",
+      422,
+      "INVALID_COUNTRY"
+    );
+  }
+
+  let data: TwilioPhoneNumberCountryPricing;
+  try {
+    data = await twilioApiRequest<TwilioPhoneNumberCountryPricing>(
+      `${TWILIO_PRICING_API_BASE}/PhoneNumbers/Countries/${country}`
+    );
+  } catch (error) {
+    console.error("[phone-service] Twilio number pricing lookup failed", {
+      country,
+      numberType,
+      error
+    });
+    throw new PhoneNumberServiceError(
+      safeTwilioError(error, "Could not fetch the assigned number's monthly Twilio price."),
+      error instanceof TwilioApiError && error.status < 500 ? 422 : 502,
+      "TWILIO_NUMBER_PRICING_FAILED"
+    );
+  }
+
+  return resolveTwilioMonthlyNumberPrice({
+    country,
+    numberType,
+    data
+  });
+}
+
 /* --------------------------------- search --------------------------------- */
 
 type TwilioAvailableNumber = {
@@ -286,6 +417,7 @@ export async function searchAvailableNumbers(input: SearchAvailableNumbersInput)
 type TwilioIncomingNumber = {
   sid?: string;
   phone_number?: string;
+  iso_country?: string;
   friendly_name?: string;
   voice_url?: string;
   sms_url?: string;
@@ -330,6 +462,14 @@ export async function purchaseNumber(input: PurchaseNumberInput) {
       "NUMBER_ALREADY_EXISTS"
     );
   }
+
+  // All buyer/admin searches currently purchase Twilio Local numbers. Fetch
+  // the recurring account-specific price before purchasing so a successful
+  // purchase can never be left without its monthly billing snapshot.
+  const monthlyPricing = await fetchTwilioMonthlyNumberPrice({
+    country: input.country ?? "US",
+    numberType: "local"
+  });
 
   let purchased: TwilioIncomingNumber;
   try {
@@ -377,6 +517,11 @@ export async function purchaseNumber(input: PurchaseNumberInput) {
     buyerUserId: null,
     installedAgentId: null,
     assignedAt: null,
+    providerMonthlyPriceMicroUsd: monthlyPricing.providerMonthlyPriceMicroUsd,
+    billingMonthlyPriceMicroUsd: monthlyPricing.billingMonthlyPriceMicroUsd,
+    pricingCurrency: monthlyPricing.currency.toLowerCase(),
+    pricingNumberType: monthlyPricing.numberType,
+    pricingFetchedAt: monthlyPricing.fetchedAt,
     lastSyncedAt: new Date(),
     lastError: null
   };
@@ -656,6 +801,7 @@ export async function syncTwilioNumbers({ dryRun }: { dryRun: boolean }): Promis
             twilioSid: adoptSid,
             providerNumberId: adoptSid,
             e164: existing.e164 ?? e164,
+            country: existing.country ?? item.iso_country ?? null,
             capabilities: caps,
             voiceEnabled: caps.voice,
             smsEnabled: caps.sms,
@@ -681,6 +827,7 @@ export async function syncTwilioNumbers({ dryRun }: { dryRun: boolean }): Promis
             status: "AVAILABLE",
             twilioSid: item.sid,
             providerNumberId: item.sid,
+            country: item.iso_country ?? null,
             capabilities: caps,
             voiceEnabled: caps.voice,
             smsEnabled: caps.sms,

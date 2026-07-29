@@ -1,17 +1,6 @@
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 
-/**
- * Generic per-business phone routing. NOT dental-specific — the same routing
- * works for any vertical (HVAC, legal, medical, salon, …).
- *
- * Model: reuses existing tables.
- *  - BusinessPhoneNumber.phoneNumber = the assigned Triven AI/Twilio forwarding number
- *    (the unique key the Twilio voice webhook routes by — never the caller number).
- *  - InstalledAgent.configJson.phoneRouting = { publicBusinessNumber, aiForwardingNumber,
- *    mode, isActive, setupStatus, updatedAt } — no schema migration required.
- */
-
 export const ROUTING_MODES = ["AI_FIRST", "NO_ANSWER", "BUSY", "AFTER_HOURS", "UNREACHABLE"] as const;
 export type RoutingMode = (typeof ROUTING_MODES)[number];
 
@@ -105,7 +94,9 @@ async function ensureForwardingNumber(
   business: NonNullable<Awaited<ReturnType<typeof findArchitectBusiness>>>,
   installedAgentId: string
 ): Promise<string> {
-  const existing = business.phoneNumbers[0];
+  const existing =
+    business.phoneNumbers.find((row) => row.installedAgentId === installedAgentId) ??
+    business.phoneNumbers.find((row) => !row.installedAgentId);
   if (existing) {
     await prisma.businessPhoneNumber.update({
       where: { id: existing.id },

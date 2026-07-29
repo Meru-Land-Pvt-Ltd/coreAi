@@ -2436,7 +2436,7 @@ function OrderSummary({
                         />
                         {phoneFeeAmount > 0 ? (
                             <PriceRow
-                                label={phoneFeeLabel ?? "AI Receptionist No."}
+                                label={phoneFeeLabel ?? "Dedicated Business Phone Number"}
                                 value={`$${phoneFeeAmount.toFixed(2)}`}
                             />
                         ) : null}

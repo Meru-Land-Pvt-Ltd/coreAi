@@ -8,7 +8,6 @@ import {
   resolveApplicableUsageServiceCodes,
   USAGE_SERVICE_CODES
 } from "../../lib/usage-service-resolver";
-import { PHONE_NUMBER_SERVICE_CODE } from "../business/phone-provisioning";
 
 const VOICE_CONNECTORS = new Set(["vapi", "elevenlabs"]);
 const SMS_CONNECTORS = new Set(["twilio"]);
@@ -46,8 +45,8 @@ type ListingUsagePricingInput = {
 export function buildListingUsagePricing({
   records,
   requiredConnectors,
-  needsPhoneNumber,
-  phoneNumberBillingEnabled,
+  needsPhoneNumber: _needsPhoneNumber,
+  phoneNumberBillingEnabled: _phoneNumberBillingEnabled,
   voicePipeline = resolveDefaultLiveVoicePipeline()
 }: ListingUsagePricingInput): ListingUsagePricing {
   const connectors = new Set(
@@ -87,10 +86,6 @@ export function buildListingUsagePricing({
   if ([...CALENDAR_CONNECTORS].some((connector) => connectors.has(connector))) {
     applicableCodes.add(USAGE_SERVICE_CODES.GOOGLE_CALENDAR);
   }
-  if (needsPhoneNumber && phoneNumberBillingEnabled) {
-    applicableCodes.add(PHONE_NUMBER_SERVICE_CODE);
-  }
-
   if (applicableCodes.size === 0) {
     return { available: true, perMinuteUsd: 0, services: [] };
   }

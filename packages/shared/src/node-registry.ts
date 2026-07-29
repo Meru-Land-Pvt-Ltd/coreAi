@@ -106,10 +106,12 @@ export const DEFAULT_VOICE_PROVIDER = "11labs";
 
 export const PLATFORM_DEFAULT_VOICE_ID = "triven-default";
 
+export type VoiceProviderId = "11labs" | "cartesia";
+
 export type AgentVoicePreset = {
   id: string;
   name: string;
-  provider: "11labs";
+  provider: VoiceProviderId;
   voiceId: string;
   style: string;
   bestFor: string;
@@ -131,44 +133,54 @@ export const VOICE_PRESETS: AgentVoicePreset[] = [
     isDefault: true
   },
   {
-    id: "ruby",
-    name: "Ruby",
-    provider: DEFAULT_VOICE_PROVIDER,
-    voiceId: "",
-    style: "Warm receptionist",
-    bestFor: "Healthcare, salons, appointment booking",
-    description: "Warm, friendly receptionist voice.",
-    previewText: "Good morning, this is Ruby. How can I help you today?"
+    id: "skylar",
+    name: "Skylar",
+    provider: "cartesia",
+    voiceId: "db6b0ed5-d5d3-463d-ae85-518a07d3c2b4",
+    style: "Friendly guide",
+    bestFor: "Customer care, clinics, appointment booking",
+    description: "Approachable American female voice for customer care and support.",
+    previewText: "Hi, this is Skylar. How can I help you today?"
   },
   {
-    id: "aria",
-    name: "Aria",
-    provider: DEFAULT_VOICE_PROVIDER,
-    voiceId: "",
-    style: "Professional assistant",
-    bestFor: "Clinics, agencies, business calls",
-    description: "Professional and polished assistant voice.",
-    previewText: "Thank you for calling. This is Aria. How may I assist you?"
+    id: "ella",
+    name: "Ella",
+    provider: "cartesia",
+    voiceId: "2a12b36c-7f9b-4c3a-9f7a-72731b15323a",
+    style: "Caring scout",
+    bestFor: "Everyday customer conversations, front desk, support",
+    description: "Approachable female voice for bright, lightweight customer conversations.",
+    previewText: "Hi there, this is Ella. What can I do for you today?"
   },
   {
-    id: "adam",
-    name: "Adam",
-    provider: DEFAULT_VOICE_PROVIDER,
-    voiceId: "",
-    style: "Male business voice",
+    id: "jacqueline",
+    name: "Jacqueline",
+    provider: "cartesia",
+    voiceId: "9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
+    style: "Reassuring agent",
+    bestFor: "Empathic support, healthcare, complaint handling",
+    description: "Confident young-adult female voice for empathic customer support.",
+    previewText: "Hello, this is Jacqueline. I am here to help — what do you need?"
+  },
+  {
+    id: "blake",
+    name: "Blake",
+    provider: "cartesia",
+    voiceId: "a167e0f3-df7e-4d52-a9c3-f949145efdab",
+    style: "Helpful agent",
+    bestFor: "Home services, retail, high-energy front desk",
+    description: "Energetic adult male voice for engaging customer support.",
+    previewText: "Hey, this is Blake. Thanks for calling — how can I help?"
+  },
+  {
+    id: "ronald",
+    name: "Ronald",
+    provider: "cartesia",
+    voiceId: "5ee9feff-1265-424a-9d7f-8e4d431a12c7",
+    style: "Male conversational",
     bestFor: "Home services, automotive, B2B",
-    description: "Confident male business voice.",
-    previewText: "Hello, this is Adam. Thanks for calling. How can I help?"
-  },
-  {
-    id: "priya",
-    name: "Priya",
-    provider: DEFAULT_VOICE_PROVIDER,
-    voiceId: "",
-    style: "Indian English",
-    bestFor: "India-based businesses, clinics, salons",
-    description: "Friendly Indian-English receptionist voice.",
-    previewText: "Namaste, this is Priya from Triven. How may I help you today?"
+    description: "Deep young-adult male voice for casual conversations.",
+    previewText: "Hello, this is Ronald. Thanks for calling. How can I help?"
   }
 ];
 

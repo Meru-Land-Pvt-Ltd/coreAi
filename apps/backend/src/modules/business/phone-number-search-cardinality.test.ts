@@ -3,13 +3,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   findInstalledAgent: vi.fn(),
   findPlatformNumber: vi.fn(),
+  // The business may now own several numbers, so the flow lists them.
+  findManyPlatformNumbers: vi.fn(() => Promise.resolve([])),
+  findManyBusinessNumbers: vi.fn(() => Promise.resolve([])),
+  findFirstBusinessNumber: vi.fn(() => Promise.resolve(null)),
   searchAvailableNumbers: vi.fn()
 }));
 
 vi.mock("../../lib/prisma", () => ({
   prisma: {
     installedAgent: { findFirst: mocks.findInstalledAgent },
-    platformPhoneNumber: { findFirst: mocks.findPlatformNumber }
+    platformPhoneNumber: {
+      findFirst: mocks.findPlatformNumber,
+      findMany: mocks.findManyPlatformNumbers
+    },
+    businessPhoneNumber: {
+      findFirst: mocks.findFirstBusinessNumber,
+      findMany: mocks.findManyBusinessNumbers
+    }
   }
 }));
 

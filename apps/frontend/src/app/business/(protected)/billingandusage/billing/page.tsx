@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { getAuthToken, getAuthUser, hasAuthRole } from "@/lib/auth";
@@ -12,15 +12,27 @@ import {
     BUSINESS_LOGIN_PATH,
     businessInvoiceCheckoutPath
 } from "@/lib/routes";
-import { syntheticAgentAccruals } from "@/components/business/current-month-accrual";
+import {
+    billingPeriodForAnchor,
+    syntheticAgentAccruals
+} from "@/components/business/current-month-accrual";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 import {
     calculateUsageInvoiceLineAmountUsd,
     formatUsageInvoiceAmountUsd,
-    formatUsageInvoiceRate
+    formatUsageInvoiceRate,
+    phoneCallBreakdownOrder,
+    usageInvoicePayableCents,
+    usageInvoiceRowOrder
 } from "@/components/business/usage-invoice-rate";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
+const PHONE_CALL_MINUTE_SERVICE_CODES = new Set([
+    "twilio_voice",
+    "deepgram_nova3",
+    "openai_gpt4o_mini",
+    "elevenlabs_flash_v25"
+]);
 
 type BillingPaymentMethod = {
     brand: string;
@@ -81,6 +93,8 @@ type AgentUsageBreakdown = {
     durationMinutes: number;
     billedCostUsd: number;
     amountCents: number;
+    purchasedAt?: string;
+    billingAnchorAt?: string;
     serviceCosts: Array<{
         serviceCode: string;
         serviceName: string;
@@ -109,6 +123,8 @@ type UsageInvoice = {
     billingMonth: string;
     status: "OPEN" | "PENDING" | "OVERDUE" | "PAID" | "VOID";
     amountCents: number;
+    periodStart?: string;
+    periodEnd?: string;
     issuedAt: string;
     dueAt: string;
     paidAt: string | null;
@@ -146,7 +162,10 @@ function formatUsageQuantity(service: {
     unit: string;
     quantity: number;
 }) {
-    if (service.serviceCode === "platform_service" && service.unit === "PER_UNIT") {
+    if (service.serviceCode === "phone_number") {
+        return String(Math.round(service.quantity));
+    }
+    if (service.unit === "PER_UNIT") {
         const units = Math.round(service.quantity);
         return `${units} ${units === 1 ? "unit" : "units"}`;
     }
@@ -238,9 +257,9 @@ function formatFullDate(value: string) {
     return date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
-function usageDueAt(month: string) {
-    const [year, monthNumber] = month.split("-").map(Number);
-    return new Date(Date.UTC(year, monthNumber, 1)).toISOString();
+function formatUsagePeriod(invoice: UsageInvoice) {
+    if (!invoice.periodStart || !invoice.periodEnd) return invoice.billingMonth;
+    return `${formatFullDate(invoice.periodStart)} – ${formatFullDate(invoice.periodEnd)}`;
 }
 
 type StatusView = {
@@ -429,6 +448,12 @@ export default function BusinessInvoiceDetailPage() {
                 0
             );
             const amountCents = Math.round(billedCostUsd * 100);
+            const issuedAt = usage.updatedAt ?? new Date().toISOString();
+            const period = billingPeriodForAnchor(
+                agent.billingAnchorAt ?? agent.purchasedAt,
+                issuedAt,
+                usage.month
+            );
 
             return {
                 id,
@@ -437,8 +462,10 @@ export default function BusinessInvoiceDetailPage() {
                 billingMonth: usage.month,
                 status: "PENDING" as const,
                 amountCents,
-                issuedAt: usage.updatedAt ?? new Date().toISOString(),
-                dueAt: usageDueAt(usage.month),
+                periodStart: period.start,
+                periodEnd: period.end,
+                issuedAt,
+                dueAt: period.end,
                 paidAt: null,
                 callCount: executionCount,
                 agentBreakdown: [{
@@ -609,6 +636,7 @@ function UsageInvoiceCard({
     paying: boolean;
     onPay: (invoice: UsageInvoice) => void;
 }) {
+    const [phoneCallBreakdownOpen, setPhoneCallBreakdownOpen] = useState(false);
     const allocation = agentId
         ? invoice.agentBreakdown.find((agent) => usageAgentId(agent) === agentId) ?? null
         : null;
@@ -676,12 +704,62 @@ function UsageInvoiceCard({
             });
         }
     }
-    const isPaid = invoice.status === "PAID";
-    const displayedInvoiceTotalUsd = services.reduce(
+    const phoneCallMinuteServices = services
+        .filter(
+            (service) =>
+                PHONE_CALL_MINUTE_SERVICE_CODES.has(service.serviceCode) &&
+                service.unit === "PER_MINUTE"
+        )
+        .sort(
+            (left, right) =>
+                phoneCallBreakdownOrder(left.serviceCode) -
+                phoneCallBreakdownOrder(right.serviceCode)
+        );
+    const phoneCallAmountUsd = phoneCallMinuteServices.reduce(
         (sum, service) => sum + calculateUsageInvoiceLineAmountUsd(service),
         0
     );
-    const displayedInvoiceTotal = formatUsageInvoiceAmountUsd(displayedInvoiceTotalUsd);
+    const phoneCallMinutes = phoneCallMinuteServices[0]?.quantity ?? 0;
+    const phoneCallMinuteRow = phoneCallMinuteServices.length
+        ? {
+            serviceCode: "phone_call_minutes",
+            serviceName: "Phone Call Minutes",
+            invoiceLabel: "Phone Call Minutes",
+            unit: "PER_MINUTE",
+            quantity: phoneCallMinutes,
+            unitPriceUsd:
+                phoneCallMinutes > 0 ? phoneCallAmountUsd / phoneCallMinutes : 0,
+            billedCostUsd: phoneCallAmountUsd,
+            amountCents: Math.round(phoneCallAmountUsd * 100)
+        }
+        : null;
+    const invoiceRows = services.reduce<
+        Array<AgentUsageBreakdown["serviceCosts"][number]>
+    >((rows, service) => {
+        if (
+            PHONE_CALL_MINUTE_SERVICE_CODES.has(service.serviceCode) &&
+            service.unit === "PER_MINUTE"
+        ) {
+            if (
+                phoneCallMinuteRow &&
+                !rows.some((row) => row.serviceCode === phoneCallMinuteRow.serviceCode)
+            ) {
+                rows.push(phoneCallMinuteRow);
+            }
+            return rows;
+        }
+        rows.push(service);
+        return rows;
+    }, []).sort(
+        (left, right) =>
+            usageInvoiceRowOrder(left.serviceCode) -
+            usageInvoiceRowOrder(right.serviceCode)
+    );
+    const isPaid = invoice.status === "PAID";
+    const displayedInvoiceTotalCents = usageInvoicePayableCents(
+        services.map((service) => calculateUsageInvoiceLineAmountUsd(service))
+    );
+    const displayedInvoiceTotal = formatCurrencyCents(displayedInvoiceTotalCents);
     const isSyntheticAccrual = invoice.id.startsWith("accrued-");
     const isPending = invoice.status === "PENDING" || invoice.status === "OPEN";
     const statusLabel = isPaid ? "PAID" : isPending ? "PENDING" : invoice.status;
@@ -748,29 +826,88 @@ function UsageInvoiceCard({
                             </tr>
                         </thead>
                         <tbody>
-                            {services.map((service, index) => (
-                                <tr key={service.serviceCode} data-testid="usage-invoice-line-item" className="border-b border-slate-100">
-                                    <td className="px-1.5 py-3 text-slate-400">{index + 1}</td>
-                                    <td className="px-1.5 py-3 font-medium text-slate-700">
-                                        <span className="block truncate">{service.invoiceLabel ?? service.serviceName}</span>
-                                    </td>
-                                    <td className="whitespace-nowrap px-1 py-3 text-right text-slate-500">
-                                        {formatUsageInvoiceRate(service)}
-                                    </td>
-                                    <td className="py-3 text-slate-400" aria-hidden="true">
-                                        <span className="mx-auto flex h-5 w-5 items-center justify-center font-semibold">×</span>
-                                    </td>
-                                    <td className="whitespace-nowrap px-1 py-3 text-center text-slate-500">
-                                        {formatUsageQuantity(service)}
-                                    </td>
-                                    <td className="py-3 text-slate-400" aria-hidden="true">
-                                        <span className="mx-auto flex h-5 w-5 items-center justify-center font-semibold">=</span>
-                                    </td>
-                                    <td className="whitespace-nowrap px-1 py-3 text-right font-mono font-semibold">
-                                        {formatUsageInvoiceAmountUsd(calculateUsageInvoiceLineAmountUsd(service))}
-                                    </td>
-                                </tr>
-                            ))}
+                            {invoiceRows.map((service, index) => {
+                                const isPhoneCallMinutes =
+                                    service.serviceCode === "phone_call_minutes";
+                                const lineAmountUsd = isPhoneCallMinutes
+                                    ? phoneCallAmountUsd
+                                    : calculateUsageInvoiceLineAmountUsd(service);
+
+                                return (
+                                    <Fragment key={service.serviceCode}>
+                                        <tr data-testid="usage-invoice-line-item" className="border-b border-slate-100">
+                                            <td className="px-1.5 py-3 text-slate-400">{index + 1}</td>
+                                            <td className="px-1.5 py-3 font-medium text-slate-700">
+                                                <span className="block truncate">{service.invoiceLabel ?? service.serviceName}</span>
+                                                {isPhoneCallMinutes ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPhoneCallBreakdownOpen((open) => !open)}
+                                                        aria-expanded={phoneCallBreakdownOpen}
+                                                        aria-controls={`phone-call-breakdown-${invoice.id}`}
+                                                        className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600 transition hover:text-amber-700"
+                                                    >
+                                                        Breakdown
+                                                        <svg
+                                                            viewBox="0 0 16 16"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            strokeWidth="1.8"
+                                                            className={`h-3 w-3 transition-transform ${phoneCallBreakdownOpen ? "rotate-180" : ""}`}
+                                                            aria-hidden="true"
+                                                        >
+                                                            <path d="m4 6 4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                                                        </svg>
+                                                    </button>
+                                                ) : null}
+                                            </td>
+                                            <td className="whitespace-nowrap px-1 py-3 text-right text-slate-500">
+                                                {formatUsageInvoiceRate(service)}
+                                            </td>
+                                            <td className="py-3 text-slate-400" aria-hidden="true">
+                                                <span className="mx-auto flex h-5 w-5 items-center justify-center font-semibold">×</span>
+                                            </td>
+                                            <td className="whitespace-nowrap px-1 py-3 text-center text-slate-500">
+                                                {formatUsageQuantity(service)}
+                                            </td>
+                                            <td className="py-3 text-slate-400" aria-hidden="true">
+                                                <span className="mx-auto flex h-5 w-5 items-center justify-center font-semibold">=</span>
+                                            </td>
+                                            <td className="whitespace-nowrap px-1 py-3 text-right font-mono font-semibold">
+                                                {formatUsageInvoiceAmountUsd(lineAmountUsd)}
+                                            </td>
+                                        </tr>
+                                        {isPhoneCallMinutes && phoneCallBreakdownOpen ? (
+                                            <tr
+                                                id={`phone-call-breakdown-${invoice.id}`}
+                                                className="border-b border-slate-100 bg-slate-50/70"
+                                                data-testid="usage-invoice-phone-call-breakdown"
+                                            >
+                                                <td colSpan={7} className="px-3 py-2.5 sm:px-8">
+                                                    <div className="space-y-2">
+                                                        {phoneCallMinuteServices.map((item) => (
+                                                            <div
+                                                                key={item.serviceCode}
+                                                                className="flex items-center justify-between gap-4 text-[11px] text-slate-500 sm:text-xs"
+                                                            >
+                                                                <span className="min-w-0 truncate font-medium text-slate-600">
+                                                                    {item.invoiceLabel ?? item.serviceName}
+                                                                </span>
+                                                                <span className="shrink-0 font-mono">
+                                                                    {formatUsageInvoiceRate(item)} × {formatUsageQuantity(item)} ={" "}
+                                                                    <strong className="text-slate-700">
+                                                                        {formatUsageInvoiceAmountUsd(calculateUsageInvoiceLineAmountUsd(item))}
+                                                                    </strong>
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ) : null}
+                                    </Fragment>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
@@ -779,8 +916,8 @@ function UsageInvoiceCard({
                     <div className="w-full space-y-2 text-sm sm:w-72">
                         <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{displayedInvoiceTotal}</span></div>
                         <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold"><span>Total</span><span>{displayedInvoiceTotal}</span></div>
-                        <div className="flex justify-between text-slate-500"><span>Amount Paid</span><span>{isPaid ? displayedInvoiceTotal : "$0.000"}</span></div>
-                        <div className="flex justify-between font-bold"><span>Balance Due</span><span className={isPaid ? "text-green-600" : "text-red-600"}>{isPaid ? "$0.000" : displayedInvoiceTotal}</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Amount Paid</span><span>{isPaid ? displayedInvoiceTotal : "$0.00"}</span></div>
+                        <div className="flex justify-between font-bold"><span>Balance Due</span><span className={isPaid ? "text-green-600" : "text-red-600"}>{isPaid ? "$0.00" : displayedInvoiceTotal}</span></div>
                     </div>
                 </div>
 
@@ -788,13 +925,13 @@ function UsageInvoiceCard({
                     {isSyntheticAccrual ? (
                         <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">This live usage statement updates as your agents run. The persisted invoice can be paid from Billing &amp; Usage.</p>
                     ) : !isPaid ? (
-                        <button type="button" disabled={paying} onClick={() => onPay(invoice)} data-testid="usage-invoice-pay" className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50">{paying ? "Redirecting…" : `Pay ${formatCurrencyCents(invoice.amountCents)}`}</button>
+                        <button type="button" disabled={paying} onClick={() => onPay(invoice)} data-testid="usage-invoice-pay" className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50">{paying ? "Redirecting…" : `Pay ${displayedInvoiceTotal}`}</button>
                     ) : (
                         <p className="text-sm font-medium text-green-600">✓ Paid successfully{invoice.paidAt ? ` on ${formatFullDate(invoice.paidAt)}` : ""}</p>
                     )}
                 </div>
             </div>
-            <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 text-xs text-slate-400 sm:px-12">Triven AI Agent Platform — Usage invoice for {invoice.billingMonth}</div>
+            <div className="border-t border-slate-100 bg-slate-50 px-6 py-4 text-xs text-slate-400 sm:px-12">Triven AI Agent Platform — Usage invoice for {formatUsagePeriod(invoice)}</div>
         </article>
     );
 }
@@ -849,7 +986,7 @@ function AgentInvoiceList({
                                             {isPaid ? "Paid" : invoice.status === "OVERDUE" ? "Overdue" : "Pending"}
                                         </span>
                                     </div>
-                                    <p className="mt-2 font-semibold text-slate-900">Usage for {invoice.billingMonth}</p>
+                                    <p className="mt-2 font-semibold text-slate-900">Usage for {formatUsagePeriod(invoice)}</p>
                                     <p className="mt-1 text-sm text-slate-500">
                                         {executions} executions · {isPaid && invoice.paidAt ? `Paid ${formatFullDate(invoice.paidAt)}` : `Due ${formatFullDate(invoice.dueAt)}`}
                                     </p>
@@ -903,8 +1040,8 @@ function InvoiceCard({
     const amountPaid = status.isPaid ? formatCurrencyCents(displayCents) : "$0.00";
     const balanceDue = status.isPaid ? "$0.00" : amount;
 
-    // Itemized rows when the payment carries a fee breakdown (agent price +
-    // AI Receptionist No.); otherwise the single description row as before.
+    // Itemized rows when the payment carries a fee breakdown; otherwise the
+    // single description row as before.
     const lineItems =
         invoice.lineItems && invoice.lineItems.length > 0
             ? invoice.lineItems.map((item) => ({

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { UsageLineItem } from "../../lib/usage-pricing";
 import {
+  alignPlatformQuantityToExecutionCount,
+  customerFacingExecutionLineItems,
   customerFacingUsageLineItems,
   repriceUsageInvoiceLineItems,
   rollupCustomerUsageLineItems,
@@ -79,10 +81,49 @@ describe("customer-facing usage invoice lines", () => {
       serviceCode: "platform_service",
       serviceName: "Platform service",
       invoiceLabel: "Platform service",
-      unit: "PER_MINUTE",
-      quantity: 4,
+      unit: "PER_UNIT",
+      quantity: 2,
       billedCostMicroUsd: 50
     });
+  });
+
+  it("counts multiple platform sub-services as one unit for one execution", () => {
+    const rows = customerFacingExecutionLineItems(
+      [
+        { ...line("database_storage", "Internal database", "Call records", 30), quantity: 17 },
+        { ...line("google_calendar", "Calendar vendor", "Appointments", 20), quantity: 2 }
+      ],
+      new Map()
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      serviceCode: "platform_service",
+      unit: "PER_UNIT",
+      quantity: 1,
+      billingRateMicroUsd: 50,
+      billedCostMicroUsd: 50
+    });
+  });
+
+  it("aligns a historical 19-unit platform rollup to 17 canonical executions", () => {
+    const historicalRows = customerFacingUsageLineItems(
+      [
+        { ...line("database_storage", "Internal database", "Call records", 34_000), quantity: 17 },
+        { ...line("google_calendar", "Calendar vendor", "Appointments", 4_000), quantity: 2 }
+      ],
+      new Map()
+    );
+    const rows = alignPlatformQuantityToExecutionCount(historicalRows, 17);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      serviceCode: "platform_service",
+      unit: "PER_UNIT",
+      quantity: 17,
+      billedCostMicroUsd: 38_000
+    });
+    expect(rows[0]?.billingRateMicroUsd).toBeCloseTo(38_000 / 17);
   });
 
   it("uses the execution count for a unit-priced Platform service", () => {
@@ -217,6 +258,47 @@ describe("customer-facing usage invoice lines", () => {
       quantity: 2,
       billingRateMicroUsd: 1_000_000,
       billedCostMicroUsd: 2_000_000
+    });
+  });
+
+  it("keeps an issued monthly phone-number fee at its recorded rate", () => {
+    const [phoneFee] = repriceUsageInvoiceLineItems(
+      [
+        {
+          ...line(
+            "phone_number",
+            "Dedicated Business Phone Number",
+            "Dedicated Business Phone Number",
+            2_000_000,
+            2_000_000
+          ),
+          unit: "PER_UNIT",
+          quantity: 1
+        }
+      ],
+      new Map([
+        [
+          "phone_number",
+          {
+            unit: "PER_UNIT",
+            billingCostMicroUsd: 9_000_000
+          }
+        ]
+      ])
+    );
+
+    expect(phoneFee).toMatchObject({
+      unit: "PER_UNIT",
+      quantity: 1,
+      billingRateMicroUsd: 2_000_000,
+      billedCostMicroUsd: 2_000_000
+    });
+    if (!phoneFee) throw new Error("Expected a phone-number line");
+    expect(
+      customerFacingUsageLineItems([phoneFee], new Map())[0]
+    ).toMatchObject({
+      serviceCode: "phone_number",
+      invoiceLabel: "Dedicated Business Phone Number"
     });
   });
 });

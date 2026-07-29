@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../../lib/prisma";
 import {
-  getBusinessPhoneAssignment,
+  getAgentPhoneAssignment,
+  listBusinessPhoneAssignments,
+  listUnassignedBusinessNumbers,
   purchaseNumberForBusiness,
   searchNumbersForBusiness
 } from "./phone-provisioning-flow";
@@ -67,11 +69,11 @@ afterAll(async () => {
 });
 
 describe("GET assignment shape", () => {
-  it("returns the active assignment without any provider cost fields", async () => {
+  it("returns the owned number without any provider cost fields", async () => {
     if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
-    const assignment = await getBusinessPhoneAssignment(businessId);
-    expect(assignment).not.toBeNull();
+    const [assignment] = await listBusinessPhoneAssignments(businessId);
+    expect(assignment).toBeTruthy();
     expect(assignment?.phoneNumber).toBe(heldNumber);
     expect(assignment?.status).toBe("ACTIVE");
     expect(assignment?.capabilities).toEqual({ voice: true, sms: true });
@@ -84,14 +86,23 @@ describe("GET assignment shape", () => {
     }
   });
 
-  it("returns null when the business holds no number", async () => {
+  it("returns nothing when the business holds no number", async () => {
     if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
-    expect(await getBusinessPhoneAssignment(emptyBusinessId)).toBeNull();
+    expect(await listBusinessPhoneAssignments(emptyBusinessId)).toEqual([]);
+    expect(await listUnassignedBusinessNumbers(emptyBusinessId)).toEqual([]);
+  });
+
+  it("reports an owned-but-unlocked number as available to assign", async () => {
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
+
+    // Owned, no agent link yet — the buyer must use this before buying more.
+    const free = await listUnassignedBusinessNumbers(businessId);
+    expect(free.map((n) => n.phoneNumber)).toContain(heldNumber);
   });
 });
 
-describe("search with an active number", () => {
-  it("returns the existing assignment and never purchasable inventory", async () => {
+describe("search while the business owns an unassigned number", () => {
+  it("offers the owned number to assign and never purchasable inventory", async () => {
     if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const outcome = await searchNumbersForBusiness({
@@ -102,8 +113,7 @@ describe("search with an active number", () => {
     });
 
     expect(outcome.numbers).toHaveLength(0);
-    expect(outcome.alreadyAssigned?.assigned).toBe(true);
-    expect(outcome.alreadyAssigned?.phoneNumber).toBe(heldNumber);
+    expect(outcome.availableToAssign?.map((n) => n.phoneNumber)).toContain(heldNumber);
 
     const serialized = JSON.stringify(outcome);
     expect(serialized).not.toContain("feeCents");
@@ -111,8 +121,8 @@ describe("search with an active number", () => {
   });
 });
 
-describe("purchase with an active number", () => {
-  it("returns PHONE_NUMBER_ALREADY_ASSIGNED with the existing number and creates nothing", async () => {
+describe("purchase while an owned number is unassigned", () => {
+  it("returns UNASSIGNED_NUMBER_AVAILABLE with that number and creates nothing", async () => {
     if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
     const outcome = await purchaseNumberForBusiness({
@@ -128,7 +138,7 @@ describe("purchase with an active number", () => {
     expect(outcome.status).toBe("ACTIVE");
     expect(outcome.alreadyCompleted).toBe(true);
     expect(outcome.phoneNumber).toBe(heldNumber);
-    expect(outcome.errorCode).toBe("PHONE_NUMBER_ALREADY_ASSIGNED");
+    expect(outcome.errorCode).toBe("UNASSIGNED_NUMBER_AVAILABLE");
 
     const requests = await prisma.phoneProvisioningRequest.count({
       where: { businessId, clientRequestId: `${RUN}-again-1` }
@@ -162,7 +172,7 @@ describe("purchase with an active number", () => {
 
     for (const outcome of [first, second]) {
       expect(outcome.phoneNumber).toBe(heldNumber);
-      expect(outcome.errorCode).toBe("PHONE_NUMBER_ALREADY_ASSIGNED");
+      expect(outcome.errorCode).toBe("UNASSIGNED_NUMBER_AVAILABLE");
     }
 
     const requests = await prisma.phoneProvisioningRequest.count({
@@ -204,23 +214,50 @@ describe("in-flight provisioning guard", () => {
 });
 
 describe("database constraint", () => {
-  it("refuses a second ASSIGNED platform number for the same business", async () => {
+  it("allows a business to own a second number (one per agent)", async () => {
     if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
 
+    // The old rule capped a business at one ASSIGNED number. Agents each need
+    // their own, so a second number for the same business must be allowed.
+    const second = await prisma.platformPhoneNumber.create({
+      data: {
+        phoneNumber: secondNumber,
+        e164: secondNumber,
+        provider: "TWILIO",
+        status: "ASSIGNED",
+        businessId,
+        buyerUserId: ownerId,
+        voiceEnabled: true,
+        smsEnabled: true,
+        assignedAt: new Date()
+      }
+    });
+    expect(second.businessId).toBe(businessId);
+  });
+
+  it("refuses to lock one agent to two numbers", async () => {
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
+
+    const workflow = await prisma.workflowDefinition.findFirst({ select: { id: true } });
+    if (!workflow) return; // no workflow fixture in this database — nothing to bind an agent to
+
+    const agent = await prisma.installedAgent.create({
+      data: { businessId, workflowId: workflow.id, name: `${RUN} agent`, status: "ACTIVE" }
+    });
+
+    await prisma.businessPhoneNumber.create({
+      data: { businessId, installedAgentId: agent.id, phoneNumber: heldNumber, isActive: true }
+    });
+
+    // The partial unique index is the lock — a second active mapping for the
+    // same agent must be impossible, not merely discouraged.
     await expect(
-      prisma.platformPhoneNumber.create({
-        data: {
-          phoneNumber: secondNumber,
-          e164: secondNumber,
-          provider: "TWILIO",
-          status: "ASSIGNED",
-          businessId,
-          buyerUserId: ownerId,
-          voiceEnabled: true,
-          smsEnabled: true,
-          assignedAt: new Date()
-        }
+      prisma.businessPhoneNumber.create({
+        data: { businessId, installedAgentId: agent.id, phoneNumber: secondNumber, isActive: true }
       })
     ).rejects.toThrowError();
+
+    await prisma.businessPhoneNumber.deleteMany({ where: { businessId } });
+    await prisma.installedAgent.deleteMany({ where: { id: agent.id } });
   });
 });

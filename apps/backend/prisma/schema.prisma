@@ -393,6 +393,7 @@ model InstalledAgent {
   workflowRuns              WorkflowRun[]
   executionUsages           AgentUsageExecution[]
   usageInvoices             BusinessUsageInvoice[]
+  payments                  Payment[]
 
   @@unique([businessId, listingId])
   @@index([businessId])
@@ -635,9 +636,15 @@ model PlatformPhoneNumber {
   buyerUserId         String?
   installedAgentId    String?
   assignedAt          DateTime?
-  /// When the one-time number fee was billed to the buyer (once per number;
-  /// cleared when the number returns to AVAILABLE).
+  /// Legacy one-time billing marker retained for migration compatibility.
   feeBilledAt         DateTime?
+  /// Twilio's account-specific recurring monthly price at the last pricing lookup.
+  providerMonthlyPriceMicroUsd Int?
+  /// Buyer monthly price: round(provider monthly USD) + 1 USD.
+  billingMonthlyPriceMicroUsd  Int?
+  pricingCurrency              String?
+  pricingNumberType            String?
+  pricingFetchedAt             DateTime?
   /// Admin provisioning metadata (numbers purchased through the admin panel).
   purchasedByAdminId  String?
   purchasedAt         DateTime?
@@ -679,6 +686,7 @@ model Payment {
   userId                           String
   businessId                       String?
   listingId                        String?
+  installedAgentId                 String?
   amountCents                      Int                    @default(0)
   currency                         String                 @default("usd")
   status                           PaymentStatus          @default(PENDING)
@@ -705,6 +713,7 @@ model Payment {
   dueAt               DateTime?
   graceEndsAt         DateTime?
   paidAt              DateTime?
+  canceledAt          DateTime?
   suspendedAt         DateTime?
   /// Set after the buyer receives the reminder sent during the final 24 hours.
   trialEndingOneDayEmailSentAt DateTime?
@@ -713,8 +722,7 @@ model Payment {
   trialEndedEmailSentAt DateTime?
   paymentAttemptCount Int                @default(0)
   paymentPendingAt    DateTime?
-  /// Buyer-facing fee breakdown: [{ label, amountCents }] — agent price plus
-  /// the "AI Receptionist No." number fee when one was provisioned.
+  /// Buyer-facing fee breakdown: [{ label, amountCents }].
   lineItemsJson       Json?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
@@ -722,11 +730,13 @@ model Payment {
   user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   business Business?         @relation(fields: [businessId], references: [id], onDelete: SetNull)
   listing  AgentListing?     @relation(fields: [listingId], references: [id])
+  installedAgent InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
   earning  ArchitectEarning?
 
   @@index([userId])
   @@index([businessId])
   @@index([listingId])
+  @@index([installedAgentId])
   @@index([status])
   @@index([stripeCustomerId])
   @@index([stripeSessionId])

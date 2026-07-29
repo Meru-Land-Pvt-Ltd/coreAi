@@ -7,12 +7,16 @@ import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { BusinessPaymentMethodModal } from "@/components/business/business-payment-method-modal";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { businessCheckoutPath, businessInvoiceCheckoutPath } from "@/lib/routes";
-import { syntheticAgentAccruals } from "@/components/business/current-month-accrual";
+import {
+    billingPeriodForAnchor,
+    syntheticAgentAccruals
+} from "@/components/business/current-month-accrual";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 import {
     outstandingExecutionCents,
     outstandingSubscriptionCents
 } from "@/components/business/outstanding-billing";
+import { billingAgentMatchesUsage } from "@/lib/agent-billing-identity";
 
 type BillingPaymentMethod = {
     brand: string;
@@ -23,6 +27,7 @@ type BillingPaymentMethod = {
 
 type BillingInvoice = {
     id: string;
+    installedAgentId?: string | null;
     createdAt: string;
     description: string;
     amountCents: number;
@@ -123,6 +128,8 @@ type UsageBill = {
         durationMinutes: number;
         billedCostUsd: number;
         amountCents: number;
+        purchasedAt?: string;
+        billingAnchorAt?: string;
         executionFeeCents?: number | null;
         iconUrl?: string | null;
         serviceCosts: Array<{
@@ -179,6 +186,8 @@ type UsageInvoice = {
     billingMonth: string;
     status: "OPEN" | "PENDING" | "OVERDUE" | "PAID" | "VOID";
     amountCents: number;
+    periodStart?: string;
+    periodEnd?: string;
     issuedAt: string;
     dueAt: string;
     paidAt: string | null;
@@ -267,11 +276,6 @@ function buildMonthRange(startMonth: string, endMonth: string) {
     }
 
     return months.reverse();
-}
-
-function usageDueAt(month: string) {
-    const [year, monthNumber] = month.split("-").map(Number);
-    return new Date(Date.UTC(year, monthNumber, 1)).toISOString();
 }
 
 function formatCallTimestamp(iso: string) {
@@ -792,11 +796,7 @@ export default function BusinessBillingUsagePage() {
             .map((agent) => {
             const matchIndex = rollups.findIndex((rollup, index) => {
                 if (usedIndexes.has(index)) return false;
-                const rollupInstalledId = rollup.installedAgentId ?? rollup.agentId;
-                if (agent.installedAgentId && rollupInstalledId === agent.installedAgentId) return true;
-                const listingId = agent.listingId ?? agent.id;
-                if (rollup.listingId && rollup.listingId === listingId) return true;
-                return rollup.agentName.trim().toLowerCase() === agent.name.trim().toLowerCase();
+                return billingAgentMatchesUsage(agent, rollup);
             });
             const rollup = matchIndex >= 0 ? rollups[matchIndex] : null;
             if (matchIndex >= 0) usedIndexes.add(matchIndex);
@@ -847,23 +847,33 @@ export default function BusinessBillingUsagePage() {
             invoices: usageInvoices,
             currentMonth: CURRENT_MONTH,
             agents: currentUsage.agentRollup
-        }).map(({ id, invoiceNumber, agent, executionCount }) => ({
-            id,
-            installedAgentId: agent.installedAgentId ?? agent.agentId,
-            invoiceNumber,
-            billingMonth: currentUsage.month,
-            status: "PENDING",
-            amountCents: Math.round(agent.billedCostUsd * 100),
-            issuedAt: currentUsage.updatedAt ?? new Date().toISOString(),
-            dueAt: usageDueAt(currentUsage.month),
-            paidAt: null,
-            callCount: executionCount,
-            agentBreakdown: [{
-                ...agent,
-                serviceCosts: agent.invoiceServiceCosts ?? []
-            }],
-            isAccruing: true
-        }))
+        }).map(({ id, invoiceNumber, agent, executionCount }) => {
+            const issuedAt = currentUsage.updatedAt ?? new Date().toISOString();
+            const period = billingPeriodForAnchor(
+                agent.billingAnchorAt ?? agent.purchasedAt,
+                issuedAt,
+                currentUsage.month
+            );
+            return {
+                id,
+                installedAgentId: agent.installedAgentId ?? agent.agentId,
+                invoiceNumber,
+                billingMonth: currentUsage.month,
+                status: "PENDING" as const,
+                amountCents: Math.round(agent.billedCostUsd * 100),
+                periodStart: period.start,
+                periodEnd: period.end,
+                issuedAt,
+                dueAt: period.end,
+                paidAt: null,
+                callCount: executionCount,
+                agentBreakdown: [{
+                    ...agent,
+                    serviceCosts: agent.invoiceServiceCosts ?? []
+                }],
+                isAccruing: true
+            };
+        })
         : [];
     const pendingUsageInvoices = [
         ...usageInvoices.filter((invoice) => invoice.status === "PENDING" || invoice.status === "OPEN"),
@@ -965,13 +975,9 @@ export default function BusinessBillingUsagePage() {
                                     : pricingModel === "ONE_TIME"
                                         ? " one-time"
                                         : "";
-                                const agentExecutionUsage = currentUsage?.agentRollup.find((rollup) => {
-                                    const rollupInstalledId = rollup.installedAgentId ?? rollup.agentId;
-                                    if (agent.installedAgentId && rollupInstalledId === agent.installedAgentId) return true;
-                                    const listingId = agent.listingId ?? agent.id;
-                                    if (rollup.listingId && rollup.listingId === listingId) return true;
-                                    return rollup.agentName.trim().toLowerCase() === agent.name.trim().toLowerCase();
-                                });
+                                const agentExecutionUsage = currentUsage?.agentRollup.find(
+                                    (rollup) => billingAgentMatchesUsage(agent, rollup)
+                                );
                                 const agentExecutionCostUsd = agentExecutionUsage?.billedCostUsd ?? 0;
                                 const trialLimit = agent.trialExecutionLimit ?? 50;
                                 const trialUsed = agent.trialExecutionsUsed
@@ -1001,7 +1007,7 @@ export default function BusinessBillingUsagePage() {
                                         {pricingModel === "SUBSCRIPTION" ? (
                                             <button
                                                 type="button"
-                                                onClick={() => cancelAgentSubscription(agent.listingId ?? agent.id)}
+                                                onClick={() => cancelAgentSubscription(agent.installedAgentId ?? agent.id)}
                                                 data-testid="billing-cancel-agent"
                                                 className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600 transition hover:bg-red-100 hover:text-red-700"
                                             >

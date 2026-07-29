@@ -13,15 +13,10 @@ import {
   PUBLIC_DEMO_MAX_DURATION_SECONDS,
   resetMarketplaceDemoLimits,
   startMarketplaceDemoCall,
-  startPublicMarketplaceDemoCall
+  startPublicMarketplaceDemoCall,
+  buildDemoSystemPrompt
 } from "./marketplace-demo";
 
-/**
- * Pre-purchase marketplace demo: buyers may try a sandboxed, capped demo call
- * WITHOUT buying — but the demo assistant must have no tools, no recording,
- * a hard duration cap, and a per-buyer daily limit. DB-backed; Vapi is a
- * stubbed fetch (no real assistant is ever created).
- */
 
 const RUN = `demotest-${process.pid}-${Date.now().toString(36)}`;
 
@@ -349,5 +344,57 @@ describe("POST /business/marketplace/listings/:listingId/demo-call (DB)", () => 
     };
     expect(body.data?.session?.demo).toBe(true);
     expect(body.data?.session?.maxDurationSeconds).toBe(DEMO_MAX_DURATION_SECONDS);
+  });
+});
+
+describe("buildDemoSystemPrompt", () => {
+  const base = {
+    assistantName: "June",
+    demoBusinessName: "Demo Dental Studio",
+    industry: "dental",
+    listingName: "AI Receptionist",
+    listingDescription: "Answers missed calls and books appointments."
+  };
+
+  it("frames the call as a live demo and describes the agent", () => {
+    const prompt = buildDemoSystemPrompt(base);
+
+    expect(prompt).toContain("LIVE DEMO");
+    expect(prompt).toContain("Answers missed calls and books appointments.");
+    expect(prompt).toContain("what happens on a real call");
+    expect(prompt).toContain("plausible examples");
+  });
+
+  it("never tells the agent to deflect questions about itself", () => {
+    const prompt = buildDemoSystemPrompt(base);
+
+    expect(prompt).not.toContain("Stay strictly in character");
+    expect(prompt).toContain("You ARE allowed to talk about being a demo");
+  });
+
+  it("keeps the buyer's personalized details alongside the demo framing", () => {
+    const prompt = buildDemoSystemPrompt({
+      ...base,
+      customInfo: {
+        businessName: "Bright Smile Dental",
+        doctorName: "Dr. Rao",
+        businessType: "dental clinic",
+        address: "12 Park Street",
+        services: "Cleaning, Whitening"
+      }
+    });
+
+    expect(prompt).toContain("Bright Smile Dental");
+    expect(prompt).toContain("Dr. Rao");
+    expect(prompt).toContain("12 Park Street");
+    expect(prompt).toContain("Cleaning, Whitening");
+    expect(prompt).toContain("LIVE DEMO");
+  });
+
+  it("forbids claiming a text or booking actually happened", () => {
+    const prompt = buildDemoSystemPrompt(base);
+
+    expect(prompt).toContain("cannot actually finalize bookings or send texts");
+    expect(prompt).toContain("Never pretend a text, booking, or email was actually sent");
   });
 });

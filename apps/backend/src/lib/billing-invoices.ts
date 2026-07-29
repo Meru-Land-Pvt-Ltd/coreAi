@@ -5,6 +5,7 @@ export type PaymentLineItem = { label: string; amountCents: number };
 export type PaymentWithListing = {
   id: string;
   listingId: string | null;
+  installedAgentId?: string | null;
   amountCents: number;
   currency: string;
   status: PaymentStatus;
@@ -127,6 +128,7 @@ export function buildBillingInvoices(payments: PaymentWithListing[]) {
     tabStatus: "PAID" | "PENDING" | "OVERDUE";
     invoiceKind: string;
     listingId: string | null;
+    installedAgentId: string | null;
     listingName: string | null;
     billingName: string | null;
     billingEmail: string | null;
@@ -185,6 +187,7 @@ export function buildBillingInvoices(payments: PaymentWithListing[]) {
       tabStatus,
       invoiceKind: isTrial ? "TRIAL" : payment.invoiceKind ?? "PURCHASE",
       listingId: payment.listingId,
+      installedAgentId: payment.installedAgentId ?? null,
       listingName: payment.listing?.name ?? null,
       billingName: payment.billingName ?? null,
       billingEmail: payment.billingEmail ?? null,

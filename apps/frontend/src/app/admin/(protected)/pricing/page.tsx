@@ -11,6 +11,7 @@ import {
   Layers3,
   LoaderCircle,
   Pencil,
+  PhoneCall,
   Plus,
   Save,
   X,
@@ -49,6 +50,12 @@ type DraftRow = {
 };
 
 const PLATFORM_SERVICE_CODES = new Set(["database_storage", "google_calendar"]);
+const PHONE_CALL_MINUTE_SERVICE_CODES = new Set([
+  "twilio_voice",
+  "deepgram_nova3",
+  "openai_gpt4o_mini",
+  "elevenlabs_flash_v25"
+]);
 
 function draftFromService(service: AdminUsageService): DraftRow {
   return {
@@ -113,7 +120,14 @@ export default function AdminPricingPage() {
 
   const rows = data?.services ?? [];
   const activeServiceCount = rows.filter((service) => service.isActive).length;
-  const usageServices = rows.filter((service) => !PLATFORM_SERVICE_CODES.has(service.code));
+  const usageServices = rows.filter(
+    (service) =>
+      !PHONE_CALL_MINUTE_SERVICE_CODES.has(service.code) &&
+      !PLATFORM_SERVICE_CODES.has(service.code)
+  );
+  const phoneCallMinuteServices = rows.filter((service) =>
+    PHONE_CALL_MINUTE_SERVICE_CODES.has(service.code)
+  );
   const platformServices = rows.filter((service) => PLATFORM_SERVICE_CODES.has(service.code));
 
   const dirtyIds = useMemo(() => {
@@ -359,7 +373,7 @@ export default function AdminPricingPage() {
         <div className="space-y-6" data-testid="admin-pricing-table">
           <PricingServiceTable
             title="Usage services"
-            description="AI, telephony, messaging, and other metered services used during agent execution."
+            description="Messaging and other metered services used during agent execution."
             rows={usageServices}
             drafts={drafts}
             dirtyIds={dirtyIds}
@@ -369,6 +383,19 @@ export default function AdminPricingPage() {
             onCancel={cancelEditing}
             onDraftChange={updateDraft}
             testId="admin-pricing-usage-table"
+          />
+          <PricingServiceTable
+            title="Phone Call Minutes"
+            description="Telephony and AI services billed per minute during live phone calls."
+            rows={phoneCallMinuteServices}
+            drafts={drafts}
+            dirtyIds={dirtyIds}
+            editingIds={editingIds}
+            saving={saving}
+            onEdit={beginEditing}
+            onCancel={cancelEditing}
+            onDraftChange={updateDraft}
+            testId="admin-pricing-phone-call-minutes-table"
           />
           <PricingServiceTable
             title="Platform services"
@@ -564,7 +591,12 @@ function PricingServiceTable({
   onDraftChange: <K extends keyof DraftRow>(id: string, field: K, value: DraftRow[K]) => void;
   testId: string;
 }) {
-  const GroupIcon = title === "Platform services" ? CloudCog : Boxes;
+  const GroupIcon =
+    title === "Platform services"
+      ? CloudCog
+      : title === "Phone Call Minutes"
+        ? PhoneCall
+        : Boxes;
   const activeCount = rows.filter((service) => service.isActive).length;
 
   return (
