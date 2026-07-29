@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { CoreFooter } from "@/components/common/footer";
 import { apiGet } from "@/lib/api";
-import { ASSIGNMENT_PATH } from "@/lib/routes";
+import { ASSIGNMENT_PATH, businessCheckoutPath } from "@/lib/routes";
 import { BotIcon, Download, Search } from "lucide-react";
 
 type Agent = {
@@ -379,7 +379,6 @@ const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 
 const HOME_PATH = "/" as Route;
 const BUSINESS_LOGIN_PATH = "/business/login" as Route;
-const BUSINESS_SETUP_PATH = "/business/agents/setup" as Route;
 const ARCHITECT_LOGIN_PATH = "/architect/login" as Route;
 
 type SortValue = (typeof sortOptions)[number]["value"];
@@ -813,7 +812,7 @@ export default function MarketplacePage() {
                 <div className="mt-6 flex flex-wrap items-center gap-3">
                   <Link
                     data-testid="marketplace-start-free-trial-link"
-                    href={BUSINESS_SETUP_PATH}
+                    href={businessCheckoutPath(featuredAgent.id)}
                     className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
                   >
                     {featuredAgent.pricingModel === "FREE"
@@ -1598,7 +1597,7 @@ function AgentDetailsModal({
 
           <div className="flex flex-col gap-3 sm:flex-row">
             <Link data-testid="marketplace-start-free-trial-link-2"
-              href={BUSINESS_SETUP_PATH}
+              href={businessCheckoutPath(agent.id)}
               className="inline-flex min-w-[166px] items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-amber-500/25 transition hover:bg-amber-600"
             >
               {agent.pricingModel === "FREE"

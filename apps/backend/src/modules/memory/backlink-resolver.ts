@@ -33,14 +33,17 @@ export async function resolveBackLinkedMemories(params: {
   selectedBacklinkNodeIds?: string[];
 }): Promise<{ memories: NodeMemoryRecord[]; links: ContextLinkRecord[] }> {
   if (params.workflowRunId.startsWith("test-run-")) return { memories: [], links: [] };
+
+  let memories: NodeMemoryRecord[] = [];
+  let linkRecords: ContextLinkRecord[] = [];
+
+  // 1. Look for existing NodeRun for the target node
   const targetRuns = await prisma.nodeRun.findMany({
     where: { workflowRunId: params.workflowRunId, nodeId: params.targetNodeId },
     orderBy: { executionOrder: "desc" },
     take: 1,
   });
   const targetRun = targetRuns[0];
-  let memories: NodeMemoryRecord[] = [];
-  let linkRecords: ContextLinkRecord[] = [];
 
   if (targetRun) {
     const links = await prisma.contextLink.findMany({
@@ -69,6 +72,7 @@ export async function resolveBackLinkedMemories(params: {
     linkRecords = links.map(mapContextLinkToRecord);
   }
 
+  // 2. Always load memories for explicitly selected backlink node IDs (for building context BEFORE current node saves a NodeRun)
   if (params.selectedBacklinkNodeIds?.length) {
     const directMemories = await loadDirectBacklinkMemories({
       workflowRunId: params.workflowRunId,

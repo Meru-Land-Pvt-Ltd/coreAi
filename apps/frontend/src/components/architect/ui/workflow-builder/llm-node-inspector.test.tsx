@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LlmNodeInspector } from "./llm-node-inspector";
 import { NodeInspector } from "./node-inspector";
@@ -239,6 +239,16 @@ describe("providers the backend cannot run", () => {
     expect(claudeOption).toHaveProperty("disabled", false);
     expect(claudeOption.textContent).toContain("models");
   });
+
+  it("auto-switches away from disabled default provider (openai) to the first available provider", async () => {
+    getProvidersMock.mockResolvedValue(providersResponse(["claude"]));
+    const { onUpdateNodeData } = renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
+
+    await waitFor(() => {
+      expect(onUpdateNodeData).toHaveBeenCalledWith("llmProvider", "claude");
+      expect(onUpdateNodeData).toHaveBeenCalledWith("llmModel", "claude-sonnet-5");
+    });
+  });
 });
 
 describe("AI Step node provider then model selection", () => {
@@ -276,3 +286,47 @@ describe("AI Step node provider then model selection", () => {
     expect(onUpdateNodeData).toHaveBeenCalledWith("model", "claude-sonnet-5");
   });
 });
+
+describe("AI Memory node inspector", () => {
+  function renderMemoryNode(data?: Partial<BuilderNodeData>) {
+    const onUpdateNodeData = vi.fn();
+    render(
+      <NodeInspector
+        selectedNode={{
+          id: "mem-1",
+          type: "coreNode",
+          position: { x: 0, y: 0 },
+          data: {
+            label: "Memory Node",
+            title: "Memory Node",
+            kind: "AI",
+            nodeKind: "ai",
+            type: "ai.memory",
+            subtitle: "Aggregates memory and documents",
+            customMemoryNotes: "Remember patient preferences",
+            ...data
+          } as BuilderNodeData
+        }}
+        onClearSelection={vi.fn()}
+        onUpdateNodeData={onUpdateNodeData}
+        onDeleteNode={vi.fn()}
+      />
+    );
+    return { onUpdateNodeData };
+  }
+
+  it("renders Node name, Custom context, Attachments, and Output variable", () => {
+    renderMemoryNode();
+
+    expect(screen.getByText("Node name")).toBeDefined();
+    expect(screen.getByText("Custom context")).toBeDefined();
+    expect(screen.getByText("Memory configuration")).toBeDefined();
+    expect(screen.getByText("Attachments")).toBeDefined();
+    expect(screen.getByText("Files (Images / PDFs / Docs)")).toBeDefined();
+    expect(screen.getByText("Output variable")).toBeDefined();
+    expect(screen.getByText("Copy {{memory}}")).toBeDefined();
+    expect(screen.queryByText("Description")).toBeNull();
+  });
+});
+
+

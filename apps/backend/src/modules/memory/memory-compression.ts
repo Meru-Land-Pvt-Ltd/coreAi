@@ -39,6 +39,43 @@ export function compressMergedMemory(merged: MergedWorkflowMemory): MergedWorkfl
   };
 }
 
+export function extractTextFromOutput(output: unknown): string {
+  if (output === null || output === undefined) return "";
+  if (typeof output === "string") return output.trim();
+  if (typeof output === "object") {
+    const o = output as Record<string, unknown>;
+    for (const key of ["text", "body", "output", "message", "content", "result"]) {
+      if (typeof o[key] === "string" && (o[key] as string).trim()) {
+        return (o[key] as string).trim();
+      }
+    }
+    const cleanEntries = Object.entries(o).filter(
+      ([k]) =>
+        ![
+          "icon",
+          "accent",
+          "kind",
+          "nodeKind",
+          "type",
+          "footer",
+          "subtitle",
+          "providerId",
+          "modelName",
+          "nodeRunId",
+          "outputKey",
+          "status",
+          "error"
+        ].includes(k)
+    );
+    if (cleanEntries.length > 0) {
+      return cleanEntries
+        .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`)
+        .join("\n");
+    }
+  }
+  return String(output);
+}
+
 /** Final prompt text the AI Brain node sends to OpenAI, Claude, Manus, etc. */
 export function buildCompressedPrompt(merged: MergedWorkflowMemory): string {
   const sections: string[] = [];
@@ -51,7 +88,10 @@ export function buildCompressedPrompt(merged: MergedWorkflowMemory): string {
   if (merged.outputs.length > 0) {
     sections.push(
       `# Previous Outputs\n${merged.outputs
-        .map((item) => `## ${item.nodeId} (${item.nodeType})\n${JSON.stringify(item.output)}`)
+        .map((item) => {
+          const text = extractTextFromOutput(item.output);
+          return `## ${item.nodeId} (${item.nodeType})\n${text || JSON.stringify(item.output)}`;
+        })
         .join("\n\n")}`
     );
   }
@@ -198,8 +238,12 @@ export function buildCompactMemoryString(params: {
     for (const att of params.attachments) {
       const name = att.name || "Attachment";
       let textContent = att.data || "";
-      if (textContent.length > 500) {
-        textContent = textContent.slice(0, 500) + "...";
+      if (textContent.startsWith("data:")) {
+        // Do not dump raw Base64 strings into text prompt memory
+        const mime = att.mimeType || "file";
+        textContent = `[Attached ${mime} file: ${name}]`;
+      } else if (!textContent.startsWith("http") && textContent.length > 2000) {
+        textContent = textContent.slice(0, 2000) + "...";
       }
       docLines.push(`• ${name}: ${textContent}`);
     }
