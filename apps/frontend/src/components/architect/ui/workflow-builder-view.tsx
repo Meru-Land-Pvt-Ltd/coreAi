@@ -279,14 +279,61 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     return isVoiceWorkflow && name.includes("dental");
   }, [agentName, workflow?.name, isVoiceWorkflow]);
 
-  const isManualTriggerWorkflow = useMemo(() => {
-    return nodes.some(
-      (node) =>
-        ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
-        node.data.nodeKind === "trigger" ||
-        String(node.data.kind ?? "").toUpperCase() === "TRIGGER"
-    );
+  const isMissedCallWorkflow = useMemo(() => {
+    return nodes.some((node) => {
+      const type = String(node.data.type ?? "").toLowerCase();
+      const title = String(node.data.title ?? "").toLowerCase();
+      const label = String(node.data.label ?? "").toLowerCase();
+      return (
+        type === "trigger.twilio_missed_call" ||
+        type === "twilio_missed_call" ||
+        type === "missed_call" ||
+        title.includes("missed call") ||
+        label.includes("missed call")
+      );
+    });
   }, [nodes]);
+
+  const isSmsWorkflow = useMemo(() => {
+    return nodes.some((node) => {
+      const type = String(node.data.type ?? "").toLowerCase();
+      const title = String(node.data.title ?? "").toLowerCase();
+      const label = String(node.data.label ?? "").toLowerCase();
+      return (
+        type === "trigger.twilio_inbound_sms" ||
+        type === "twilio_inbound_sms" ||
+        type === "inbound_sms" ||
+        title.includes("inbound sms") ||
+        label.includes("inbound sms")
+      );
+    });
+  }, [nodes]);
+
+  const isManualTriggerWorkflow = useMemo(() => {
+    const hasCallOrVoice =
+      isVoiceWorkflow ||
+      nodes.some((node) => {
+        const type = String(node.data.type ?? "").toLowerCase();
+        return (
+          type === VOICE_NODE_TYPES.phoneCallTrigger ||
+          type === "trigger.phone_call" ||
+          type === "phone_call"
+        );
+      });
+
+    if (hasCallOrVoice || isMissedCallWorkflow || isSmsWorkflow) {
+      return false;
+    }
+
+    return nodes.some((node) => {
+      const dataType = String(node.data.type ?? node.type ?? "").toLowerCase();
+      return (
+        dataType === "trigger.manual" ||
+        dataType === "manual_trigger" ||
+        dataType === "manual"
+      );
+    });
+  }, [nodes, isVoiceWorkflow, isMissedCallWorkflow, isSmsWorkflow]);
 
   // Send Email node present → the Test tab offers a Test Email recipient field.
   const hasEmailNode = useMemo(
@@ -346,7 +393,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
         creatingDraftRef.current = false;
 
-        if (!res.success || !res.data) return false;
+        if (!res.success || !res.data) {
+          if (res.error) setMessage(`Save failed: ${res.error}`);
+          return false;
+        }
 
         const newId = res.data.workflow.id;
 
@@ -365,6 +415,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         description: snap.tagline,
         workflowJson: { nodes: snap.nodes, edges: snap.edges }
       });
+
+      if (!res.success && res.error) {
+        setMessage(`Save failed: ${res.error}`);
+      }
 
       return res.success;
     },
@@ -1194,27 +1248,63 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
       const payload = {
         input: {
-          callerNumber: normalizedCallerNumber || (isManualTriggerWorkflow ? "test-user" : ""),
-          callerName: callerName.trim() || (isManualTriggerWorkflow ? "Test User" : ""),
-          businessName: normalizedBusinessName || "Sample Business",
-          businessType: businessType.trim() || "Service Business",
-          businessPhoneNumber: "",
-          calendarId: calendarId.trim() || "primary",
-          timeZone: timeZone.trim() || "America/Los_Angeles",
-          services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
-          faqs: [
-            "Pricing depends on the service and business policy.",
-            "Urgent calls should be escalated to the team."
-          ],
-          knowledge: [
-            "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
-          ],
-          bookingUrl: "https://example.com/book",
-          teamPhone: "",
-          callStatus: "no-answer",
-          callTimestamp: new Date().toISOString(),
-          missedCallReason: "No one picked up the customer call.",
-          appointmentService: appointmentService.trim() || "General Consultation",
+          ...(normalizedCallerNumber
+            ? { callerNumber: normalizedCallerNumber }
+            : isVoiceWorkflow
+              ? { callerNumber: "+15555550100" }
+              : {}),
+          ...(callerName.trim()
+            ? { callerName: callerName.trim() }
+            : isVoiceWorkflow
+              ? { callerName: "Test User" }
+              : {}),
+          ...(normalizedBusinessName
+            ? { businessName: normalizedBusinessName }
+            : isVoiceWorkflow
+              ? { businessName: "Sample Business" }
+              : {}),
+          ...(businessType.trim()
+            ? { businessType: businessType.trim() }
+            : isVoiceWorkflow
+              ? { businessType: "Service Business" }
+              : {}),
+          ...(calendarId.trim()
+            ? { calendarId: calendarId.trim() }
+            : isVoiceWorkflow
+              ? { calendarId: "primary" }
+              : {}),
+          ...(timeZone.trim()
+            ? { timeZone: timeZone.trim() }
+            : isVoiceWorkflow
+              ? { timeZone: "America/Los_Angeles" }
+              : {}),
+          ...(appointmentService.trim()
+            ? { appointmentService: appointmentService.trim() }
+            : isVoiceWorkflow
+              ? { appointmentService: "General Consultation" }
+              : {}),
+          ...(isVoiceWorkflow
+            ? {
+                services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
+                faqs: [
+                  "Pricing depends on the service and business policy.",
+                  "Urgent calls should be escalated to the team."
+                ],
+                knowledge: [
+                  "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
+                ]
+              }
+            : {}),
+          ...(isVoiceWorkflow || isMissedCallWorkflow
+            ? {
+                bookingUrl: "https://example.com/book",
+                callStatus: "no-answer",
+                callTimestamp: testDate
+                  ? `${testDate}T${(testTime || "09:00").padStart(5, "0")}:00`
+                  : new Date().toISOString(),
+                missedCallReason: "No one picked up the customer call."
+              }
+            : {}),
           ...(testDate
             ? {
                 appointmentStartAt: `${testDate}T${(testTime || "09:00").padStart(5, "0")}:00`,
@@ -1573,6 +1663,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             triggerMessage={triggerMessage}
             triggerAttachments={triggerAttachments}
             isManualTriggerWorkflow={isManualTriggerWorkflow}
+            isMissedCallWorkflow={isMissedCallWorkflow}
+            isSmsWorkflow={isSmsWorkflow}
             onConnectGmail={connectGmail}
             onDisconnectGoogle={() => void disconnectGoogle()}
             onRefreshConnections={() => void refreshConnections()}

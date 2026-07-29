@@ -3,7 +3,7 @@ import { env } from "../../config/env";
 const LLM_PROVIDER_ENV_KEYS = {
   openai: ["OPENAI_API_KEY"],
   claude: ["ANTHROPIC_API_KEY"],
-  gemini: ["GEMINI_API_KEY"],
+  gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
   groq: ["GROQ_API_KEY", "OPENAI_API_KEY"],
   deepseek: ["DEEPSEEK_API_KEY", "OPENAI_API_KEY"],
   mistral: ["MISTRAL_API_KEY"],
@@ -13,6 +13,7 @@ type LlmEnvKey =
   | "OPENAI_API_KEY"
   | "ANTHROPIC_API_KEY"
   | "GEMINI_API_KEY"
+  | "GOOGLE_API_KEY"
   | "GROQ_API_KEY"
   | "DEEPSEEK_API_KEY"
   | "MISTRAL_API_KEY";

@@ -1507,7 +1507,7 @@ function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   );
 }
 
-function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+function MemoryNodeProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
   const [copied, setCopied] = useState(false);
@@ -1553,28 +1553,27 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
       <Section title="General">
         <Label>Node name</Label>
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
-
-        <div className="mt-4">
-          <Label>Summary</Label>
-          <TextInput value={str("subtitle", "Aggregates memory and documents")} onChange={set("subtitle")} />
-        </div>
       </Section>
 
-      <Section title="Memory Notes & Guidelines">
-        <Label>Custom notes for downstream steps</Label>
+      <Section title="Memory configuration">
+        <Label>Custom context</Label>
         <TextArea
           value={str("customMemoryNotes", str("notes"))}
           onChange={set("customMemoryNotes")}
           height="h-36"
-          placeholder="Type any instructions or story guidelines for downstream steps... (e.g. Keep responses friendly and fantasy-styled)"
+          placeholder="Type custom context or guidelines for downstream steps..."
         />
-        <p className="mt-2 text-[11px] text-slate-400">
-          These notes are stored directly into memory and passed to all connected downstream steps.
-        </p>
+        <UnknownVariablesNote
+          text={str("customMemoryNotes", str("notes"))}
+          nodePrefixes={variableNodePrefixes}
+          testId="memory-node-notes-variable-warning"
+        />
       </Section>
 
-      <Section title="Manual Attachments & Documents">
+      <Section title="Attachments">
         <div className="space-y-3">
+          <Label>Files (Images / PDFs / Docs)</Label>
+
           {attachments.length > 0 && (
             <div className="space-y-2 mb-3">
               {attachments.map((att, idx) => {
@@ -1648,7 +1647,7 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
         </div>
       </Section>
 
-      <Section title="Output Variable" last>
+      <Section title="Output variable" last>
         <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-3.5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-violet-800">Memory Variable</span>
@@ -1669,9 +1668,9 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   );
 }
 
-function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+function AiProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
   if (selectedNode.data.type === "ai.memory") {
-    return <MemoryNodeProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} />;
+    return <MemoryNodeProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} variableNodePrefixes={variableNodePrefixes} />;
   }
 
   const { str, set } = fields(selectedNode, onUpdateNodeData);

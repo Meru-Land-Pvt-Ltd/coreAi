@@ -57,7 +57,7 @@ export async function runAiBrainNode(input: RunAiBrainNodeInput): Promise<RunAiB
       : undefined,
   });
 
-  const request = contextBundleToExecuteRequest(bundle, node);
+  const request = await contextBundleToExecuteRequest(bundle, node);
 
   // The node picks a provider first, then one of that provider's models. A
   // model left over from a different provider is dropped here so it is never

@@ -276,3 +276,47 @@ describe("AI Step node provider then model selection", () => {
     expect(onUpdateNodeData).toHaveBeenCalledWith("model", "claude-sonnet-5");
   });
 });
+
+describe("AI Memory node inspector", () => {
+  function renderMemoryNode(data?: Partial<BuilderNodeData>) {
+    const onUpdateNodeData = vi.fn();
+    render(
+      <NodeInspector
+        selectedNode={{
+          id: "mem-1",
+          type: "coreNode",
+          position: { x: 0, y: 0 },
+          data: {
+            label: "Memory Node",
+            title: "Memory Node",
+            kind: "AI",
+            nodeKind: "ai",
+            type: "ai.memory",
+            subtitle: "Aggregates memory and documents",
+            customMemoryNotes: "Remember patient preferences",
+            ...data
+          } as BuilderNodeData
+        }}
+        onClearSelection={vi.fn()}
+        onUpdateNodeData={onUpdateNodeData}
+        onDeleteNode={vi.fn()}
+      />
+    );
+    return { onUpdateNodeData };
+  }
+
+  it("renders Node name, Custom context, Attachments, and Output variable", () => {
+    renderMemoryNode();
+
+    expect(screen.getByText("Node name")).toBeDefined();
+    expect(screen.getByText("Custom context")).toBeDefined();
+    expect(screen.getByText("Memory configuration")).toBeDefined();
+    expect(screen.getByText("Attachments")).toBeDefined();
+    expect(screen.getByText("Files (Images / PDFs / Docs)")).toBeDefined();
+    expect(screen.getByText("Output variable")).toBeDefined();
+    expect(screen.getByText("Copy {{memory}}")).toBeDefined();
+    expect(screen.queryByText("Description")).toBeNull();
+  });
+});
+
+

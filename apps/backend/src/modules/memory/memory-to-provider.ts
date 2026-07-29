@@ -96,11 +96,13 @@ function buildWorkflowLlmUserPrompt(params: {
   return sections.join("\n\n");
 }
 
+import { resolveAttachments } from "./attachment-resolver";
+
 /** ContextBundle + node config -> request for getProviderEngine().executeWithProvider() */
-export function contextBundleToExecuteRequest(
+export async function contextBundleToExecuteRequest(
   bundle: ContextBundle,
   node: AiBrainNodeConfig
-): AIExecuteRequest {
+): Promise<AIExecuteRequest> {
   const data = node.data ?? {};
   const outputFormat = data.outputFormat === "json" ? "json" : "text";
 
@@ -129,37 +131,30 @@ export function contextBundleToExecuteRequest(
     context: asString(data.llmContext),
   });
 
+  const rawAttachments = [
+    ...(Array.isArray(data.attachments) ? data.attachments : []),
+    ...(Array.isArray(bundle.merged.files)
+      ? bundle.merged.files.map((file) => ({
+          name: file.name,
+          mimeType: file.mimeType || "application/octet-stream",
+          data: file.url,
+        }))
+      : []),
+  ];
+
+  const resolvedAttachments = await resolveAttachments(rawAttachments);
+
   return {
     systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
     model: asString(data.model) || undefined,
-    temperature: asNumber(data.temperature),
+    temperature: asNumber(data.temperature) ?? 0.7,
     maxTokens: (() => {
       const tokens = asNumber(data.maxTokens);
       return (tokens === undefined || tokens <= 250) ? 2048 : tokens;
     })(),
     outputFormat,
-    attachments: [
-      ...(Array.isArray(data.attachments) ? data.attachments : []),
-      ...(Array.isArray(bundle.merged.files)
-        ? bundle.merged.files.map((file) => ({
-            name: file.name,
-            mimeType: file.mimeType || "application/octet-stream",
-            data: file.url,
-          }))
-        : []),
-    ].length > 0
-      ? [
-          ...(Array.isArray(data.attachments) ? data.attachments : []),
-          ...(Array.isArray(bundle.merged.files)
-            ? bundle.merged.files.map((file) => ({
-                name: file.name,
-                mimeType: file.mimeType || "application/octet-stream",
-                data: file.url,
-              }))
-            : []),
-        ]
-      : undefined,
+    attachments: resolvedAttachments.length > 0 ? resolvedAttachments : undefined,
     workflowContext: {
       workflowRunId: bundle.workflowRunId,
       nodeId: bundle.nodeId,

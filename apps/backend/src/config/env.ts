@@ -1,4 +1,9 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import path from "path";
+
+dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 import { z } from "zod";
 
 const booleanFromEnv = z.preprocess(
@@ -125,6 +130,7 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  GOOGLE_API_KEY: z.string().optional(),
   OPENAI_DEFAULT_MODEL: z.string().default("gpt-4o-mini"),
   ANTHROPIC_DEFAULT_MODEL: z.string().default("claude-sonnet-4-5"),
   GEMINI_DEFAULT_MODEL: z.string().default("gemini-2.0-flash"),
