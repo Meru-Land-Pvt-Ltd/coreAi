@@ -93,6 +93,11 @@ function isBuilderTab(value: string | null): value is BuilderTab {
   return Boolean(value) && (BUILDER_TABS as readonly string[]).includes(value as string);
 }
 
+export function isManualTriggerNode(node: { data?: Record<string, unknown>; type?: unknown }): boolean {
+  const dataType = String(node.data?.type ?? node.type ?? "").toLowerCase();
+  return dataType === "trigger.manual" || dataType === "manual_trigger" || dataType === "manual";
+}
+
 function testInputsStashKey(workflowId: string): string {
   return `triven-builder-test-inputs:${workflowId || "draft"}`;
 }
@@ -438,12 +443,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       setEdges(parsedEdges);
       setSelectedNodeId(parsedNodes[0]?.id ?? null);
 
-      const triggerNode = parsedNodes.find(
-        (node) =>
-          ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
-          node.data.nodeKind === "trigger" ||
-          String(node.data.kind ?? "").toUpperCase() === "TRIGGER"
-      );
+      const triggerNode = parsedNodes.find(isManualTriggerNode);
       if (triggerNode) {
         if (typeof triggerNode.data.input === "string" && triggerNode.data.input) {
           setTriggerMessage(triggerNode.data.input);
@@ -770,10 +770,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       currentNodes.map((node) => {
         if (node.id !== selectedNodeId) return node;
 
-        const isTriggerNode =
-          ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
-          node.data.nodeKind === "trigger" ||
-          String(node.data.kind ?? "").toUpperCase() === "TRIGGER";
+        const isTriggerNode = isManualTriggerNode(node);
 
         if (isTriggerNode) {
           if (field === "input") {
@@ -1012,103 +1009,105 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setChatting(true);
     setMessage("Running browser call test...");
 
-    const saved = await saveAgent(false);
+    try {
+      const saved = await saveAgent(false);
 
-    if (!saved || !currentWorkflowIdRef.current) {
-      setChatting(false);
-      setMessage("Save the agent before testing browser call.");
-      return null;
-    }
-
-    const previousMessages = conversationMessagesRef.current.slice(-30);
-
-    const pendingMessages = isCallStart
-      ? previousMessages
-      : [
-        ...previousMessages,
-        {
-          role: "user" as const,
-          content: cleanMessage,
-          createdAt: new Date().toISOString()
-        }
-      ];
-
-    setConversationTranscript(pendingMessages);
-
-    const serviceName = appointmentService.trim();
-    const result = await runArchitectConversationTest(currentWorkflowIdRef.current, {
-      message: cleanMessage,
-      history: previousMessages,
-      testSessionId: testSessionIdRef.current,
-      useTestCalendar,
-      // After-hours simulation ("current" = no override, real behavior).
-      simulateBusinessHoursState: testAfterHoursState,
-      testContext: {
-        businessName: businessName.trim() || "Sample Business",
-        businessType: businessType.trim() || "Service Business",
-        callerName: callerName.trim() || "Test caller",
-        callerPhone: callerNumber.trim() || "+15555550100",
-        calendarId: calendarId.trim() || "primary",
-        timeZone: timeZone.trim() || browserTimeZone(),
-        // The exact service the architect typed — the backend only falls back
-        // when nothing was supplied.
-        appointmentService: serviceName || undefined,
-        // Test-form date/time seed the booking; chat statements still win.
-        requestedDate: testDate || undefined,
-        requestedTime: testTime || undefined,
-        services: serviceName
-          ? [serviceName, "General inquiry"]
-          : ["Consultation", "Appointment booking", "General inquiry"],
-        faqs: [
-          "Pricing depends on the selected service.",
-          "Urgent requests should be escalated to the team."
-        ]
+      if (!saved || !currentWorkflowIdRef.current) {
+        setMessage("Save the agent before testing browser call.");
+        return null;
       }
-    });
 
-    setChatting(false);
+      const previousMessages = conversationMessagesRef.current.slice(-30);
 
-    if (!result.success || !result.data) {
-      const errorMessage = result.error ?? "Could not run browser call test.";
+      const pendingMessages = isCallStart
+        ? previousMessages
+        : [
+          ...previousMessages,
+          {
+            role: "user" as const,
+            content: cleanMessage,
+            createdAt: new Date().toISOString()
+          }
+        ];
 
-      const assistantError: ArchitectConversationMessage = {
-        role: "assistant",
-        content: errorMessage,
-        createdAt: new Date().toISOString()
-      };
+      setConversationTranscript(pendingMessages);
 
-      setConversationTranscript([...pendingMessages, assistantError]);
-      setMessage(errorMessage);
+      const serviceName = appointmentService.trim();
+      const result = await runArchitectConversationTest(currentWorkflowIdRef.current, {
+        message: cleanMessage,
+        history: previousMessages,
+        testSessionId: testSessionIdRef.current,
+        useTestCalendar,
+        // After-hours simulation ("current" = no override, real behavior).
+        simulateBusinessHoursState: testAfterHoursState,
+        testContext: {
+          businessName: businessName.trim() || "Sample Business",
+          businessType: businessType.trim() || "Service Business",
+          callerName: callerName.trim() || "Test caller",
+          callerPhone: callerNumber.trim() || "+15555550100",
+          calendarId: calendarId.trim() || "primary",
+          timeZone: timeZone.trim() || browserTimeZone(),
+          // The exact service the architect typed — the backend only falls back
+          // when nothing was supplied.
+          appointmentService: serviceName || undefined,
+          // Test-form date/time seed the booking; chat statements still win.
+          requestedDate: testDate || undefined,
+          requestedTime: testTime || undefined,
+          services: serviceName
+            ? [serviceName, "General inquiry"]
+            : ["Consultation", "Appointment booking", "General inquiry"],
+          faqs: [
+            "Pricing depends on the selected service.",
+            "Urgent requests should be escalated to the team."
+          ]
+        }
+      });
+
+      if (!result.success || !result.data) {
+        const errorMessage = result.error ?? "Could not run browser call test.";
+
+        const assistantError: ArchitectConversationMessage = {
+          role: "assistant",
+          content: errorMessage,
+          createdAt: new Date().toISOString()
+        };
+
+        setConversationTranscript([...pendingMessages, assistantError]);
+        setMessage(errorMessage);
+        setActiveTab("test");
+
+        return errorMessage;
+      }
+
+      setConversationTranscript(result.data.conversation.transcript);
+      setConversationLogs(result.data.conversation.executedNodes);
+      setConversationToolCalls(result.data.conversation.toolCalls);
+      if (result.data.conversation.calendarEvent) {
+        setConversationCalendarEvent(result.data.conversation.calendarEvent);
+      }
+      // Config errors (timezone) and booking failures (calendar disconnected,
+      // event-create failure) share the actionable error panel.
+      setConversationConfigError(
+        result.data.conversation.configError ?? result.data.conversation.calendarError ?? null
+      );
+      setMessage("Browser call test complete");
       setActiveTab("test");
 
+      return result.data.conversation.reply;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Could not run browser call test.";
+      setMessage(errorMessage);
       return errorMessage;
+    } finally {
+      setChatting(false);
     }
-
-    setConversationTranscript(result.data.conversation.transcript);
-    setConversationLogs(result.data.conversation.executedNodes);
-    setConversationToolCalls(result.data.conversation.toolCalls);
-    if (result.data.conversation.calendarEvent) {
-      setConversationCalendarEvent(result.data.conversation.calendarEvent);
-    }
-    // Config errors (timezone) and booking failures (calendar disconnected,
-    // event-create failure) share the actionable error panel.
-    setConversationConfigError(
-      result.data.conversation.configError ?? result.data.conversation.calendarError ?? null
-    );
-    setMessage("Browser call test complete");
-    setActiveTab("test");
-
-    return result.data.conversation.reply;
   }
 
   const handleTriggerMessageChange = useCallback((newMsg: string) => {
     setTriggerMessage(newMsg);
     setNodes((currentNodes) =>
       currentNodes.map((node) => {
-        const isTriggerNode =
-          ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
-          node.data.nodeKind === "trigger" ||
-          String(node.data.kind ?? "").toUpperCase() === "TRIGGER";
+        const isTriggerNode = isManualTriggerNode(node);
         if (isTriggerNode) {
           return {
             ...node,
@@ -1127,10 +1126,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setTriggerAttachments(newAtts);
     setNodes((currentNodes) =>
       currentNodes.map((node) => {
-        const isTriggerNode =
-          ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
-          node.data.nodeKind === "trigger" ||
-          String(node.data.kind ?? "").toUpperCase() === "TRIGGER";
+        const isTriggerNode = isManualTriggerNode(node);
         if (isTriggerNode) {
           return {
             ...node,
@@ -1176,81 +1172,80 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setRunLogs([]);
     setRunContext({});
 
-    const saved = await saveAgent(false);
+    try {
+      const saved = await saveAgent(false);
 
-    if (!saved) {
-      setRunning(false);
-      return;
-    }
-
-    const triggerNode = nodes.find(
-      (node) =>
-        ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
-        node.data.nodeKind === "trigger" ||
-        String(node.data.kind ?? "").toUpperCase() === "TRIGGER"
-    );
-    const nodeInput = typeof triggerNode?.data.input === "string" ? triggerNode.data.input.trim() : "";
-    const nodeAttachments = (triggerNode?.data.attachments as AIAttachment[] | undefined) ?? [];
-
-    const effectiveTriggerMessage =
-      triggerMessage.trim() ||
-      nodeInput ||
-      (isManualTriggerWorkflow ? "Hello, I would like to know more about your services." : undefined);
-
-    const effectiveAttachments =
-      triggerAttachments.length > 0 ? triggerAttachments : nodeAttachments.length > 0 ? nodeAttachments : undefined;
-
-    const payload = {
-      input: {
-        callerNumber: normalizedCallerNumber || (isManualTriggerWorkflow ? "test-user" : ""),
-        callerName: callerName.trim() || (isManualTriggerWorkflow ? "Test User" : ""),
-        businessName: normalizedBusinessName || "Sample Business",
-        businessType: businessType.trim() || "Service Business",
-        businessPhoneNumber: "",
-        calendarId: calendarId.trim() || "primary",
-        timeZone: timeZone.trim() || "America/Los_Angeles",
-        services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
-        faqs: [
-          "Pricing depends on the service and business policy.",
-          "Urgent calls should be escalated to the team."
-        ],
-        knowledge: [
-          "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
-        ],
-        bookingUrl: "https://example.com/book",
-        teamPhone: "",
-        callStatus: "no-answer",
-        callTimestamp: new Date().toISOString(),
-        missedCallReason: "No one picked up the customer call.",
-        appointmentService: appointmentService.trim() || "General Consultation",
-        ...(testDate
-          ? {
-              appointmentStartAt: `${testDate}T${(testTime || "09:00").padStart(5, "0")}:00`,
-              appointmentEndAt: undefined
-            }
-          : {}),
-        useTestCalendar,
-        testSessionId: testSessionIdRef.current,
-        testEmail: testEmail.trim() || undefined,
-        inboundSmsBody: effectiveTriggerMessage,
-        latestMessage: effectiveTriggerMessage,
-        attachments: effectiveAttachments
+      if (!saved || !currentWorkflowIdRef.current) {
+        setMessage("Could not save agent before running test.");
+        return;
       }
-    };
 
-    const result = await runArchitectWorkflowTest(currentWorkflowIdRef.current, payload);
+      const triggerNode = nodes.find(isManualTriggerNode);
+      const nodeInput = typeof triggerNode?.data.input === "string" ? triggerNode.data.input.trim() : "";
+      const nodeAttachments = (triggerNode?.data.attachments as AIAttachment[] | undefined) ?? [];
 
-    if (!result.success || !result.data) {
-      setMessage(result.error ?? "Could not run test");
+      const effectiveTriggerMessage =
+        triggerMessage.trim() ||
+        nodeInput ||
+        (isManualTriggerWorkflow ? "Hello, I would like to know more about your services." : undefined);
+
+      const effectiveAttachments =
+        triggerAttachments.length > 0 ? triggerAttachments : nodeAttachments.length > 0 ? nodeAttachments : undefined;
+
+      const payload = {
+        input: {
+          callerNumber: normalizedCallerNumber || (isManualTriggerWorkflow ? "test-user" : ""),
+          callerName: callerName.trim() || (isManualTriggerWorkflow ? "Test User" : ""),
+          businessName: normalizedBusinessName || "Sample Business",
+          businessType: businessType.trim() || "Service Business",
+          businessPhoneNumber: "",
+          calendarId: calendarId.trim() || "primary",
+          timeZone: timeZone.trim() || "America/Los_Angeles",
+          services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
+          faqs: [
+            "Pricing depends on the service and business policy.",
+            "Urgent calls should be escalated to the team."
+          ],
+          knowledge: [
+            "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
+          ],
+          bookingUrl: "https://example.com/book",
+          teamPhone: "",
+          callStatus: "no-answer",
+          callTimestamp: new Date().toISOString(),
+          missedCallReason: "No one picked up the customer call.",
+          appointmentService: appointmentService.trim() || "General Consultation",
+          ...(testDate
+            ? {
+                appointmentStartAt: `${testDate}T${(testTime || "09:00").padStart(5, "0")}:00`,
+                appointmentEndAt: undefined
+              }
+            : {}),
+          useTestCalendar,
+          testSessionId: testSessionIdRef.current,
+          testEmail: testEmail.trim() || undefined,
+          inboundSmsBody: effectiveTriggerMessage,
+          latestMessage: effectiveTriggerMessage,
+          attachments: effectiveAttachments
+        }
+      };
+
+      const result = await runArchitectWorkflowTest(currentWorkflowIdRef.current, payload);
+
+      if (!result.success || !result.data) {
+        setMessage(result.error ?? "Could not run test");
+        return;
+      }
+
+      setRunLogs(result.data.run.logs);
+      setRunContext(result.data.run.context);
+      setMessage("Dry run complete");
+      setActiveTab("test");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not run test");
+    } finally {
       setRunning(false);
-      return;
     }
-
-    setRunLogs(result.data.run.logs);
-    setRunContext(result.data.run.context);
-    setMessage("Dry run complete");
-    setActiveTab("test");
-    setRunning(false);
   }
 
   const nodeTypeOf = (node: BuilderNode): string => {
@@ -1364,7 +1359,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onRedo={redo}
         onAgentNameChange={setAgentName}
         onTabChange={setActiveTab}
-        onRunTest={() => void runAgent()}
+        onRunTest={() => setActiveTab("test")}
         onSave={() => void saveAgent()}
         onPreview={() => setPreviewOpen(true)}
       />

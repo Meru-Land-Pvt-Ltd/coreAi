@@ -1353,13 +1353,14 @@ function EndFlowProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
 /* ----------------- Generic panels for the remaining nodes ----------------- */
 
+function isManualTriggerNode(node: { data?: Record<string, unknown>; type?: unknown }): boolean {
+  const dataType = String(node.data?.type ?? node.type ?? "").toLowerCase();
+  return dataType === "trigger.manual" || dataType === "manual_trigger" || dataType === "manual";
+}
+
 function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
-  const isManual =
-    selectedNode.data.type === "trigger.manual" ||
-    selectedNode.data.type === "manual_trigger" ||
-    selectedNode.data.nodeKind === "trigger" ||
-    String(selectedNode.data.kind ?? "").toUpperCase() === "TRIGGER";
+  const isManual = isManualTriggerNode(selectedNode);
 
   if (isManual) {
     const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];

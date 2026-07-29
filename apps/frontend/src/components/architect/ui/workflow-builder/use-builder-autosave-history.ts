@@ -98,6 +98,7 @@ export function useBuilderAutosaveHistory(opts: Options) {
   const skipRef = useRef(false);
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
+  const activeSavePromiseRef = useRef<Promise<boolean> | null>(null);
   const mountedRef = useRef(true);
   const prevResetKeyRef = useRef(resetKey);
   const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -138,24 +139,35 @@ export function useBuilderAutosaveHistory(opts: Options) {
 
   // Shared persistence path (used by both auto-save and manual save).
   const performSave = async (snap: BuilderSnapshot): Promise<boolean> => {
-    savingRef.current = true;
-    const keyAtSave = snapshotKey(snap);
-    optsRef.current.setStatus("Saving…");
-    const ok = await optsRef.current.save(snap);
-    savingRef.current = false;
-    if (!mountedRef.current) return ok;
-    if (!ok) {
-      optsRef.current.setStatus("Save failed");
-      return false;
+    if (activeSavePromiseRef.current) {
+      return activeSavePromiseRef.current;
     }
-    // Clear the unsaved flag only if nothing changed while the save was in flight.
-    if (latestRef.current && snapshotKey(latestRef.current) === keyAtSave) {
-      dirtyRef.current = false;
-      optsRef.current.setStatus("Saved");
-    } else {
-      scheduleAutoSave();
-    }
-    return true;
+    const savePromise = (async () => {
+      savingRef.current = true;
+      try {
+        const keyAtSave = snapshotKey(snap);
+        optsRef.current.setStatus("Saving…");
+        const ok = await optsRef.current.save(snap);
+        if (!mountedRef.current) return ok;
+        if (!ok) {
+          optsRef.current.setStatus("Save failed");
+          return false;
+        }
+        // Clear the unsaved flag only if nothing changed while the save was in flight.
+        if (latestRef.current && snapshotKey(latestRef.current) === keyAtSave) {
+          dirtyRef.current = false;
+          optsRef.current.setStatus("Saved");
+        } else {
+          scheduleAutoSave();
+        }
+        return true;
+      } finally {
+        savingRef.current = false;
+        activeSavePromiseRef.current = null;
+      }
+    })();
+    activeSavePromiseRef.current = savePromise;
+    return savePromise;
   };
 
   autoSaveRef.current = () => {
@@ -173,7 +185,14 @@ export function useBuilderAutosaveHistory(opts: Options) {
   saveNowRef.current = async () => {
     const snap = latestRef.current ?? { nodes, edges, agentName, tagline };
     if (!optsRef.current.isMeaningful(snap)) return "empty";
-    if (savingRef.current) return "failed";
+    if (activeSavePromiseRef.current) {
+      const activeOk = await activeSavePromiseRef.current;
+      const currentSnap = latestRef.current ?? snap;
+      if (dirtyRef.current && snapshotKey(currentSnap) !== snapshotKey(snap)) {
+        return (await performSave(currentSnap)) ? "saved" : "failed";
+      }
+      return activeOk ? "saved" : "failed";
+    }
     return (await performSave(snap)) ? "saved" : "failed";
   };
 

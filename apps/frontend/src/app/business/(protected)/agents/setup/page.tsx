@@ -522,12 +522,19 @@ function SetupWizard() {
   const [statusMsg, setStatusMsg] = useState("");
   const [error, setError] = useState("");
   const [deployed, setDeployed] = useState(false);
+  const [redeploySuccess, setRedeploySuccess] = useState(false);
   const [successNumber, setSuccessNumber] = useState<string | null>(null);
   const [liveVapiAssistantId, setLiveVapiAssistantId] = useState<string | null>(null);
   const [liveInstalledAgentId, setLiveInstalledAgentId] = useState<string | null>(null);
 
   const isEditParam = searchParams.get("mode") === "edit";
   const isEditMode = isEditParam || deployed || Boolean(liveVapiAssistantId);
+
+  useEffect(() => {
+    if (isEditMode && !redeploySuccess && step === 4) {
+      setStep(1);
+    }
+  }, [isEditMode, redeploySuccess, step]);
 
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<CallRoutingResult | null>(null);
@@ -874,13 +881,18 @@ function SetupWizard() {
 
       setRequiredKeys(keys);
 
+      const isEditingSetup = isEditParam || Boolean(data.installedAgentId) || Boolean(data.profile?.vapiAssistantId);
+
       if (typeof window !== "undefined") {
         const savedStep = Number(window.sessionStorage.getItem(STEP_STORAGE_KEY) || "");
 
-        if (savedStep >= 1 && savedStep <= STEPS.length) {
+        if (isEditingSetup || isEditParam || isEditMode) {
+          // Always start at Step 1 ("Connect") when opening setup or editing configuration
+          setStep(1);
+        } else if (savedStep >= 1 && savedStep < STEPS.length) {
           setStep(savedStep);
         } else {
-          // Always start at Step 1 ("Connect") when opening setup or editing configuration
+          // Always start at Step 1 ("Connect") when opening setup
           setStep(1);
         }
 
@@ -1394,6 +1406,7 @@ function SetupWizard() {
     }
 
     setDeployed(true);
+    setRedeploySuccess(true);
     setSuccessNumber(result.number || assignedNumber || "");
     buildConfetti();
     setStep(4);
@@ -1508,21 +1521,25 @@ function SetupWizard() {
     1: connectComplete,
     2: connectReady && configureComplete,
     3: connectReady && configureComplete && testPassed,
-    4: deployed
+    4: isEditMode ? redeploySuccess : deployed
   };
 
   const canAccessStep = (targetStep: number) => {
     if (targetStep <= 1) return true;
     if (targetStep === 2) return connectReady;
     if (targetStep === 3) return connectReady && configureComplete;
-    if (targetStep === 4) return deployed;
+    if (targetStep === 4) return isEditMode ? redeploySuccess : deployed;
     return false;
   };
 
   const getStepLockMessage = (targetStep: number) => {
     if (targetStep === 2) return "Complete the Connect step before opening Configure.";
     if (targetStep === 3) return "Complete Connect and Configure before opening Test.";
-    if (targetStep === 4) return "Complete the setup flow and go live from the Test screen.";
+    if (targetStep === 4) {
+      return isEditMode
+        ? "Complete your configuration and click Redeploy to finish."
+        : "Complete the setup flow and go live from the Test screen.";
+    }
     return "Complete the previous steps before opening this one.";
   };
 
@@ -1670,17 +1687,6 @@ function SetupWizard() {
             >
               {(typeof listing?.name === "string" && listing.name.trim()) || businessName.trim() || "Your AI agent"}
             </h1>
-            {isEditMode && (
-              <span
-                className="ml-2.5 inline-flex items-center gap-1.5 rounded-full bg-amber-100/90 border border-amber-300/80 px-2.5 py-0.5 text-xs font-semibold text-amber-900 shrink-0"
-                data-testid="business-setup-edit-badge-header"
-              >
-                <svg className="w-3 h-3 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                Editing Mode
-              </span>
-            )}
           </div>
 
           {/* Center: Step Indicator (always centered) */}
@@ -2105,6 +2111,7 @@ function SetupWizard() {
                   <button
                     type="button"
                     onClick={() => {
+                      setRedeploySuccess(false);
                       setStep(1);
                       if (typeof window !== "undefined") {
                         window.scrollTo({ top: 0, behavior: "smooth" });
