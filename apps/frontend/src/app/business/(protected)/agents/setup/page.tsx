@@ -1824,7 +1824,7 @@ function SetupWizard() {
             />
           ) : null}
 
-          {step === 1 ? (
+          {step === 2 ? (
             <div className="space-y-4" data-testid="business-setup-configure">
               <div>
                 <h2 className="text-2xl font-bold tracking-tight text-slate-900">
