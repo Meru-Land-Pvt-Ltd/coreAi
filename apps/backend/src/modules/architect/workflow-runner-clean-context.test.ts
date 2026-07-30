@@ -118,7 +118,7 @@ describe("Clean context seeding for workflow runner", () => {
     expect(result.context.inboundSms).toBeUndefined();
   });
 
-  it("seeds voice/call context fallbacks when workflow contains voice/call nodes", async () => {
+  it("seeds voice/call context fallbacks when workflow contains voice/call nodes but does not inject unconfigured services or faqs", async () => {
     if (!dbAvailable) return;
 
     const result = await runWorkflowTest({
@@ -130,6 +130,8 @@ describe("Clean context seeding for workflow runner", () => {
 
     expect(result.context.business).toBeDefined();
     expect(result.context.business?.name).toBeDefined();
+    expect(result.context.business?.services).toBeUndefined();
+    expect(result.context.business?.faqs).toBeUndefined();
     expect(result.context.missedCall).toBeDefined();
     expect(result.context.caller_number).toBe("+15555550100");
   });

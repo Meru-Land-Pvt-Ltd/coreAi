@@ -1258,16 +1258,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             : isVoiceWorkflow
               ? { callerName: "Test User" }
               : {}),
-          ...(normalizedBusinessName
-            ? { businessName: normalizedBusinessName }
-            : isVoiceWorkflow
-              ? { businessName: "Sample Business" }
-              : {}),
-          ...(businessType.trim()
-            ? { businessType: businessType.trim() }
-            : isVoiceWorkflow
-              ? { businessType: "Service Business" }
-              : {}),
+          ...(normalizedBusinessName ? { businessName: normalizedBusinessName } : {}),
+          ...(businessType.trim() ? { businessType: businessType.trim() } : {}),
           ...(calendarId.trim()
             ? { calendarId: calendarId.trim() }
             : isVoiceWorkflow
@@ -1278,23 +1270,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             : isVoiceWorkflow
               ? { timeZone: "America/Los_Angeles" }
               : {}),
-          ...(appointmentService.trim()
-            ? { appointmentService: appointmentService.trim() }
-            : isVoiceWorkflow
-              ? { appointmentService: "General Consultation" }
-              : {}),
-          ...(isVoiceWorkflow
-            ? {
-                services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
-                faqs: [
-                  "Pricing depends on the service and business policy.",
-                  "Urgent calls should be escalated to the team."
-                ],
-                knowledge: [
-                  "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
-                ]
-              }
-            : {}),
+          ...(appointmentService.trim() ? { appointmentService: appointmentService.trim() } : {}),
           ...(isVoiceWorkflow || isMissedCallWorkflow
             ? {
                 bookingUrl: "https://example.com/book",
