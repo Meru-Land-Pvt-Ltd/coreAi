@@ -18,6 +18,7 @@ export type ListingUsageRate = {
   invoiceLabel: string;
   unit: UsageServiceUnit;
   billingRateUsd: number;
+  showInPhoneCallBreakdown: boolean;
 };
 
 export type ListingUsagePricing = {
@@ -106,7 +107,8 @@ export function buildListingUsagePricing({
       code: record.serviceId,
       invoiceLabel: record.invoiceLabel,
       unit: record.unit,
-      billingRateUsd: record.billingCostMicroUsd / 1_000_000
+      billingRateUsd: record.billingCostMicroUsd / 1_000_000,
+      showInPhoneCallBreakdown: record.showInPhoneCallBreakdown
     }));
   const perMinuteUsd = services
     .filter((service) => service.unit === "PER_MINUTE")

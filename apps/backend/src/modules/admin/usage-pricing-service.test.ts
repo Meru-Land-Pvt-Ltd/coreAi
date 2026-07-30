@@ -32,14 +32,14 @@ const RUN = `pxsvc${Date.now().toString(36)}`;
 
 /** The current API-backed configuration, verbatim rates (micro-USD). */
 const FIXTURE_SERVICES = [
-  { code: `${RUN}_twilio_voice`, name: "Twilio Voice", role: "Inbound call connectivity", unit: "PER_MINUTE", actual: 8_500, billing: 8_500 },
-  { code: `${RUN}_deepgram_nova3`, name: "Deepgram Nova 3", role: "Speech-to-text transcription", unit: "PER_MINUTE", actual: 7_700, billing: 7_700 },
-  { code: `${RUN}_openai_gpt4o_mini`, name: "OpenAI GPT-4o Mini", role: "Conversation intelligence / LLM", unit: "PER_MINUTE", actual: 10_000, billing: 10_000 },
-  { code: `${RUN}_elevenlabs_flash_v25`, name: "ElevenLabs Flash v2.5", role: "Text-to-speech voice output", unit: "PER_MINUTE", actual: 40_000, billing: 40_000 },
-  { code: `${RUN}_database_storage`, name: "Firebase / MongoDB", role: "Call logs and records", unit: "PER_MINUTE", actual: 200, billing: 200 },
-  { code: `${RUN}_google_calendar`, name: "Google Calendar API", role: "Appointment booking", unit: "PER_MINUTE", actual: 0, billing: 0 },
-  { code: `${RUN}_sms_confirmation`, name: "SMS Confirmation", role: "SMS confirmations", unit: "PER_SMS", actual: 10_000, billing: 10_000 },
-  { code: `${RUN}_phone_number`, name: "AI Receptionist No.", role: "Dedicated phone number", unit: "PER_UNIT", actual: 1_150_000, billing: 2_000_000 }
+  { code: `${RUN}_twilio_voice`, name: "Twilio Voice", role: "Inbound call connectivity", unit: "PER_MINUTE", actual: 8_500, billing: 8_500, showInPhoneCallBreakdown: true },
+  { code: `${RUN}_deepgram_nova3`, name: "Deepgram Nova 3", role: "Speech-to-text transcription", unit: "PER_MINUTE", actual: 7_700, billing: 7_700, showInPhoneCallBreakdown: true },
+  { code: `${RUN}_openai_gpt4o_mini`, name: "OpenAI GPT-4o Mini", role: "Conversation intelligence / LLM", unit: "PER_MINUTE", actual: 10_000, billing: 10_000, showInPhoneCallBreakdown: true },
+  { code: `${RUN}_elevenlabs_flash_v25`, name: "ElevenLabs Flash v2.5", role: "Text-to-speech voice output", unit: "PER_MINUTE", actual: 40_000, billing: 40_000, showInPhoneCallBreakdown: true },
+  { code: `${RUN}_database_storage`, name: "Firebase / MongoDB", role: "Call logs and records", unit: "PER_MINUTE", actual: 200, billing: 200, showInPhoneCallBreakdown: false },
+  { code: `${RUN}_google_calendar`, name: "Google Calendar API", role: "Appointment booking", unit: "PER_MINUTE", actual: 0, billing: 0, showInPhoneCallBreakdown: false },
+  { code: `${RUN}_sms_confirmation`, name: "SMS Confirmation", role: "SMS confirmations", unit: "PER_SMS", actual: 10_000, billing: 10_000, showInPhoneCallBreakdown: false },
+  { code: `${RUN}_phone_number`, name: "AI Receptionist No.", role: "Dedicated phone number", unit: "PER_UNIT", actual: 1_150_000, billing: 2_000_000, showInPhoneCallBreakdown: false }
 ] as const;
 
 const INACTIVE_CODE = `${RUN}_legacy_inactive`;
@@ -74,6 +74,7 @@ beforeAll(async () => {
         unit: service.unit,
         actualCostMicroUsd: service.actual,
         updatedCostMicroUsd: service.billing,
+        showInPhoneCallBreakdown: service.showInPhoneCallBreakdown,
         isActive: true,
         sortOrder: 9000 + index
       })),
@@ -84,6 +85,7 @@ beforeAll(async () => {
         unit: "PER_MINUTE",
         actualCostMicroUsd: 99_000,
         updatedCostMicroUsd: 99_000,
+        showInPhoneCallBreakdown: false,
         isActive: false,
         sortOrder: 9999
       }
@@ -118,6 +120,7 @@ describe("Admin Pricing Services API contract", () => {
       updatedCostUsd: 0.0085,
       actualCostMicroUsd: 8_500,
       updatedCostMicroUsd: 8_500,
+      showInPhoneCallBreakdown: true,
       isActive: true
     });
     expect(typeof twilio?.id).toBe("string");
@@ -149,6 +152,7 @@ describe("Admin Pricing Services API contract", () => {
       expect(apiRow?.updatedCostMicroUsd).toBe(record?.billingCostMicroUsd);
       expect(apiRow?.unit).toBe(record?.unit);
       expect(apiRow?.isActive).toBe(record?.active);
+      expect(apiRow?.showInPhoneCallBreakdown).toBe(record?.showInPhoneCallBreakdown);
       expect(apiRow?.id).toBe(record?.pricingRecordId);
     }
   });

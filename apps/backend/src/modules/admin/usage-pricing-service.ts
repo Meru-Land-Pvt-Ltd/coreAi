@@ -15,6 +15,7 @@ export type UsageServicePricingRecord = {
   actualCostMicroUsd: number;
   billingCostMicroUsd: number;
   currency: typeof USAGE_PRICING_CURRENCY;
+  showInPhoneCallBreakdown: boolean;
   active: boolean;
   sortOrder: number;
   pricingVersion: string;
@@ -30,6 +31,7 @@ function normalizeRecord(row: {
   unit: UsageServiceUnit;
   actualCostMicroUsd: number;
   updatedCostMicroUsd: number;
+  showInPhoneCallBreakdown: boolean;
   isActive: boolean;
   sortOrder: number;
   createdAt: Date;
@@ -45,6 +47,7 @@ function normalizeRecord(row: {
     actualCostMicroUsd: row.actualCostMicroUsd,
     billingCostMicroUsd: row.updatedCostMicroUsd,
     currency: USAGE_PRICING_CURRENCY,
+    showInPhoneCallBreakdown: row.showInPhoneCallBreakdown,
     active: row.isActive,
     sortOrder: row.sortOrder,
     pricingVersion: `${row.id}@${row.updatedAt.toISOString()}`,

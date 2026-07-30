@@ -1685,17 +1685,18 @@ enum UsageServiceUnit {
 
 /// Vendor / infrastructure line item used to bill agent execution (e.g. Twilio, Deepgram).
 model PlatformUsageService {
-  id                  String           @id @default(cuid())
-  code                String           @unique
-  name                String
-  role                String?
-  unit                UsageServiceUnit @default(PER_MINUTE)
-  actualCostMicroUsd  Int
-  updatedCostMicroUsd Int
-  isActive            Boolean          @default(true)
-  sortOrder           Int              @default(0)
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  id                       String           @id @default(cuid())
+  code                     String           @unique
+  name                     String
+  role                     String?
+  unit                     UsageServiceUnit @default(PER_MINUTE)
+  actualCostMicroUsd       Int
+  updatedCostMicroUsd      Int
+  showInPhoneCallBreakdown Boolean          @default(false)
+  isActive                 Boolean          @default(true)
+  sortOrder                Int              @default(0)
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
 
   @@index([isActive, sortOrder])
 }

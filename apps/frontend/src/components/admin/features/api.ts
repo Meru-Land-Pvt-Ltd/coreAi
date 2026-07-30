@@ -461,6 +461,7 @@ export type AdminUsageService = {
   actualCostMicroUsd: number;
   updatedCostMicroUsd: number;
   isActive: boolean;
+  showInPhoneCallBreakdown: boolean;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -487,6 +488,7 @@ export function createAdminPricingService(body: {
   unit?: UsageServiceUnit;
   actualCostUsd: number;
   updatedCostUsd: number;
+  showInPhoneCallBreakdown?: boolean;
   sortOrder?: number;
 }) {
   return apiPost<{ service: AdminUsageService }>("/admin/pricing/services", body);
@@ -501,6 +503,7 @@ export function updateAdminPricingService(
     actualCostUsd: number;
     updatedCostUsd: number;
     isActive: boolean;
+    showInPhoneCallBreakdown: boolean;
     sortOrder: number;
   }>
 ) {

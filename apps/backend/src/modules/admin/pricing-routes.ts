@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import type { UsageServiceUnit } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { microUsdToUsd, usdToMicroUsd } from "../../lib/usage-pricing";
@@ -16,6 +17,16 @@ const costUsdSchema = z
   .max(1_000)
   .refine((value) => Number.isFinite(value), "Cost must be a finite number");
 
+const PHONE_CALL_BREAKDOWN_UNIT_MESSAGE =
+  "Phone call breakdown services must use PER_MINUTE";
+
+export function isValidPhoneCallBreakdownSelection(
+  showInPhoneCallBreakdown: boolean,
+  unit: UsageServiceUnit
+): boolean {
+  return !showInPhoneCallBreakdown || unit === "PER_MINUTE";
+}
+
 const createServiceSchema = z.object({
   code: z
     .string()
@@ -28,6 +39,7 @@ const createServiceSchema = z.object({
   unit: unitSchema.default("PER_MINUTE"),
   actualCostUsd: costUsdSchema,
   updatedCostUsd: costUsdSchema,
+  showInPhoneCallBreakdown: z.boolean().default(false),
   sortOrder: z.number().int().min(0).max(9999).optional()
 });
 
@@ -38,6 +50,7 @@ const updateServiceSchema = z
     unit: unitSchema.optional(),
     actualCostUsd: costUsdSchema.optional(),
     updatedCostUsd: costUsdSchema.optional(),
+    showInPhoneCallBreakdown: z.boolean().optional(),
     isActive: z.boolean().optional(),
     sortOrder: z.number().int().min(0).max(9999).optional()
   })
@@ -48,9 +61,10 @@ export function serializeUsageService(service: {
   code: string;
   name: string;
   role: string | null;
-  unit: "PER_MINUTE" | "PER_SMS" | "PER_CALL" | "PER_UNIT";
+  unit: UsageServiceUnit;
   actualCostMicroUsd: number;
   updatedCostMicroUsd: number;
+  showInPhoneCallBreakdown: boolean;
   isActive: boolean;
   sortOrder: number;
   createdAt: Date;
@@ -66,6 +80,7 @@ export function serializeUsageService(service: {
     updatedCostUsd: microUsdToUsd(service.updatedCostMicroUsd),
     actualCostMicroUsd: service.actualCostMicroUsd,
     updatedCostMicroUsd: service.updatedCostMicroUsd,
+    showInPhoneCallBreakdown: service.showInPhoneCallBreakdown,
     isActive: service.isActive,
     sortOrder: service.sortOrder,
     createdAt: service.createdAt.toISOString(),
@@ -86,6 +101,7 @@ adminPricingRoutes.get("/services", async (c) => {
       unit: record.unit,
       actualCostMicroUsd: record.actualCostMicroUsd,
       updatedCostMicroUsd: record.billingCostMicroUsd,
+      showInPhoneCallBreakdown: record.showInPhoneCallBreakdown,
       isActive: record.active,
       sortOrder: record.sortOrder,
       createdAt: record.createdAt,
@@ -112,6 +128,15 @@ adminPricingRoutes.post("/services", async (c) => {
   try {
     const input = createServiceSchema.parse(await c.req.json());
 
+    if (!isValidPhoneCallBreakdownSelection(input.showInPhoneCallBreakdown, input.unit)) {
+      return errorResponse(
+        c,
+        PHONE_CALL_BREAKDOWN_UNIT_MESSAGE,
+        400,
+        "PRICING_INVALID_INPUT"
+      );
+    }
+
     const existing = await prisma.platformUsageService.findUnique({
       where: { code: input.code }
     });
@@ -127,6 +152,7 @@ adminPricingRoutes.post("/services", async (c) => {
         unit: input.unit,
         actualCostMicroUsd: usdToMicroUsd(input.actualCostUsd),
         updatedCostMicroUsd: usdToMicroUsd(input.updatedCostUsd),
+        showInPhoneCallBreakdown: input.showInPhoneCallBreakdown,
         sortOrder: input.sortOrder ?? 0
       }
     });
@@ -193,6 +219,18 @@ adminPricingRoutes.patch("/services/:id", async (c) => {
       return errorResponse(c, "Service not found", 404, "PRICING_SERVICE_NOT_FOUND");
     }
 
+    const nextUnit = input.unit ?? existing.unit;
+    const nextShowInPhoneCallBreakdown =
+      input.showInPhoneCallBreakdown ?? existing.showInPhoneCallBreakdown;
+    if (!isValidPhoneCallBreakdownSelection(nextShowInPhoneCallBreakdown, nextUnit)) {
+      return errorResponse(
+        c,
+        PHONE_CALL_BREAKDOWN_UNIT_MESSAGE,
+        400,
+        "PRICING_INVALID_INPUT"
+      );
+    }
+
     const service = await prisma.platformUsageService.update({
       where: { id },
       data: {
@@ -203,6 +241,7 @@ adminPricingRoutes.patch("/services/:id", async (c) => {
           input.actualCostUsd !== undefined ? usdToMicroUsd(input.actualCostUsd) : undefined,
         updatedCostMicroUsd:
           input.updatedCostUsd !== undefined ? usdToMicroUsd(input.updatedCostUsd) : undefined,
+        showInPhoneCallBreakdown: input.showInPhoneCallBreakdown,
         isActive: input.isActive,
         sortOrder: input.sortOrder
       }

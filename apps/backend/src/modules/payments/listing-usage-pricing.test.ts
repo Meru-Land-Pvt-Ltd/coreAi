@@ -17,7 +17,8 @@ function service(
   serviceId: string,
   invoiceLabel: string,
   unit: UsageServicePricingRecord["unit"],
-  billingCostMicroUsd: number
+  billingCostMicroUsd: number,
+  showInPhoneCallBreakdown = false
 ): UsageServicePricingRecord {
   return {
     pricingRecordId: `price-${serviceId}`,
@@ -29,6 +30,7 @@ function service(
     actualCostMicroUsd: 999_999,
     billingCostMicroUsd,
     currency: "USD",
+    showInPhoneCallBreakdown,
     active: true,
     sortOrder: 1,
     pricingVersion: `price-${serviceId}@${now.toISOString()}`,
@@ -38,10 +40,10 @@ function service(
 }
 
 const records = [
-  service("twilio_voice", "Inbound call connectivity", "PER_MINUTE", 8_500),
-  service("deepgram_nova3", "Speech transcription", "PER_MINUTE", 7_700),
-  service("openai_gpt4o_mini", "Conversation intelligence", "PER_MINUTE", 10_000),
-  service("elevenlabs_flash_v25", "Voice output", "PER_MINUTE", 40_000),
+  service("twilio_voice", "Inbound call connectivity", "PER_MINUTE", 8_500, true),
+  service("deepgram_nova3", "Speech transcription", "PER_MINUTE", 7_700, true),
+  service("openai_gpt4o_mini", "Conversation intelligence", "PER_MINUTE", 10_000, true),
+  service("elevenlabs_flash_v25", "Voice output", "PER_MINUTE", 40_000, true),
   service("database_storage", "Call records", "PER_CALL", 200),
   service("sms_confirmation", "SMS confirmation", "PER_SMS", 10_000),
   service("google_calendar", "Appointment booking", "PER_UNIT", 0),
@@ -74,11 +76,22 @@ describe("listing checkout usage pricing", () => {
     expect(pricing.services).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ code: "unused_provider" })])
     );
+    expect(
+      pricing.services
+        .filter((service) => service.showInPhoneCallBreakdown)
+        .map((service) => service.code)
+    ).toEqual([
+      "twilio_voice",
+      "deepgram_nova3",
+      "openai_gpt4o_mini",
+      "elevenlabs_flash_v25"
+    ]);
     expect(pricing.services).toContainEqual({
       code: "openai_gpt4o_mini",
       invoiceLabel: "Conversation intelligence",
       unit: "PER_MINUTE",
-      billingRateUsd: 0.01
+      billingRateUsd: 0.01,
+      showInPhoneCallBreakdown: true
     });
     expect(JSON.stringify(pricing)).not.toContain("actualCost");
     expect(pricing.perMinuteUsd).toBeCloseTo(0.0662, 8);
@@ -98,7 +111,8 @@ describe("listing checkout usage pricing", () => {
         code: "sms_confirmation",
         invoiceLabel: "SMS confirmation",
         unit: "PER_SMS",
-        billingRateUsd: 0.01
+        billingRateUsd: 0.01,
+        showInPhoneCallBreakdown: false
       }
     ]);
   });

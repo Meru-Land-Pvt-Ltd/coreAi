@@ -47,15 +47,10 @@ type DraftRow = {
   updatedCostUsd: string;
   actualCostUsd: string;
   isActive: boolean;
+  showInPhoneCallBreakdown: boolean;
 };
 
 const PLATFORM_SERVICE_CODES = new Set(["database_storage", "google_calendar"]);
-const PHONE_CALL_MINUTE_SERVICE_CODES = new Set([
-  "twilio_voice",
-  "deepgram_nova3",
-  "openai_gpt4o_mini",
-  "elevenlabs_flash_v25"
-]);
 
 function draftFromService(service: AdminUsageService): DraftRow {
   return {
@@ -64,7 +59,8 @@ function draftFromService(service: AdminUsageService): DraftRow {
     unit: service.unit,
     actualCostUsd: String(service.actualCostUsd),
     updatedCostUsd: String(service.updatedCostUsd),
-    isActive: service.isActive
+    isActive: service.isActive,
+    showInPhoneCallBreakdown: service.showInPhoneCallBreakdown
   };
 }
 
@@ -75,6 +71,7 @@ type AddForm = {
   unit: UsageServiceUnit;
   actualCostUsd: string;
   updatedCostUsd: string;
+  showInPhoneCallBreakdown: boolean;
 };
 
 const EMPTY_ADD_FORM: AddForm = {
@@ -83,7 +80,8 @@ const EMPTY_ADD_FORM: AddForm = {
   role: "",
   unit: "PER_MINUTE",
   actualCostUsd: "",
-  updatedCostUsd: ""
+  updatedCostUsd: "",
+  showInPhoneCallBreakdown: false
 };
 
 export default function AdminPricingPage() {
@@ -122,13 +120,17 @@ export default function AdminPricingPage() {
   const activeServiceCount = rows.filter((service) => service.isActive).length;
   const usageServices = rows.filter(
     (service) =>
-      !PHONE_CALL_MINUTE_SERVICE_CODES.has(service.code) &&
+      !service.showInPhoneCallBreakdown &&
       !PLATFORM_SERVICE_CODES.has(service.code)
   );
-  const phoneCallMinuteServices = rows.filter((service) =>
-    PHONE_CALL_MINUTE_SERVICE_CODES.has(service.code)
+  const phoneCallMinuteServices = rows.filter(
+    (service) => service.showInPhoneCallBreakdown
   );
-  const platformServices = rows.filter((service) => PLATFORM_SERVICE_CODES.has(service.code));
+  const platformServices = rows.filter(
+    (service) =>
+      !service.showInPhoneCallBreakdown &&
+      PLATFORM_SERVICE_CODES.has(service.code)
+  );
 
   const dirtyIds = useMemo(() => {
     return rows
@@ -141,7 +143,8 @@ export default function AdminPricingPage() {
           draft.unit !== service.unit ||
           Number(draft.actualCostUsd) !== service.actualCostUsd ||
           Number(draft.updatedCostUsd) !== service.updatedCostUsd ||
-          draft.isActive !== service.isActive
+          draft.isActive !== service.isActive ||
+          draft.showInPhoneCallBreakdown !== service.showInPhoneCallBreakdown
         );
       })
       .map((service) => service.id);
@@ -205,7 +208,8 @@ export default function AdminPricingPage() {
           unit: draft.unit,
           actualCostUsd: Number(draft.actualCostUsd),
           updatedCostUsd: Number(draft.updatedCostUsd),
-          isActive: draft.isActive
+          isActive: draft.isActive,
+          showInPhoneCallBreakdown: draft.showInPhoneCallBreakdown
         });
       })
     );
@@ -250,7 +254,8 @@ export default function AdminPricingPage() {
       role: addForm.role.trim() || undefined,
       unit: addForm.unit,
       actualCostUsd,
-      updatedCostUsd
+      updatedCostUsd,
+      showInPhoneCallBreakdown: addForm.showInPhoneCallBreakdown
     });
 
     if (!result.success) {
@@ -468,7 +473,17 @@ export default function AdminPricingPage() {
                   data-testid="admin-pricing-add-unit"
                   value={addForm.unit}
                   onChange={(event) =>
-                    setAddForm((current) => ({ ...current, unit: event.target.value as UsageServiceUnit }))
+                    setAddForm((current) => {
+                      const unit = event.target.value as UsageServiceUnit;
+                      return {
+                        ...current,
+                        unit,
+                        showInPhoneCallBreakdown:
+                          unit === "PER_MINUTE"
+                            ? current.showInPhoneCallBreakdown
+                            : false
+                      };
+                    })
                   }
                   className="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
                 >
@@ -477,6 +492,31 @@ export default function AdminPricingPage() {
                   <option value="PER_CALL">Per call</option>
                   <option value="PER_UNIT">Per unit</option>
                 </select>
+              </label>
+
+              <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-slate-50 px-4 py-3 text-sm sm:col-span-2">
+                <input
+                  type="checkbox"
+                  data-testid="admin-pricing-add-phone-breakdown"
+                  checked={addForm.showInPhoneCallBreakdown}
+                  disabled={addForm.unit !== "PER_MINUTE"}
+                  onChange={(event) =>
+                    setAddForm((current) => ({
+                      ...current,
+                      showInPhoneCallBreakdown: event.target.checked
+                    }))
+                  }
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400 disabled:opacity-50"
+                />
+                <span>
+                  <span className="block font-semibold text-slate-700">
+                    Show in checkout phone-call breakdown
+                  </span>
+                  <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                    Available only for per-minute services. The checkout includes
+                    this admin label and billing cost in the Phone Call Minutes total.
+                  </span>
+                </span>
               </label>
 
               <label className="grid gap-1.5 text-sm sm:col-span-2">
@@ -626,7 +666,7 @@ function PricingServiceTable({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table data-testid={testId} className="w-full min-w-[1040px] text-left text-sm">
+          <table data-testid={testId} className="w-full min-w-[1160px] text-left text-sm">
             <thead className="border-b border-gray-200 bg-gray-50 text-xs font-semibold uppercase text-slate-500">
               <tr>
                 <th className="w-44 px-5 py-3">Service ID</th>
@@ -635,6 +675,7 @@ function PricingServiceTable({
                 <th className="w-28 px-4 py-3">Unit</th>
                 <th className="w-36 px-4 py-3">Actual cost</th>
                 <th className="w-36 px-4 py-3">Billing cost</th>
+                <th className="w-40 px-4 py-3">Phone breakdown</th>
                 <th className="w-60 px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -679,7 +720,17 @@ function PricingServiceTable({
                       <select
                         disabled={!isEditing || saving}
                         value={draft?.unit ?? service.unit}
-                        onChange={(event) => onDraftChange(service.id, "unit", event.target.value as UsageServiceUnit)}
+                        onChange={(event) => {
+                          const unit = event.target.value as UsageServiceUnit;
+                          onDraftChange(service.id, "unit", unit);
+                          if (unit !== "PER_MINUTE") {
+                            onDraftChange(
+                              service.id,
+                              "showInPhoneCallBreakdown",
+                              false
+                            );
+                          }
+                        }}
                         aria-label={`Billing unit for ${service.code}`}
                         className="h-9 w-24 rounded-lg border border-gray-200 bg-white px-2 text-slate-600 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100 disabled:border-transparent disabled:bg-transparent"
                       >
@@ -711,6 +762,37 @@ function PricingServiceTable({
                         aria-label={`Billing cost for ${service.code}`}
                         className="h-9 w-28 rounded-lg border border-gray-200 bg-white px-3 font-mono font-semibold text-emerald-700 outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-100 disabled:border-transparent disabled:bg-transparent"
                       />
+                    </td>
+                    <td className="px-4 py-4">
+                      {isEditing ? (
+                        <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={draft?.showInPhoneCallBreakdown ?? false}
+                            disabled={saving || draft?.unit !== "PER_MINUTE"}
+                            onChange={(event) =>
+                              onDraftChange(
+                                service.id,
+                                "showInPhoneCallBreakdown",
+                                event.target.checked
+                              )
+                            }
+                            aria-label={`Show ${service.code} in checkout phone-call breakdown`}
+                            className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400 disabled:opacity-50"
+                          />
+                          Show
+                        </label>
+                      ) : (
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            service.showInPhoneCallBreakdown
+                              ? "bg-amber-50 text-amber-700"
+                              : "bg-gray-100 text-slate-500"
+                          }`}
+                        >
+                          {service.showInPhoneCallBreakdown ? "Shown" : "Hidden"}
+                        </span>
+                      )}
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex min-h-9 items-center justify-end gap-2">
