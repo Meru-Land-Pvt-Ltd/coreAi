@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 /**
  * BusinessHoursSection mode contract:
@@ -15,7 +15,7 @@ vi.mock("@/components/business/features/api", () => ({
   syncBusinessHoursToLiveAgent: vi.fn().mockResolvedValue({ success: true, data: { sync: { status: "not_deployed" } } })
 }));
 
-import { getBusinessHours } from "@/components/business/features/api";
+import { getBusinessHours, putBusinessHours } from "@/components/business/features/api";
 import { BusinessHoursSection } from "./business-hours-section";
 
 const BH_DATA = {
@@ -85,3 +85,67 @@ describe("BusinessHoursSection modes", () => {
     expect(note.textContent).toContain("Change in Connect");
   });
 });
+
+describe("BusinessHoursSection suggestion banner", () => {
+  const suggestionData = {
+    sourceFilename: "California Family Dental Center (1).docx",
+    days: {
+      monday: { open: "08:00", close: "18:00", closed: false },
+      tuesday: { open: "08:00", close: "18:00", closed: false }
+    }
+  };
+
+  it("dismisses detection banner immediately when Load detected hours is clicked and doesn't reappear on save", async () => {
+    vi.mocked(getBusinessHours).mockResolvedValue({
+      success: true,
+      data: { ...BH_DATA, suggestion: suggestionData }
+    } as never);
+    vi.mocked(putBusinessHours).mockResolvedValue({
+      success: true,
+      data: { ...BH_DATA, suggestion: suggestionData }
+    } as never);
+
+    const onChange = vi.fn();
+    render(<BusinessHoursSection onChange={onChange} />);
+
+    await screen.findByTestId("business-hours-section");
+    expect(screen.getByTestId("business-hours-suggestion")).toBeTruthy();
+    expect(screen.getByText(/We found opening hours in California Family Dental Center \(1\)\.docx/)).toBeTruthy();
+
+    const loadBtn = screen.getByTestId("business-hours-suggestion-apply");
+    fireEvent.click(loadBtn);
+
+    // Banner should disappear immediately
+    expect(screen.queryByTestId("business-hours-suggestion")).toBeNull();
+
+    // Status message should indicate hours loaded
+    expect(screen.getByTestId("business-hours-status-msg").textContent).toContain("Detected hours loaded");
+
+    // Save business hours
+    const saveBtn = screen.getByTestId("business-hours-save");
+    fireEvent.click(saveBtn);
+
+    await screen.findByText("Business Hours saved.");
+
+    // Banner must NOT reappear after saving
+    expect(screen.queryByTestId("business-hours-suggestion")).toBeNull();
+  });
+
+  it("dismisses detection banner when Ignore is clicked", async () => {
+    vi.mocked(getBusinessHours).mockResolvedValue({
+      success: true,
+      data: { ...BH_DATA, suggestion: suggestionData }
+    } as never);
+
+    render(<BusinessHoursSection />);
+
+    await screen.findByTestId("business-hours-section");
+    expect(screen.getByTestId("business-hours-suggestion")).toBeTruthy();
+
+    const ignoreBtn = screen.getByTestId("business-hours-suggestion-dismiss");
+    fireEvent.click(ignoreBtn);
+
+    expect(screen.queryByTestId("business-hours-suggestion")).toBeNull();
+  });
+});
+
