@@ -35,6 +35,7 @@ import {
   getArchitectWorkflow,
   getGmailConnectorStatus,
   getGmailOAuthUrl,
+  // listWhatsAppConnections, // WhatsApp feature paused
   postGmailDisclosureConsent,
   getLatestArchitectTestEvent,
   getWorkflowConfigure,
@@ -66,6 +67,8 @@ function browserTimeZone(): string {
   }
 }
 import { getAuthUser } from "@/lib/auth";
+// Temporarily hidden — WhatsApp feature paused
+// import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
 import { BuilderHeader } from "./workflow-builder/builder-header";
 import { BuilderStatusBar } from "./workflow-builder/builder-status-bar";
 import { ComponentLibrary } from "./workflow-builder/component-library";
@@ -124,6 +127,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [gmailEmail, setGmailEmail] = useState<string | null>(null);
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
+  // Temporarily paused — WhatsApp feature
+  const [whatsappConnected] = useState(false);
+  // const [connectingWhatsApp, setConnectingWhatsApp] = useState(false);
+  // const [whatsappConnectOpen, setWhatsAppConnectOpen] = useState(false);
+  const connectingWhatsApp = false;
   const [googleDisclosureOpen, setGoogleDisclosureOpen] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgentName);
   const [tagline, setTagline] = useState(defaultAgentDescription);
@@ -240,6 +248,16 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     [nodes]
   );
 
+  const hasWhatsAppFlow = useMemo(
+    () =>
+      nodes.some((node) => {
+        const type = String(node.data.type ?? "").toLowerCase();
+        const connector = String(node.data.connector ?? "").toLowerCase();
+        return type.includes("whatsapp") || connector === "whatsapp";
+      }),
+    [nodes]
+  );
+
   // Voice workflow = uses the generic voice-booking nodes (phone trigger / AI
   // voice conversation). The Dental AI Receptionist template is one of these.
   const isVoiceWorkflow = useMemo(() => {
@@ -271,8 +289,15 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     testDeployment?.status === "READY" || Boolean(testDeployment?.assignedPhoneNumber);
   const needsTwilioConnection = liveSandboxActive && (isVoiceWorkflow || hasSmsFlow);
   const needsVapiConnection = liveSandboxActive && isVoiceWorkflow;
+  // Temporarily hide WhatsApp connection UI
+  const needsWhatsAppConnection = false; // was: hasWhatsAppFlow;
+  void hasWhatsAppFlow;
   const needsAnyTestConnection =
-    needsGoogleConnection || needsCalendarConnection || needsTwilioConnection || needsVapiConnection;
+    needsGoogleConnection ||
+    needsCalendarConnection ||
+    needsTwilioConnection ||
+    needsVapiConnection ||
+    needsWhatsAppConnection;
 
   const isDentalWorkflow = useMemo(() => {
     const name = `${agentName} ${workflow?.name ?? ""}`.toLowerCase();
@@ -523,6 +548,15 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
   }
 
+  // Temporarily paused — WhatsApp feature
+  // async function loadWhatsAppStatus() {
+  //   const result = await listWhatsAppConnections();
+  //   if (!result.success) return;
+  //
+  //   const connections = result.data?.connections ?? [];
+  //   setWhatsAppConnected(connections.some((c) => c.status === "CONNECTED"));
+  // }
+
   async function loadTestDeployment() {
     const id = currentWorkflowIdRef.current;
     if (!id) return;
@@ -536,6 +570,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   /** Opens the mandatory pre-OAuth disclosure — OAuth starts only from its agree action. */
   function connectGmail() {
     setGoogleDisclosureOpen(true);
+  }
+
+  // Temporarily paused — WhatsApp feature
+  // function connectWhatsApp() {
+  //   setWhatsAppConnectOpen(true);
+  // }
+  function connectWhatsApp() {
+    // no-op while WhatsApp is paused
   }
 
   async function handleGoogleDisclosureAgreed() {
@@ -598,7 +640,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   async function refreshConnections() {
     setMessage("Refreshing connection status...");
-    await Promise.all([loadGmailStatus(), loadTestDeployment()]);
+    await Promise.all([loadGmailStatus(), /* loadWhatsAppStatus(), */ loadTestDeployment()]);
     setMessage("Connection status refreshed");
   }
 
@@ -665,6 +707,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   useEffect(() => {
     void loadWorkflow();
     void loadGmailStatus();
+    // Temporarily paused — WhatsApp feature
+    // void loadWhatsAppStatus();
     void loadTestDeployment();
   }, [workflowId]);
 
@@ -1371,6 +1415,26 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       type.includes("send_sms")
     );
   });
+  const previewSmsData = (
+    nodes.find((node) => {
+      const type = nodeTypeOf(node);
+      return type === VOICE_NODE_TYPES.sendSms || type === "action.send_sms" || type.includes("send_sms");
+    })?.data ?? {}
+  ) as Record<string, unknown>;
+  const previewSmsBodyRaw =
+    typeof previewSmsData.smsBody === "string"
+      ? previewSmsData.smsBody
+      : typeof previewSmsData.message === "string"
+        ? previewSmsData.message
+        : "";
+  const previewSmsBody = previewSmsBodyRaw
+    .replace(/\{\{\s*assistantName\s*\}\}/gi, previewAssistantName || "our assistant")
+    .replace(/\{\{\s*business[_]?name\s*\}\}/gi, previewDisplayName)
+    .replace(/\{\{\s*business\.name\s*\}\}/gi, previewDisplayName)
+    .replace(/\{\{\s*contact\.name\s*\}\}/gi, "there")
+    .replace(/\{\{[^}]*\}\}/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
   const previewBookingSlots = (() => {
     const availability = runContext.calendarAvailability as { slots?: unknown } | undefined;
     if (!availability || !Array.isArray(availability.slots)) return [];
@@ -1432,6 +1496,19 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onAgree={handleGoogleDisclosureAgreed}
         onCancel={() => setGoogleDisclosureOpen(false)}
       />
+
+      {/* Temporarily hidden — WhatsApp feature paused
+      <WhatsAppConnectModal
+        open={whatsappConnectOpen}
+        onClose={() => {
+          setWhatsAppConnectOpen(false);
+          setConnectingWhatsApp(false);
+        }}
+        onConnected={() => {
+          void loadWhatsAppStatus();
+        }}
+      />
+      */}
 
       <BuilderHeader
         agentName={agentName}
@@ -1631,10 +1708,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             needsCalendarConnection={needsCalendarConnection}
             needsTwilioConnection={needsTwilioConnection}
             needsVapiConnection={needsVapiConnection}
+            needsWhatsAppConnection={needsWhatsAppConnection}
             gmailConnected={gmailConnected}
             gmailEmail={gmailEmail}
             calendarConnected={calendarConnected}
             connectingGmail={connectingGmail}
+            whatsappConnected={whatsappConnected}
+            connectingWhatsApp={connectingWhatsApp}
             running={running}
             startingLive={startingLive}
             stoppingLive={stoppingLive}
@@ -1690,6 +1770,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onTestEmailChange={setTestEmail}
             onTriggerMessageChange={handleTriggerMessageChange}
             onTriggerAttachmentsChange={handleTriggerAttachmentsChange}
+            onConnectWhatsApp={connectWhatsApp}
           />
         ) : null}
 
@@ -1764,9 +1845,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       <PreviewModal
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
+        workflowId={currentWorkflowId}
         businessName={previewDisplayName}
         assistantName={previewAssistantName}
         greeting={previewGreeting}
+        smsBody={previewSmsBody}
         agentPurpose={tagline.trim()}
         canBook={previewCanBook}
         canText={previewCanText}

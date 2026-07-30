@@ -38,6 +38,7 @@ model User {
   activeSessions       UserActiveSession[]
   roleMemberships      UserRoleMembership[]
   memoryRecords        MemoryRecord[]
+  whatsappConnections  WhatsAppConnection[]
 
   @@unique([email, role])
   @@index([role])
@@ -1183,6 +1184,19 @@ enum ConnectorProvider {
   TWILIO
   GOOGLE_CALENDAR
   VAPI
+  WHATSAPP
+}
+
+enum WhatsAppConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  PENDING
+}
+
+enum WhatsAppMessageDirection {
+  INBOUND
+  OUTBOUND
 }
 
 enum PlatformPhoneStatus {
@@ -1862,4 +1876,90 @@ model IntegrationDisclosureConsent {
 
   @@index([userId, integration, createdAt])
   @@index([businessId])
+}
+
+/// Architect-owned Meta Cloud API WhatsApp connection (MVP manual credentials).
+model WhatsAppConnection {
+  id                   String                   @id @default(cuid())
+  architectUserId      String
+  /// Reserved for later buyer mapping; unused in MVP.
+  businessId           String?
+  displayName          String?
+  businessName         String?
+  phoneNumber          String
+  /// Meta phone_number_id — public ID used for webhook routing (plaintext).
+  phoneNumberId        String
+  /// Meta WhatsApp Business Account ID (plaintext).
+  businessAccountId    String
+  accessTokenEnc       String
+  webhookVerifyTokenEnc String
+  appSecretEnc         String?
+  status               WhatsAppConnectionStatus @default(PENDING)
+  qualityRating        String?
+  lastConnectedAt      DateTime?
+  lastError            String?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  architect     User                   @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  conversations WhatsAppConversation[]
+  webhookLogs   WhatsAppWebhookLog[]
+
+  @@unique([architectUserId, phoneNumber])
+  @@unique([phoneNumberId])
+  @@index([architectUserId])
+  @@index([status])
+}
+
+model WhatsAppConversation {
+  id             String    @id @default(cuid())
+  connectionId   String
+  contactPhone   String
+  contactName    String?
+  lastMessage    String?
+  lastMessageAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  connection WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  messages   WhatsAppMessage[]
+
+  @@unique([connectionId, contactPhone])
+  @@index([connectionId])
+  @@index([contactPhone])
+}
+
+model WhatsAppMessage {
+  id             String                   @id @default(cuid())
+  conversationId String
+  direction      WhatsAppMessageDirection
+  /// Meta wamid — used for idempotency.
+  wamid          String?                  @unique
+  type           String
+  text           String?
+  mediaUrl       String?
+  status         String?
+  timestamp      DateTime
+  createdAt      DateTime                 @default(now())
+
+  conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([timestamp])
+}
+
+model WhatsAppWebhookLog {
+  id           String   @id @default(cuid())
+  connectionId String?
+  payloadJson  Json
+  headersJson  Json?
+  verified     Boolean  @default(false)
+  processed    Boolean  @default(false)
+  error        String?
+  createdAt    DateTime @default(now())
+
+  connection WhatsAppConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([connectionId])
+  @@index([createdAt])
 }

@@ -44,6 +44,8 @@ import {
   disconnectGmail,
   getGmailConnectionStatus
 } from "../architect/gmail-connector";
+import { WhatsAppService } from "../whatsapp/service";
+import { WhatsAppServiceError } from "../whatsapp/types";
 import {
   RECEPTIONIST_WORKFLOW_DESCRIPTION,
   RECEPTIONIST_WORKFLOW_NAME,
@@ -3483,4 +3485,49 @@ businessRoutes.delete("/connectors/google-calendar", async (c) => {
   const authUser = c.get("authUser");
   await disconnectGmail(authUser.id);
   return successResponse(c, null, "Google Calendar disconnected");
+});
+
+businessRoutes.get("/connectors/whatsapp/status", async (c) => {
+  const authUser = c.get("authUser");
+  try {
+    const connections = await WhatsAppService.listConnections(authUser.id);
+    const connected = connections.find((row) => row.status === "CONNECTED") ?? connections[0] ?? null;
+    return successResponse(c, {
+      connected: Boolean(connected && connected.status === "CONNECTED"),
+      connectionId: connected?.id ?? null,
+      displayName: connected?.displayName ?? null,
+      phoneNumber: connected?.phoneNumber ?? null,
+      status: connected?.status ?? null
+    });
+  } catch (error) {
+    return errorResponse(
+      c,
+      errorMessage(error, "Could not load WhatsApp status"),
+      500,
+      "WHATSAPP_STATUS_FAILED"
+    );
+  }
+});
+
+businessRoutes.delete("/connectors/whatsapp", async (c) => {
+  const authUser = c.get("authUser");
+  try {
+    const connections = await WhatsAppService.listConnections(authUser.id);
+    const active = connections.filter((row) => row.status === "CONNECTED");
+    const targets = active.length > 0 ? active : connections.slice(0, 1);
+    for (const connection of targets) {
+      await WhatsAppService.disconnect(authUser.id, connection.id);
+    }
+    return successResponse(c, { disconnected: targets.length }, "WhatsApp disconnected");
+  } catch (error) {
+    if (error instanceof WhatsAppServiceError) {
+      return errorResponse(c, error.message, apiErrorStatus(error.status, 500), error.errorCode);
+    }
+    return errorResponse(
+      c,
+      errorMessage(error, "Could not disconnect WhatsApp"),
+      500,
+      "WHATSAPP_DISCONNECT_FAILED"
+    );
+  }
 });

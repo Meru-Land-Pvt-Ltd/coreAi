@@ -138,6 +138,22 @@ const envSchema = z.object({
   /** Smart Memory: shorter retention for test-session records (0 disables). */
   MEMORY_TEST_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
 
+  /** Meta WhatsApp Cloud API (optional — connections store their own tokens). */
+  META_WHATSAPP_APP_ID: z.string().optional(),
+  META_WHATSAPP_APP_SECRET: z.string().optional(),
+  META_WHATSAPP_API_VERSION: z.string().default("v21.0"),
+  META_WHATSAPP_GRAPH_BASE_URL: z.string().url().default("https://graph.facebook.com"),
+  /**
+   * WhatsApp Embedded Signup configuration id (Facebook Login for Business).
+   * Required to launch the embedded signup flow without asking for tokens/ids from customers.
+   */
+  META_WHATSAPP_EMBEDDED_SIGNUP_CONFIGURATION_ID: z.string().optional(),
+  /**
+   * Webhook verify token expected by Meta during subscription challenges.
+   * Used to ensure the app can verify Meta webhooks after automated onboarding.
+   */
+  META_WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),

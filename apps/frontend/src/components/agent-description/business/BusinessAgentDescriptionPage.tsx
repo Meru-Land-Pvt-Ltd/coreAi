@@ -205,7 +205,7 @@ export default function BusinessAgentDescriptionPage() {
           (response.data?.agents ?? []).find(
             (agent) =>
               agent.listing.id === agentId
-          );
+        );
 
         if (response.success && entry) {
           setOwnedAgent({
@@ -488,9 +488,9 @@ export default function BusinessAgentDescriptionPage() {
 
     primaryCtaLabel =
       pricingModel === "FREE"
-        ? "Install for Free"
+                        ? "Install for Free"
         : pricingModel === "ONE_TIME"
-          ? `Buy now — $${price}`
+                        ? `Buy now — $${price}`
           : canStartTrial
             ? `Start ${trialDays}-day free trial`
             : `Subscribe — $${price}/mo`;

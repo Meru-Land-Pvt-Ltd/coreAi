@@ -859,6 +859,22 @@ export function getBusinessCalendarStatus() {
   return apiGet<BusinessCalendarStatus>("/business/connectors/google-calendar/status");
 }
 
+export type BusinessWhatsAppStatus = {
+  connected: boolean;
+  connectionId: string | null;
+  displayName: string | null;
+  phoneNumber: string | null;
+  status: string | null;
+};
+
+export function getBusinessWhatsAppStatus() {
+  return apiGet<BusinessWhatsAppStatus>("/business/connectors/whatsapp/status");
+}
+
+export function disconnectBusinessWhatsApp() {
+  return apiDelete<{ disconnected: number }>("/business/connectors/whatsapp");
+}
+
 export function getBusinessCalendarOAuthUrl(redirect?: string) {
   const query = redirect ? `?redirect=${encodeURIComponent(redirect)}` : "";
   return apiGet<{ url: string }>(`/business/connectors/google-calendar/oauth-url${query}`);

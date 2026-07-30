@@ -5,13 +5,18 @@ import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { COMMON_TIMEZONES, GOOGLE_CALENDAR_DISCLOSURE, GOOGLE_DISCLOSURE_ACTION_AGREED } from "@coreai/shared";
 import { GoogleDisclosureModal } from "@/components/common/google-disclosure-modal";
+// Temporarily hidden — WhatsApp feature paused
+// import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
+// import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
 import {
   deleteBusinessAccount,
   downloadBusinessDataExport,
   disconnectBusinessCalendar,
+  // disconnectBusinessWhatsApp,
   getBusinessCalendarOAuthUrl,
   postBusinessCalendarDisclosureConsent,
   getBusinessCalendarStatus,
+  // getBusinessWhatsAppStatus,
   getBusinessLoginHistory,
   getBusinessActiveSessions,
   getBusinessFacts,
@@ -1162,6 +1167,11 @@ export function BusinessSettingsView() {
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [calendarDisclosureOpen, setCalendarDisclosureOpen] = useState(false);
   const [calendarEmail, setCalendarEmail] = useState<string | null>(null);
+  // Temporarily paused — WhatsApp feature
+  // const [whatsappConnected, setWhatsappConnected] = useState(false);
+  // const [whatsappPhoneNumber, setWhatsappPhoneNumber] = useState<string | null>(null);
+  // const [whatsappDisplayName, setWhatsappDisplayName] = useState<string | null>(null);
+  // const [whatsappConnectOpen, setWhatsappConnectOpen] = useState(false);
 
   const [profileForm, setProfileForm] = useState(() => buildProfileForm(authUser, null));
   const [accountEmail, setAccountEmail] = useState(authUser?.email ?? "");
@@ -1231,11 +1241,13 @@ export function BusinessSettingsView() {
   }
 
   const loadData = useCallback(async () => {
-    const [setupResult, billingResult, calendarResult, profileResult, sessionsResult, loginHistoryResult] =
+    const [setupResult, billingResult, calendarResult, /* whatsappResult, */ profileResult, sessionsResult, loginHistoryResult] =
       await Promise.all([
         getBusinessSetup(),
         apiGet<{ billing: BillingData }>("/payments/billing"),
         getBusinessCalendarStatus(),
+        // Temporarily paused — WhatsApp feature
+        // getBusinessWhatsAppStatus(),
         getBusinessSettingsProfile(),
         getBusinessActiveSessions(),
         getBusinessLoginHistory()
@@ -1292,6 +1304,11 @@ export function BusinessSettingsView() {
       setCalendarConnected(calendarResult.data.connected);
       setCalendarEmail(calendarResult.data.email);
     }
+
+    // Temporarily paused — WhatsApp feature
+    // setWhatsappConnected(false);
+    // setWhatsappPhoneNumber(null);
+    // setWhatsappDisplayName(null);
 
     if (sessionsResult.success && sessionsResult.data?.sessions) {
       setSessions(sessionsResult.data.sessions);
@@ -1533,6 +1550,23 @@ export function BusinessSettingsView() {
     }
     showToast(result.error ?? "Could not disconnect Google Calendar");
   }
+
+  // Temporarily paused — WhatsApp feature
+  // function handleConnectWhatsApp() {
+  //   setWhatsappConnectOpen(true);
+  // }
+  //
+  // async function handleDisconnectWhatsApp() {
+  //   const result = await disconnectBusinessWhatsApp();
+  //   if (result.success) {
+  //     setWhatsappConnected(false);
+  //     setWhatsappPhoneNumber(null);
+  //     setWhatsappDisplayName(null);
+  //     showToast("WhatsApp disconnected");
+  //     return;
+  //   }
+  //   showToast(result.error ?? "Could not disconnect WhatsApp");
+  // }
 
   function handleSaveNotifications() {
     showToast("Preferences saved ✓");
@@ -2274,6 +2308,22 @@ export function BusinessSettingsView() {
                   onConnect={handleConnectCalendar}
                   onDisconnect={handleDisconnectCalendar}
                 />
+                {/* Temporarily hidden — WhatsApp feature paused
+                <IntegrationCard
+                  name="WhatsApp Business"
+                  description="Send and receive WhatsApp messages from your AI agents"
+                  connected={whatsappConnected}
+                  connectedDetail={
+                    whatsappConnected
+                      ? `Connected${whatsappPhoneNumber ? ` · ${whatsappPhoneNumber}` : whatsappDisplayName ? ` · ${whatsappDisplayName}` : ""}`
+                      : undefined
+                  }
+                  testId="whatsapp"
+                  icon="whatsapp"
+                  onConnect={handleConnectWhatsApp}
+                  onDisconnect={handleDisconnectWhatsApp}
+                />
+                */}
                 {/* <IntegrationCard
                   name="Google Business Profile"
                   description="Manage reviews, respond to customers, update business listing"
@@ -2813,6 +2863,18 @@ export function BusinessSettingsView() {
         onCancel={() => setCalendarDisclosureOpen(false)}
       />
 
+      {/* Temporarily hidden — WhatsApp feature paused
+      <WhatsAppConnectModal
+        open={whatsappConnectOpen}
+        onClose={() => setWhatsappConnectOpen(false)}
+        onConnected={(connection) => {
+          setWhatsappConnected(connection.status === "CONNECTED");
+          setWhatsappPhoneNumber(connection.phoneNumber);
+          setWhatsappDisplayName(connection.displayName);
+          showToast("WhatsApp connected");
+        }}
+      />
+      */}
 
       {toast ? (
         <div
@@ -2832,6 +2894,13 @@ export function BusinessSettingsView() {
 
 function IntegrationIcon({ icon }: { icon?: string }) {
   switch (icon) {
+    // Temporarily paused — WhatsApp feature
+    // case "whatsapp":
+    //   return (
+    //     <span className="flex h-7 w-7 items-center justify-center text-emerald-600">
+    //       <WhatsAppIcon className="h-6 w-6" />
+    //     </span>
+    //   );
     case "google-calendar":
       return (
         <svg viewBox="0 0 48 48" className="h-7 w-7" aria-hidden="true">

@@ -10,6 +10,9 @@ import {
 } from "@coreai/shared";
 import { useState, useEffect, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
+import { listWhatsAppConnections, type WhatsAppConnection } from "@/components/architect/features/api";
+import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
+import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
 import { LlmNodeInspector } from "./llm-node-inspector";
@@ -111,7 +114,10 @@ export function NodeInspector({
     panel = <BookCalendarAppointmentProps {...base} calendar={calendar} ownership={ownership} />;
   } else if (type === VOICE_NODE_TYPES.sendEmail) panel = <SendEmailProps {...base} />;
   else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
-  else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
+  else if (type === "trigger.whatsapp_message_received") panel = <WhatsAppTriggerProps {...base} />;
+  else if (type === "action.send_whatsapp" || type === "communication.send_whatsapp") {
+    panel = <WhatsAppSendProps {...base} />;
+  } else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
   else if (selectedNode.data.nodeKind === "trigger") panel = <TriggerProps {...base} />;
   else if (selectedNode.data.nodeKind === "ai") panel = <AiProps {...base} />;
   else if (selectedNode.data.nodeKind === "condition") panel = <ConditionProps {...base} />;
@@ -370,6 +376,24 @@ function RequirementNotice({
   );
 }
 
+function WhatsAppRequirementNotice({
+  children,
+  testId
+}: {
+  children: ReactNode;
+  testId?: string;
+}) {
+  return (
+    <div data-testid={testId} className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-3">
+      <p className="flex items-center gap-1.5 text-xs font-bold text-emerald-800">
+        <WhatsAppIcon className="h-3.5 w-3.5 text-emerald-600" />
+        Architect WhatsApp setup
+      </p>
+      <p className="mt-1 text-[11px] leading-5 text-emerald-900/80">{children}</p>
+    </div>
+  );
+}
+
 function CalendarConnect({ calendar }: { calendar: CalendarConnection }) {
   if (calendar.connected) {
     return (
@@ -596,6 +620,26 @@ function nodeOverview(node: BuilderNode): StepOverview {
       needs: ["Recipient phone", "Message template"],
       creates: ["SMS delivery status"],
       setup: ["Buyer phone provider sends the live message"]
+    };
+  }
+
+  if (type === "trigger.whatsapp_message_received") {
+    return {
+      tone: "green",
+      summary: "Starts when a WhatsApp message arrives on your connected Meta Cloud API number.",
+      needs: ["WhatsApp connection", "Message filters"],
+      creates: ["Contact name", "Contact phone", "Message text"],
+      setup: ["Architect connects WhatsApp under Integrations → WhatsApp"]
+    };
+  }
+
+  if (type === "action.send_whatsapp" || type === "communication.send_whatsapp") {
+    return {
+      tone: "green",
+      summary: "Sends a WhatsApp text message through Meta Cloud API.",
+      needs: ["WhatsApp connection", "Recipient", "Message body"],
+      creates: ["WhatsApp delivery status", "Message id"],
+      setup: ["Architect WhatsApp connection must be CONNECTED"]
     };
   }
 
@@ -1269,6 +1313,294 @@ function SendEmailProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   );
 }
 
+function useWhatsAppConnections() {
+  const [connections, setConnections] = useState<WhatsAppConnection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void listWhatsAppConnections()
+      .then((res) => {
+        if (cancelled) return;
+        setConnections(res.data?.connections ?? []);
+        setError("");
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load WhatsApp connections");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
+
+  return {
+    connections,
+    loading,
+    error,
+    reload: () => setReloadToken((value) => value + 1)
+  };
+}
+
+function WhatsAppConnectionPicker({
+  value,
+  onChange,
+  testId
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  testId: string;
+}) {
+  const { connections, loading, error, reload } = useWhatsAppConnections();
+  const [connectOpen, setConnectOpen] = useState(false);
+  const options: SelectBoxOption[] = [
+    { value: "", label: loading ? "Loading connections…" : "Select a WhatsApp connection" },
+    ...connections.map((c) => ({
+      value: c.id,
+      label: `${c.displayName || c.businessName || c.phoneNumber} (${c.status})`
+    }))
+  ];
+
+  return (
+    <div data-testid={testId}>
+      <SelectBox value={value} onChange={onChange} options={options} testId={`${testId}-select`} />
+      {error ? <p className="mt-2 text-[11px] text-rose-600">{error}</p> : null}
+      {!loading && connections.length === 0 ? (
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          No WhatsApp connections yet.{" "}
+          <button
+            type="button"
+            onClick={() => setConnectOpen(true)}
+            className="inline-flex items-center gap-1 font-semibold text-amber-700 hover:underline"
+            data-testid={`${testId}-connect-link`}
+          >
+            
+            Connect WhatsApp
+          </button>
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConnectOpen(true)}
+          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 hover:underline"
+          data-testid={`${testId}-connect-another`}
+        >
+          <WhatsAppIcon className="h-3 w-3" />
+          Connect another WhatsApp
+        </button>
+      )}
+      <WhatsAppConnectModal
+        open={connectOpen}
+        onClose={() => setConnectOpen(false)}
+        onConnected={(connection) => {
+          void reload();
+          onChange(connection.id);
+        }}
+      />
+    </div>
+  );
+}
+
+function WhatsAppTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="WhatsApp connection">
+        <WhatsAppRequirementNotice testId="whatsapp-trigger-requirement">
+          Inbound WhatsApp messages run this workflow when they arrive on the selected Meta Cloud API number.
+        </WhatsAppRequirementNotice>
+
+        <div className="mt-4">
+          <Label>Connection</Label>
+          <WhatsAppConnectionPicker
+            value={str("connectionId")}
+            onChange={set("connectionId")}
+            testId="whatsapp-trigger-connection"
+          />
+        </div>
+      </Section>
+
+      <Section title="Filters" last>
+        <Label>Listen for</Label>
+        <SelectBox
+          value={str("listenFor", "all")}
+          onChange={set("listenFor")}
+          options={[
+            { value: "all", label: "All messages" },
+            { value: "text", label: "Text only" },
+            { value: "image", label: "Images" },
+            { value: "document", label: "Documents" },
+            { value: "audio", label: "Audio" },
+            { value: "video", label: "Video" }
+          ]}
+          testId="whatsapp-trigger-listen-for"
+        />
+
+        <div className="mt-4">
+          <BoolField label="Ignore group messages" value={flag("ignoreGroups", true)} onChange={set("ignoreGroups")} />
+        </div>
+        <div className="mt-3">
+          <BoolField
+            label="Ignore status / reaction messages"
+            value={flag("ignoreStatusMessages", true)}
+            onChange={set("ignoreStatusMessages")}
+          />
+        </div>
+
+        <p className="mt-3 text-[11px] leading-5 text-slate-400">
+          Variables available: {"{{contact.name}}"}, {"{{contact.phone}}"}, {"{{message.text}}"}, {"{{customer.phone}}"}
+        </p>
+      </Section>
+    </>
+  );
+}
+
+function WhatsAppSendProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const messageType = str("whatsappMessageType", "text");
+
+  return (
+    <>
+      <Section title="WhatsApp connection">
+        <WhatsAppRequirementNotice testId="whatsapp-send-requirement">
+          Messages are sent with your connected Meta Cloud API credentials (not buyer Twilio).
+        </WhatsAppRequirementNotice>
+
+        <div className="mt-4">
+          <Label>Connection</Label>
+          <WhatsAppConnectionPicker
+            value={str("connectionId")}
+            onChange={set("connectionId")}
+            testId="whatsapp-send-connection"
+          />
+        </div>
+      </Section>
+
+      <Section title="Message" last>
+        <Label>Message type</Label>
+        <SelectBox
+          value={messageType}
+          onChange={set("whatsappMessageType")}
+          options={[
+            { value: "text", label: "Text" },
+            { value: "image", label: "Image" },
+            { value: "document", label: "Document / PDF" },
+            { value: "audio", label: "Audio / Voice" },
+            { value: "video", label: "Video" },
+            { value: "template", label: "Template" }
+          ]}
+          testId="whatsapp-send-message-type"
+        />
+
+        <div className="mt-4">
+          <Label>Recipient</Label>
+          <TextInput
+            mono
+            value={str("recipient", "{{contact.phone}}")}
+            onChange={set("recipient")}
+            placeholder="{{contact.phone}}"
+          />
+        </div>
+
+        {messageType === "text" ? (
+          <div className="mt-4">
+            <Label>Message body</Label>
+            <TextArea
+              height="h-24"
+              value={str("message", "Hello {{contact.name}}")}
+              onChange={set("message")}
+              placeholder="Hello {{contact.name}}, thanks for reaching out."
+            />
+            <UnknownVariablesNote text={str("message")} nodePrefixes={variableNodePrefixes} testId="whatsapp-send-unknown-vars" />
+          </div>
+        ) : null}
+
+        {messageType === "template" ? (
+          <>
+            <div className="mt-4">
+              <Label>Template name</Label>
+              <TextInput
+                mono
+                value={str("templateName")}
+                onChange={set("templateName")}
+                placeholder="hello_world"
+                data-testid="whatsapp-send-template-name"
+              />
+            </div>
+            <div className="mt-4">
+              <Label>Language code</Label>
+              <TextInput
+                mono
+                value={str("languageCode", "en_US")}
+                onChange={set("languageCode")}
+                data-testid="whatsapp-send-template-language"
+              />
+            </div>
+          </>
+        ) : null}
+
+        {messageType === "image" || messageType === "document" || messageType === "audio" || messageType === "video" ? (
+          <>
+            <div className="mt-4">
+              <Label>Media link (URL)</Label>
+              <TextInput
+                mono
+                value={str("mediaLink")}
+                onChange={set("mediaLink")}
+                placeholder="https://..."
+                data-testid="whatsapp-send-media-link"
+              />
+            </div>
+            <div className="mt-4">
+              <Label>Media ID (optional)</Label>
+              <TextInput
+                mono
+                value={str("mediaId")}
+                onChange={set("mediaId")}
+                placeholder="Meta media id"
+                data-testid="whatsapp-send-media-id"
+              />
+            </div>
+            {messageType !== "audio" ? (
+              <div className="mt-4">
+                <Label>Caption (optional)</Label>
+                <TextArea
+                  height="h-20"
+                  value={str("caption", str("message"))}
+                  onChange={set("caption")}
+                />
+              </div>
+            ) : null}
+            {messageType === "document" ? (
+              <div className="mt-4">
+                <Label>Filename (optional)</Label>
+                <TextInput
+                  mono
+                  value={str("filename")}
+                  onChange={set("filename")}
+                  placeholder="file.pdf"
+                  data-testid="whatsapp-send-media-filename"
+                />
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
+        <p className="mt-3 text-[11px] leading-5 text-slate-400">
+          Tip: use {"{{contact.phone}}"} or {"{{customer.phone}}"} for the recipient.
+        </p>
+      </Section>
+    </>
+  );
+}
+
 function SendSmsProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
 
@@ -1776,7 +2108,9 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
   const isVapi = connector === "Vapi";
   const isCalendar = connector === "Google Calendar";
   const isCore = connector === "CoreAI" || connector === "Triven";
+  const isWhatsApp = connector === "WhatsApp";
   const coreAction = str("connectorAction", "save_lead");
+  const whatsappMessageType = str("whatsappMessageType", "text");
 
   return (
     <>
@@ -1790,7 +2124,7 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
         </div>
       </Section>
 
-      <Section title={isGmail ? "Gmail" : isVapi ? "Vapi voice" : isCalendar ? "Google Calendar" : isCore ? "Triven action" : "SMS"} last>
+      <Section title={isGmail ? "Gmail" : isVapi ? "Vapi voice" : isCalendar ? "Google Calendar" : isCore ? "Triven action" : isWhatsApp ? "WhatsApp" : "SMS"} last>
         {isGmail ? (
           <>
             <ConnectorRequirements node={selectedNode} />
@@ -1915,6 +2249,117 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
               </p>
             ) : null}
           </div>
+        ) : isWhatsApp ? (
+          <>
+            <ConnectorRequirements node={selectedNode} />
+            <div className="mt-4">
+              <Label>Connection</Label>
+              <WhatsAppConnectionPicker
+                value={str("connectionId")}
+                onChange={set("connectionId")}
+                testId="whatsapp-connector-connection"
+              />
+            </div>
+            {coreAction === "send_template" ? (
+              <>
+                <div className="mt-4">
+                  <Label>Recipient</Label>
+                  <TextInput mono value={str("recipient", "{{contact.phone}}")} onChange={set("recipient")} />
+                </div>
+                <div className="mt-4">
+                  <Label>Template name</Label>
+                  <TextInput mono value={str("templateName")} onChange={set("templateName")} />
+                </div>
+                <div className="mt-4">
+                  <Label>Language code</Label>
+                  <TextInput mono value={str("languageCode", "en_US")} onChange={set("languageCode")} />
+                </div>
+              </>
+            ) : coreAction === "send_media" ? (
+              <>
+                <div className="mt-4">
+                  <Label>Recipient</Label>
+                  <TextInput mono value={str("recipient", "{{contact.phone}}")} onChange={set("recipient")} />
+                </div>
+                <div className="mt-4">
+                  <Label>Media type</Label>
+                  <SelectBox
+                    value={str("mediaType", "image")}
+                    onChange={set("mediaType")}
+                    options={["image", "document", "audio", "video"]}
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>Media link (URL)</Label>
+                  <TextInput mono value={str("mediaLink")} onChange={set("mediaLink")} placeholder="https://..." />
+                </div>
+                <div className="mt-4">
+                  <Label>Media ID (optional)</Label>
+                  <TextInput mono value={str("mediaId")} onChange={set("mediaId")} placeholder="Meta media id" />
+                </div>
+                <div className="mt-4">
+                  <Label>Caption (optional)</Label>
+                  <TextArea height="h-[88px]" value={str("caption", str("message"))} onChange={set("caption")} />
+                </div>
+                <div className="mt-4">
+                  <Label>Filename (optional, documents)</Label>
+                  <TextInput mono value={str("filename")} onChange={set("filename")} placeholder="file.pdf" />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mt-4">
+                  <Label>Recipient</Label>
+                  <TextInput mono value={str("recipient", "{{contact.phone}}")} onChange={set("recipient")} />
+                </div>
+                <div className="mt-4">
+                  <Label>WhatsApp content type</Label>
+                  <SelectBox
+                    value={whatsappMessageType}
+                    onChange={set("whatsappMessageType")}
+                    options={["text", "image", "document", "audio", "video", "template"]}
+                    data-testid="whatsapp-content-type"
+                  />
+                </div>
+                {whatsappMessageType === "text" ? (
+                  <div className="mt-4">
+                    <Label>Message</Label>
+                    <TextArea height="h-[88px]" value={str("message")} onChange={set("message")} data-testid="whatsapp-message-text" />
+                  </div>
+                ) : whatsappMessageType === "template" ? (
+                  <>
+                    <div className="mt-4">
+                      <Label>Template name</Label>
+                      <TextInput mono value={str("templateName")} onChange={set("templateName")} data-testid="whatsapp-template-name" />
+                    </div>
+                    <div className="mt-4">
+                      <Label>Language code</Label>
+                      <TextInput mono value={str("languageCode", "en_US")} onChange={set("languageCode")} data-testid="whatsapp-template-language-code" />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-4">
+                      <Label>Media link (URL)</Label>
+                      <TextInput mono value={str("mediaLink")} onChange={set("mediaLink")} placeholder="https://..." data-testid="whatsapp-media-link" />
+                    </div>
+                    <div className="mt-4">
+                      <Label>Media ID (optional)</Label>
+                      <TextInput mono value={str("mediaId")} onChange={set("mediaId")} placeholder="Meta media id" data-testid="whatsapp-media-id" />
+                    </div>
+                    <div className="mt-4">
+                      <Label>Caption (optional)</Label>
+                      <TextArea height="h-[88px]" value={str("caption", str("message"))} onChange={set("caption")} data-testid="whatsapp-media-caption" />
+                    </div>
+                    <div className="mt-4">
+                      <Label>Filename (optional, documents)</Label>
+                      <TextInput mono value={str("filename")} onChange={set("filename")} placeholder="file.pdf" data-testid="whatsapp-media-filename" />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </>
         ) : (
           <>
             <ConnectorRequirements node={selectedNode} />
