@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { PhoneCall, CalendarSearch, Search, CalendarCheck, MessageSquare, Mail } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -4113,6 +4114,20 @@ function StepTest({
 
 /* ==================== Workflow step interaction panels ==================== */
 
+/** Maps an icon key string to the corresponding Lucide icon for the Live Activity log. */
+function ActivityIcon({ iconKey }: { iconKey: string }) {
+  const cls = "h-3 w-3 text-amber-600";
+  switch (iconKey) {
+    case "phone-call":      return <PhoneCall className={cls} />;
+    case "calendar-search": return <CalendarSearch className={cls} />;
+    case "search":          return <Search className={cls} />;
+    case "calendar-check":  return <CalendarCheck className={cls} />;
+    case "message-square":  return <MessageSquare className={cls} />;
+    case "mail":            return <Mail className={cls} />;
+    default:                return <PhoneCall className={cls} />;
+  }
+}
+
 /** Voice/call step — browser preview call with microphone animation, live activity log, and countdown timer */
 function WorkflowVoiceStepPanel({
   callState,
@@ -4140,12 +4155,13 @@ function WorkflowVoiceStepPanel({
   const [error, setError] = useState("");
   const [timedOut, setTimedOut] = useState(false);
   const [session, setSession] = useState<BusinessPreviewCallSession | null>(null);
-  const [activityLog, setActivityLog] = useState<{ id: number; text: string; icon: string }[]>([]);
+  const [activityLog, setActivityLog] = useState<{ id: number; text: string; iconKey: string }[]>([]);
   const clientRef = useRef<PreviewVapiClient | null>(null);
   const detachRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const activityTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const seenActivitiesRef = useRef<Set<string>>(new Set());
+  const activityIdRef = useRef(0);
   const startInFlightRef = useRef(false);
   const elapsedRef = useRef(0);
   const timedOutRef = useRef(false);
@@ -4155,7 +4171,6 @@ function WorkflowVoiceStepPanel({
       detachRef.current?.();
       if (timerRef.current) clearInterval(timerRef.current);
       if (countdownRef.current) clearInterval(countdownRef.current);
-      activityTimersRef.current.forEach(clearTimeout);
       try { clientRef.current?.stop(); } catch { /* best-effort */ }
     };
   }, []);
@@ -4163,23 +4178,106 @@ function WorkflowVoiceStepPanel({
   function stopTimers() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
-    activityTimersRef.current.forEach(clearTimeout);
-    activityTimersRef.current = [];
   }
 
-  function startActivityLog() {
-    const ACTIVITY_STEPS = [
-      { delay: 500,  text: "Your AI agent answered the call", icon: "✅" },
-      { delay: 4000, text: "Checking your calendar for open slots…", icon: "📅" },
-      { delay: 9000, text: "Finding the best appointment time…", icon: "🔍" },
-      { delay: 14000, text: "Preparing your confirmation message…", icon: "💬" },
-    ];
-    ACTIVITY_STEPS.forEach(({ delay, text, icon }, index) => {
-      const t = setTimeout(() => {
-        setActivityLog((prev) => [...prev, { id: index, text, icon }]);
-      }, delay);
-      activityTimersRef.current.push(t);
-    });
+  /** Append an activity entry only if it hasn't been shown yet (deduplication by key). */
+  function pushActivity(key: string, text: string, iconKey: string) {
+    if (seenActivitiesRef.current.has(key)) return;
+    seenActivitiesRef.current.add(key);
+    const id = activityIdRef.current++;
+    setActivityLog((prev) => [...prev, { id, text, iconKey }]);
+  }
+
+  /**
+   * Derive a human-readable activity entry from a Vapi tool-call function name.
+   * Returns null for unrecognised tool names (they are silently ignored).
+   */
+  function activityFromToolName(name: string): { key: string; text: string; iconKey: string } | null {
+    const n = name.toLowerCase();
+    if (/check.?avail|get.?avail|list.?slot|open.?slot|free.?slot|calendar.?avail/.test(n)) {
+      return { key: "calendar-check", text: "Checking calendar for available slots.", iconKey: "calendar-search" };
+    }
+    if (/book.?appoint|create.?appoint|schedule.?appoint|google_calendar_create|create_event/.test(n)) {
+      return { key: "book-appointment", text: "Finding the best appointment time.", iconKey: "search" };
+    }
+    if (/booked|confirm.?appoint|appoint.*booked|event.?created/.test(n)) {
+      return { key: "appointment-booked", text: "Appointment booked successfully.", iconKey: "calendar-check" };
+    }
+    if (/send.?sms|send.?text|notify.?sms|twilio|send_notification/.test(n)) {
+      return { key: "send-sms", text: "Sending confirmation SMS to the customer.", iconKey: "message-square" };
+    }
+    if (/send.?email|email.?confirm|notify.?email/.test(n)) {
+      return { key: "send-email", text: "Sending confirmation email.", iconKey: "mail" };
+    }
+    if (/confirm|send.?confirm/.test(n)) {
+      return { key: "confirmation", text: "Preparing your confirmation message.", iconKey: "message-square" };
+    }
+    return null;
+  }
+
+  /**
+   * Inspect the Vapi 'message' event payload and add activity log entries
+   * that accurately reflect what the agent is doing right now.
+   */
+  function handleVapiMessage(payload: unknown) {
+    if (!payload || typeof payload !== "object") return;
+    const msg = payload as Record<string, unknown>;
+
+    // tool-calls: agent is invoking a backend function
+    if (msg.type === "tool-calls") {
+      // Vapi may send toolCallList or toolCalls depending on version
+      const calls = (msg.toolCallList ?? msg.toolCalls) as unknown[];
+      if (Array.isArray(calls)) {
+        calls.forEach((call) => {
+          const c = call as Record<string, unknown>;
+          const fn = (c.function ?? c.fn) as Record<string, unknown> | undefined;
+          const name = typeof fn?.name === "string" ? fn.name
+            : typeof c.name === "string" ? c.name
+            : "";
+          if (!name) return;
+          // Show "Checking calendar…" before the actual book call
+          if (/book.?appoint|create.?appoint|schedule.?appoint|google_calendar_create|create_event/.test(name.toLowerCase())) {
+            // Ensure "checking calendar" appears first as a precursor
+            pushActivity("calendar-check", "Checking calendar for available slots.", "calendar-search");
+          }
+          const activity = activityFromToolName(name);
+          if (activity) pushActivity(activity.key, activity.text, activity.iconKey);
+        });
+      }
+    }
+
+    // tool-call-result: agent received result back — appointment booked
+    if (msg.type === "tool-calls-result" || msg.type === "tool-call-result") {
+      const result = msg.result as Record<string, unknown> | undefined;
+      const resultStr = JSON.stringify(result ?? "").toLowerCase();
+      if (/booked|confirmed|created|appointment/.test(resultStr)) {
+        pushActivity("appointment-booked", "Appointment booked successfully.", "calendar-check");
+      }
+      if (/sms|text.*sent|message.*sent/.test(resultStr)) {
+        pushActivity("send-sms", "Sending confirmation SMS to the customer.", "message-square");
+      }
+    }
+
+    // transcript: use keywords as a lightweight fallback for agents
+    // that don't surface tool-call events to the client
+    if (msg.type === "transcript" && msg.role === "assistant") {
+      const text = (typeof msg.transcript === "string" ? msg.transcript : "").toLowerCase();
+      if (/check.*calendar|checking.*calendar|look.*avail|checking.*avail/.test(text)) {
+        pushActivity("calendar-check", "Checking calendar for available slots.", "calendar-search");
+      }
+      if (/finding.*time|best.*time|available.*slot|look.*slot/.test(text)) {
+        pushActivity("find-time", "Finding the best appointment time.", "search");
+      }
+      if (/appointment.*booked|booked.*appointment|scheduled.*for|confirmed.*appoint/.test(text)) {
+        pushActivity("appointment-booked", "Appointment booked successfully.", "calendar-check");
+      }
+      if (/send.*text|send.*sms|confirmation.*text|text.*message/.test(text)) {
+        pushActivity("send-sms", "Sending confirmation SMS to the customer.", "message-square");
+      }
+      if (/send.*email|confirmation.*email/.test(text)) {
+        pushActivity("send-email", "Sending confirmation email.", "mail");
+      }
+    }
   }
 
   function endPreviewCall(stopClient = true) {
@@ -4207,6 +4305,8 @@ function WorkflowVoiceStepPanel({
     timedOutRef.current = false;
     setElapsedSeconds(0);
     setActivityLog([]);
+    seenActivitiesRef.current = new Set();
+    activityIdRef.current = 0;
     setSecondsLeft(0);
     elapsedRef.current = 0;
     onCallStateChange("in-progress");
@@ -4245,8 +4345,8 @@ function WorkflowVoiceStepPanel({
             return c - 1;
           });
         }, 1000);
-        // Animate the live activity log
-        startActivityLog();
+        // Show the first real-time activity: agent answered
+        pushActivity("call-answered", "AI agent answered the call.", "phone-call");
       };
       const onCallEnd = () => endPreviewCall(false);
       const onSpeechStart = () => setAgentSpeaking(true);
@@ -4263,11 +4363,14 @@ function WorkflowVoiceStepPanel({
         endPreviewCall();
       };
 
+      const onMessage = (payload?: unknown) => handleVapiMessage(payload);
+
       client.on("call-start", onCallStart);
       client.on("call-end", onCallEnd);
       client.on("speech-start", onSpeechStart);
       client.on("speech-end", onSpeechEnd);
       client.on("error", onError);
+      client.on("message", onMessage);
 
       detachRef.current = () => {
         client.off?.("call-start", onCallStart);
@@ -4275,6 +4378,7 @@ function WorkflowVoiceStepPanel({
         client.off?.("speech-start", onSpeechStart);
         client.off?.("speech-end", onSpeechEnd);
         client.off?.("error", onError);
+        client.off?.("message", onMessage);
       };
 
       await client.start(nextSession.assistantId, { metadata: { purpose: "BUYER_SETUP_PREVIEW" } });
@@ -4389,7 +4493,9 @@ function WorkflowVoiceStepPanel({
               <div className="space-y-2">
                 {activityLog.map((entry) => (
                   <div key={entry.id} className="flex items-center gap-2.5 animate-in">
-                    <span className="text-base leading-none">{entry.icon}</span>
+                    <span className="shrink-0 flex items-center justify-center w-5 h-5 rounded-full bg-amber-50 border border-amber-200">
+                      <ActivityIcon iconKey={entry.iconKey} />
+                    </span>
                     <span className="text-xs text-slate-600 font-medium flex-1">{entry.text}</span>
                     {callState === "in-progress" && entry.id === activityLog[activityLog.length - 1]?.id && (
                       <span className="flex gap-0.5 ml-auto shrink-0">
