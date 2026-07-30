@@ -86,7 +86,7 @@ export function AgentIdentitySection({
 
     const isCustom = voiceChoice === "custom";
     if (isCustom && !customVoiceId.trim()) {
-      setVoicePreviewError("Enter your custom voice ID first.");
+      setVoicePreviewError("Voice preview is unavailable right now.");
       return;
     }
     const cacheKey = isCustom ? `custom:${customVoiceId.trim()}` : voiceChoice;
@@ -162,7 +162,7 @@ export function AgentIdentitySection({
                   </span>
                   <span className="block truncate text-[11px] font-normal text-slate-500 leading-snug">
                     {voiceChoice === "custom"
-                      ? "ElevenLabs voice ID"
+                      ? "Configured by admin"
                       : VOICE_OPTIONS.find((v) => v.value === voiceChoice)?.style || "Choose assistant voice"}
                   </span>
                 </div>
@@ -222,38 +222,6 @@ export function AgentIdentitySection({
                       </button>
                     );
                   })}
-
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={voiceChoice === "custom"}
-                    data-testid="business-setup-voice-option-custom"
-                    onClick={() => {
-                      onVoiceChoice("custom");
-                      setVoiceDropdownOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-left transition-colors cursor-pointer border-t border-slate-100 mt-1 ${
-                      voiceChoice === "custom"
-                        ? "bg-amber-50/80 text-amber-900 font-semibold"
-                        : "hover:bg-slate-50 text-slate-700"
-                    }`}
-                  >
-                    <div className="min-w-0 pr-2">
-                      <div className="text-xs font-semibold text-slate-800 leading-snug">Custom voice</div>
-                      <div className="text-[11px] font-normal text-slate-500 leading-snug mt-0.5">Use your ElevenLabs voice ID</div>
-                    </div>
-                    {voiceChoice === "custom" ? (
-                      <svg
-                        className="w-4 h-4 text-amber-600 shrink-0"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : null}
-                  </button>
                 </div>
               ) : null}
             </div>
@@ -285,23 +253,6 @@ export function AgentIdentitySection({
               <span>{voicePlaying ? "Playing…" : "Preview voice"}</span>
             </button>
           </div>
-
-          {voiceChoice === "custom" ? (
-            <div className="mt-2.5">
-              <label htmlFor="custom-voice-id" className={LABEL}>
-                Custom voice ID
-              </label>
-              <input
-                id="custom-voice-id"
-                data-testid="business-setup-voice-custom-id"
-                type="text"
-                value={customVoiceId}
-                onChange={(e) => onCustomVoiceId(e.target.value)}
-                placeholder="ElevenLabs voice ID"
-                className="field w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all"
-              />
-            </div>
-          ) : null}
 
           {voicePreviewError ? (
             <p className="mt-2 text-xs font-semibold text-rose-600" data-testid="business-setup-voice-preview-error">

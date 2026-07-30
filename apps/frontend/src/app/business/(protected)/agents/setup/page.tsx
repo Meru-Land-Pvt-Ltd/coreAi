@@ -1484,9 +1484,7 @@ function SetupWizard() {
   const phoneSelected = Boolean(selectedPhoneId) || Boolean(assignedNumber);
   const forwardRequired = answeringMode !== "AI_FIRST";
   const phoneComplete = phoneSelected && (!forwardRequired || forwardToPhone.trim().length >= 5);
-  const voiceChoiceComplete =
-    voiceChoice !== "" &&
-    (voiceChoice !== "custom" || customVoiceId.trim().length > 0);
+  const voiceChoiceComplete = voiceChoice !== "";
   const voiceComplete = assistantNameComplete && voiceChoiceComplete;
 
   const connectorsKnown = requiredKeys.length > 0 || (!loading && Boolean(listingId));
@@ -1654,7 +1652,7 @@ function SetupWizard() {
             ? "Add your AI assistant name."
             : voiceChoiceComplete
               ? undefined
-              : "Enter a custom voice ID or choose a preset."
+              : "Choose a voice."
         }
       ]
       : [])
@@ -1826,7 +1824,7 @@ function SetupWizard() {
             />
           ) : null}
 
-          {step === 2 ? (
+          {step === 1 ? (
             <div className="space-y-4" data-testid="business-setup-configure">
               <div>
                 <h2 className="text-2xl font-bold tracking-tight text-slate-900">
