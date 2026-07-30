@@ -257,6 +257,78 @@ describe("truthful readiness and repair", () => {
   });
 });
 
+/**
+ * QA (2026-07-30): "Now it is picking names & all from PDF but I added doctor
+ * name as well in input field, it is not picking that."
+ *
+ * Typed entries and document chunks live in the same table and both retrieve
+ * fine — the gap was that only the document routes pushed the refreshed prompt
+ * to the live assistant, so a typed fact sat in the database while the deployed
+ * agent answered from its previous snapshot.
+ */
+describe("typed knowledge is retrievable alongside document knowledge", () => {
+  it("a doctor name typed into the setup form is retrieved for a roster question", async () => {
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
+
+    await ingestKnowledgeFiles({
+      businessId,
+      installedAgentId: agentAId,
+      files: [
+        {
+          filename: "roster.txt",
+          mimeType: "text/plain",
+          bytes: Buffer.from("Our Doctors\nDr. Amelia Hart — Cardiology.\nDr. Rajesh Menon — Orthopaedics.")
+        }
+      ]
+    });
+    await replaceManualKnowledge(businessId, [
+      { title: "Doctors", content: "Dr. Sunita Balan — Endodontics. Joined this year." }
+    ]);
+
+    const sections = await retrieveRelevantKnowledge({
+      businessId,
+      installedAgentId: agentAId,
+      query: "Who are all your doctors?"
+    });
+    const combined = sections.map((section) => section.content).join("\n");
+
+    // The typed name and the PDF names must BOTH be present.
+    expect(combined).toContain("Sunita Balan");
+    expect(combined).toContain("Amelia Hart");
+    expect(combined).toContain("Rajesh Menon");
+  });
+
+  it("typed entries are carried in the prompt snapshot the assistant is deployed with", async () => {
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
+
+    const { knowledge, manualCount } = await loadBusinessAgentKnowledge({
+      businessId,
+      installedAgentId: agentAId
+    });
+
+    expect(manualCount).toBeGreaterThan(0);
+    expect(knowledge.join("\n")).toContain("Sunita Balan");
+  });
+
+  it("a later setup save that replaces typed entries does not drop document chunks", async () => {
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
+
+    await replaceManualKnowledge(businessId, [
+      { title: "Doctors", content: "Dr. Sunita Balan — Endodontics. Dr. Iqbal Shah — Periodontics." }
+    ]);
+
+    const sections = await retrieveRelevantKnowledge({
+      businessId,
+      installedAgentId: agentAId,
+      query: "List every doctor you have"
+    });
+    const combined = sections.map((section) => section.content).join("\n");
+
+    expect(combined).toContain("Iqbal Shah");
+    expect(combined).toContain("Amelia Hart");
+  });
+});
+
 describe("live sync result", () => {
   it("reports attempted=false before Go-live instead of failing", async () => {
     if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");

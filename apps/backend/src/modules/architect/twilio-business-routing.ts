@@ -2623,14 +2623,15 @@ async function smsDisclosureState(ctx: VapiToolContext): Promise<SmsDisclosurePr
       : structured.state === "AWAITING_ANSWER" || flat.state === "AWAITING_ANSWER"
         ? { state: "AWAITING_ANSWER", missing: [] }
         : structured.state === "INTERRUPTED" || flat.state === "INTERRUPTED"
-          ? {
-            state: "INTERRUPTED",
-            // Whichever source heard more of it has the shorter missing list.
-            missing:
-              structured.state === "INTERRUPTED" && flat.state === "INTERRUPTED"
-                ? (structured.missing.length <= flat.missing.length ? structured.missing : flat.missing)
-                : structured.state === "INTERRUPTED" ? structured.missing : flat.missing
-          }
+          // Whichever source heard more of it has the shorter missing list, and
+          // its remainingLine is the one that keeps the confirmation shortest.
+          ? (() => {
+            const bothInterrupted = structured.state === "INTERRUPTED" && flat.state === "INTERRUPTED";
+            const best = bothInterrupted
+              ? (structured.missing.length <= flat.missing.length ? structured : flat)
+              : (structured.state === "INTERRUPTED" ? structured : flat);
+            return { state: "INTERRUPTED" as const, missing: best.missing, remainingLine: best.remainingLine };
+          })()
           : { state: "NOT_PRESENTED", missing: [] };
 
   if (progress.state === "ANSWERED" && key) await markConsentOffered(key);
@@ -4279,9 +4280,9 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
       consent_recorded: false,
       sms_allowed: false,
       customerSpeechCode: "NONE" as const,
-      remaining_disclosure: disclosure.missing,
+      confirmation_line: disclosure.remainingLine ?? "",
       message:
-        "Consent was NOT saved — the caller interrupted before the disclosure finished. Do NOT start it over and do NOT apologize. Acknowledge them in a few words, then say ONLY the remaining parts listed in remaining_disclosure, word-for-word and in that order, and stop. Then call record_sms_consent again with their answer."
+        "Consent was NOT saved yet — the caller answered before the disclosure finished. Do NOT read the disclosure again and do NOT apologize. Say the ONE sentence in confirmation_line, word-for-word, and nothing else. It is short by design: it carries only the terms they have not heard yet and ends by confirming their answer. Then call record_sms_consent again with that answer."
     };
   }
 

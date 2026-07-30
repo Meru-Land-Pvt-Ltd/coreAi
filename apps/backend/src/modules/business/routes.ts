@@ -3349,6 +3349,10 @@ businessRoutes.post("/setup", async (c) => {
       });
     }
 
+    const setupLiveSync = deployedVapiAssistantId
+      ? null
+      : await refreshLiveAssistantKnowledge(business.id);
+
     const [refreshed, calendar] = await Promise.all([
       loadBusinessForOwner(authUser.id),
       getGmailConnectionStatus(authUser.id)
@@ -3377,6 +3381,7 @@ businessRoutes.post("/setup", async (c) => {
         assignedPhoneNumber: businessPhone?.phoneNumber ?? null,
         vapiAssistantId: responseVapiAssistantId,
         ...(addressLiveSync ? { addressLiveSync } : {}),
+        ...(setupLiveSync ? { liveSync: setupLiveSync } : {}),
         ...phoneOptions
       },
       "Business setup saved"

@@ -198,6 +198,54 @@ describe("caller interrupts mid-disclosure", () => {
     expect(transcriptSmsDisclosureState(transcript, BUSINESS)).toBe("INTERRUPTED");
   });
 
+  it("gives ONE short confirmation line instead of the rest of the script", () => {
+    const progress = transcriptSmsDisclosureProgress(
+      `AI: ${firstHalf}\nUser: yes that's fine`,
+      BUSINESS
+    );
+
+    expect(progress.remainingLine).toBeTruthy();
+    // One sentence of terms plus one confirming question — not a re-read.
+    expect(progress.remainingLine!.length).toBeLessThan(240);
+    expect(progress.remainingLine).not.toContain("Would you like to receive");
+    // It carries only what they have not heard.
+    expect(progress.remainingLine).toContain("data rates may apply");
+    expect(progress.remainingLine).not.toContain("frequency varies");
+  });
+
+  /* The load-bearing guarantee: the SHORT line must itself complete the
+     disclosure. If its wording ever stops satisfying the element checks, the
+     gate stays INTERRUPTED and the agent loops forever — the exact bug this
+     path exists to prevent. */
+  it("saying the confirmation line completes the disclosure and ends the loop", () => {
+    const interrupted = transcriptSmsDisclosureProgress(
+      `AI: ${firstHalf}\nUser: yes that's fine`,
+      BUSINESS
+    );
+
+    const transcript = [
+      `AI: ${firstHalf}`,
+      "User: yes that's fine",
+      `AI: ${interrupted.remainingLine}`,
+      "User: yes"
+    ].join("\n");
+
+    const after = transcriptSmsDisclosureProgress(transcript, BUSINESS);
+    expect(after.state).toBe("ANSWERED");
+    expect(transcriptShowsCompleteSmsDisclosure(transcript, BUSINESS)).toBe(true);
+  });
+
+  it("completes from the very start of the disclosure too — no element is unreachable", () => {
+    /* Interrupted on the opening sentence: the line then has to carry every
+       remaining element and still complete in one go. */
+    const opener = `Would you like to receive transactional text messages from ${BUSINESS}?`;
+    const progress = transcriptSmsDisclosureProgress(`AI: ${opener}\nUser: yes`, BUSINESS);
+    expect(progress.state).toBe("INTERRUPTED");
+
+    const transcript = [`AI: ${opener}`, "User: yes", `AI: ${progress.remainingLine}`, "User: yes"].join("\n");
+    expect(transcriptSmsDisclosureState(transcript, BUSINESS)).toBe("ANSWERED");
+  });
+
   it("a stray 'how can I help you' never satisfies the HELP element on its own", () => {
     const transcript = [
       `AI: ${firstHalf}`,

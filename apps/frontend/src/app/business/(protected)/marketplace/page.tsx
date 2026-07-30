@@ -1873,13 +1873,13 @@ function AgentGridCard({
                   ? "Usage charges apply separately"
                   : "Usage charges billed separately"}
             </span>
-            <ExecutionPricingSummary
+            {/* <ExecutionPricingSummary
               pricing={executionPricing}
               loading={executionPricingLoading}
               unavailable={executionPricingUnavailable}
               variant="compact"
               className="mt-1 text-right text-[9px] leading-tight text-slate-400"
-            />
+            /> */}
             {agent.pricingModel !== "FREE" &&
             agent.freeTrialEnabled &&
             (agent.trialDays ?? 7) > 0 ? (
