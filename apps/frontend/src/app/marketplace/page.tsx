@@ -6,7 +6,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { CoreFooter } from "@/components/common/footer";
 import { apiGet } from "@/lib/api";
-import { ASSIGNMENT_PATH, businessCheckoutPath } from "@/lib/routes";
+import { ASSIGNMENT_PATH, businessCheckoutPath, publicAgentPath } from "@/lib/routes";
+import { getConnectorIncludedItem } from "@coreai/shared";
 import { BotIcon, Download, Search } from "lucide-react";
 
 type Agent = {
@@ -14,6 +15,7 @@ type Agent = {
   name: string;
   category: string;
   industry: string;
+  industries: string[];
   description: string;
   price: number;
   installs: number;
@@ -21,10 +23,15 @@ type Agent = {
   author: string;
   isNew?: boolean;
   freeTrial?: boolean;
+  tags: string[];
+  requiredConnectors: string[];
+  supportedLlms: string[];
+  whatYouGet: string[];
   createdAt?: string;
   pricingModel?: string | null;
   freeTrialEnabled?: boolean | null;
   trialDays?: number | null;
+  iconUrl?: string | null;
 };
 
 type ApiArchitectProfile = {
@@ -63,6 +70,8 @@ type ApiListing = {
   priceCents?: number | null;
   status?: string;
   tags?: string[];
+  industryTags?: string[];
+  category?: string | null;
   requiredConnectors?: string[];
   supportedLlms?: string[];
   createdAt?: string;
@@ -73,6 +82,9 @@ type ApiListing = {
   pricingModel?: string | null;
   freeTrialEnabled?: boolean | null;
   trialDays?: number | null;
+  iconUrl?: string | null;
+  includedFeatures?: string[];
+  capabilities?: string[];
 };
 
 type ListingsApiResponse = {
@@ -222,24 +234,45 @@ function normalizeIndustryId(value: string) {
   return industryAliasByTag[normalized] ?? normalized;
 }
 
-function getAgentIndustry(listing: ApiListing) {
+function getAgentIndustries(listing: ApiListing): string[] {
+  const fromIndustryTags = (listing.industryTags ?? []).map((tag) => tag.trim()).filter(Boolean);
+  if (fromIndustryTags.length > 0) {
+    return Array.from(new Set(fromIndustryTags));
+  }
+
   const tags = listing.tags ?? [];
+  const prefixed = tags
+    .filter((tag) => tag.toLowerCase().startsWith("industry:"))
+    .map((tag) => tag.replace(/^industry:/i, "").trim())
+    .filter(Boolean);
+  if (prefixed.length > 0) {
+    return Array.from(new Set(prefixed));
+  }
 
-  const industryTag =
-    tags.find((tag) => tag.toLowerCase().startsWith("industry:")) ??
-    tags.find((tag) => Boolean(industryAliasByTag[normalizeFilterValue(tag)]));
+  return [];
+}
 
-  if (!industryTag) return "all";
-
-  return normalizeIndustryId(industryTag.replace(/^industry:/i, ""));
+function getAgentIndustry(listing: ApiListing) {
+  const industries = getAgentIndustries(listing);
+  if (industries.length === 0) return "all";
+  return normalizeFilterValue(industries[0]);
 }
 
 function getAgentCategory(listing: ApiListing) {
+  if (listing.category?.trim()) {
+    return formatLabel(listing.category.trim());
+  }
+
+  const industrySet = new Set(getAgentIndustries(listing).map((tag) => tag.toLowerCase()));
   const tags = listing.tags ?? [];
 
   const categoryTag =
     tags.find((tag) => tag.toLowerCase().startsWith("category:")) ??
-    tags.find((tag) => !tag.toLowerCase().startsWith("industry:"));
+    tags.find((tag) => {
+      const lower = tag.toLowerCase();
+      if (lower.startsWith("industry:")) return false;
+      return !industrySet.has(lower);
+    });
 
   if (categoryTag) {
     return formatLabel(categoryTag.replace(/^category:/i, ""));
@@ -250,6 +283,31 @@ function getAgentCategory(listing: ApiListing) {
   }
 
   return "AI Agent";
+}
+
+function getWhatYouGetItems(listing: ApiListing): string[] {
+  const fromFeatures = (listing.includedFeatures ?? [])
+    .map((feature) => feature.trim())
+    .filter(Boolean);
+  if (fromFeatures.length) return fromFeatures;
+
+  const fromNodes = (listing.capabilities ?? [])
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (fromNodes.length) return fromNodes;
+
+  const connectors = listing.requiredConnectors ?? [];
+  if (connectors.length) {
+    return connectors.map((connector) => getConnectorIncludedItem(connector));
+  }
+
+  return [
+    listing.shortDescription ||
+      listing.description ||
+      listing.workflow?.description ||
+      "Automates business workflows with AI.",
+  ];
 }
 
 function isRecentlyCreated(createdAt?: string) {
@@ -266,12 +324,14 @@ function isRecentlyCreated(createdAt?: string) {
 
 function mapListingToAgent(listing: ApiListing): Agent {
   const profile = listing.architect?.architectProfile;
+  const industries = getAgentIndustries(listing);
 
   return {
     id: listing.id,
     name: listing.name,
     category: getAgentCategory(listing),
     industry: getAgentIndustry(listing),
+    industries,
     description:
       listing.shortDescription ||
       listing.description ||
@@ -286,11 +346,19 @@ function mapListingToAgent(listing: ApiListing): Agent {
       listing.architect?.email ||
       "Triven Architect",
     isNew: isRecentlyCreated(listing.createdAt),
-    freeTrial: (listing.priceCents ?? 0) === 0 || listing.pricingModel === "FREE" || Boolean(listing.freeTrialEnabled),
+    freeTrial:
+      (listing.priceCents ?? 0) === 0 ||
+      listing.pricingModel === "FREE" ||
+      Boolean(listing.freeTrialEnabled),
+    tags: listing.tags ?? [],
+    requiredConnectors: listing.requiredConnectors ?? [],
+    supportedLlms: listing.supportedLlms ?? [],
+    whatYouGet: getWhatYouGetItems(listing),
     createdAt: listing.createdAt,
     pricingModel: listing.pricingModel,
     freeTrialEnabled: listing.freeTrialEnabled,
-    trialDays: listing.trialDays
+    trialDays: listing.trialDays,
+    iconUrl: listing.iconUrl?.trim() || null
   };
 }
 
@@ -1477,12 +1545,29 @@ function AgentDetailsModal({
   agent: Agent;
   onClose: () => void;
 }) {
-  const features = [
-    "Connects to your existing tools and workflow in minutes",
-    "Fully editable automation setup based on your business needs",
-    "Built for service-business automation",
-    "Ready to install and test with your team"
-  ];
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+
+  const industryLabel =
+    agent.industries && agent.industries.length > 0
+      ? agent.industries.join(" · ")
+      : agent.industry === "all"
+        ? "All industries"
+        : getIndustryDisplayLabel(agent.industry);
+
+  const hasFreeTrial = Boolean(agent.freeTrialEnabled) && (agent.trialDays ?? 7) > 0 && agent.pricingModel !== "FREE";
+  const trialDays = agent.trialDays ?? 7;
 
   return (
     <div
@@ -1509,9 +1594,12 @@ function AgentDetailsModal({
         <div className="border-b border-slate-100 px-6 py-6 sm:px-7">
           <div className="flex items-start gap-4 pr-10">
             <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl border border-amber-200 bg-amber-50 text-3xl">
-              <BotIcon
-                className="h-6 w-6 text-amber-500"
-              />
+              {agent.iconUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={agent.iconUrl} alt={agent.name} className="h-full w-full object-cover rounded-2xl" />
+              ) : (
+                <BotIcon className="h-6 w-6 text-amber-500" />
+              )}
             </span>
 
             <div className="min-w-0">
@@ -1521,12 +1609,12 @@ function AgentDetailsModal({
                 </span>
 
                 <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700" data-testid="marketplace-agent-industry-all-industries-agent-industry-text-2">
-                  {getIndustryDisplayLabel(agent.industry)}
+                  {industryLabel}
                 </span>
 
-                {agent.pricingModel !== "FREE" && agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0 ? (
+                {hasFreeTrial ? (
                   <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700" data-testid="marketplace-free-trial-text">
-                    {agent.trialDays ?? 7}-day trial
+                    {trialDays}-day trial
                   </span>
                 ) : null}
               </div>
@@ -1553,11 +1641,11 @@ function AgentDetailsModal({
 
           <div className="mt-7">
             <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400" data-testid="marketplace-what-you-get-heading">
-              What you get
+              What's Included
             </h3>
 
             <div className="mt-4 space-y-3">
-              {features.map((feature) => (
+              {agent.whatYouGet.map((feature) => (
                 <div key={feature} className="flex items-start gap-3">
                   <span className="mt-0.5 text-sm font-black text-amber-500">✓</span>
                   <p className="text-sm leading-6 text-slate-600" data-testid="marketplace-feature-text">{feature}</p>
@@ -1596,17 +1684,24 @@ function AgentDetailsModal({
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Link data-testid="marketplace-start-free-trial-link-2"
+            <Link
+              data-testid="marketplace-start-free-trial-link-2"
               href={businessCheckoutPath(agent.id)}
               className="inline-flex min-w-[166px] items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-amber-500/25 transition hover:bg-amber-600"
             >
-              {agent.pricingModel === "FREE"
-                ? "Install agent"
-                : agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0
-                  ? `Start ${agent.trialDays ?? 7}-day free trial`
-                  : agent.pricingModel === "ONE_TIME"
-                    ? "Get It Now"
-                    : "Get Access Instantly"}
+              {hasFreeTrial
+                ? `Start ${trialDays}-day Free Trial`
+                : agent.pricingModel === "FREE"
+                  ? "Install Agent"
+                  : "Buy This Agent"}
+            </Link>
+
+            <Link
+              data-testid="marketplace-modal-view-full-details"
+              href={publicAgentPath(agent.id)}
+              className="inline-flex min-w-[140px] items-center justify-center gap-2 rounded-xl border-2 border-amber-500 px-5 py-3 text-sm font-bold text-amber-600 transition hover:bg-amber-50"
+            >
+              View Full Details
             </Link>
           </div>
         </div>

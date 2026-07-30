@@ -12,6 +12,7 @@ import {
   businessAgentDetailPath,
   businessCheckoutPath,
   businessSetupPath,
+  publicAgentPath,
 } from "@/lib/routes";
 import { getConnectorIncludedItem, getLlmIncludedItem } from "@coreai/shared";
 import { X, Check, Dot, Download, Search, BotIcon, Star } from "lucide-react";
@@ -1588,17 +1589,14 @@ function AgentDetailsModal({
   isOwned,
   setupPending,
   onClose,
-  executionPricing,
-  executionPricingLoading,
-  executionPricingUnavailable,
 }: {
   agent: Agent;
   isOwned: boolean;
   setupPending?: boolean;
   onClose: () => void;
-  executionPricing: BuyerExecutionPricingPayload | null;
-  executionPricingLoading: boolean;
-  executionPricingUnavailable: boolean;
+  executionPricing?: BuyerExecutionPricingPayload | null;
+  executionPricingLoading?: boolean;
+  executionPricingUnavailable?: boolean;
 }) {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -1621,183 +1619,180 @@ function AgentDetailsModal({
         ? "All industries"
         : formatLabel(agent.industry);
 
-  const showTrialCta = !isOwned && Boolean(agent.freeTrialEnabled) && (agent.trialDays ?? 7) > 0;
+  const hasFreeTrial = !isOwned && Boolean(agent.freeTrialEnabled) && (agent.trialDays ?? 7) > 0 && agent.pricingModel !== "FREE";
+  const trialDays = agent.trialDays ?? 7;
+
+  const primaryCtaText = isOwned
+    ? setupPending
+      ? "Continue Setup"
+      : "Manage Agent"
+    : hasFreeTrial
+      ? `Start ${trialDays}-day Free Trial`
+      : agent.pricingModel === "FREE"
+        ? "Install Agent"
+        : "Buy This Agent";
+
+  const primaryCtaHref = isOwned
+    ? setupPending
+      ? businessSetupPath(agent.id)
+      : BUSINESS_AGENTS_PATH
+    : businessCheckoutPath(agent.id);
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
-      data-testid="business-marketplace-agent-details-modal"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/45 p-3 backdrop-blur-sm sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${agent.name} details`}
       onClick={onClose}
     >
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="marketplace-agent-modal-title"
-        className="relative flex h-[670px] w-[690px] flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl"
+        className="relative flex max-h-[94vh] w-full max-w-[680px] flex-col overflow-hidden rounded-[1.6rem] bg-white shadow-2xl ring-1 ring-slate-200"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="relative shrink-0 border-b border-gray-100 p-6">
-          <button
-            type="button"
-            onClick={onClose}
-            data-testid="business-marketplace-agent-details-modal-close"
-            className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full text-slate-400 transition hover:bg-gray-100 hover:text-slate-700"
-            aria-label="Close"
-          >
-            <svg
-              className="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+        <button
+          type="button"
+          onClick={onClose}
+          data-testid="business-marketplace-agent-details-modal-close"
+          className="absolute right-5 top-5 z-10 grid h-9 w-9 place-items-center rounded-full text-2xl font-light text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          aria-label="Close"
+        >
+          ×
+        </button>
 
-          <div className="flex items-start gap-4 pr-8">
-            <span className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl bg-amber-50 text-amber-500 ring-1 ring-amber-100">
+        <div className="border-b border-slate-100 px-6 py-6 sm:px-7">
+          <div className="flex items-start gap-4 pr-10">
+            <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl border border-amber-200 bg-amber-50 text-3xl">
               {agent.iconUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={agent.iconUrl} alt={agent.name} className="h-full w-full object-cover" />
+                <img src={agent.iconUrl} alt={agent.name} className="h-full w-full object-cover rounded-2xl" />
               ) : (
-                <span className="text-2xl">
-                  <BotIcon className="h-6 w-6 text-amber-500" />
-                </span>
+                <BotIcon className="h-6 w-6 text-amber-500" />
               )}
             </span>
 
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600">
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
                   {agent.category}
                 </span>
+
                 <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
                   {industryLabel}
                 </span>
+
+                {hasFreeTrial ? (
+                  <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700">
+                    {trialDays}-day trial
+                  </span>
+                ) : null}
               </div>
 
               <h2
                 id="marketplace-agent-modal-title"
-                className="mt-2 truncate text-2xl font-extrabold text-slate-900"
+                className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-[26px]"
                 data-testid="business-marketplace-agent-details-modal-title"
               >
                 {agent.name}
               </h2>
 
               <div
-                className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500"
+                className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"
                 data-testid="business-marketplace-agent-details-modal-meta"
               >
-                <span className="flex items-center justify-center gap-2">
-                  <Download className="h-4 w-4" />
-                  {agent.installs} installs
-                </span>
+                <span className="text-slate-500">{agent.installs} installs</span>
                 <span className="text-slate-300">·</span>
-                <span>By {agent.author}</span>
+                <span className="text-slate-500">By {agent.author}</span>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="flex-1 space-y-6 overflow-y-auto p-6">
+        <div className="overflow-y-auto px-6 py-7 sm:px-7">
           <p
-            className="leading-relaxed text-slate-600"
+            className="text-[17px] leading-8 text-slate-600"
             data-testid="business-marketplace-agent-details-modal-description"
           >
             {agent.description}
           </p>
 
-          <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-              What you get
+          <div className="mt-7">
+            <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400">
+              What's Included
             </h3>
-            <ul className="mt-3 space-y-2">
+
+            <div className="mt-4 space-y-3">
               {agent.whatYouGet.map((item) => (
-                <li
+                <div
                   key={item}
-                  className="flex items-start gap-2 text-sm text-slate-700"
+                  className="flex items-start gap-3"
                   data-testid={`business-marketplace-agent-details-modal-bullet-${item.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
                 >
-                  <svg
-                    className="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={3}
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span>{item}</span>
-                </li>
+                  <span className="mt-0.5 text-sm font-black text-amber-500">✓</span>
+                  <p className="text-sm leading-6 text-slate-600">{item}</p>
+                </div>
               ))}
-            </ul>
+            </div>
           </div>
         </div>
 
-        <div
-          className={
-            showTrialCta
-              ? "flex shrink-0 flex-col items-start gap-3 border-t border-gray-100 bg-gray-50/70 p-5 sm:flex-row sm:items-center sm:justify-between"
-              : "flex shrink-0 flex-row items-center justify-between gap-3 border-t border-gray-100 bg-gray-50/70 p-5"
-          }
-        >
-          <div className="shrink-0 text-left">
-            {agent.pricingModel === "FREE" ? (
-              <span
-                className="text-2xl font-black text-slate-900"
-                data-testid="business-marketplace-agent-details-modal-price"
-              >
-                Free
-              </span>
-            ) : (
-              <>
+        <div className="flex flex-col gap-4 border-t border-slate-100 bg-white px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex flex-col">
+            <div className="flex items-end gap-2">
+              {agent.pricingModel === "FREE" ? (
                 <span
-                  className="text-2xl font-black text-slate-900"
+                  className="text-3xl font-black tracking-tight text-slate-900"
                   data-testid="business-marketplace-agent-details-modal-price"
                 >
-                  ${agent.price}
+                  Free
                 </span>
-                <span className="text-sm text-slate-500">
-                  {agent.pricingModel === "ONE_TIME" ? " one-time" : " /month"}
-                </span>
-              </>
-            )}
+              ) : (
+                <>
+                  <span
+                    className="text-3xl font-black tracking-tight text-slate-900"
+                    data-testid="business-marketplace-agent-details-modal-price"
+                  >
+                    ${agent.price}
+                  </span>
+                  {agent.pricingModel !== "ONE_TIME" && (
+                    <span className="pb-1 text-sm font-medium text-slate-400">
+                      /month
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+            <span className="text-xs font-semibold text-slate-600 mt-1">
+              {agent.pricingModel === "FREE"
+                ? "Free to install"
+                : agent.pricingModel === "ONE_TIME"
+                  ? "One-time purchase"
+                  : "Monthly subscription"}
+            </span>
+            <span className="text-[10px] text-slate-400 italic">
+              {agent.pricingModel === "FREE"
+                ? "Pay only for usage"
+                : agent.pricingModel === "ONE_TIME"
+                  ? "Usage charges apply separately"
+                  : "Usage charges billed separately"}
+            </span>
           </div>
 
-          <div
-            className={
-              showTrialCta
-                ? "flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:justify-end"
-                : "flex shrink-0"
-            }
-          >
-            {showTrialCta ? (
-              <Link
-                href={businessCheckoutPath(agent.id)}
-                data-testid="business-marketplace-agent-details-modal-start-trial"
-                className="inline-flex w-full items-center justify-center rounded-xl border-2 border-amber-500 px-5 py-2.5 font-semibold text-amber-600 transition hover:bg-amber-50 sm:w-auto"
-              >
-                Start {agent.trialDays ?? 7}-day trial
-              </Link>
-            ) : null}
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Link
+              href={primaryCtaHref}
+              data-testid="business-marketplace-agent-details-modal-primary-cta"
+              className="inline-flex min-w-[166px] items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-amber-500/25 transition hover:bg-amber-600"
+            >
+              {primaryCtaText}
+            </Link>
 
             <Link
-              href={
-                isOwned
-                  ? setupPending
-                    ? businessSetupPath(agent.id)
-                    : BUSINESS_AGENTS_PATH
-                  : businessAgentDetailPath(agent.id)
-              }
+              href={publicAgentPath(agent.id)}
               data-testid="business-marketplace-agent-details-modal-view-full-details"
-              className={
-                showTrialCta
-                  ? "inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-6 py-2.5 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600 sm:w-auto"
-                  : "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-6 py-2.5 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:bg-amber-600"
-              }
+              className="inline-flex min-w-[140px] items-center justify-center gap-2 rounded-xl border-2 border-amber-500 px-5 py-3 text-sm font-bold text-amber-600 transition hover:bg-amber-50"
             >
-              {isOwned ? (setupPending ? "Continue Setup" : "Manage agent") : "View full details →"}
+              View Full Details
             </Link>
           </div>
         </div>
