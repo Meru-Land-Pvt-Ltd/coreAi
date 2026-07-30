@@ -1243,8 +1243,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         nodeInput ||
         (isManualTriggerWorkflow ? "Hello, I would like to know more about your services." : undefined);
 
-      const effectiveAttachments =
-        triggerAttachments.length > 0 ? triggerAttachments : nodeAttachments.length > 0 ? nodeAttachments : undefined;
+      const effectiveAttachments = isManualTriggerWorkflow
+        ? undefined
+        : triggerAttachments.length > 0
+          ? triggerAttachments
+          : nodeAttachments.length > 0
+            ? nodeAttachments
+            : undefined;
 
       const payload = {
         input: {
@@ -1258,19 +1263,19 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             : isVoiceWorkflow
               ? { callerName: "Test User" }
               : {}),
-          ...(normalizedBusinessName ? { businessName: normalizedBusinessName } : {}),
-          ...(businessType.trim() ? { businessType: businessType.trim() } : {}),
+          ...(!isManualTriggerWorkflow && normalizedBusinessName ? { businessName: normalizedBusinessName } : {}),
+          ...(!isManualTriggerWorkflow && businessType.trim() ? { businessType: businessType.trim() } : {}),
           ...(calendarId.trim()
             ? { calendarId: calendarId.trim() }
             : isVoiceWorkflow
               ? { calendarId: "primary" }
               : {}),
-          ...(timeZone.trim()
+          ...(!isManualTriggerWorkflow && timeZone.trim()
             ? { timeZone: timeZone.trim() }
             : isVoiceWorkflow
               ? { timeZone: "America/Los_Angeles" }
               : {}),
-          ...(appointmentService.trim() ? { appointmentService: appointmentService.trim() } : {}),
+          ...(!isManualTriggerWorkflow && appointmentService.trim() ? { appointmentService: appointmentService.trim() } : {}),
           ...(isVoiceWorkflow || isMissedCallWorkflow
             ? {
                 bookingUrl: "https://example.com/book",

@@ -723,17 +723,17 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
     }
 
     try {
-      // Vector mode requires the scope to be embedded — a partial search
-      // must never be reported as a full one. On synchronous request path,
-      // attempt 1 fast batch embedding round; if scope still has pending chunks,
-      // degrade immediately to raw_fallback without blocking real-time calls.
+      let rounds = 0;
       let pending = Number.MAX_SAFE_INTEGER;
-      const progress = await deps.embedPendingChunks(params.scopeKey, env.MEMORY_EMBED_MAX_PER_CALL);
-      pending = progress.pending;
-      if (pending > 0 && progress.embedded === 0) {
-        throw new Error(
-          "similarity retrieval unavailable: scope not fully embedded (embeddings not configured or failing)"
-        );
+      while (pending > 0 && rounds < EMBED_MAX_ROUNDS) {
+        rounds += 1;
+        const progress = await deps.embedPendingChunks(params.scopeKey, env.MEMORY_EMBED_MAX_PER_CALL);
+        pending = progress.pending;
+        if (pending > 0 && progress.embedded === 0) {
+          throw new Error(
+            "similarity retrieval unavailable: scope not fully embedded (embeddings not configured or failing)"
+          );
+        }
       }
       if (pending > 0) {
         throw new Error("similarity retrieval unavailable: scope not fully embedded yet");

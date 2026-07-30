@@ -16,6 +16,7 @@ import {
   buildAgentSystemPrompt,
   fillPromptTemplateTokens,
   resolveAssistantName,
+  resolveBusinessName,
   resolveNodeTemplateVariables
 } from "../agent-runtime/prompt-builder";
 import {
