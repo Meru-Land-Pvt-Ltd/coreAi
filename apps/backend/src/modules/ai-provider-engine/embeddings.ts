@@ -46,7 +46,7 @@ async function embedBatch(texts: string[], apiKey: string): Promise<number[][] |
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i];
       const embedding = Array.isArray(row?.embedding) ? row.embedding : null;
-      if (!embedding || embedding.length !== EMBEDDING_DIMENSIONS) return null;
+      if (!embedding || embedding.length !== EMBEDDING_DIMENSIONS || !embedding.every(Number.isFinite)) return null;
       const slot = typeof row.index === "number" ? row.index : i;
       if (slot < 0 || slot >= texts.length || vectors[slot] !== null) return null;
       vectors[slot] = embedding;

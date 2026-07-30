@@ -82,15 +82,15 @@ describe("TestPanel dynamic trigger fields & standard business fields", () => {
     expect(screen.getByText("Timezone")).toBeDefined();
   });
 
-  it("renders Business name, Business services, Timezone, text input, and attachments for manual trigger workflows", () => {
+  it("renders text input only for manual trigger workflows, omitting attachments and business fields", () => {
     render(<TestPanel {...defaultProps} isManualTriggerWorkflow={true} />);
 
     expect(screen.getByText("Simulate a customer event")).toBeDefined();
     expect(screen.getByText("Trigger message / Text input")).toBeDefined();
-    expect(screen.getByText("Trigger attachments")).toBeDefined();
-    expect(screen.getByText("Business name")).toBeDefined();
-    expect(screen.getByText("Business services")).toBeDefined();
-    expect(screen.getByText("Timezone")).toBeDefined();
+    expect(screen.queryByText("Trigger attachments")).toBeNull();
+    expect(screen.queryByText("Business name")).toBeNull();
+    expect(screen.queryByText("Business services")).toBeNull();
+    expect(screen.queryByText("Timezone")).toBeNull();
   });
 
   it("renders Sender phone, Sender name, Business name, Business services, Timezone, and text input for inbound SMS workflows", () => {

@@ -1287,8 +1287,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         nodeInput ||
         (isManualTriggerWorkflow ? "Hello, I would like to know more about your services." : undefined);
 
-      const effectiveAttachments =
-        triggerAttachments.length > 0 ? triggerAttachments : nodeAttachments.length > 0 ? nodeAttachments : undefined;
+      const effectiveAttachments = isManualTriggerWorkflow
+        ? undefined
+        : triggerAttachments.length > 0
+          ? triggerAttachments
+          : nodeAttachments.length > 0
+            ? nodeAttachments
+            : undefined;
 
       const payload = {
         input: {
@@ -1302,43 +1307,19 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             : isVoiceWorkflow
               ? { callerName: "Test User" }
               : {}),
-          ...(normalizedBusinessName
-            ? { businessName: normalizedBusinessName }
-            : isVoiceWorkflow
-              ? { businessName: "Sample Business" }
-              : {}),
-          ...(businessType.trim()
-            ? { businessType: businessType.trim() }
-            : isVoiceWorkflow
-              ? { businessType: "Service Business" }
-              : {}),
+          ...(!isManualTriggerWorkflow && normalizedBusinessName ? { businessName: normalizedBusinessName } : {}),
+          ...(!isManualTriggerWorkflow && businessType.trim() ? { businessType: businessType.trim() } : {}),
           ...(calendarId.trim()
             ? { calendarId: calendarId.trim() }
             : isVoiceWorkflow
               ? { calendarId: "primary" }
               : {}),
-          ...(timeZone.trim()
+          ...(!isManualTriggerWorkflow && timeZone.trim()
             ? { timeZone: timeZone.trim() }
             : isVoiceWorkflow
               ? { timeZone: "America/Los_Angeles" }
               : {}),
-          ...(appointmentService.trim()
-            ? { appointmentService: appointmentService.trim() }
-            : isVoiceWorkflow
-              ? { appointmentService: "General Consultation" }
-              : {}),
-          ...(isVoiceWorkflow
-            ? {
-                services: ["Consultation", "Appointment booking", "Urgent request", "General inquiry"],
-                faqs: [
-                  "Pricing depends on the service and business policy.",
-                  "Urgent calls should be escalated to the team."
-                ],
-                knowledge: [
-                  "The AI agent should offer booking first, answer basic questions, and route urgent requests to the team."
-                ]
-              }
-            : {}),
+          ...(!isManualTriggerWorkflow && appointmentService.trim() ? { appointmentService: appointmentService.trim() } : {}),
           ...(isVoiceWorkflow || isMissedCallWorkflow
             ? {
                 bookingUrl: "https://example.com/book",

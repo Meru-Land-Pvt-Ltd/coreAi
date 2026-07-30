@@ -208,16 +208,20 @@ function decodeAttachment(att: MemoryAttachment): DecodedAttachment {
   const data = att.data || "";
   if (!data) return { bytes: null, inlineText: null, mime: att.mimeType || "", name };
 
-  // data:[<mediatype>][;param=value...][;base64],<payload>
-  const dataUrlMatch = data.match(/^data:([^,]*),([\s\S]*)$/);
-  if (!dataUrlMatch) {
+  if (!data.startsWith("data:")) {
     return { bytes: null, inlineText: data, mime: att.mimeType || "text/plain", name };
   }
 
-  const metaParts = (dataUrlMatch[1] || "").split(";");
+  const commaIdx = data.indexOf(",");
+  if (commaIdx === -1) {
+    return { bytes: null, inlineText: null, mime: att.mimeType || "text/plain", name };
+  }
+
+  const metaStr = data.slice(5, commaIdx);
+  const metaParts = metaStr.split(";");
   const mime = (metaParts[0] || att.mimeType || "").toLowerCase();
   const isBase64 = metaParts.some((part) => part.trim().toLowerCase() === "base64");
-  const payload = dataUrlMatch[2] || "";
+  const payload = data.slice(commaIdx + 1);
 
   try {
     const bytes = isBase64 ? Buffer.from(payload, "base64") : Buffer.from(decodeURIComponent(payload), "utf8");
@@ -399,6 +403,9 @@ export function buildVectorMemoryString(params: {
 /* ------------------------------ default deps ------------------------------- */
 
 function toVectorLiteral(vector: number[]): string {
+  if (!Array.isArray(vector) || !vector.every(Number.isFinite)) {
+    throw new Error("invalid vector: all components must be finite numbers");
+  }
   return `[${vector.join(",")}]`;
 }
 
@@ -498,6 +505,13 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
         OFFSET ${maxChunks}
       )
     `;
+    await prisma.$executeRaw`
+      DELETE FROM "MemoryRecord"
+      WHERE "scopeKey" = ${scopeKey}
+        AND NOT EXISTS (
+          SELECT 1 FROM "MemoryChunk" c WHERE c."recordId" = "MemoryRecord"."id"
+        )
+    `;
   },
 
   async embedPendingChunks(scopeKey, limit) {
@@ -515,15 +529,17 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
       return { embedded: 0, pending: await countPendingChunks(scopeKey) };
     }
 
-    for (let i = 0; i < pending.length; i += 1) {
-      await prisma.$executeRaw`
-        UPDATE "MemoryChunk"
-        SET "embedding" = ${toVectorLiteral(vectors[i])}::vector,
-            "embeddingModel" = ${env.MEMORY_EMBEDDING_MODEL},
-            "updatedAt" = CURRENT_TIMESTAMP
-        WHERE "id" = ${pending[i].id}
-      `;
-    }
+    await Promise.all(
+      pending.map((row, i) =>
+        prisma.$executeRaw`
+          UPDATE "MemoryChunk"
+          SET "embedding" = ${toVectorLiteral(vectors[i])}::vector,
+              "embeddingModel" = ${env.MEMORY_EMBEDDING_MODEL},
+              "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "id" = ${row.id}
+        `
+      )
+    );
 
     // Mark records whose sections are all embedded.
     await prisma.$executeRaw`
@@ -611,9 +627,11 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
     }
 
     // Per-tenant token cap: delete oldest records until the tenant is under it.
-    const aggregate = await prisma.memoryRecord.aggregate({ where: tenantWhere, _sum: { tokenCount: true } });
+    let aggregate = await prisma.memoryRecord.aggregate({ where: tenantWhere, _sum: { tokenCount: true } });
     let excess = (aggregate._sum.tokenCount ?? 0) - env.MEMORY_MAX_TOKENS_PER_TENANT;
-    while (excess > 0) {
+    let maxIterations = 50;
+    while (excess > 0 && maxIterations > 0) {
+      maxIterations -= 1;
       const oldest = await prisma.memoryRecord.findMany({
         where: tenantWhere,
         orderBy: { createdAt: "asc" },
@@ -621,14 +639,19 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
         select: { id: true, tokenCount: true }
       });
       if (oldest.length === 0) break;
+
       const toDelete: string[] = [];
+      let freedTokens = 0;
       for (const record of oldest) {
-        if (excess <= 0) break;
+        if (excess - freedTokens <= 0) break;
         toDelete.push(record.id);
-        excess -= record.tokenCount;
+        freedTokens += record.tokenCount;
       }
       if (toDelete.length === 0) break;
       await prisma.memoryRecord.deleteMany({ where: { id: { in: toDelete } } });
+
+      aggregate = await prisma.memoryRecord.aggregate({ where: tenantWhere, _sum: { tokenCount: true } });
+      excess = (aggregate._sum.tokenCount ?? 0) - env.MEMORY_MAX_TOKENS_PER_TENANT;
     }
   }
 };
@@ -700,10 +723,10 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
     }
 
     try {
-      // Vector mode requires the FULL scope to be embedded — a partial search
-      // must never be reported as a full one.
+      let rounds = 0;
       let pending = Number.MAX_SAFE_INTEGER;
-      for (let round = 0; round < EMBED_MAX_ROUNDS && pending > 0; round += 1) {
+      while (pending > 0 && rounds < EMBED_MAX_ROUNDS) {
+        rounds += 1;
         const progress = await deps.embedPendingChunks(params.scopeKey, env.MEMORY_EMBED_MAX_PER_CALL);
         pending = progress.pending;
         if (pending > 0 && progress.embedded === 0) {

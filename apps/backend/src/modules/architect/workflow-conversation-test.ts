@@ -246,20 +246,14 @@ export async function runArchitectConversationTest({
   }
 
   const business = {
-    name: testContext?.businessName?.trim() || "Sample Business",
+    name: testContext?.businessName?.trim() || "the business",
     type: testContext?.businessType?.trim() || "service business",
     assistantName: testContext?.assistantName?.trim() || "",
     timezone: timeZone,
     calendarId: testContext?.calendarId?.trim() || "primary",
     appointmentService,
-    services:
-      Array.isArray(testContext?.services) && testContext.services.length > 0
-        ? testContext.services
-        : [appointmentService, "General inquiry"],
-    faqs:
-      Array.isArray(testContext?.faqs) && testContext.faqs.length > 0
-        ? testContext.faqs
-        : ["Pricing depends on the selected service.", "Urgent requests should be escalated to the team."],
+    services: Array.isArray(testContext?.services) ? testContext.services : [],
+    faqs: Array.isArray(testContext?.faqs) ? testContext.faqs : [],
     knowledge: Array.isArray(testContext?.knowledge) ? testContext.knowledge : [],
     address: testContext?.address?.trim() || undefined,
     factsLines: Array.isArray(testContext?.factsLines) ? testContext.factsLines : [],

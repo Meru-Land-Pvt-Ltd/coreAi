@@ -808,8 +808,7 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
   if (asString(node.data?.type) === "trigger.manual") {
     logs.push(
       createLog(node, "success", "Input fired.", {
-        message: context.inboundSms?.body || context.latestMessage || "No custom message",
-        attachmentsCount: Array.isArray(context.inboundSms?.attachments) ? context.inboundSms.attachments.length : 0
+        message: context.inboundSms?.body || context.latestMessage || "No custom message"
       })
     );
     return;

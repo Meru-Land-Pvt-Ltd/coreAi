@@ -55,11 +55,10 @@ describe("AgentIdentitySection component", () => {
     expect(onVoiceChoice).toHaveBeenCalledWith("skylar");
   });
 
-  it("shows custom voice input field when voiceChoice is 'custom'", () => {
+  it("does not render custom voice input field on buyer side when voiceChoice is 'custom'", () => {
     render(<AgentIdentitySection {...defaultProps} voiceChoice="custom" customVoiceId="eleven-123" />);
 
-    expect(screen.getByTestId("business-setup-voice-custom-id")).toBeTruthy();
-    expect((screen.getByTestId("business-setup-voice-custom-id") as HTMLInputElement).value).toBe("eleven-123");
+    expect(screen.queryByTestId("business-setup-voice-custom-id")).toBeNull();
   });
 
   it("triggers voice preview play on button click", async () => {
