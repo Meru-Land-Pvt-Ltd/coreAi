@@ -287,31 +287,6 @@ function getAgentCategory(listing: ApiListing) {
   return "AI Agent";
 }
 
-function getWhatYouGetItems(listing: ApiListing): string[] {
-  const fromFeatures = (listing.includedFeatures ?? [])
-    .map((feature) => feature.trim())
-    .filter(Boolean);
-  if (fromFeatures.length) return fromFeatures;
-
-  const fromNodes = (listing.capabilities ?? [])
-    .map((value) => value.trim())
-    .filter(Boolean);
-
-  if (fromNodes.length) return fromNodes;
-
-  const connectors = listing.requiredConnectors ?? [];
-  if (connectors.length) {
-    return connectors.map((connector) => getConnectorIncludedItem(connector));
-  }
-
-  return [
-    listing.shortDescription ||
-      listing.description ||
-      listing.workflow?.description ||
-      "Automates business workflows with AI.",
-  ];
-}
-
 function isRecentlyCreated(createdAt?: string) {
   if (!createdAt) return false;
 
@@ -322,6 +297,49 @@ function isRecentlyCreated(createdAt?: string) {
   const thirtyDays = 30 * 24 * 60 * 60 * 1000;
 
   return Date.now() - createdTime <= thirtyDays;
+}
+
+/**
+ * Speech-bubble-with-dots fallback matching the marketplace card reference.
+ * Kept byte-identical to the business-side marketplace copy so the public and
+ * signed-in cards render the same badge.
+ */
+function AgentCardIcon({ iconUrl, size = 12 }: { iconUrl?: string | null; size?: 12 | 14 }) {
+  const box = size === 14 ? "h-14 w-14 rounded-2xl" : "h-12 w-12 rounded-xl";
+  const svg = size === 14 ? "h-7 w-7" : "h-6 w-6";
+
+  if (iconUrl) {
+    return (
+      <span
+        className={`relative grid ${box} shrink-0 place-items-center overflow-hidden bg-amber-50 ring-1 ring-amber-100`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element -- listing icons may be data URLs */}
+        <img src={iconUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`grid ${box} shrink-0 place-items-center bg-amber-50 text-amber-600 ring-1 ring-amber-100`}
+    >
+      <svg
+        className={svg}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        <circle cx="8.5" cy="10.5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="10.5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="15.5" cy="10.5" r="1" fill="currentColor" stroke="none" />
+      </svg>
+    </span>
+  );
 }
 
 function getWhatYouGetItems(listing: ApiListing): string[] {
