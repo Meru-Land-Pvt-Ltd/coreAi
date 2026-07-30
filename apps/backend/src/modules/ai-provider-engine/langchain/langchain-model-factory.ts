@@ -30,6 +30,10 @@ function resolveDefaultModel(providerId: string): string {
       return env.ANTHROPIC_DEFAULT_MODEL;
     case "gemini":
       return env.GEMINI_DEFAULT_MODEL;
+    case "groq":
+      return "llama-3.3-70b-versatile";
+    case "deepseek":
+      return "deepseek-chat";
     default:
       return "";
   }
@@ -43,6 +47,10 @@ function resolveApiKey(providerId: string): string {
       return env.ANTHROPIC_API_KEY?.trim() ?? "";
     case "gemini":
       return env.GEMINI_API_KEY?.trim() ?? "";
+    case "groq":
+      return (process.env.GROQ_API_KEY ?? env.OPENAI_API_KEY)?.trim() ?? "";
+    case "deepseek":
+      return (process.env.DEEPSEEK_API_KEY ?? env.OPENAI_API_KEY)?.trim() ?? "";
     default:
       return "";
   }
@@ -52,15 +60,7 @@ export class LangChainModelFactory {
   /** Build a LangChain chat model from architect-selected provider + model. */
   static create(config: LangChainModelConfig): LangChainModelFactoryResult {
     const providerId = config.providerId.trim().toLowerCase();
-    const catalog = getProviderCatalog(providerId);
-    if (!catalog) {
-      throw new Error(`Unsupported LangChain provider: ${providerId}`);
-    }
-
     const apiKey = resolveApiKey(providerId);
-    if (!apiKey) {
-      throw new Error(`${catalog.envKey} is not set for provider "${providerId}".`);
-    }
 
     const model = config.model?.trim() || resolveDefaultModel(providerId);
     if (!model) {
@@ -96,6 +96,30 @@ export class LangChainModelFactory {
           model,
           temperature,
           maxOutputTokens: maxTokens,
+        });
+        break;
+
+      case "groq":
+        chatModel = new ChatOpenAI({
+          apiKey,
+          model,
+          temperature,
+          maxTokens,
+          configuration: {
+            baseURL: "https://api.groq.com/openai/v1",
+          },
+        });
+        break;
+
+      case "deepseek":
+        chatModel = new ChatOpenAI({
+          apiKey,
+          model,
+          temperature,
+          maxTokens,
+          configuration: {
+            baseURL: "https://api.deepseek.com",
+          },
         });
         break;
 

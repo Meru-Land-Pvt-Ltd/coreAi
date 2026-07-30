@@ -772,6 +772,14 @@ export function runBusinessSetupChatTest(body: {
   return apiPost<BusinessChatTestResult>("/business/setup/test-conversation", body);
 }
 
+/** Most recent test booking for this buyer — used to link straight to the event. */
+export function getLatestBusinessTestEvent(testSessionId?: string) {
+  const query = testSessionId ? `?testSessionId=${encodeURIComponent(testSessionId)}` : "";
+  return apiGet<{ event: BusinessTestCalendarEvent | null }>(
+    `/business/setup/test-events/latest${query}`
+  );
+}
+
 /** Delete a business test calendar event (ownership-validated, idempotent). */
 export function deleteBusinessTestEvent(testEventId: string) {
   return apiPost<{ outcome: string }>(`/business/setup/test-events/${encodeURIComponent(testEventId)}/delete`, {});

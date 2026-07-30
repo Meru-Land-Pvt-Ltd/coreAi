@@ -2,6 +2,24 @@ export { MemoryBroker, memoryBroker } from "./memory-broker";
 export * from "./types";
 export { buildContextBundle, mergeWorkflowMemory } from "./context-builder";
 export { buildCompactMemoryString } from "./memory-compression";
+export {
+  buildSmartMemory,
+  resolveSmartMemoryForQuery,
+  mergeMemoryIntoPrompt,
+  createSmartMemoryBuilder,
+  buildScopeKey,
+  chunkText,
+  estimateTokens,
+  type SmartMemoryDeps,
+  type SmartMemoryInput,
+  type SmartMemoryScope,
+  type SmartMemoryStoreResult,
+  type ResolvedSmartMemory,
+  type MemoryRecordDraft,
+  type MemoryChunkDraft,
+  type StoredMemoryChunk,
+  type TimelineRecord,
+} from "./smart-memory";
 export { runMemorySelfTest } from "./test-memory";
 
 export {

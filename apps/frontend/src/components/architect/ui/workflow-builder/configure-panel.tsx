@@ -852,6 +852,7 @@ export function ConfigurePanel({
 
   const workflowHasSms = workflowUsesSms(workflowFlow);
   const workflowHasWhatsApp = workflowUsesWhatsApp(workflowFlow);
+  void workflowHasWhatsApp; // WhatsApp UI temporarily paused
 
   /** Integrations the current workflow nodes actually require — used for auto-seed and sync. */
   const workflowDerivedIntegrations = useMemo(
@@ -1403,9 +1404,11 @@ export function ConfigurePanel({
                   disabled={isLocked}
                   hiddenKeys={[
                     ...(workflowHasSms || configure.template.requiredIntegrations.sms ? [] : (["sms"] as RequiredIntegrationKey[])),
-                    ...(workflowHasWhatsApp || configure.template.requiredIntegrations.whatsapp
-                      ? []
-                      : (["whatsapp"] as RequiredIntegrationKey[]))
+                    // Temporarily hide WhatsApp from required integrations
+                    "whatsapp" as RequiredIntegrationKey
+                    // ...(workflowHasWhatsApp || configure.template.requiredIntegrations.whatsapp
+                    //   ? []
+                    //   : (["whatsapp"] as RequiredIntegrationKey[]))
                   ]}
                 />
                 {workflowHasSms ? (
@@ -1417,6 +1420,7 @@ export function ConfigurePanel({
                     This workflow currently includes SMS. Replace it with Email follow-up if you want to avoid A2P/SMS setup.
                   </p>
                 ) : null}
+                {/* Temporarily hidden — WhatsApp feature paused
                 {workflowHasWhatsApp ? (
                   <p
                     className="mt-3 flex items-start gap-2 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3 text-[12.5px] text-emerald-900/90"
@@ -1426,6 +1430,7 @@ export function ConfigurePanel({
                     This workflow uses WhatsApp. Connect a Meta Cloud API number under Architect → WhatsApp before testing.
                   </p>
                 ) : null}
+                */}
               </div>
 
               {/* 3 · Buyer setup requirements */}

@@ -40,28 +40,19 @@ export class AIProviderEngine {
 
   // The primary auto-routing interface. Auto-selects the best provider
   async executeAI(request: AIExecuteRequest): Promise<AIExecuteResponse> {
-    const enriched = this.enrichRequestWithContext(request);
-    const adapter = ProviderSelector.select(enriched, this.registry.all(), this.validProviderIds);
-    assertClassificationAllowed(adapter.providerId, enriched);
-    return this.callAdapter(adapter, (a) => a.execute(enriched));
+    const adapter = ProviderSelector.select(request, this.registry.all(), this.validProviderIds);
+    assertClassificationAllowed(adapter.providerId, request);
+    return this.callAdapter(adapter, (a) => a.execute(request));
   }
 
   async executeWithProvider(providerId: string, request: AIExecuteRequest): Promise<AIExecuteResponse> {
-    const enriched = this.enrichRequestWithContext(request);
     const adapter = this.registry.resolve(providerId);
-    const capability: ProviderCapability = enriched.capability ?? "llm";
+    const capability: ProviderCapability = request.capability ?? "llm";
     if (!adapter.capabilities.includes(capability)) {
       throw new CapabilityNotSupportedError(capability, providerId);
     }
-    assertClassificationAllowed(adapter.providerId, enriched);
-    return this.callAdapter(adapter, (a) => a.execute(enriched));
-  }
-
-  async continueConversation(providerId: string, request: AIContinueRequest): Promise<AIExecuteResponse> {
-    const enriched = this.enrichRequestWithContext(request) as AIContinueRequest;
-    const adapter = this.registry.resolve(providerId);
-    assertClassificationAllowed(adapter.providerId, enriched);
-    return this.callAdapter(adapter, (a) => a.continueConversation(enriched));
+    assertClassificationAllowed(adapter.providerId, request);
+    return this.callAdapter(adapter, (a) => a.execute(request));
   }
 
   async estimateCost(providerId: string, request: AIExecuteRequest): Promise<CostEstimate> {
@@ -114,33 +105,6 @@ export class AIProviderEngine {
 
   hasProvider(providerId: string): boolean {
     return this.registry.has(providerId);
-  }
-
-  private enrichRequestWithContext(request: AIExecuteRequest): AIExecuteRequest {
-    const { workflowContext, previousNodeMemory, systemPrompt } = request;
-    if (!workflowContext && !previousNodeMemory) {
-      return request;
-    }
-
-    const contextBlocks: string[] = [];
-    if (workflowContext && Object.keys(workflowContext).length > 0) {
-      contextBlocks.push(`[Workflow Context]\n${JSON.stringify(workflowContext, null, 2)}`);
-    }
-    if (previousNodeMemory && Object.keys(previousNodeMemory).length > 0) {
-      contextBlocks.push(`[Previous Node Memory]\n${JSON.stringify(previousNodeMemory, null, 2)}`);
-    }
-
-    if (contextBlocks.length === 0) {
-      return request;
-    }
-
-    const contextString = `\n\nAdditional execution context:\n${contextBlocks.join("\n\n")}`;
-    return {
-      ...request,
-      systemPrompt: systemPrompt
-        ? `${systemPrompt}${contextString}`
-        : `You are executing a task in a workflow with the following context:${contextString}`,
-    };
   }
 
   private async callAdapter(

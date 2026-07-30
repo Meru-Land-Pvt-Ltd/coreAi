@@ -1,4 +1,4 @@
-import { env } from "../../../config/env";
+import { llmProviderApiKey } from "../llm-credentials";
 import type {
   AIProviderAdapter,
   AIExecuteRequest,
@@ -27,7 +27,8 @@ let genAiClient: unknown = null;
 async function getClient() {
   if (!genAiClient) {
     const { GoogleGenAI } = await import("@google/genai");
-    genAiClient = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+    const apiKey = llmProviderApiKey("gemini");
+    genAiClient = new GoogleGenAI({ apiKey });
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return genAiClient as any;
@@ -58,7 +59,8 @@ class GeminiAdapter implements AIProviderAdapter {
   }
 
   async validate(): Promise<ValidationResult> {
-    return checkEnvKey("GEMINI_API_KEY");
+    const apiKey = llmProviderApiKey("gemini");
+    return apiKey ? { valid: true, message: "Gemini API key is present." } : { valid: false, message: "GEMINI_API_KEY is not set." };
   }
 
   async execute(request: AIExecuteRequest): Promise<AIExecuteResponse> {

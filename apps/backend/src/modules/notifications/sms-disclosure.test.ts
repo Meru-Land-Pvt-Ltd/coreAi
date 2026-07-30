@@ -3,6 +3,7 @@ import {
   parseTranscriptSegments,
   segmentsSmsDisclosureState,
   transcriptShowsCompleteSmsDisclosure,
+  transcriptSmsDisclosureProgress,
   transcriptSmsDisclosureState,
   type TranscriptSegment
 } from "./sms-disclosure";
@@ -106,12 +107,21 @@ describe("SmsDisclosureState — distinguishing 'never read' from 'read, awaitin
     expect(transcriptSmsDisclosureState(`AI: ${FULL_DISCLOSURE}\nUser: yes`, BUSINESS)).toBe("ANSWERED");
   });
 
-  it("NOT_PRESENTED for a partial disclosure — a re-read is genuinely required", () => {
+  it("INTERRUPTED for a partial disclosure — consent still blocked, but finish it rather than restart", () => {
     const partial = FULL_DISCLOSURE.replace("Message frequency varies. ", "").replace(
       "Please say yes or no.",
       ""
     );
-    expect(transcriptSmsDisclosureState(`AI: ${partial}\nUser: yes`, BUSINESS)).toBe("NOT_PRESENTED");
+    const transcript = `AI: ${partial}\nUser: yes`;
+    expect(transcriptSmsDisclosureState(transcript, BUSINESS)).toBe("INTERRUPTED");
+    // The compliance guarantee is unchanged: this never counts as consent.
+    expect(transcriptShowsCompleteSmsDisclosure(transcript, BUSINESS)).toBe(false);
+  });
+
+  it("NOT_PRESENTED when the disclosure was never started", () => {
+    expect(
+      transcriptSmsDisclosureState("AI: You're all set for Tuesday at 2.\nUser: thanks", BUSINESS)
+    ).toBe("NOT_PRESENTED");
   });
 
   it("caller-spoken disclosure text never reaches AWAITING_ANSWER either", () => {
@@ -133,6 +143,71 @@ describe("SmsDisclosureState — distinguishing 'never read' from 'read, awaitin
     expect(transcriptSmsDisclosureState("", BUSINESS)).toBe("NOT_PRESENTED");
     expect(transcriptSmsDisclosureState(`AI: ${FULL_DISCLOSURE}\nUser: yes`, "")).toBe("NOT_PRESENTED");
     expect(segmentsSmsDisclosureState([], BUSINESS)).toBe("NOT_PRESENTED");
+  });
+});
+
+/**
+ * Barge-in. The caller says "yes" part-way through the ~30-second disclosure,
+ * which splits one spoken disclosure into two assistant segments. Requiring
+ * every element inside a SINGLE segment reported NOT_PRESENTED, so the tool told
+ * the assistant to read the whole thing again — the loop QA reported as "the
+ * agent keeps repeating the same long message".
+ */
+describe("caller interrupts mid-disclosure", () => {
+  const firstHalf =
+    `Would you like to receive transactional text messages from ${BUSINESS} through Triven.ai ` +
+    "about this appointment, booking, or service request? Message frequency varies.";
+  const secondHalf =
+    "Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not " +
+    "required to complete the booking or service request. Please say yes or no.";
+
+  it("reports INTERRUPTED — not NOT_PRESENTED — so the assistant resumes instead of restarting", () => {
+    const progress = transcriptSmsDisclosureProgress(
+      `AI: ${firstHalf}\nUser: yes that's fine`,
+      BUSINESS
+    );
+    expect(progress.state).toBe("INTERRUPTED");
+    expect(progress.missing.length).toBeGreaterThan(0);
+    // It names only what is left to say, so nothing already spoken is repeated.
+    expect(progress.missing.join(" ")).toContain("data rates may apply");
+    expect(progress.missing.join(" ")).not.toContain("frequency varies");
+  });
+
+  it("an interrupted disclosure never records consent", () => {
+    expect(
+      transcriptShowsCompleteSmsDisclosure(`AI: ${firstHalf}\nUser: yes that's fine`, BUSINESS)
+    ).toBe(false);
+  });
+
+  it("ANSWERED once the assistant speaks the remaining parts and the caller answers", () => {
+    const transcript = [
+      `AI: ${firstHalf}`,
+      "User: yes that's fine",
+      `AI: Thanks — just to finish: ${secondHalf}`,
+      "User: yes"
+    ].join("\n");
+    expect(transcriptSmsDisclosureState(transcript, BUSINESS)).toBe("ANSWERED");
+  });
+
+  it("the caller — not the assistant — speaking the remaining parts never completes it", () => {
+    const transcript = [
+      `AI: ${firstHalf}`,
+      `User: ${secondHalf}`,
+      "User: yes"
+    ].join("\n");
+    expect(transcriptSmsDisclosureState(transcript, BUSINESS)).toBe("INTERRUPTED");
+  });
+
+  it("a stray 'how can I help you' never satisfies the HELP element on its own", () => {
+    const transcript = [
+      `AI: ${firstHalf}`,
+      "User: sorry, one second",
+      "AI: Of course. How can I help you?",
+      "User: go on"
+    ].join("\n");
+    const progress = transcriptSmsDisclosureProgress(transcript, BUSINESS);
+    expect(progress.state).toBe("INTERRUPTED");
+    expect(progress.missing.join(" ")).toContain("HELP for help");
   });
 });
 

@@ -28,8 +28,8 @@ function fetchAvailability(): Promise<LlmAvailability | null> {
       const reasons: Record<string, string> = {};
 
       for (const provider of providers) {
-        // `available` folds in runtime health; older backends only send `configured`.
-        usable[provider.id] = provider.available ?? provider.configured;
+        // As long as a provider is configured with an API key, allow selecting it in the workflow builder
+        usable[provider.id] = typeof provider.available === "boolean" ? provider.available : provider.configured;
         if (provider.unavailableKind) kinds[provider.id] = provider.unavailableKind;
         if (provider.unavailableReason) reasons[provider.id] = provider.unavailableReason;
       }
@@ -83,7 +83,8 @@ export function isProviderDisabled(
   providerId: string
 ): boolean {
   if (!availability) return false;
-  if (availability.usable[providerId] !== false) return false;
+  // If the provider has a key configured on the backend, it is usable
+  if (availability.usable[providerId] === true) return false;
 
   if (availability.kinds[providerId] === "blocked") return true;
   return availability.anyUsable;

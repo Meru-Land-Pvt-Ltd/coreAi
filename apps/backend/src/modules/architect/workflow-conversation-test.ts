@@ -353,7 +353,15 @@ export async function runArchitectConversationTest({
       business,
       caller,
       requestedDate: testContext?.requestedDate?.trim() || undefined,
-      requestedTime: testContext?.requestedTime?.trim() || undefined
+      requestedTime: testContext?.requestedTime?.trim() || undefined,
+      memoryIdentity:
+        executionMode === "BUSINESS_TEST" && businessIdentity?.businessId
+          ? {
+              businessId: businessIdentity.businessId,
+              installedAgentId: businessIdentity.installedAgentId,
+              testSessionId: session ?? undefined
+            }
+          : { architectUserId: userId, testSessionId: session ?? undefined }
     },
     providers
   });

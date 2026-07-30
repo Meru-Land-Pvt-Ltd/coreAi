@@ -8,7 +8,7 @@ import {
   getNodeDefinition,
   resolveLlmSelection
 } from "@coreai/shared";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
 import { listWhatsAppConnections, type WhatsAppConnection } from "@/components/architect/features/api";
 import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
@@ -38,11 +38,6 @@ type NodePropsPanel = {
   variableNodePrefixes?: string[];
 };
 
-/**
- * Amber inline warning for {{variables}} the platform cannot fill. Unknown
- * variables never error a call — they are silently stripped before the prompt
- * reaches Vapi — so this note is how a typo gets caught while typing.
- */
 function UnknownVariablesNote({
   text,
   nodePrefixes,
@@ -437,10 +432,6 @@ function CalendarConnect({ calendar }: { calendar: CalendarConnection }) {
   );
 }
 
-/**
- * Architect-mode connector display: requirement badges only.
- * No OAuth and no "Connect" button in architect template builder.
- */
 function ConnectorRequirements({ node }: { node: BuilderNode }) {
   const type = String(node.data.type ?? "");
   const requirements = getNodeDefinition(type)?.requiredConnectors ?? [];
@@ -834,11 +825,6 @@ function AdvancedVariableGroup({
   );
 }
 
-/**
- * Collapsed-by-default technical panel: variable mappings and developer
- * details. The default inspector stays plain-language; power users expand
- * this to wire {{variables}} between steps.
- */
 function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
   const [open, setOpen] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -1839,7 +1825,7 @@ function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   );
 }
 
-function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+function MemoryNodeProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
   const [copied, setCopied] = useState(false);
@@ -1885,28 +1871,27 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
       <Section title="General">
         <Label>Node name</Label>
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
-
-        <div className="mt-4">
-          <Label>Summary</Label>
-          <TextInput value={str("subtitle", "Aggregates memory and documents")} onChange={set("subtitle")} />
-        </div>
       </Section>
 
-      <Section title="Memory Notes & Guidelines">
-        <Label>Custom notes for downstream steps</Label>
+      <Section title="Memory configuration">
+        <Label>Custom context</Label>
         <TextArea
           value={str("customMemoryNotes", str("notes"))}
           onChange={set("customMemoryNotes")}
           height="h-36"
-          placeholder="Type any instructions or story guidelines for downstream steps... (e.g. Keep responses friendly and fantasy-styled)"
+          placeholder="Type custom context or guidelines for downstream steps..."
         />
-        <p className="mt-2 text-[11px] text-slate-400">
-          These notes are stored directly into memory and passed to all connected downstream steps.
-        </p>
+        <UnknownVariablesNote
+          text={str("customMemoryNotes", str("notes"))}
+          nodePrefixes={variableNodePrefixes}
+          testId="memory-node-notes-variable-warning"
+        />
       </Section>
 
-      <Section title="Manual Attachments & Documents">
+      <Section title="Attachments">
         <div className="space-y-3">
+          <Label>Files (Images / PDFs / Docs)</Label>
+
           {attachments.length > 0 && (
             <div className="space-y-2 mb-3">
               {attachments.map((att, idx) => {
@@ -1980,7 +1965,7 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
         </div>
       </Section>
 
-      <Section title="Output Variable" last>
+      <Section title="Output variable" last>
         <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-3.5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-violet-800">Memory Variable</span>
@@ -1993,7 +1978,7 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
             </button>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-            Paste <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-violet-700">{"{{memory}}"}</code> into any downstream AI step prompt to pass all previous steps and attached files automatically.
+            Memory is passed to connected AI steps automatically — no setup needed. Optionally paste <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-violet-700">{"{{memory}}"}</code> into a prompt to control exactly where it appears.
           </p>
         </div>
       </Section>
@@ -2001,19 +1986,28 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   );
 }
 
-function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+function AiProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
   if (selectedNode.data.type === "ai.memory") {
-    return <MemoryNodeProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} />;
+    return <MemoryNodeProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} variableNodePrefixes={variableNodePrefixes} />;
   }
 
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const lastOutput = str("lastTestOutput");
 
-  // Provider first, then its models — same pairing the AI Brain node uses, so
-  // a model can never be sent to a provider that cannot run it.
   const { availability: aiAvailability } = useLlmAvailability();
   const aiSelection = resolveLlmSelection(str("provider"), str("model"));
   const aiModelId = aiSelection.modelId ?? defaultLlmModelForProvider(aiSelection.providerId) ?? "";
+
+  useEffect(() => {
+    if (!aiAvailability) return;
+    if (isProviderDisabled(aiAvailability, aiSelection.providerId)) {
+      const firstUsable = LLM_PROVIDERS.find((p) => !isProviderDisabled(aiAvailability, p.id));
+      if (firstUsable && firstUsable.id !== aiSelection.providerId) {
+        onUpdateNodeData("provider", firstUsable.id);
+        onUpdateNodeData("model", defaultLlmModelForProvider(firstUsable.id) ?? "");
+      }
+    }
+  }, [aiAvailability, aiSelection.providerId, onUpdateNodeData]);
 
   return (
     <>
@@ -2037,9 +2031,6 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
             onUpdateNodeData("model", defaultLlmModelForProvider(providerId) ?? "");
           }}
           options={LLM_PROVIDERS.map((provider) => ({
-            // Same rule as the AI Brain node: a provider the backend cannot
-            // run is greyed out rather than failing at run time. The label
-            // stays clean — the disabled state is the whole signal.
             value: provider.id,
             label: provider.displayName,
             disabled: isProviderDisabled(aiAvailability, provider.id)

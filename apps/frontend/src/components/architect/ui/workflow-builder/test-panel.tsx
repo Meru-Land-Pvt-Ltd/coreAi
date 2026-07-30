@@ -13,7 +13,8 @@ import { logColor } from "./run-context";
 import { getCalendarAppointment, getCapturedLead, getDraftEmail, getGmailRead, getSentEmail, getSentSms, getVapiCall } from "./run-context";
 import { BrowserVoiceCallTest } from "./browser-voice-call-test";
 import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
-import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
+// Temporarily hidden — WhatsApp feature paused
+// import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
 import { marked } from "marked";
 
 function Markdown({ content, className = "" }: { content: string; className?: string }) {
@@ -71,6 +72,8 @@ export function TestPanel({
   triggerMessage,
   triggerAttachments,
   isManualTriggerWorkflow = false,
+  isMissedCallWorkflow = false,
+  isSmsWorkflow = false,
   onConnectGmail,
   onDisconnectGoogle,
   onRefreshConnections,
@@ -143,10 +146,13 @@ export function TestPanel({
   triggerMessage: string;
   triggerAttachments: AIAttachment[];
   isManualTriggerWorkflow?: boolean;
+  isMissedCallWorkflow?: boolean;
+  isSmsWorkflow?: boolean;
   onConnectGmail: () => void;
   onDisconnectGoogle: () => void;
   onRefreshConnections: () => void;
-  onConnectWhatsApp: () => void;
+  // Temporarily optional — WhatsApp feature paused
+  onConnectWhatsApp?: () => void;
   onRunTest: () => void;
   onStartLiveTest: () => void;
   onStopLiveTest: () => void;
@@ -232,7 +238,11 @@ export function TestPanel({
     ? "Dental AI Receptionist test"
     : isVoiceWorkflow
       ? "Test AI Voice Agent"
-      : "Test console";
+      : isMissedCallWorkflow
+        ? "Test Missed Call Agent"
+        : isSmsWorkflow
+          ? "Test SMS Agent"
+          : "Test console";
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
@@ -310,14 +320,20 @@ export function TestPanel({
 
         <div className="shadow-soft mt-5 rounded-2xl border border-gray-100 bg-white p-5 sm:p-6">
           <h3 className="mb-5 text-[13px] font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-simulate-a-missed-call-heading">
-            {isVoiceWorkflow ? "Simulate an inbound call" : "Simulate a customer event"}
+            {isVoiceWorkflow
+              ? "Simulate an inbound call"
+              : isMissedCallWorkflow
+                ? "Simulate a missed call"
+                : isSmsWorkflow
+                  ? "Simulate an inbound SMS"
+                  : "Simulate a customer event"}
           </h3>
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             {!isManualTriggerWorkflow && (
               <>
                 <label data-testid="architect-ui-workflow-builder-test-panel-caller-number-on-caller-number-change-event-label">
                   <span className="mb-1.5 block text-[13px] font-semibold text-slate-700" data-testid="architect-ui-workflow-builder-test-panel-caller-number-text">
-                    {isVoiceWorkflow ? "Caller phone" : "Caller number"}
+                    {isSmsWorkflow ? "Sender phone" : isVoiceWorkflow ? "Caller phone" : "Caller number"}
                   </span>
                   <input data-testid="builder-test-caller-number-input"
                     type="text"
@@ -328,255 +344,157 @@ export function TestPanel({
                   />
                 </label>
                 <label data-testid="architect-ui-workflow-builder-test-panel-caller-on-caller-change-event-placeholder-jordan-label">
-                  <span className="mb-1.5 block text-[13px] font-semibold text-slate-700" data-testid="architect-ui-workflow-builder-test-panel-caller-text">Caller name</span>
+                  <span className="mb-1.5 block text-[13px] font-semibold text-slate-700" data-testid="architect-ui-workflow-builder-test-panel-caller-text">
+                    {isSmsWorkflow ? "Sender name" : "Caller name"}
+                  </span>
                   <input data-testid="builder-test-caller-name-input"
                     type="text"
                     value={callerName}
                     onChange={(event) => onCallerNameChange(event.target.value)}
-                    placeholder={isVoiceWorkflow ? "Test Customer" : "Jordan Lee"}
+                    placeholder={isSmsWorkflow ? "Jordan Lee" : isVoiceWorkflow ? "Test Customer" : "Jordan Lee"}
                     className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
                   />
                 </label>
-                {isVoiceWorkflow ? (
-                  <label data-testid="builder-test-business-type-label">
-                    <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">Business type</span>
-                    <input data-testid="builder-test-business-type-input"
-                      type="text"
-                      value={businessType}
-                      onChange={(event) => onBusinessTypeChange(event.target.value)}
-                      placeholder="Service Business"
-                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                    />
-                  </label>
-                ) : (
-                  <label data-testid="architect-ui-workflow-builder-test-panel-time-of-call-label">
-                    <span className="mb-1.5 block text-[13px] font-semibold text-slate-700" data-testid="architect-ui-workflow-builder-test-panel-time-of-call-text">Time of call</span>
-                    <input data-testid="builder-test-message-input"
-                      type="text"
-                      value=""
-                      readOnly
-                      placeholder="Today — 2:14 PM"
-                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none placeholder:text-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                    />
-                  </label>
-                )}
               </>
             )}
-            {isManualTriggerWorkflow && (
-              <>
-                <label className="col-span-1 sm:col-span-2">
-                  <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">Trigger message / Text input</span>
-                  <textarea
-                    value={triggerMessage}
-                    onChange={(event) => onTriggerMessageChange(event.target.value)}
-                    placeholder="Type or paste text content (e.g. resume content or SMS text) to trigger the workflow..."
-                    className="fld h-28 w-full resize-none rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                  />
-                </label>
-                <div className="col-span-1 sm:col-span-2">
-                  <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">Trigger attachments</span>
-                  {triggerAttachments.length > 0 && (
-                    <div className="space-y-2 mb-3">
-                      {triggerAttachments.map((att, idx) => {
-                        const isImage = att.mimeType.startsWith("image/");
-                        const isPdf = att.mimeType === "application/pdf";
-                        return (
-                          <div
-                            key={idx}
-                            className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5"
-                          >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <span className="flex h-8 w-8 shrink-0 place-items-center justify-center rounded-lg bg-white border border-slate-100 text-sm shadow-sm">
-                                {isImage ? "🖼️" : isPdf ? "📄" : "📁"}
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-xs font-semibold text-slate-700 leading-tight">
-                                  {att.name || `attachment-${idx + 1}`}
-                                </p>
-                                <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate uppercase">
-                                  {att.mimeType}
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onTriggerAttachmentsChange(triggerAttachments.filter((_, i) => i !== idx));
-                              }}
-                              className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors"
-                              aria-label="Remove attachment"
-                            >
-                              <BuilderIcon name="x" className="h-4 w-4" />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <label className="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer bg-slate-50/40 hover:bg-amber-50/20 hover:border-amber-300 transition-all duration-200 group">
-                    <div className="flex flex-col items-center justify-center pt-2 pb-3">
-                      <p className="text-[11px] font-semibold text-slate-500 group-hover:text-amber-600 transition-colors">
-                        Click to add trigger file attachment (e.g. resume PDF)
-                      </p>
-                      <p className="text-[9px] text-slate-400 mt-1">
-                        Supports Images, PDFs, Docs (Max 5MB)
-                      </p>
-                    </div>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        if (file.size > 5 * 1024 * 1024) {
-                          alert("File is too large. Maximum size is 5MB.");
-                          return;
-                        }
-                        const reader = new FileReader();
-                        reader.onload = (event) => {
-                          const base64Data = event.target?.result as string;
-                          onTriggerAttachmentsChange([
-                            ...triggerAttachments,
-                            {
-                              name: file.name,
-                              mimeType: file.type || "application/octet-stream",
-                              data: base64Data,
-                            }
-                          ]);
-                        };
-                        reader.readAsDataURL(file);
-                        e.target.value = "";
-                      }}
-                    />
-                  </label>
-                </div>
-              </>
-            )}
-            {!isManualTriggerWorkflow && (
-              <>
-                <label data-testid="architect-ui-workflow-builder-test-panel-business-on-business-change-event-placeholder-mitchell">
-                  <span className="mb-1.5 block text-[13px] font-semibold text-slate-700" data-testid="architect-ui-workflow-builder-test-panel-business-text">
-                    {isVoiceWorkflow ? "TEST BUSINESS NAME" : "Business"}
-                  </span>
-                  <input data-testid="builder-test-business-name-input"
-                    type="text"
-                    value={businessName}
-                    onChange={(event) => onBusinessNameChange(event.target.value)}
-                    placeholder={isVoiceWorkflow ? "Sample Business" : "Your business name"}
-                    className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                  />
-                </label>
-                {isVoiceWorkflow ? (
-                  <>
-                    <label data-testid="builder-test-appointment-service-label">
-                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">Test Appointment service</span>
-                      <input data-testid="builder-test-appointment-service-input"
-                        type="text"
-                        value={appointmentService}
-                        onChange={(event) => onAppointmentServiceChange(event.target.value)}
-                        placeholder="General Consultation"
-                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                      />
-                      <span className="mt-1.5 block text-[12px] leading-snug text-slate-400" data-testid="builder-test-appointment-service-hint">
-                        The exact service name entered here is used in the conversation and calendar event.
-                      </span>
-                    </label>
-                    <label data-testid="builder-test-timezone-label">
-                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">Test timezone</span>
-                      <select
-                        data-testid="builder-test-timezone-select"
-                        value={timeZone}
-                        onChange={(event) => onTimeZoneChange(event.target.value)}
-                        className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                      >
-                        <option value="">Select timezone</option>
-                        {timezoneOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label data-testid="builder-test-after-hours-label">
-                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">Business-hours state</span>
-                      <select
-                        data-testid="builder-test-after-hours-select"
-                        value={testAfterHoursState}
-                        onChange={(event) =>
-                          onTestAfterHoursStateChange?.(event.target.value as "current" | "open" | "closed")
-                        }
-                        className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                      >
-                        <option value="current">Use current configured time</option>
-                        <option value="open">Simulate open</option>
-                        <option value="closed">Simulate closed (after hours)</option>
-                      </select>
-                      <span className="mt-1.5 block text-[12px] leading-snug text-slate-400" data-testid="builder-test-after-hours-hint">
-                        Simulate closed to exercise the after-hours greeting and emergency screening. Test only - never affects live calls.
-                      </span>
-                    </label>
-                    <label data-testid="builder-test-date-label">
-                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">Requested date</span>
-                      <input data-testid="builder-test-date-input"
-                        type="date"
-                        value={testDate}
-                        onChange={(event) => onTestDateChange?.(event.target.value)}
-                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                      />
-                    </label>
-                    <label data-testid="builder-test-time-label">
-                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">Requested time</span>
-                      <input data-testid="builder-test-time-input"
-                        type="time"
-                        value={testTime}
-                        onChange={(event) => onTestTimeChange?.(event.target.value)}
-                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                      />
-                    </label>
-                    {interpretedTime ? (
-                      <p className="sm:col-span-2 rounded-xl border border-gray-100 bg-gray-50/60 px-3.5 py-2.5 text-[12.5px] text-slate-600" data-testid="builder-test-interpreted-time">
-                        Interpreted as {interpretedTime.displayDate} at {interpretedTime.displayTime} ({interpretedTime.timeZone}) — stored as {interpretedTime.startAtUtc} UTC.
-                      </p>
-                    ) : null}
-                    {needsCalendarConnection ? (
-                      <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3.5" data-testid="builder-test-calendar-mode-label">
-                        <input
-                          data-testid="builder-test-use-test-calendar"
-                          type="checkbox"
-                          checked={useTestCalendar}
-                          onChange={(event) => onUseTestCalendarChange?.(event.target.checked)}
-                          disabled={!calendarConnected}
-                          className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400"
-                        />
-                        <span className="text-[13px] leading-snug text-slate-600">
-                          <span className="font-semibold text-slate-800">Create real events in my test calendar.</span>{" "}
-                          {calendarConnected
-                            ? "Bookings create [TRIVEN ARCHITECT TEST] events on your own connected Google Calendar. Off = fully simulated with a full event preview."
-                            : "Connect your Google account to enable this. Until then bookings are fully simulated with a full event preview."}
-                        </span>
-                      </label>
-                    ) : null}
-
-                  </>
-                ) : null}
-              </>
-            )}
-            {hasEmailNode ? (
-              <label data-testid="builder-test-email-label">
-                <span className="mb-1.5 inline-flex items-center text-[13px] font-semibold text-slate-700" data-testid="builder-test-email-title">
-                  Test Email
-                  <InfoTooltip content="During a test run, the Email node sends a live confirmation message to this address. Enter an inbox you can access to verify delivery." />
+            {(isManualTriggerWorkflow || isSmsWorkflow) && (
+              <label className="col-span-1 sm:col-span-2">
+                <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                  {isSmsWorkflow ? "SMS Message / Text input" : "Trigger message / Text input"}
                 </span>
-                <input data-testid="builder-test-email-input"
-                  type="email"
-                  value={testEmail}
-                  onChange={(event) => onTestEmailChange?.(event.target.value)}
-                  placeholder="triven@example.com"
-                  className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                <textarea
+                  value={triggerMessage}
+                  onChange={(event) => onTriggerMessageChange(event.target.value)}
+                  placeholder={
+                    isSmsWorkflow
+                      ? "Type SMS message content to trigger the workflow..."
+                      : "Type or paste text content (e.g. resume content or SMS text) to trigger the workflow..."
+                  }
+                  className="fld h-28 w-full resize-none rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
                 />
               </label>
-            ) : null}
+            )}
+            {isManualTriggerWorkflow && (
+              <div className="col-span-1 sm:col-span-2">
+                <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">Trigger attachments</span>
+                {triggerAttachments.length > 0 && (
+                  <div className="space-y-2 mb-3">
+                    {triggerAttachments.map((att, idx) => {
+                      const isImage = att.mimeType.startsWith("image/");
+                      const isPdf = att.mimeType === "application/pdf";
+                      return (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5"
+                        >
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span className="flex h-8 w-8 shrink-0 place-items-center justify-center rounded-lg bg-white border border-slate-100 text-sm shadow-sm">
+                              {isImage ? "🖼️" : isPdf ? "📄" : "📁"}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-xs font-semibold text-slate-700 leading-tight">
+                                {att.name || `attachment-${idx + 1}`}
+                              </p>
+                              <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate uppercase">
+                                {att.mimeType}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onTriggerAttachmentsChange(triggerAttachments.filter((_, i) => i !== idx));
+                            }}
+                            className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors"
+                            aria-label="Remove attachment"
+                          >
+                            <BuilderIcon name="x" className="h-4 w-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <label className="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer bg-slate-50/40 hover:bg-amber-50/20 hover:border-amber-300 transition-all duration-200 group">
+                  <div className="flex flex-col items-center justify-center pt-2 pb-3">
+                    <p className="text-[11px] font-semibold text-slate-500 group-hover:text-amber-600 transition-colors">
+                      Click to add trigger file attachment (e.g. resume PDF)
+                    </p>
+                    <p className="text-[9px] text-slate-400 mt-1">
+                      Supports Images, PDFs, Docs (Max 5MB)
+                    </p>
+                  </div>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 5 * 1024 * 1024) {
+                        alert("File is too large. Maximum size is 5MB.");
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = (event) => {
+                        const base64Data = event.target?.result as string;
+                        onTriggerAttachmentsChange([
+                          ...triggerAttachments,
+                          {
+                            name: file.name,
+                            mimeType: file.type || "application/octet-stream",
+                            data: base64Data,
+                          }
+                        ]);
+                      };
+                      reader.readAsDataURL(file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+
+            <label data-testid="architect-ui-workflow-builder-test-panel-business-on-business-change-event-placeholder-mitchell">
+              <span className="mb-1.5 block text-[13px] font-semibold text-slate-700" data-testid="architect-ui-workflow-builder-test-panel-business-text">
+                Business name
+              </span>
+              <input data-testid="builder-test-business-name-input"
+                type="text"
+                value={businessName}
+                onChange={(event) => onBusinessNameChange(event.target.value)}
+                placeholder="Your business name"
+                className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+              />
+            </label>
+
+            <label data-testid="builder-test-appointment-service-label">
+              <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">Business services</span>
+              <input data-testid="builder-test-appointment-service-input"
+                type="text"
+                value={appointmentService}
+                onChange={(event) => onAppointmentServiceChange(event.target.value)}
+                placeholder="General Consultation"
+                className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+              />
+            </label>
+
+            <label data-testid="builder-test-timezone-label">
+              <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">Timezone</span>
+              <select
+                data-testid="builder-test-timezone-select"
+                value={timeZone}
+                onChange={(event) => onTimeZoneChange(event.target.value)}
+                className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+              >
+                <option value="">Select timezone</option>
+                {timezoneOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
 
@@ -692,6 +610,7 @@ export function TestPanel({
               </div>
             ) : null}
 
+            {/* Temporarily hidden — WhatsApp feature paused
             {needsWhatsAppConnection ? (
               <div
                 className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3.5"
@@ -735,6 +654,7 @@ export function TestPanel({
                 )}
               </div>
             ) : null}
+            */}
           </div>
         ) : null}
 
@@ -809,6 +729,44 @@ export function TestPanel({
                   {deletingTestEvent ? "Deleting..." : "Delete test event"}
                 </button>
               ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {hasEmailNode ? (
+          <div className="shadow-soft mt-5 rounded-2xl border border-gray-100 bg-white p-5 sm:p-6" data-testid="builder-test-email-card">
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <h3 className="text-[15px] font-bold text-slate-900 flex items-center gap-2">
+                <BuilderIcon name="mail" className="h-4 w-4 text-amber-500" />
+                Test Email Delivery
+              </h3>
+              <InfoTooltip content="During a test run, the Email node sends a live confirmation message to this address. Enter an inbox you can access to verify delivery." />
+            </div>
+            <p className="mb-4 text-[13px] text-slate-500">
+              Enter your email to receive the test booking confirmation email.
+            </p>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <label data-testid="builder-test-email-label" className="flex-1">
+                <span className="sr-only" data-testid="builder-test-email-title">Test Email</span>
+                <input
+                  data-testid="builder-test-email-input"
+                  type="email"
+                  value={testEmail}
+                  onChange={(event) => onTestEmailChange?.(event.target.value)}
+                  placeholder="e.g. yourname@example.com"
+                  className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={onRunTest}
+                disabled={running}
+                data-testid="builder-test-send-email-btn"
+                className="btn-primary shadow-amber shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-2.5 text-[14px] font-bold text-white transition hover:from-amber-500 hover:to-amber-600 disabled:opacity-60"
+              >
+                <BuilderIcon name="mail" className="h-4 w-4" />
+                {running ? "Sending..." : "Send confirmation email"}
+              </button>
             </div>
           </div>
         ) : null}

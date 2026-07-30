@@ -30,7 +30,9 @@ import {
   failWorkflowRun,
   runAiBrainNode,
   memoryBroker,
-  buildCompactMemoryString,
+  buildSmartMemory,
+  resolveSmartMemoryForQuery,
+  mergeMemoryIntoPrompt,
   type AiBrainNodeConfig,
 } from "../memory";
 import { WhatsAppService } from "../whatsapp/service";
@@ -278,9 +280,9 @@ type RunnerContext = {
     callerNumber: string;
     callerName?: string;
     businessName: string;
-    status: string;
-    timestamp: string;
-    reason: string;
+    status?: string;
+    timestamp?: string;
+    reason?: string;
   };
   gmail?: {
     emails?: {
@@ -510,7 +512,20 @@ function resolveContextPath(context: RunnerContext, path: string): unknown {
   if (path in context) {
     return (context as Record<string, unknown>)[path];
   }
-  return path.split(".").reduce<unknown>((current, segment) => {
+  const parts = path.split(".");
+  const first = parts[0];
+  if (
+    first &&
+    context.node &&
+    typeof context.node === "object" &&
+    first in (context.node as Record<string, unknown>)
+  ) {
+    return parts.reduce<unknown>((current, segment) => {
+      if (typeof current !== "object" || current === null) return undefined;
+      return (current as Record<string, unknown>)[segment];
+    }, { node: context.node });
+  }
+  return parts.reduce<unknown>((current, segment) => {
     if (typeof current !== "object" || current === null) return undefined;
     return (current as Record<string, unknown>)[segment];
   }, context);
@@ -543,6 +558,58 @@ function createLog(
   };
 }
 
+/**
+ * Memory scope for the active run, keyed by the run's context object. A
+ * WeakMap (not a context key) so workflow-controlled writes — e.g. an LLM
+ * node with llmOutputKey — can never redirect memory resolution to another
+ * tenant's scope.
+ */
+const memoryScopeByContext = new WeakMap<object, string>();
+
+/**
+ * Automatic Memory Node → AI delivery: when a Memory Node ran earlier in this
+ * run, resolve the memory for THIS AI node's own instruction (each AI node
+ * gets memory selected for its own task) and merge it into the prompt. The
+ * builder never has to reference {{memory}}; if they did, the placeholder's
+ * raw expansion is swapped for the resolved version.
+ */
+export async function deliverMemoryToAiConfig(config: AiBrainNodeConfig, context: RunnerContext): Promise<void> {
+  const scopeKey = memoryScopeByContext.get(context as object) ?? "";
+  const rawMemory = asString(context.memory);
+  if (!scopeKey || !rawMemory) return;
+
+  const data = (config.data ?? {}) as Record<string, unknown>;
+  const query = [asString(data.llmRequirements), asString(data.llmPrompt), asString(data.prompt), asString(data.instructions)]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const resolved = await resolveSmartMemoryForQuery({ scopeKey, query, rawMemory });
+
+  // llmPrompt/llmSystemPrompt are included because the provider mapping reads
+  // them ahead of the rendered fields for legacy LLM Call nodes.
+  const promptFields = ["instructions", "prompt", "llmRequirements", "llmPrompt", "llmSystemPrompt"] as const;
+  const builderPlacedMemory = promptFields.some((field) => asString(data[field]).includes(rawMemory));
+  if (builderPlacedMemory) {
+    for (const field of promptFields) {
+      const value = asString(data[field]);
+      if (value.includes(rawMemory)) {
+        data[field] = mergeMemoryIntoPrompt(value, resolved.memory, rawMemory);
+      }
+    }
+  } else {
+    // llmContext reaches the provider request for every AI node shape
+    // ("Additional context / knowledge"), regardless of which prompt fields
+    // the builder filled in.
+    data.llmContext = mergeMemoryIntoPrompt(asString(data.llmContext), resolved.memory, rawMemory);
+  }
+  config.data = data;
+}
+
+/** Test-only hook: associate a memory scope with a runner context. */
+export function setMemoryScopeForContext(context: RunnerContext, scopeKey: string): void {
+  memoryScopeByContext.set(context as object, scopeKey);
+}
+
 function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainNodeConfig {
   const isLlmCall = asString(node.data?.type) === "ai.llm_call";
 
@@ -553,6 +620,10 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
         model: node.data?.llmModel ?? node.data?.model,
         instructions: renderTemplate(node.data?.llmSystemPrompt ?? node.data?.instructions, context),
         prompt: renderTemplate(node.data?.llmPrompt ?? node.data?.prompt, context),
+        // The provider mapping reads these raw fields ahead of the rendered
+        // ones — keep them rendered too so {{memory}} and friends resolve.
+        llmSystemPrompt: renderTemplate(node.data?.llmSystemPrompt, context),
+        llmPrompt: renderTemplate(node.data?.llmPrompt, context),
         llmRequirements: renderTemplate(node.data?.llmRequirements, context),
         temperature: node.data?.llmTemperature ?? node.data?.temperature,
         maxTokens: node.data?.llmMaxTokens ?? node.data?.maxTokens,
@@ -581,56 +652,127 @@ function shouldUseProviderEngine(node: RunnerNode, mode: WorkflowRunMode): boole
   return false;
 }
 
-function seedMissedCallContext(input?: WorkflowRunInput): RunnerContext {
-  const callerNumber = optionalString(input?.callerNumber) ?? "+15555550100";
-  const callerName = optionalString(input?.callerName) ?? "Jordan Lee";
+function isCallOrVoiceWorkflow(nodes?: RunnerNode[]): boolean {
+  if (!nodes || nodes.length === 0) return false;
+  return nodes.some((node) => {
+    const type = asString(node.data?.type);
+    return (
+      type === VOICE_NODE_TYPES.phoneCallTrigger ||
+      type === VOICE_NODE_TYPES.voiceConversation ||
+      type === VOICE_NODE_TYPES.endFlow ||
+      type === "trigger.twilio_missed_call" ||
+      type === "twilio_missed_call" ||
+      type === "trigger.twilio_inbound_sms" ||
+      type === "twilio_inbound_sms" ||
+      type === "connector.twilio_sms" ||
+      type === "connector.vapi_call" ||
+      type === "vapi_call"
+    );
+  });
+}
+
+function seedMissedCallContext(input?: WorkflowRunInput, nodes?: RunnerNode[]): RunnerContext {
+  const isCallOrVoice = isCallOrVoiceWorkflow(nodes);
+
+  const hasExplicitMissedCallInput = Boolean(
+    optionalString(input?.missedCallReason) ||
+      optionalString(input?.callStatus) ||
+      optionalString(input?.callTimestamp)
+  );
+
+  const hasExplicitCallerInput = Boolean(
+    optionalString(input?.callerNumber) || optionalString(input?.callerName)
+  );
+
+  const hasExplicitSmsInput = Boolean(
+    optionalString(input?.inboundSmsBody) ||
+      (Array.isArray(input?.attachments) && input.attachments.length > 0)
+  );
+
+  const hasExplicitBusinessInput = Boolean(
+    optionalString(input?.businessId) ||
+      optionalString(input?.businessOwnerId) ||
+      optionalString(input?.businessName) ||
+      optionalString(input?.businessType) ||
+      optionalString(input?.businessPhoneNumber) ||
+      optionalString(input?.bookingUrl) ||
+      optionalString(input?.teamPhone) ||
+      (Array.isArray(input?.services) && input.services.length > 0) ||
+      (Array.isArray(input?.faqs) && input.faqs.length > 0) ||
+      optionalString(input?.tone) ||
+      optionalString(input?.escalationRules) ||
+      (Array.isArray(input?.knowledge) && input.knowledge.length > 0) ||
+      optionalString(input?.calendarId) ||
+      optionalString(input?.timeZone) ||
+      optionalString(input?.vapiAssistantId) ||
+      optionalString(input?.vapiPhoneNumberId) ||
+      input?.businessHours ||
+      optionalString(input?.assistantName)
+  );
+
+  const callerNumber = optionalString(input?.callerNumber) ?? (isCallOrVoice ? "+15555550100" : undefined);
+  const callerName = optionalString(input?.callerName) ?? (isCallOrVoice ? "Jordan Lee" : undefined);
   const businessName =
     optionalString(input?.businessName) ??
-    optionalString(env.TWILIO_DEFAULT_BUSINESS_NAME) ??
-    "the business";
-  const timestamp = optionalString(input?.callTimestamp) ?? new Date().toISOString();
-  const status = optionalString(input?.callStatus) ?? "no-answer";
-  const reason = optionalString(input?.missedCallReason) ?? "No one picked up the customer call.";
+    (isCallOrVoice ? optionalString(env.TWILIO_DEFAULT_BUSINESS_NAME) ?? "the business" : undefined);
 
-  const context: RunnerContext = {
-    business: {
-      id: optionalString(input?.businessId),
-      ownerId: optionalString(input?.businessOwnerId),
-      name: businessName,
-      type: optionalString(input?.businessType),
-      phoneNumber: optionalString(input?.businessPhoneNumber),
-      bookingUrl: optionalString(input?.bookingUrl) ?? optionalString(env.TWILIO_DEFAULT_BOOKING_URL),
-      teamPhone: optionalString(input?.teamPhone) ?? optionalString(env.TWILIO_DEFAULT_TEAM_PHONE),
-      services: input?.services ?? [],
-      faqs: input?.faqs ?? [],
-      tone: optionalString(input?.tone) ?? "friendly",
-      escalationRules: optionalString(input?.escalationRules),
-      knowledge: input?.knowledge ?? [],
-      calendarId: optionalString(input?.calendarId) ?? env.GOOGLE_CALENDAR_ID ?? "primary",
-      timeZone: optionalString(input?.timeZone) ?? env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
-      vapiAssistantId: optionalString(input?.vapiAssistantId),
-      vapiPhoneNumberId: optionalString(input?.vapiPhoneNumberId) ?? env.VAPI_DEFAULT_PHONE_NUMBER_ID,
-      hours: input?.businessHours,
-      assistantName: optionalString(input?.assistantName)
-    },
-    missedCall: {
+  const context: RunnerContext = {};
+
+  if (hasExplicitBusinessInput || isCallOrVoice) {
+    const bookingUrl = optionalString(input?.bookingUrl) ?? (isCallOrVoice ? optionalString(env.TWILIO_DEFAULT_BOOKING_URL) : undefined);
+    const teamPhone = optionalString(input?.teamPhone) ?? (isCallOrVoice ? optionalString(env.TWILIO_DEFAULT_TEAM_PHONE) : undefined);
+    const tone = optionalString(input?.tone) ?? (isCallOrVoice ? "friendly" : undefined);
+    const calendarId = optionalString(input?.calendarId) ?? (isCallOrVoice ? env.GOOGLE_CALENDAR_ID ?? "primary" : undefined);
+    const timeZone = optionalString(input?.timeZone) ?? (isCallOrVoice ? env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE : undefined);
+    const vapiPhoneNumberId = optionalString(input?.vapiPhoneNumberId) ?? (isCallOrVoice ? env.VAPI_DEFAULT_PHONE_NUMBER_ID : undefined);
+
+    context.business = {
+      ...(optionalString(input?.businessId) ? { id: optionalString(input?.businessId) } : {}),
+      ...(optionalString(input?.businessOwnerId) ? { ownerId: optionalString(input?.businessOwnerId) } : {}),
+      ...(businessName ? { name: businessName } : {}),
+      ...(optionalString(input?.businessType) ? { type: optionalString(input?.businessType) } : {}),
+      ...(optionalString(input?.businessPhoneNumber) ? { phoneNumber: optionalString(input?.businessPhoneNumber) } : {}),
+      ...(bookingUrl ? { bookingUrl } : {}),
+      ...(teamPhone ? { teamPhone } : {}),
+      ...(Array.isArray(input?.services) && input.services.length > 0 ? { services: input.services } : {}),
+      ...(Array.isArray(input?.faqs) && input.faqs.length > 0 ? { faqs: input.faqs } : {}),
+      ...(tone ? { tone } : {}),
+      ...(optionalString(input?.escalationRules) ? { escalationRules: optionalString(input?.escalationRules) } : {}),
+      ...(Array.isArray(input?.knowledge) && input.knowledge.length > 0 ? { knowledge: input.knowledge } : {}),
+      ...(calendarId ? { calendarId } : {}),
+      ...(timeZone ? { timeZone } : {}),
+      ...(optionalString(input?.vapiAssistantId) ? { vapiAssistantId: optionalString(input?.vapiAssistantId) } : {}),
+      ...(vapiPhoneNumberId ? { vapiPhoneNumberId } : {}),
+      ...(input?.businessHours ? { hours: input.businessHours } : {}),
+      ...(optionalString(input?.assistantName) ? { assistantName: optionalString(input?.assistantName) } : {})
+    } as any;
+  }
+
+  if (hasExplicitMissedCallInput || hasExplicitCallerInput || isCallOrVoice) {
+    const timestamp = optionalString(input?.callTimestamp) ?? (isCallOrVoice ? new Date().toISOString() : undefined);
+    const status = optionalString(input?.callStatus) ?? (isCallOrVoice ? "no-answer" : undefined);
+    const reason = optionalString(input?.missedCallReason) ?? (isCallOrVoice ? "No one picked up the customer call." : undefined);
+
+    context.missedCall = {
       callerNumber: callerNumber ?? "",
-      callerName,
-      businessName,
-      status,
-      timestamp,
-      reason
-    }
-  };
+      ...(callerName ? { callerName } : {}),
+      businessName: businessName ?? "the business",
+      ...(status ? { status } : {}),
+      ...(timestamp ? { timestamp } : {}),
+      ...(reason ? { reason } : {})
+    };
+  }
 
   if (callerNumber) context.caller_number = callerNumber;
   if (callerName) context.caller_name = callerName;
-  if (optionalString(input?.inboundSmsBody) || Array.isArray(input?.attachments)) {
+
+  if (hasExplicitSmsInput) {
     context.inboundSms = {
       body: optionalString(input?.inboundSmsBody) || "",
       attachments: input?.attachments
     };
   }
+
   if (input?.appointmentStartAt) context.appointmentStartAt = input.appointmentStartAt;
   if (input?.appointmentEndAt) context.appointmentEndAt = input.appointmentEndAt;
   if (input?.appointmentService) context.appointmentService = input.appointmentService;
@@ -2392,17 +2534,15 @@ function seedNodeVariablesInContext(context: Record<string, any>, nodes: any[]) 
     if (originalLabel) {
       context.node[originalLabel] = { ...context.node[originalLabel], ...nodeObj };
     }
-
-    context[id] = { ...context[id], ...nodeObj };
-    context[label] = { ...context[label], ...nodeObj };
-    if (originalLabel) {
-      context[originalLabel] = { ...context[originalLabel], ...nodeObj };
-    }
   }
 }
 
 async function runMemoryNodeInRunner({
   workflowRunId,
+  workflowId,
+  businessId,
+  installedAgentId,
+  triggeredByUserId,
   threadId,
   executionOrder,
   node,
@@ -2410,6 +2550,10 @@ async function runMemoryNodeInRunner({
   logs
 }: {
   workflowRunId?: string;
+  workflowId?: string;
+  businessId?: string;
+  installedAgentId?: string;
+  triggeredByUserId?: string;
   threadId?: string;
   executionOrder: number;
   node: RunnerNode;
@@ -2420,12 +2564,29 @@ async function runMemoryNodeInRunner({
   const customNotes =
     asString(node.data?.customMemoryNotes) || asString(node.data?.notes) || asString(node.data?.customNotes);
 
-  const compactMemoryText = buildCompactMemoryString({
+  const smartMemory = await buildSmartMemory({
     executedNodes: logs.map((l) => ({ nodeId: l.nodeId, label: l.label, status: l.status, message: l.message, output: l.output })),
     variables: context as Record<string, unknown>,
     attachments,
-    customNotes
+    customNotes,
+    scope: {
+      businessId,
+      installedAgentId,
+      // Architect identity only when no business owns the run — keeps dry-run
+      // memory separate per architect without mixing into buyer scopes.
+      architectUserId: businessId ? undefined : triggeredByUserId,
+      workflowId,
+      workflowRunId,
+      // No threadId here: the runner's threadId is a fresh synthetic id per
+      // run, which would break cross-call continuity. Conversations continue
+      // per test session (canvas runs) or per caller (live runs) instead.
+      nodeId: node.id,
+      testSessionId: asString(context.testSessionId) || undefined,
+      callerKey: context.missedCall?.callerNumber || undefined
+    }
   });
+  const compactMemoryText = smartMemory.memory;
+  memoryScopeByContext.set(context as object, smartMemory.scopeKey);
 
   context.memory = compactMemoryText;
   (context as Record<string, unknown>)["memory"] = compactMemoryText;
@@ -2484,7 +2645,7 @@ export async function runWorkflowTest({
 }) {
   const parsedWorkflow = parseRunnerWorkflowJson(workflowJson);
   const logs: WorkflowRunLog[] = [];
-  const context: RunnerContext = seedMissedCallContext(input);
+  const context: RunnerContext = seedMissedCallContext(input, parsedWorkflow.nodes);
   const chain: WorkflowChain = { depth: chainDepth, visited: chainVisited, workflowId };
 
   // Set assistantName on context.business if not set
@@ -2548,6 +2709,13 @@ export async function runWorkflowTest({
               }))
             : undefined;
 
+          const triggerOutput: Record<string, unknown> = {};
+          if (context.caller_number) triggerOutput.callerNumber = context.caller_number;
+          if (context.inboundSms) triggerOutput.inboundSms = context.inboundSms;
+          if (context.missedCall) triggerOutput.missedCall = context.missedCall;
+          if (context.business) triggerOutput.business = context.business;
+          if (input?.latestMessage) triggerOutput.message = input.latestMessage;
+
           await memoryBroker.saveNodeMemory({
             workflowRunId,
             nodeId: node.id,
@@ -2557,11 +2725,7 @@ export async function runWorkflowTest({
             executionOrder: executionOrder++,
             threadId,
             input: input as Record<string, unknown> | undefined,
-            output: {
-              callerNumber: context.caller_number,
-              inboundSms: context.inboundSms,
-              missedCall: context.missedCall,
-            },
+            output: triggerOutput,
             files: triggerFiles,
             summary: "Trigger fired",
             startedAt: new Date().toISOString(),
@@ -2586,6 +2750,10 @@ export async function runWorkflowTest({
           if (asString(node.data?.type) === "ai.memory") {
             await runMemoryNodeInRunner({
               workflowRunId,
+              workflowId,
+              businessId: input?.businessId,
+              installedAgentId: input?.installedAgentId,
+              triggeredByUserId: userId,
               threadId,
               executionOrder: executionOrder++,
               node,
@@ -2596,11 +2764,14 @@ export async function runWorkflowTest({
           }
 
           if (shouldUseProviderEngine(node, mode)) {
+            const aiConfig = toAiBrainNodeConfig(node, context);
+            await deliverMemoryToAiConfig(aiConfig, context);
+
             const result = await runAiBrainNode({
               workflowRunId,
               threadId,
               executionOrder: executionOrder++,
-              node: toAiBrainNodeConfig(node, context),
+              node: aiConfig,
             });
 
             const isLlmCall = asString(node.data?.type) === "ai.llm_call";

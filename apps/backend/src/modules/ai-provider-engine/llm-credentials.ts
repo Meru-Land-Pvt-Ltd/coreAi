@@ -1,9 +1,10 @@
 import { env } from "../../config/env";
+import { llmProviderBlockReason } from "./llm-health";
 
 const LLM_PROVIDER_ENV_KEYS = {
   openai: ["OPENAI_API_KEY"],
   claude: ["ANTHROPIC_API_KEY"],
-  gemini: ["GEMINI_API_KEY"],
+  gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
   groq: ["GROQ_API_KEY", "OPENAI_API_KEY"],
   deepseek: ["DEEPSEEK_API_KEY", "OPENAI_API_KEY"],
   mistral: ["MISTRAL_API_KEY"],
@@ -13,6 +14,7 @@ type LlmEnvKey =
   | "OPENAI_API_KEY"
   | "ANTHROPIC_API_KEY"
   | "GEMINI_API_KEY"
+  | "GOOGLE_API_KEY"
   | "GROQ_API_KEY"
   | "DEEPSEEK_API_KEY"
   | "MISTRAL_API_KEY";
@@ -51,14 +53,29 @@ export type ResolvedLlmProvider = {
 };
 
 export function resolveConfiguredLlmProvider(preferred: string): ResolvedLlmProvider | null {
+  const isUsable = (candidate: string) => {
+    const status = llmCredentialStatus(candidate);
+    if (status === "missing") return false;
+    if (status === "unknown") return true;
+    return !llmProviderBlockReason(candidate);
+  };
+
+  if (isUsable(preferred)) return { providerId: preferred };
+
+  const alternative = FALLBACK_ORDER.find(
+    (candidate) => candidate !== preferred && isUsable(candidate)
+  );
+
+  if (alternative) return { providerId: alternative, fallbackFrom: preferred };
+
   const status = llmCredentialStatus(preferred);
   if (status !== "missing") return { providerId: preferred };
 
-  const alternative = FALLBACK_ORDER.find(
+  const configuredAlt = FALLBACK_ORDER.find(
     (candidate) => candidate !== preferred && llmCredentialStatus(candidate) === "configured"
   );
 
-  return alternative ? { providerId: alternative, fallbackFrom: preferred } : null;
+  return configuredAlt ? { providerId: configuredAlt, fallbackFrom: preferred } : null;
 }
 
 export function hasAnyLlmCredentials(): boolean {
