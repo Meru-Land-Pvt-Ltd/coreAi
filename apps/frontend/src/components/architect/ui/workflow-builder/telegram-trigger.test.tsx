@@ -32,7 +32,9 @@ function telegramNode(): BuilderNode {
 }
 
 describe("Telegram trigger architect setup", () => {
-  it("is available in the trigger library with isolated-business defaults", () => {
+  // Temporarily skipped — Telegram feature paused (palette entry commented out
+  // in library.ts). Re-enable together with that entry.
+  it.skip("is available in the trigger library with isolated-business defaults", () => {
     const triggerGroup = libraryGroups.find((group) => group.title === "Triggers");
     const item = triggerGroup?.items.find(
       (candidate) => candidate.overrides?.type === "trigger.telegram_message"

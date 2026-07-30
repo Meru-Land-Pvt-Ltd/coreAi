@@ -794,8 +794,22 @@ function isCallOrVoiceWorkflow(nodes?: RunnerNode[]): boolean {
   });
 }
 
-function seedMissedCallContext(input?: WorkflowRunInput, nodes?: RunnerNode[]): RunnerContext {
+/** A Telegram graph is identified by its trigger node, before any node runs. */
+function isTelegramWorkflowNodes(nodes?: RunnerNode[]): boolean {
+  if (!Array.isArray(nodes)) return false;
+  return nodes.some((node) => asString(node.data?.type) === TELEGRAM_NODE_TYPES.trigger);
+}
+
+function seedMissedCallContext(
+  input?: WorkflowRunInput,
+  nodes?: RunnerNode[],
+  mode: WorkflowRunMode = "test"
+): RunnerContext {
   const isCallOrVoice = isCallOrVoiceWorkflow(nodes);
+  const isTelegram = isTelegramWorkflowNodes(nodes);
+  // Dry-run placeholders (chat id, "/services", a synthetic update) exist only
+  // so an architect can test a Telegram graph without a real bot event.
+  const isTest = mode === "test";
 
   const hasExplicitMissedCallInput = Boolean(
     optionalString(input?.missedCallReason) ||
@@ -871,7 +885,72 @@ function seedMissedCallContext(input?: WorkflowRunInput, nodes?: RunnerNode[]): 
     } as any;
   }
 
-  if (hasExplicitMissedCallInput || hasExplicitCallerInput || isCallOrVoice) {
+  /* Telegram runs are seeded here, before any node executes, because the
+     Telegram trigger node READS context.telegram and fails the run when the
+     chat/message ids are absent. A missed-call context is not built for these —
+     the two are alternatives, not additions. */
+  if (isTelegram) {
+    const telegramPhone = optionalString(input?.telegramPhoneNumber);
+    const text =
+      optionalString(input?.latestMessage) ??
+      optionalString(input?.inboundSmsBody) ??
+      (isTest ? "/services" : "");
+
+    context.telegram = {
+      chat_id: optionalString(input?.telegramChatId) ?? (isTest ? "architect-dry-run-chat" : ""),
+      user_id: optionalString(input?.telegramUserId) ?? (isTest ? "architect-dry-run-user" : ""),
+      username: optionalString(input?.telegramUsername) ?? (isTest ? "test_customer" : undefined),
+      message_id: optionalString(input?.telegramMessageId) ?? (isTest ? "1" : ""),
+      update_id: optionalString(input?.telegramUpdateId),
+      chat_type: optionalString(input?.telegramChatType) ?? "private",
+      text,
+      phone_number: telegramPhone
+    };
+
+    const liveEvent =
+      input?.telegramEvent && typeof input.telegramEvent === "object" && !Array.isArray(input.telegramEvent)
+        ? input.telegramEvent
+        : null;
+    const dryRunEvent = {
+      provider: "TELEGRAM",
+      updateId: optionalString(input?.telegramUpdateId) ?? "10001",
+      eventType: text.startsWith("/") ? "command" : "message",
+      businessId: optionalString(input?.businessId) ?? "dry-run-business",
+      installedAgentId: optionalString(input?.installedAgentId) ?? "dry-run-installed-agent",
+      telegramConnectionId: optionalString(input?.telegramConnectionId) ?? "dry-run-telegram-connection",
+      bot: { id: "700000001", username: "dry_run_business_bot" },
+      chat: { id: context.telegram.chat_id, type: context.telegram.chat_type },
+      sender: {
+        id: context.telegram.user_id,
+        isBot: false,
+        username: context.telegram.username ?? "",
+        firstName: callerName ?? "",
+        lastName: "",
+        languageCode: "en"
+      },
+      message: {
+        id: context.telegram.message_id,
+        text,
+        caption: "",
+        date: optionalString(input?.callTimestamp) ?? new Date().toISOString()
+      },
+      callback: { id: "", data: "" },
+      contact: {
+        phoneNumber: telegramPhone ?? "",
+        firstName: callerName ?? "",
+        lastName: "",
+        userId: context.telegram.user_id
+      },
+      media: { type: "", fileId: "", fileName: "", mimeType: "" },
+      location: { latitude: null, longitude: null }
+    };
+
+    context.telegramEvent = liveEvent ?? dryRunEvent;
+    context.trigger = { telegram: liveEvent ?? dryRunEvent };
+    context.telegramConnectionId =
+      optionalString(input?.telegramConnectionId) ?? (isTest ? "dry-run-telegram-connection" : undefined);
+    context.latestMessage = text;
+  } else if (hasExplicitMissedCallInput || hasExplicitCallerInput || isCallOrVoice) {
     const timestamp = optionalString(input?.callTimestamp) ?? (isCallOrVoice ? new Date().toISOString() : undefined);
     const status = optionalString(input?.callStatus) ?? (isCallOrVoice ? "no-answer" : undefined);
     const reason = optionalString(input?.missedCallReason) ?? (isCallOrVoice ? "No one picked up the customer call." : undefined);
@@ -3057,7 +3136,8 @@ export async function runWorkflowTest({
 }) {
   const parsedWorkflow = parseRunnerWorkflowJson(workflowJson);
   const logs: WorkflowRunLog[] = [];
-  const context: RunnerContext = seedMissedCallContext(input, parsedWorkflow.nodes);
+  const context: RunnerContext = seedMissedCallContext(input, parsedWorkflow.nodes, mode);
+  const isTelegramWorkflow = Boolean(context.telegram);
   const chain: WorkflowChain = { depth: chainDepth, visited: chainVisited, workflowId };
 
   // Set assistantName on context.business if not set

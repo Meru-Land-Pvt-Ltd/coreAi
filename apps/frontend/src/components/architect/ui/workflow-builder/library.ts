@@ -46,7 +46,8 @@ export const libraryGroups: LibraryGroup[] = [
     title: "Triggers",
     items: [
       paletteItem(VOICE_NODE_TYPES.phoneCallTrigger, { icon: "phone", accent: "amber" }),
-      paletteItem(TELEGRAM_NODE_TYPES.trigger, { icon: "telegram", accent: "amber", kind: "TELEGRAM BOT" }),
+      // Temporarily hidden — Telegram feature paused
+      // paletteItem(TELEGRAM_NODE_TYPES.trigger, { icon: "telegram", accent: "amber", kind: "TELEGRAM BOT" }),
       paletteItem("trigger.twilio_inbound_sms", { icon: "message", accent: "amber" }),
       paletteItem("trigger.twilio_missed_call", { icon: "phone", accent: "amber" }),
       // Temporarily hidden — WhatsApp feature paused
@@ -84,21 +85,22 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(VOICE_NODE_TYPES.bookAppointment, { icon: "calendar", accent: "blue" })
     ]
   },
-  {
-    title: "Telegram Bot",
-    items: [
-      paletteItem(TELEGRAM_NODE_TYPES.sendMessage, { icon: "telegram", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.sendButtons, { icon: "telegram", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.answerCallback, { icon: "telegram", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.requestContact, { icon: "telegram", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.sendPhoto, { icon: "image", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.sendDocument, { icon: "file", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.sendVoice, { icon: "mic", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.sendLocation, { icon: "map-pin", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.editMessage, { icon: "edit", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.deleteMessage, { icon: "trash", accent: "red" })
-    ]
-  },
+  // Temporarily hidden — Telegram feature paused
+  // {
+  //   title: "Telegram Bot",
+  //   items: [
+  //     paletteItem(TELEGRAM_NODE_TYPES.sendMessage, { icon: "telegram", accent: "green" }),
+  //     paletteItem(TELEGRAM_NODE_TYPES.sendButtons, { icon: "telegram", accent: "green" }),
+  //     paletteItem(TELEGRAM_NODE_TYPES.answerCallback, { icon: "telegram", accent: "green" }),
+  //     paletteItem(TELEGRAM_NODE_TYPES.requestContact, { icon: "telegram", accent: "green" }),
+  //     paletteItem(TELEGRAM_NODE_TYPES.sendPhoto, { icon: "image", accent: "green" }),
+  //     paletteItem(TELEGRAM_NODE_TYPES.sendDocument, { icon: "file", accent: "green" }),
+  //     paletteItem(TELEGRAM_NODE_TYPES.sendVoice, { icon: "mic", accent: "green" }),
+  //     paletteItem(TELEGRAM_NODE_TYPES.sendLocation, { icon: "map-pin", accent: "green" }),
+  //     paletteItem(TELEGRAM_NODE_TYPES.editMessage, { icon: "edit", accent: "green" }),
+  //     paletteItem(TELEGRAM_NODE_TYPES.deleteMessage, { icon: "trash", accent: "red" })
+  //   ]
+  // },
   {
     title: "Communication",
     items: [
