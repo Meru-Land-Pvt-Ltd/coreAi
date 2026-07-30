@@ -49,6 +49,8 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(TELEGRAM_NODE_TYPES.trigger, { icon: "telegram", accent: "amber", kind: "TELEGRAM BOT" }),
       paletteItem("trigger.twilio_inbound_sms", { icon: "message", accent: "amber" }),
       paletteItem("trigger.twilio_missed_call", { icon: "phone", accent: "amber" }),
+      // Temporarily hidden — WhatsApp feature paused
+      // paletteItem("trigger.whatsapp_message_received", { icon: "whatsapp", accent: "green" }),
       paletteItem("trigger.manual", { icon: "play", accent: "amber" })
     ]
   },
@@ -102,6 +104,8 @@ export const libraryGroups: LibraryGroup[] = [
     items: [
       paletteItem(VOICE_NODE_TYPES.sendEmail, { icon: "mail", accent: "green" }),
       paletteItem(VOICE_NODE_TYPES.sendSms, { icon: "message", accent: "green" })
+      // Temporarily hidden — WhatsApp feature paused
+      // paletteItem("action.send_whatsapp", { icon: "whatsapp", accent: "green" })
     ]
   },
   {

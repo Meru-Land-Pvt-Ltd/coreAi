@@ -141,10 +141,38 @@ apps/backend/src/modules/memory/
 ├── backlink-resolver.ts   ← resolves ContextLink → NodeRun memory
 ├── context-builder.ts     ← merges memory into ContextBundle
 ├── memory-compression.ts  ← dedupe, trim, build prompt string
+├── smart-memory.ts        ← vector-backed Memory Node string builder (pgvector)
 ├── loop-guard.ts          ← blocks self-links and circular back-links
 ├── schemas.ts             ← Zod validation for API bodies
 └── routes.ts              ← HTTP endpoints (mounted at /memory)
 ```
+
+### Smart Memory (vector storage)
+
+`smart-memory.ts` sits in front of `buildCompactMemoryString` at both Memory
+Node call sites (`agent-runtime/node-handlers.ts` and
+`architect/workflow-runner.ts`). Every execution stores the full corpus (node
+outputs, decoded attachments, notes, variables) as content-hash-deduped chunks
+in the pgvector-indexed `MemoryChunk` table (embeddings:
+OpenAI `text-embedding-3-small`, 1536 dims, NULL until a key is configured).
+
+The string handed to `{{memory}}` depends on corpus size:
+
+- `<= MEMORY_VECTOR_THRESHOLD_TOKENS` (default 1M): byte-for-byte the old
+  `buildCompactMemoryString` output — no behaviour change.
+- over the threshold: top `MEMORY_VECTOR_TOP_K` (default 20) chunks by cosine
+  similarity to the current request + a deterministic ≤500-word timeline
+  summary (no LLM call).
+
+Every failure path (no `OPENAI_API_KEY`, DB down, extension missing, nothing
+embedded yet) degrades to the raw string; a Memory Node never fails because of
+this layer. Scope keys carry tenant identity (`thread:` / `run:` /
+`agent:<workflowId>:<nodeId>:<tenant>:<caller>`) — never scope by workflowId
+alone, marketplace listings share it across buyers. Scopes are pruned to
+`MEMORY_MAX_CHUNKS_PER_SCOPE` and embeddings backfill lazily
+(`MEMORY_EMBED_MAX_PER_CALL`) only after a scope crosses the threshold.
+Requires the `pgvector/pgvector:pg16-trixie` postgres image (compose files) —
+migration `20260729090000_memory_vector_chunks`.
 
 
 

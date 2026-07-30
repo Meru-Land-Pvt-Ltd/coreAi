@@ -16,6 +16,7 @@ import {
   buildAgentSystemPrompt,
   fillPromptTemplateTokens,
   resolveAssistantName,
+  resolveBusinessName,
   resolveNodeTemplateVariables
 } from "../agent-runtime/prompt-builder";
 import {
@@ -207,15 +208,14 @@ export async function startArchitectVapiBrowserTest(
       ? "test-context"
       : "fallback";
 
-  const businessName = input.businessName?.trim() || "Sample Business";
+  const businessName = resolveBusinessName(input.businessName);
   const businessType = input.businessType?.trim() || "service business";
   const calendarId = input.calendarId?.trim() || "primary";
   const timeZone = normalizeTimeZone(input.timeZone?.trim() || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE);
   const callerName = input.callerName?.trim() || "the caller";
   const callerPhone = input.callerPhone?.trim() || "";
-  const appointmentService = input.appointmentService?.trim() || "General Consultation";
-  const services =
-    input.services?.length ? input.services : ["Consultation", "Appointment booking", "General inquiry"];
+  const appointmentService = input.appointmentService?.trim() || "appointment";
+  const services = input.services?.length ? input.services : [];
   const faqs = input.faqs?.length ? input.faqs : [];
 
   // ---- Sandbox business (shared with the live sandbox; reused per architect) ----

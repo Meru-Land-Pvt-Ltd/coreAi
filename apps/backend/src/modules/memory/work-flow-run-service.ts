@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { recordWorkflowRunUsage } from "../business/execution-billing";
@@ -35,7 +36,9 @@ export class DuplicateWorkflowRunError extends Error {
 }
 
 export async function createWorkflowRun(input: CreateWorkflowRunInput): Promise<WorkflowRunHandle> {
-  const threadId = input.threadId ?? `run-${Date.now()}`;
+  // The default threadId is also a memory-scope key — a bare timestamp would
+  // collide when two runs start in the same millisecond.
+  const threadId = input.threadId ?? `run-${Date.now()}-${randomUUID().slice(0, 8)}`;
   try {
     const run = await prisma.workflowRun.create({
       data: {

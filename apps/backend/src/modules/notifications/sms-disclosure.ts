@@ -6,7 +6,6 @@ export type TranscriptSegment = {
 const ASSISTANT_MARKER = /^(ai|assistant|bot|agent)\s*:\s*/i;
 const USER_MARKER = /^(user|caller|customer|human)\s*:\s*/i;
 
-/** Split a Vapi running transcript into role segments (lines without a role marker continue the previous segment). */
 export function parseTranscriptSegments(transcript: string): TranscriptSegment[] {
   const segments: TranscriptSegment[] = [];
 
@@ -45,51 +44,139 @@ function segmentNamesBusiness(text: string, business: string): boolean {
   return squash(text).includes(squash(business));
 }
 
-function assistantSegmentContainsFullDisclosure(segmentText: string, businessName: string): boolean {
-  const text = normalize(segmentText);
-  const business = normalize(businessName);
+const DISCLOSURE_ELEMENTS: Array<{
+  label: string;
+  spoken: string;
+  test: (text: string) => boolean;
+}> = [
+  {
+    label: "the offer to receive transactional text messages about this booking",
+    spoken: "these would be transactional text messages about this booking",
+    test: (text) => /transactional text/.test(text)
+  },
+  {
+    label: '"Message frequency varies."',
+    spoken: "message frequency varies",
+    test: (text) => /message frequency varies/.test(text)
+  },
+  {
+    label: '"Message and data rates may apply."',
+    spoken: "message and data rates may apply",
+    test: (text) => /data rates may apply/.test(text)
+  },
+  {
+    label: '"Reply STOP to opt out"',
+    spoken: "reply STOP to opt out",
+    test: (text) => /\bstop\b/.test(text) && /opt out/.test(text)
+  },
+  {
+    label: '"or HELP for help."',
+    spoken: "or HELP for help",
+    test: (text) => /for help/.test(text)
+  },
+  {
+    label: '"Consent is not required to complete the booking or service request."',
+    spoken: "and consent is not required to complete the booking",
+    test: (text) => /not required to complete|not a condition/.test(text)
+  },
+  {
+    label: '"Please say yes or no."',
+    spoken: "so is that a yes or no",
+    test: (text) => /yes or no/.test(text)
+  }
+];
 
-  if (!segmentNamesBusiness(text, business)) return false;
-  if (!/transactional text/.test(text)) return false;
-  if (!/message frequency varies/.test(text)) return false;
-  if (!/data rates may apply/.test(text)) return false;
-  if (!/\bstop\b/.test(text) || !/opt out/.test(text)) return false;
-  if (!/\bhelp\b/.test(text)) return false;
-  if (!/not required to complete|not a condition/.test(text)) return false;
-  if (!/yes or no/.test(text)) return false;
+export function remainingDisclosureLine(missing: string[]): string {
+  const parts = DISCLOSURE_ELEMENTS.filter((element) => missing.includes(element.label)).map(
+    (element) => element.spoken
+  );
+  if (parts.length === 0) return "";
 
-  return true;
+  const ask = DISCLOSURE_ELEMENTS[DISCLOSURE_ELEMENTS.length - 1].spoken;
+  const hasAsk = parts[parts.length - 1] === ask;
+  const terms = hasAsk ? parts.slice(0, -1) : parts;
+  const sentence = terms.length > 0 ? `Just so you know — ${terms.join(", ")}.` : "";
+
+  return [sentence, hasAsk ? `${ask[0].toUpperCase()}${ask.slice(1)}?` : ""]
+    .filter(Boolean)
+    .join(" ");
 }
 
-export type SmsDisclosureState = "ANSWERED" | "AWAITING_ANSWER" | "NOT_PRESENTED";
+function segmentOpensDisclosure(text: string, business: string): boolean {
+  return segmentNamesBusiness(text, business) && DISCLOSURE_ELEMENTS[0].test(text);
+}
+
+export type SmsDisclosureState =
+  | "ANSWERED"
+  | "AWAITING_ANSWER"
+  | "INTERRUPTED"
+  | "NOT_PRESENTED";
+
+export type SmsDisclosureProgress = {
+  state: SmsDisclosureState;
+  missing: string[];
+  remainingLine?: string;
+};
+
+export function segmentsSmsDisclosureProgress(
+  segments: TranscriptSegment[],
+  businessName: string
+): SmsDisclosureProgress {
+  if (!businessName.trim()) return { state: "NOT_PRESENTED", missing: [] };
+  const business = normalize(businessName);
+
+  let started = false;
+  let spoken = "";
+  let completedAt = -1;
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    if (segment.role !== "assistant") continue;
+    const text = normalize(segment.text);
+
+    if (!started) {
+      if (!segmentOpensDisclosure(text, business)) continue;
+      started = true;
+      spoken = text;
+    } else {
+      spoken = `${spoken} ${text}`;
+    }
+
+    if (completedAt < 0 && DISCLOSURE_ELEMENTS.every((element) => element.test(spoken))) {
+      completedAt = index;
+    }
+  }
+
+  if (!started) return { state: "NOT_PRESENTED", missing: [] };
+  if (completedAt < 0) {
+    const missing = DISCLOSURE_ELEMENTS.filter((element) => !element.test(spoken)).map((e) => e.label);
+    return { state: "INTERRUPTED", missing, remainingLine: remainingDisclosureLine(missing) };
+  }
+
+  const answered = segments.slice(completedAt + 1).some((later) => later.role === "user");
+  return { state: answered ? "ANSWERED" : "AWAITING_ANSWER", missing: [] };
+}
 
 export function segmentsSmsDisclosureState(
   segments: TranscriptSegment[],
   businessName: string
 ): SmsDisclosureState {
-  if (!businessName.trim()) return "NOT_PRESENTED";
+  return segmentsSmsDisclosureProgress(segments, businessName).state;
+}
 
-  let presented = false;
-
-  for (let index = 0; index < segments.length; index += 1) {
-    const segment = segments[index];
-    if (segment.role !== "assistant") continue;
-    if (!assistantSegmentContainsFullDisclosure(segment.text, businessName)) continue;
-
-    presented = true;
-    // The caller must have answered AFTER the disclosure was spoken.
-    if (segments.slice(index + 1).some((later) => later.role === "user")) return "ANSWERED";
-  }
-
-  return presented ? "AWAITING_ANSWER" : "NOT_PRESENTED";
+export function transcriptSmsDisclosureProgress(
+  transcript: string,
+  businessName: string
+): SmsDisclosureProgress {
+  if (!transcript.trim() || !businessName.trim()) return { state: "NOT_PRESENTED", missing: [] };
+  return segmentsSmsDisclosureProgress(parseTranscriptSegments(transcript), businessName);
 }
 
 export function transcriptSmsDisclosureState(
   transcript: string,
   businessName: string
 ): SmsDisclosureState {
-  if (!transcript.trim() || !businessName.trim()) return "NOT_PRESENTED";
-  return segmentsSmsDisclosureState(parseTranscriptSegments(transcript), businessName);
+  return transcriptSmsDisclosureProgress(transcript, businessName).state;
 }
 
 export function transcriptShowsCompleteSmsDisclosure(

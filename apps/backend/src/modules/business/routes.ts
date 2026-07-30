@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import {
+import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "./agent-knowledge";
+import { calendarEventTitleForMode,
   AFTER_HOURS_CONTACT_METHODS,
   AFTER_HOURS_CONTACT_METHOD_UNSUPPORTED,
   AFTER_HOURS_EMERGENCY_CATEGORIES,
@@ -43,6 +44,8 @@ import {
   disconnectGmail,
   getGmailConnectionStatus
 } from "../architect/gmail-connector";
+import { WhatsAppService } from "../whatsapp/service";
+import { WhatsAppServiceError } from "../whatsapp/types";
 import {
   RECEPTIONIST_WORKFLOW_DESCRIPTION,
   RECEPTIONIST_WORKFLOW_NAME,
@@ -1974,6 +1977,20 @@ businessRoutes.post("/setup/test-conversation", async (c) => {
       }
     : undefined;
 
+  /* Question-aware knowledge, exactly like a live call. buildInstalledAgentChatTestSetup
+     loads a static slice capped at KNOWLEDGE_PROMPT_BUDGET_CHARS, so anything past
+     the first ~12k characters of an uploaded PDF was invisible in testing while the
+     live agent answered from it fine. Retrieve for THIS message and prepend. */
+  const retrievedKnowledge = await retrieveRelevantKnowledge({
+    businessId: business.id,
+    installedAgentId: chatSetup.installedAgentId,
+    query: parsed.data.message
+  }).catch(() => [] as Awaited<ReturnType<typeof retrieveRelevantKnowledge>>);
+
+  const testKnowledge = retrievedKnowledge.length
+    ? [...formatKnowledgeEntries(retrievedKnowledge), ...(chatSetup.context.knowledge ?? [])].slice(0, 40)
+    : chatSetup.context.knowledge;
+
   try {
     const result = await runArchitectConversationTest({
       userId: authUser.id,
@@ -1981,7 +1998,11 @@ businessRoutes.post("/setup/test-conversation", async (c) => {
       workflowJson: chatSetup.workflowJson,
       message: parsed.data.message,
       history: parsed.data.history,
-      testContext: { ...chatSetup.context, ...(afterHoursContext ? { afterHours: afterHoursContext } : {}) },
+      testContext: {
+        ...chatSetup.context,
+        knowledge: testKnowledge,
+        ...(afterHoursContext ? { afterHours: afterHoursContext } : {})
+      },
       executionMode: "BUSINESS_TEST",
       testSessionId: parsed.data.testSessionId,
       businessIdentity: {
@@ -2013,6 +2034,41 @@ businessRoutes.post("/setup/test-conversation", async (c) => {
 });
 
 // Delete a Business test calendar event — ownership-validated and idempotent.
+/** Latest test booking for this buyer — lets the setup wizard link straight to
+ *  the created event instead of dumping the buyer on their calendar root. */
+businessRoutes.get("/setup/test-events/latest", async (c) => {
+  const authUser = c.get("authUser");
+  const businessId = await requireOwnedBusinessId(authUser.id);
+  if (!businessId) return successResponse(c, { event: null });
+
+  const testSessionId = c.req.query("testSessionId")?.trim();
+
+  const row = await prisma.testCalendarEvent.findFirst({
+    where: {
+      businessId,
+      executionMode: "BUSINESS_TEST",
+      status: { not: "DELETED" },
+      ...(testSessionId ? { testSessionId } : {})
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  if (!row) return successResponse(c, { event: null });
+
+  return successResponse(c, {
+    event: {
+      testEventId: row.id,
+      title: calendarEventTitleForMode("BUSINESS_TEST", row.serviceName),
+      startAt: row.startAt.toISOString(),
+      endAt: row.endAt.toISOString(),
+      timeZone: row.timeZone,
+      serviceName: row.serviceName,
+      htmlLink: row.htmlLink,
+      status: row.status === "CREATED" ? "CREATED" : "SIMULATED"
+    }
+  });
+});
+
 businessRoutes.post("/setup/test-events/:id/delete", async (c) => {
   const authUser = c.get("authUser");
   const testEventId = c.req.param("id");
@@ -3470,6 +3526,10 @@ businessRoutes.post("/setup", async (c) => {
       });
     }
 
+    const setupLiveSync = deployedVapiAssistantId
+      ? null
+      : await refreshLiveAssistantKnowledge(business.id);
+
     const [refreshed, calendar] = await Promise.all([
       loadBusinessForOwner(authUser.id),
       getGmailConnectionStatus(authUser.id)
@@ -3498,6 +3558,7 @@ businessRoutes.post("/setup", async (c) => {
         assignedPhoneNumber: businessPhone?.phoneNumber ?? null,
         vapiAssistantId: responseVapiAssistantId,
         ...(addressLiveSync ? { addressLiveSync } : {}),
+        ...(setupLiveSync ? { liveSync: setupLiveSync } : {}),
         ...phoneOptions
       },
       "Business setup saved"
@@ -3599,4 +3660,49 @@ businessRoutes.delete("/connectors/google-calendar", async (c) => {
   const authUser = c.get("authUser");
   await disconnectGmail(authUser.id);
   return successResponse(c, null, "Google Calendar disconnected");
+});
+
+businessRoutes.get("/connectors/whatsapp/status", async (c) => {
+  const authUser = c.get("authUser");
+  try {
+    const connections = await WhatsAppService.listConnections(authUser.id);
+    const connected = connections.find((row) => row.status === "CONNECTED") ?? connections[0] ?? null;
+    return successResponse(c, {
+      connected: Boolean(connected && connected.status === "CONNECTED"),
+      connectionId: connected?.id ?? null,
+      displayName: connected?.displayName ?? null,
+      phoneNumber: connected?.phoneNumber ?? null,
+      status: connected?.status ?? null
+    });
+  } catch (error) {
+    return errorResponse(
+      c,
+      errorMessage(error, "Could not load WhatsApp status"),
+      500,
+      "WHATSAPP_STATUS_FAILED"
+    );
+  }
+});
+
+businessRoutes.delete("/connectors/whatsapp", async (c) => {
+  const authUser = c.get("authUser");
+  try {
+    const connections = await WhatsAppService.listConnections(authUser.id);
+    const active = connections.filter((row) => row.status === "CONNECTED");
+    const targets = active.length > 0 ? active : connections.slice(0, 1);
+    for (const connection of targets) {
+      await WhatsAppService.disconnect(authUser.id, connection.id);
+    }
+    return successResponse(c, { disconnected: targets.length }, "WhatsApp disconnected");
+  } catch (error) {
+    if (error instanceof WhatsAppServiceError) {
+      return errorResponse(c, error.message, apiErrorStatus(error.status, 500), error.errorCode);
+    }
+    return errorResponse(
+      c,
+      errorMessage(error, "Could not disconnect WhatsApp"),
+      500,
+      "WHATSAPP_DISCONNECT_FAILED"
+    );
+  }
 });

@@ -42,6 +42,7 @@ export function buildCostEstimate(
 
 // strips markdown code fences before JSON.parse
 export function parseJsonFromText(text: string): unknown | null {
+  if (!text) return null;
   const stripped = text
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/, "")
@@ -49,6 +50,15 @@ export function parseJsonFromText(text: string): unknown | null {
   try {
     return JSON.parse(stripped);
   } catch {
+    // Attempt relaxed extraction of JSON object if wrapped in trailing text
+    const match = stripped.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 }
@@ -57,23 +67,33 @@ export function isTransientError(err: unknown): boolean {
   if (err instanceof Error) {
     const msg = err.message.toLowerCase();
     if (msg.includes("rate limit") || msg.includes("429") || msg.includes("overloaded")) return true;
-    if (msg.includes("econnreset") || msg.includes("etimedout") || msg.includes("network")) return true;
+    if (msg.includes("econnreset") || msg.includes("etimedout") || msg.includes("network") || msg.includes("socket hang up")) return true;
+    if (msg.includes("500") || msg.includes("502") || msg.includes("503") || msg.includes("504") || msg.includes("internal server error")) return true;
   }
   const e = err as Record<string, unknown>;
-  if (typeof e?.status === "number" && [429, 529, 503].includes(e.status as number)) return true;
+  if (typeof e?.status === "number" && [429, 500, 502, 503, 504, 529].includes(e.status as number)) return true;
   return false;
 }
 
-export async function retryOnTransient<T>(fn: () => Promise<T>, delayMs = 1000): Promise<T> {
-  try {
-    return await fn();
-  } catch (err) {
-    if (isTransientError(err)) {
-      await new Promise((r) => setTimeout(r, delayMs));
-      return fn();
+export async function retryOnTransient<T>(
+  fn: () => Promise<T>,
+  options?: { maxRetries?: number; baseDelayMs?: number }
+): Promise<T> {
+  const maxRetries = options?.maxRetries ?? 3;
+  const baseDelayMs = options?.baseDelayMs ?? 500;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isTransientError(err) || attempt === maxRetries) {
+        throw err;
+      }
+      const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 100;
+      await new Promise((r) => setTimeout(r, delay));
     }
-    throw err;
   }
+  throw new Error("Retry failed");
 }
 
 export function errorResponse(

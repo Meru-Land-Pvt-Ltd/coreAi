@@ -1,4 +1,9 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import path from "path";
+
+dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 import { z } from "zod";
 
 const booleanFromEnv = z.preprocess(
@@ -144,10 +149,38 @@ const envSchema = z.object({
 
   /** Platform-wide cap on marketplace demo call starts per day (cost control). */
   MARKETPLACE_DEMO_GLOBAL_DAILY_LIMIT: z.coerce.number().int().positive().default(200),
+  MEMORY_VECTOR_THRESHOLD_TOKENS: z.coerce.number().int().positive().default(1_000_000),
+  MEMORY_VECTOR_TOP_K: z.coerce.number().int().positive().default(20),
+  MEMORY_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
+  MEMORY_MAX_CHUNKS_PER_SCOPE: z.coerce.number().int().positive().default(5000),
+  MEMORY_EMBED_MAX_PER_CALL: z.coerce.number().int().positive().default(256),
+  /** Smart Memory: token cap per tenant (business or architect) — oldest records pruned beyond it. */
+  MEMORY_MAX_TOKENS_PER_TENANT: z.coerce.number().int().positive().default(50_000_000),
+  /** Smart Memory: delete records older than this many days (0 disables). */
+  MEMORY_RETENTION_DAYS: z.coerce.number().int().min(0).default(365),
+  /** Smart Memory: shorter retention for test-session records (0 disables). */
+  MEMORY_TEST_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
+
+  /** Meta WhatsApp Cloud API (optional — connections store their own tokens). */
+  META_WHATSAPP_APP_ID: z.string().optional(),
+  META_WHATSAPP_APP_SECRET: z.string().optional(),
+  META_WHATSAPP_API_VERSION: z.string().default("v21.0"),
+  META_WHATSAPP_GRAPH_BASE_URL: z.string().url().default("https://graph.facebook.com"),
+  /**
+   * WhatsApp Embedded Signup configuration id (Facebook Login for Business).
+   * Required to launch the embedded signup flow without asking for tokens/ids from customers.
+   */
+  META_WHATSAPP_EMBEDDED_SIGNUP_CONFIGURATION_ID: z.string().optional(),
+  /**
+   * Webhook verify token expected by Meta during subscription challenges.
+   * Used to ensure the app can verify Meta webhooks after automated onboarding.
+   */
+  META_WHATSAPP_VERIFY_TOKEN: z.string().optional(),
 
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  GOOGLE_API_KEY: z.string().optional(),
   OPENAI_DEFAULT_MODEL: z.string().default("gpt-4o-mini"),
   ANTHROPIC_DEFAULT_MODEL: z.string().default("claude-sonnet-4-5"),
   GEMINI_DEFAULT_MODEL: z.string().default("gemini-2.0-flash"),

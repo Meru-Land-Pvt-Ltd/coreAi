@@ -336,6 +336,34 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     runtime: { nodeKind: "trigger" }
   }),
   def({
+    type: "trigger.whatsapp_message_received",
+    label: "WhatsApp Message Received",
+    category: "trigger",
+    description: "Starts when a WhatsApp message arrives on a connected Meta Cloud API number.",
+    requiredConfig: ["connectionId"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "trigger", connector: "WhatsApp" },
+    defaultConfig: {
+      connectionId: "",
+      listenFor: "all",
+      ignoreGroups: "true",
+      ignoreStatusMessages: "true"
+    },
+    capability: "trigger.whatsapp",
+    requiredVariables: [],
+    producedVariables: [
+      "contact.name",
+      "contact.phone",
+      "message.id",
+      "message.type",
+      "message.text",
+      "media.url",
+      "timestamp"
+    ]
+  }),
+  def({
     type: TELEGRAM_NODE_TYPES.trigger,
     label: "Telegram Bot Trigger",
     category: "trigger",
@@ -624,6 +652,165 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     launchCritical: true,
     comingSoon: false,
     runtime: { nodeKind: "connector", connector: "SMS", connectorAction: "send_sms" }
+  }),
+  def({
+    type: "action.send_whatsapp",
+    label: "Send WhatsApp Message",
+    category: "action",
+    description: "Sends a WhatsApp text message via Meta Cloud API.",
+    requiredConfig: ["connectionId", "recipient"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "WhatsApp", connectorAction: "send_text" },
+    defaultConfig: {
+      connectionId: "",
+      recipient: "{{contact.phone}}",
+      whatsappMessageType: "text",
+      message: "Hello {{contact.name}}",
+      mediaLink: "",
+      mediaId: "",
+      caption: "",
+      filename: "",
+      templateName: "",
+      languageCode: "en_US"
+    },
+    capability: "whatsapp.send",
+    requiredVariables: ["contact.phone"],
+    producedVariables: ["whatsapp.status", "whatsapp.wamid"]
+  }),
+  def({
+    type: "communication.send_whatsapp",
+    label: "Send WhatsApp Message",
+    category: "action",
+    description: "Sends a WhatsApp text message via Meta Cloud API (communication group).",
+    requiredConfig: ["connectionId", "recipient"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "WhatsApp", connectorAction: "send_text" },
+    defaultConfig: {
+      connectionId: "",
+      recipient: "{{customer.phone}}",
+      whatsappMessageType: "text",
+      message: "Hello {{customer.name}}",
+      mediaLink: "",
+      mediaId: "",
+      caption: "",
+      filename: "",
+      templateName: "",
+      languageCode: "en_US"
+    },
+    capability: "whatsapp.send",
+    requiredVariables: [],
+    producedVariables: ["whatsapp.status", "whatsapp.wamid"]
+  }),
+  // ---- WhatsApp media + template + read receipts (service supported) ----
+  def({
+    type: "action.send_whatsapp_image",
+    label: "Send WhatsApp Image",
+    category: "action",
+    description: "Sends a WhatsApp image via Meta Cloud API.",
+    requiredConfig: ["connectionId", "recipient", "mediaLink"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "WhatsApp", connectorAction: "send_media" },
+    defaultConfig: {
+      connectionId: "",
+      recipient: "{{contact.phone}}",
+      mediaType: "image",
+      mediaLink: "",
+      caption: ""
+    },
+    capability: "whatsapp.send",
+    requiredVariables: [],
+    producedVariables: ["whatsapp.status", "whatsapp.wamid"]
+  }),
+  def({
+    type: "action.send_whatsapp_pdf",
+    label: "Send WhatsApp PDF",
+    category: "action",
+    description: "Sends a WhatsApp PDF (document) via Meta Cloud API.",
+    requiredConfig: ["connectionId", "recipient", "mediaLink"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "WhatsApp", connectorAction: "send_media" },
+    defaultConfig: {
+      connectionId: "",
+      recipient: "{{contact.phone}}",
+      mediaType: "document",
+      mediaLink: "",
+      filename: "",
+      caption: ""
+    },
+    capability: "whatsapp.send",
+    requiredVariables: [],
+    producedVariables: ["whatsapp.status", "whatsapp.wamid"]
+  }),
+  def({
+    type: "action.send_whatsapp_voice",
+    label: "Send WhatsApp Voice",
+    category: "action",
+    description: "Sends a WhatsApp voice note (audio) via Meta Cloud API.",
+    requiredConfig: ["connectionId", "recipient", "mediaLink"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "WhatsApp", connectorAction: "send_media" },
+    defaultConfig: {
+      connectionId: "",
+      recipient: "{{contact.phone}}",
+      mediaType: "audio",
+      mediaLink: "",
+      caption: ""
+    },
+    capability: "whatsapp.send",
+    requiredVariables: [],
+    producedVariables: ["whatsapp.status", "whatsapp.wamid"]
+  }),
+  def({
+    type: "action.send_whatsapp_video",
+    label: "Send WhatsApp Video",
+    category: "action",
+    description: "Sends a WhatsApp video via Meta Cloud API.",
+    requiredConfig: ["connectionId", "recipient", "mediaLink"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "WhatsApp", connectorAction: "send_media" },
+    defaultConfig: {
+      connectionId: "",
+      recipient: "{{contact.phone}}",
+      mediaType: "video",
+      mediaLink: "",
+      caption: ""
+    },
+    capability: "whatsapp.send",
+    requiredVariables: [],
+    producedVariables: ["whatsapp.status", "whatsapp.wamid"]
+  }),
+  def({
+    type: "action.send_whatsapp_template",
+    label: "Send WhatsApp Template",
+    category: "action",
+    description: "Sends a WhatsApp template message via Meta Cloud API.",
+    requiredConfig: ["connectionId", "recipient", "templateName"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "WhatsApp", connectorAction: "send_template" },
+    defaultConfig: {
+      connectionId: "",
+      recipient: "{{contact.phone}}",
+      templateName: "",
+      languageCode: "en_US",
+      // Note: components are not currently used by the backend runner for template sending.
+    },
+    capability: "whatsapp.send",
+    requiredVariables: [],
+    producedVariables: ["whatsapp.status", "whatsapp.wamid"]
   }),
   def({
     type: "action.start_vapi_call",
@@ -1051,6 +1238,13 @@ const REQ = {
     config: ["emailAlias", "forwardToEmail"],
     note: "Sends from the buyer's <alias>@reply.triven.ai proxy address — the buyer picks the alias in Mail Setup."
   },
+  whatsapp: {
+    connector: "whatsapp",
+    label: "WhatsApp Business",
+    ownedBy: "platform",
+    config: ["connectionId"],
+    note: "Architect connects a Meta Cloud API WhatsApp number under Integrations → WhatsApp."
+  },
   telegram: {
     connector: "telegram",
     label: "Telegram bot",
@@ -1068,6 +1262,7 @@ const REQ = {
 export const REQUIRED_CONNECTORS_BY_TYPE: Record<string, ConnectorRequirement[]> = {
   "trigger.twilio_missed_call": [REQ.phoneProvider],
   "trigger.twilio_inbound_sms": [REQ.twilioSms],
+  "trigger.whatsapp_message_received": [REQ.whatsapp],
   [TELEGRAM_NODE_TYPES.trigger]: [REQ.telegram],
   [TELEGRAM_NODE_TYPES.sendMessage]: [REQ.telegram],
   [TELEGRAM_NODE_TYPES.sendButtons]: [REQ.telegram],
@@ -1081,6 +1276,8 @@ export const REQUIRED_CONNECTORS_BY_TYPE: Record<string, ConnectorRequirement[]>
   [TELEGRAM_NODE_TYPES.deleteMessage]: [REQ.telegram],
   "trigger.vapi_tool_call": [REQ.vapi],
   "action.send_sms": [REQ.twilioSms],
+  "action.send_whatsapp": [REQ.whatsapp],
+  "communication.send_whatsapp": [REQ.whatsapp],
   "action.start_vapi_call": [REQ.vapi],
   "action.google_calendar_create_appointment": [REQ.googleCalendarWrite],
   "action.google_calendar_availability": [REQ.googleCalendarRead],
@@ -1177,7 +1374,10 @@ export const VOICE_NODE_PRESENTATION: Record<string, { kind: string; icon: strin
   [VOICE_NODE_TYPES.bookAppointment]: { kind: "CALENDAR", icon: "calendar", accent: "blue" },
   [VOICE_NODE_TYPES.sendSms]: { kind: "TWILIO SMS", icon: "message", accent: "green" },
   [VOICE_NODE_TYPES.sendEmail]: { kind: "TRIVEN MAIL", icon: "mail", accent: "green" },
-  [VOICE_NODE_TYPES.endFlow]: { kind: "END FLOW", icon: "capture", accent: "slate" }
+  [VOICE_NODE_TYPES.endFlow]: { kind: "END FLOW", icon: "capture", accent: "slate" },
+  "trigger.whatsapp_message_received": { kind: "WHATSAPP", icon: "whatsapp", accent: "green" },
+  "action.send_whatsapp": { kind: "WHATSAPP", icon: "whatsapp", accent: "green" },
+  "communication.send_whatsapp": { kind: "WHATSAPP", icon: "whatsapp", accent: "green" }
 };
 
 /**
@@ -1215,6 +1415,109 @@ export function buildVoiceBookingWorkflow(): {
     source: defs[index].type,
     target: def.type
   }));
+
+  return { nodes, edges };
+}
+
+type TemplateWorkflowNode = {
+  id: string;
+  type: string;
+  position: { x: number; y: number };
+  data: Record<string, unknown>;
+};
+
+type TemplateWorkflowEdge = {
+  id: string;
+  source: string;
+  target: string;
+};
+
+/**
+ * Reset a builder node to registry defaults for template gallery storage.
+ * Keeps graph identity (id/position/type) and presentation fields, but drops
+ * architect-filled values (connection IDs, custom prompts, recipients, etc.).
+ */
+export function nodeDataForTemplate(data: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const source: Record<string, unknown> = data && typeof data === "object" ? data : {};
+  const type = typeof source.type === "string" ? source.type : "";
+  const def = type ? getNodeDefinition(type) : undefined;
+  const presentation = type ? VOICE_NODE_PRESENTATION[type] : undefined;
+  const nodeKind =
+    def?.runtime.nodeKind ?? (typeof source.nodeKind === "string" ? source.nodeKind : "connector");
+  const fallbackKind = (def?.label || type || "NODE").toUpperCase();
+  const existingKind = typeof source.kind === "string" ? source.kind : "";
+  const kind = existingKind || presentation?.kind || fallbackKind;
+  const existingLabel = typeof source.label === "string" ? source.label : "";
+  const existingTitle = typeof source.title === "string" ? source.title : "";
+  const existingSubtitle = typeof source.subtitle === "string" ? source.subtitle : "";
+  const existingIcon = typeof source.icon === "string" ? source.icon : "";
+  const existingAccent = typeof source.accent === "string" ? source.accent : "";
+
+  return {
+    type,
+    nodeKind,
+    kind,
+    label: existingLabel || def?.label || type || "Node",
+    title: existingTitle || def?.label || type || "Node",
+    subtitle: def?.description || existingSubtitle,
+    icon: presentation?.icon || existingIcon || "message",
+    accent: presentation?.accent || existingAccent || "slate",
+    ...(def?.runtime.connector ? { connector: def.runtime.connector } : {}),
+    ...(def?.runtime.connectorAction ? { connectorAction: def.runtime.connectorAction } : {}),
+    ...(def?.defaultConfig ?? {})
+  };
+}
+
+/**
+ * Build template-safe workflow JSON: same nodes/edges topology, no filled config values.
+ */
+export function workflowJsonForTemplate(workflowJson: unknown): {
+  nodes: TemplateWorkflowNode[];
+  edges: TemplateWorkflowEdge[];
+} {
+  if (!workflowJson || typeof workflowJson !== "object") {
+    return { nodes: [], edges: [] };
+  }
+
+  const graph = workflowJson as { nodes?: unknown; edges?: unknown };
+  const nodesIn = Array.isArray(graph.nodes) ? graph.nodes : [];
+  const edgesIn = Array.isArray(graph.edges) ? graph.edges : [];
+
+  const nodes: TemplateWorkflowNode[] = nodesIn.map((raw, index) => {
+    const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+    const id = typeof record.id === "string" && record.id ? record.id : `node-${index + 1}`;
+    const positionRecord =
+      record.position && typeof record.position === "object"
+        ? (record.position as Record<string, unknown>)
+        : null;
+    const position = {
+      x: typeof positionRecord?.x === "number" ? positionRecord.x : 80 + index * 280,
+      y: typeof positionRecord?.y === "number" ? positionRecord.y : 300
+    };
+    const data =
+      record.data && typeof record.data === "object"
+        ? (record.data as Record<string, unknown>)
+        : {};
+
+    return {
+      id,
+      type: typeof record.type === "string" && record.type ? record.type : "coreNode",
+      position,
+      data: nodeDataForTemplate(data)
+    };
+  });
+
+  const edges: TemplateWorkflowEdge[] = [];
+  edgesIn.forEach((raw, index) => {
+    if (!raw || typeof raw !== "object") return;
+    const record = raw as Record<string, unknown>;
+    if (typeof record.source !== "string" || typeof record.target !== "string") return;
+    edges.push({
+      id: typeof record.id === "string" && record.id ? record.id : `e${index + 1}`,
+      source: record.source,
+      target: record.target
+    });
+  });
 
   return { nodes, edges };
 }

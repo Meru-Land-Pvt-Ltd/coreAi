@@ -157,6 +157,24 @@ export function defaultNodeData(
       };
     }
 
+    if (connector === "WhatsApp") {
+      return {
+        ...base,
+        label: "Send WhatsApp Message",
+        title: "Send WhatsApp Message",
+        kind: "WHATSAPP",
+        icon: "whatsapp",
+        accent: "green",
+        subtitle: "Send a WhatsApp text message via Meta Cloud API",
+        connector: "WhatsApp",
+        connectorAction: "send_text",
+        connectionId: "",
+        recipient: "{{contact.phone}}",
+        message: "Hello {{contact.name}}",
+        ...overrides
+      };
+    }
+
     return {
       ...base,
       label: "Send SMS",

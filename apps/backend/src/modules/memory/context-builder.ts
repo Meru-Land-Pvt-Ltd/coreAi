@@ -20,12 +20,17 @@ export function mergeWorkflowMemory(params: {
     ...(params.previousMemory ? [params.previousMemory] : []),
     ...params.backLinkedMemories,
   ]);
+  // Memory Node outputs hold the full raw memory string. That string is
+  // delivered to AI nodes exactly once, in resolved form, by the smart-memory
+  // layer — re-embedding it here would double the tokens under the threshold
+  // and smuggle the entire raw corpus past vector retrieval above it.
+  const forOutputs = all.filter((m) => m.nodeType !== "ai.memory");
   return {
     originalPrompt: params.originalPrompt,
     summaries: all.map((m) => m.summary).filter((s): s is string => Boolean(s)),
-    variables: Object.assign({}, ...all.map((m) => m.variables ?? {})),
-    outputs: all.map((m) => ({ nodeId: m.nodeId, nodeType: m.nodeType, output: m.output })),
-    files: all.flatMap((m) => m.files ?? []),
+    variables: Object.assign({}, ...forOutputs.map((m) => m.variables ?? {})),
+    outputs: forOutputs.map((m) => ({ nodeId: m.nodeId, nodeType: m.nodeType, output: m.output })),
+    files: forOutputs.flatMap((m) => m.files ?? []),
     metadata: params.workflowMetadata,
     totalTokens: all.reduce((sum, m) => sum + (m.tokenInput ?? 0) + (m.tokenOutput ?? 0), 0),
     totalCostCents: all.reduce((sum, m) => sum + (m.costCents ?? 0), 0),

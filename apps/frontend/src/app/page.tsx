@@ -548,7 +548,7 @@ export default function HomePage() {
                   <path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-4 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
                 </g>
                 <text x="64" y="40" fill="#0f172a" fontFamily="Inter, sans-serif" fontSize="15" fontWeight="600">Send SMS</text>
-                <text x="64" y="58" fill="#475569" fontFamily="Inter, sans-serif" fontSize="11">Twilio · WhatsApp</text>
+                <text x="64" y="58" fill="#475569" fontFamily="Inter, sans-serif" fontSize="11">Twilio{/* · WhatsApp */}</text>
               </g>
 
               <g transform="translate(620,205)">
@@ -757,7 +757,7 @@ export default function HomePage() {
             <div className="mt-14">
               <p className="text-center text-xs font-semibold uppercase tracking-[0.18em] text-slate-500" data-testid="home-works-with-the-tools-you-already-use-text">Works with the tools you already use</p>
               <div className="mt-6 flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
-                {["Twilio", "WhatsApp", "Gmail", "Slack", "Stripe", "Google Calendar", "HubSpot", "Shopify"].map((t) => (
+                {["Twilio", /* "WhatsApp", */ "Gmail", "Slack", "Stripe", "Google Calendar", "HubSpot", "Shopify"].map((t) => (
                   <span key={t} className="text-lg font-semibold tracking-wide text-slate-500 transition hover:text-slate-600" data-testid="home-t-text">{t}</span>
                 ))}
               </div>

@@ -37,6 +37,8 @@ model User {
   loginHistory         UserLoginHistory[]
   activeSessions       UserActiveSession[]
   roleMemberships      UserRoleMembership[]
+  memoryRecords        MemoryRecord[]
+  whatsappConnections  WhatsAppConnection[]
 
   @@unique([email, role])
   @@index([role])
@@ -105,6 +107,7 @@ model WorkflowDefinition {
   listings             AgentListing[]
   installedAgents      InstalledAgent[]
   workflowRuns         WorkflowRun[]
+  memoryRecords        MemoryRecord[]
   architect            User                 @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
   @@index([architectUserId])
@@ -278,6 +281,7 @@ model Business {
   smsConsents     SmsConsent[]
   specialHours    BusinessSpecialHours[]
   executionUsages AgentUsageExecution[]
+  memoryRecords   MemoryRecord[]
   telegramBots    TelegramBotConnection[]
   telegramStates  TelegramConversationState[]
   telegramActions TelegramMessageExecution[]
@@ -398,6 +402,7 @@ model InstalledAgent {
   executionUsages           AgentUsageExecution[]
   usageInvoices             BusinessUsageInvoice[]
   payments                  Payment[]
+  memoryRecords             MemoryRecord[]
   telegramBot               TelegramBotConnection?
   telegramStates            TelegramConversationState[]
   telegramActions           TelegramMessageExecution[]
@@ -1334,6 +1339,19 @@ enum ConnectorProvider {
   TWILIO
   GOOGLE_CALENDAR
   VAPI
+  WHATSAPP
+}
+
+enum WhatsAppConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  PENDING
+}
+
+enum WhatsAppMessageDirection {
+  INBOUND
+  OUTBOUND
 }
 
 enum PlatformPhoneStatus {
@@ -1555,6 +1573,70 @@ model ContextLink {
   @@index([fromNodeRunId])
   @@index([toNodeRunId])
   @@index([linkStatus])
+}
+
+model MemoryRecord {
+  id               String   @id @default(cuid())
+  scopeKey         String /// Compound retrieval scope (tenant|workflow|node|conversation)
+  businessId       String?
+  installedAgentId String?
+  architectUserId  String?
+  workflowId       String?
+  workflowRunId    String?
+  threadId         String?
+  nodeId           String? /// Memory node canvas id
+  testSessionId    String?
+  callerKey        String? /// Customer/caller identity (phone) when known
+  sourceType       String   @default("node_output") /// node_output | attachment | notes | variables
+  sourceLabel      String?
+  content          String /// Complete original text before chunking
+  tokenCount       Int      @default(0)
+  contentHash      String
+  embeddingStatus  String   @default("pending") /// pending | complete | unavailable
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  business       Business?           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent InstalledAgent?     @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  workflow       WorkflowDefinition? @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  architect      User?               @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  chunks         MemoryChunk[]
+
+  @@unique([scopeKey, contentHash])
+  @@index([scopeKey])
+  @@index([businessId, createdAt])
+  @@index([architectUserId, createdAt])
+  @@index([testSessionId])
+  @@index([createdAt])
+}
+
+model MemoryChunk {
+  id             String                       @id @default(cuid())
+  recordId       String?
+  scopeKey       String /// Same compound scope as the parent MemoryRecord
+  workflowRunId  String?
+  nodeRunId      String?
+  threadId       String?
+  workflowId     String?
+  nodeId         String? /// Memory node canvas id
+  sourceType     String                       @default("node_output") /// node_output | attachment | notes | variables
+  sourceLabel    String?
+  chunkIndex     Int                          @default(0)
+  content        String
+  tokenCount     Int                          @default(0)
+  contentHash    String
+  embedding      Unsupported("vector(1536)")?
+  embeddingModel String?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+
+  record MemoryRecord? @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@unique([scopeKey, contentHash])
+  @@index([recordId])
+  @@index([scopeKey])
+  @@index([workflowRunId])
+  @@index([threadId])
 }
 
 enum EmailAliasStatus {
@@ -1950,4 +2032,90 @@ model IntegrationDisclosureConsent {
 
   @@index([userId, integration, createdAt])
   @@index([businessId])
+}
+
+/// Architect-owned Meta Cloud API WhatsApp connection (MVP manual credentials).
+model WhatsAppConnection {
+  id                   String                   @id @default(cuid())
+  architectUserId      String
+  /// Reserved for later buyer mapping; unused in MVP.
+  businessId           String?
+  displayName          String?
+  businessName         String?
+  phoneNumber          String
+  /// Meta phone_number_id — public ID used for webhook routing (plaintext).
+  phoneNumberId        String
+  /// Meta WhatsApp Business Account ID (plaintext).
+  businessAccountId    String
+  accessTokenEnc       String
+  webhookVerifyTokenEnc String
+  appSecretEnc         String?
+  status               WhatsAppConnectionStatus @default(PENDING)
+  qualityRating        String?
+  lastConnectedAt      DateTime?
+  lastError            String?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  architect     User                   @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  conversations WhatsAppConversation[]
+  webhookLogs   WhatsAppWebhookLog[]
+
+  @@unique([architectUserId, phoneNumber])
+  @@unique([phoneNumberId])
+  @@index([architectUserId])
+  @@index([status])
+}
+
+model WhatsAppConversation {
+  id             String    @id @default(cuid())
+  connectionId   String
+  contactPhone   String
+  contactName    String?
+  lastMessage    String?
+  lastMessageAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  connection WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  messages   WhatsAppMessage[]
+
+  @@unique([connectionId, contactPhone])
+  @@index([connectionId])
+  @@index([contactPhone])
+}
+
+model WhatsAppMessage {
+  id             String                   @id @default(cuid())
+  conversationId String
+  direction      WhatsAppMessageDirection
+  /// Meta wamid — used for idempotency.
+  wamid          String?                  @unique
+  type           String
+  text           String?
+  mediaUrl       String?
+  status         String?
+  timestamp      DateTime
+  createdAt      DateTime                 @default(now())
+
+  conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([timestamp])
+}
+
+model WhatsAppWebhookLog {
+  id           String   @id @default(cuid())
+  connectionId String?
+  payloadJson  Json
+  headersJson  Json?
+  verified     Boolean  @default(false)
+  processed    Boolean  @default(false)
+  error        String?
+  createdAt    DateTime @default(now())
+
+  connection WhatsAppConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  @@index([connectionId])
+  @@index([createdAt])
 }

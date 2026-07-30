@@ -9,8 +9,11 @@ import {
   getNodeDefinition,
   resolveLlmSelection
 } from "@coreai/shared";
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
+import { listWhatsAppConnections, type WhatsAppConnection } from "@/components/architect/features/api";
+import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
+import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
 import { LlmNodeInspector } from "./llm-node-inspector";
@@ -36,11 +39,6 @@ type NodePropsPanel = {
   variableNodePrefixes?: string[];
 };
 
-/**
- * Amber inline warning for {{variables}} the platform cannot fill. Unknown
- * variables never error a call — they are silently stripped before the prompt
- * reaches Vapi — so this note is how a typo gets caught while typing.
- */
 function UnknownVariablesNote({
   text,
   nodePrefixes,
@@ -121,7 +119,10 @@ export function NodeInspector({
     panel = <BookCalendarAppointmentProps {...base} calendar={calendar} ownership={ownership} />;
   } else if (type === VOICE_NODE_TYPES.sendEmail) panel = <SendEmailProps {...base} />;
   else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
-  else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
+  else if (type === "trigger.whatsapp_message_received") panel = <WhatsAppTriggerProps {...base} />;
+  else if (type === "action.send_whatsapp" || type === "communication.send_whatsapp") {
+    panel = <WhatsAppSendProps {...base} />;
+  } else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
   else if (selectedNode.data.nodeKind === "trigger") panel = <TriggerProps {...base} />;
   else if (selectedNode.data.nodeKind === "ai") panel = <AiProps {...base} />;
   else if (selectedNode.data.nodeKind === "condition") panel = <ConditionProps {...base} />;
@@ -390,6 +391,24 @@ function RequirementNotice({
   );
 }
 
+function WhatsAppRequirementNotice({
+  children,
+  testId
+}: {
+  children: ReactNode;
+  testId?: string;
+}) {
+  return (
+    <div data-testid={testId} className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-3">
+      <p className="flex items-center gap-1.5 text-xs font-bold text-emerald-800">
+        <WhatsAppIcon className="h-3.5 w-3.5 text-emerald-600" />
+        Architect WhatsApp setup
+      </p>
+      <p className="mt-1 text-[11px] leading-5 text-emerald-900/80">{children}</p>
+    </div>
+  );
+}
+
 function CalendarConnect({ calendar }: { calendar: CalendarConnection }) {
   if (calendar.connected) {
     return (
@@ -428,10 +447,6 @@ function CalendarConnect({ calendar }: { calendar: CalendarConnection }) {
   );
 }
 
-/**
- * Architect-mode connector display: requirement badges only.
- * No OAuth and no "Connect" button in architect template builder.
- */
 function ConnectorRequirements({ node }: { node: BuilderNode }) {
   const type = String(node.data.type ?? "");
   const requirements = getNodeDefinition(type)?.requiredConnectors ?? [];
@@ -623,6 +638,26 @@ function nodeOverview(node: BuilderNode): StepOverview {
     };
   }
 
+  if (type === "trigger.whatsapp_message_received") {
+    return {
+      tone: "green",
+      summary: "Starts when a WhatsApp message arrives on your connected Meta Cloud API number.",
+      needs: ["WhatsApp connection", "Message filters"],
+      creates: ["Contact name", "Contact phone", "Message text"],
+      setup: ["Architect connects WhatsApp under Integrations → WhatsApp"]
+    };
+  }
+
+  if (type === "action.send_whatsapp" || type === "communication.send_whatsapp") {
+    return {
+      tone: "green",
+      summary: "Sends a WhatsApp text message through Meta Cloud API.",
+      needs: ["WhatsApp connection", "Recipient", "Message body"],
+      creates: ["WhatsApp delivery status", "Message id"],
+      setup: ["Architect WhatsApp connection must be CONNECTED"]
+    };
+  }
+
   if (type === VOICE_NODE_TYPES.endFlow) {
     return {
       tone: "slate",
@@ -805,11 +840,6 @@ function AdvancedVariableGroup({
   );
 }
 
-/**
- * Collapsed-by-default technical panel: variable mappings and developer
- * details. The default inspector stays plain-language; power users expand
- * this to wire {{variables}} between steps.
- */
 function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
   const [open, setOpen] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -1298,6 +1328,294 @@ function SendEmailProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   );
 }
 
+function useWhatsAppConnections() {
+  const [connections, setConnections] = useState<WhatsAppConnection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void listWhatsAppConnections()
+      .then((res) => {
+        if (cancelled) return;
+        setConnections(res.data?.connections ?? []);
+        setError("");
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load WhatsApp connections");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
+
+  return {
+    connections,
+    loading,
+    error,
+    reload: () => setReloadToken((value) => value + 1)
+  };
+}
+
+function WhatsAppConnectionPicker({
+  value,
+  onChange,
+  testId
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  testId: string;
+}) {
+  const { connections, loading, error, reload } = useWhatsAppConnections();
+  const [connectOpen, setConnectOpen] = useState(false);
+  const options: SelectBoxOption[] = [
+    { value: "", label: loading ? "Loading connections…" : "Select a WhatsApp connection" },
+    ...connections.map((c) => ({
+      value: c.id,
+      label: `${c.displayName || c.businessName || c.phoneNumber} (${c.status})`
+    }))
+  ];
+
+  return (
+    <div data-testid={testId}>
+      <SelectBox value={value} onChange={onChange} options={options} testId={`${testId}-select`} />
+      {error ? <p className="mt-2 text-[11px] text-rose-600">{error}</p> : null}
+      {!loading && connections.length === 0 ? (
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          No WhatsApp connections yet.{" "}
+          <button
+            type="button"
+            onClick={() => setConnectOpen(true)}
+            className="inline-flex items-center gap-1 font-semibold text-amber-700 hover:underline"
+            data-testid={`${testId}-connect-link`}
+          >
+            
+            Connect WhatsApp
+          </button>
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConnectOpen(true)}
+          className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 hover:underline"
+          data-testid={`${testId}-connect-another`}
+        >
+          <WhatsAppIcon className="h-3 w-3" />
+          Connect another WhatsApp
+        </button>
+      )}
+      <WhatsAppConnectModal
+        open={connectOpen}
+        onClose={() => setConnectOpen(false)}
+        onConnected={(connection) => {
+          void reload();
+          onChange(connection.id);
+        }}
+      />
+    </div>
+  );
+}
+
+function WhatsAppTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="WhatsApp connection">
+        <WhatsAppRequirementNotice testId="whatsapp-trigger-requirement">
+          Inbound WhatsApp messages run this workflow when they arrive on the selected Meta Cloud API number.
+        </WhatsAppRequirementNotice>
+
+        <div className="mt-4">
+          <Label>Connection</Label>
+          <WhatsAppConnectionPicker
+            value={str("connectionId")}
+            onChange={set("connectionId")}
+            testId="whatsapp-trigger-connection"
+          />
+        </div>
+      </Section>
+
+      <Section title="Filters" last>
+        <Label>Listen for</Label>
+        <SelectBox
+          value={str("listenFor", "all")}
+          onChange={set("listenFor")}
+          options={[
+            { value: "all", label: "All messages" },
+            { value: "text", label: "Text only" },
+            { value: "image", label: "Images" },
+            { value: "document", label: "Documents" },
+            { value: "audio", label: "Audio" },
+            { value: "video", label: "Video" }
+          ]}
+          testId="whatsapp-trigger-listen-for"
+        />
+
+        <div className="mt-4">
+          <BoolField label="Ignore group messages" value={flag("ignoreGroups", true)} onChange={set("ignoreGroups")} />
+        </div>
+        <div className="mt-3">
+          <BoolField
+            label="Ignore status / reaction messages"
+            value={flag("ignoreStatusMessages", true)}
+            onChange={set("ignoreStatusMessages")}
+          />
+        </div>
+
+        <p className="mt-3 text-[11px] leading-5 text-slate-400">
+          Variables available: {"{{contact.name}}"}, {"{{contact.phone}}"}, {"{{message.text}}"}, {"{{customer.phone}}"}
+        </p>
+      </Section>
+    </>
+  );
+}
+
+function WhatsAppSendProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const messageType = str("whatsappMessageType", "text");
+
+  return (
+    <>
+      <Section title="WhatsApp connection">
+        <WhatsAppRequirementNotice testId="whatsapp-send-requirement">
+          Messages are sent with your connected Meta Cloud API credentials (not buyer Twilio).
+        </WhatsAppRequirementNotice>
+
+        <div className="mt-4">
+          <Label>Connection</Label>
+          <WhatsAppConnectionPicker
+            value={str("connectionId")}
+            onChange={set("connectionId")}
+            testId="whatsapp-send-connection"
+          />
+        </div>
+      </Section>
+
+      <Section title="Message" last>
+        <Label>Message type</Label>
+        <SelectBox
+          value={messageType}
+          onChange={set("whatsappMessageType")}
+          options={[
+            { value: "text", label: "Text" },
+            { value: "image", label: "Image" },
+            { value: "document", label: "Document / PDF" },
+            { value: "audio", label: "Audio / Voice" },
+            { value: "video", label: "Video" },
+            { value: "template", label: "Template" }
+          ]}
+          testId="whatsapp-send-message-type"
+        />
+
+        <div className="mt-4">
+          <Label>Recipient</Label>
+          <TextInput
+            mono
+            value={str("recipient", "{{contact.phone}}")}
+            onChange={set("recipient")}
+            placeholder="{{contact.phone}}"
+          />
+        </div>
+
+        {messageType === "text" ? (
+          <div className="mt-4">
+            <Label>Message body</Label>
+            <TextArea
+              height="h-24"
+              value={str("message", "Hello {{contact.name}}")}
+              onChange={set("message")}
+              placeholder="Hello {{contact.name}}, thanks for reaching out."
+            />
+            <UnknownVariablesNote text={str("message")} nodePrefixes={variableNodePrefixes} testId="whatsapp-send-unknown-vars" />
+          </div>
+        ) : null}
+
+        {messageType === "template" ? (
+          <>
+            <div className="mt-4">
+              <Label>Template name</Label>
+              <TextInput
+                mono
+                value={str("templateName")}
+                onChange={set("templateName")}
+                placeholder="hello_world"
+                data-testid="whatsapp-send-template-name"
+              />
+            </div>
+            <div className="mt-4">
+              <Label>Language code</Label>
+              <TextInput
+                mono
+                value={str("languageCode", "en_US")}
+                onChange={set("languageCode")}
+                data-testid="whatsapp-send-template-language"
+              />
+            </div>
+          </>
+        ) : null}
+
+        {messageType === "image" || messageType === "document" || messageType === "audio" || messageType === "video" ? (
+          <>
+            <div className="mt-4">
+              <Label>Media link (URL)</Label>
+              <TextInput
+                mono
+                value={str("mediaLink")}
+                onChange={set("mediaLink")}
+                placeholder="https://..."
+                data-testid="whatsapp-send-media-link"
+              />
+            </div>
+            <div className="mt-4">
+              <Label>Media ID (optional)</Label>
+              <TextInput
+                mono
+                value={str("mediaId")}
+                onChange={set("mediaId")}
+                placeholder="Meta media id"
+                data-testid="whatsapp-send-media-id"
+              />
+            </div>
+            {messageType !== "audio" ? (
+              <div className="mt-4">
+                <Label>Caption (optional)</Label>
+                <TextArea
+                  height="h-20"
+                  value={str("caption", str("message"))}
+                  onChange={set("caption")}
+                />
+              </div>
+            ) : null}
+            {messageType === "document" ? (
+              <div className="mt-4">
+                <Label>Filename (optional)</Label>
+                <TextInput
+                  mono
+                  value={str("filename")}
+                  onChange={set("filename")}
+                  placeholder="file.pdf"
+                  data-testid="whatsapp-send-media-filename"
+                />
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
+        <p className="mt-3 text-[11px] leading-5 text-slate-400">
+          Tip: use {"{{contact.phone}}"} or {"{{customer.phone}}"} for the recipient.
+        </p>
+      </Section>
+    </>
+  );
+}
+
 function SendSmsProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
 
@@ -1367,6 +1685,11 @@ function EndFlowProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 }
 
 /* ----------------- Generic panels for the remaining nodes ----------------- */
+
+function isManualTriggerNode(node: { data?: Record<string, unknown>; type?: unknown }): boolean {
+  const dataType = String(node.data?.type ?? node.type ?? "").toLowerCase();
+  return dataType === "trigger.manual" || dataType === "manual_trigger" || dataType === "manual";
+}
 
 function TelegramTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
@@ -1769,128 +2092,19 @@ function TelegramActionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel)
 
 function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
-  const isManual =
-    selectedNode.data.type === "trigger.manual" ||
-    selectedNode.data.type === "manual_trigger" ||
-    selectedNode.data.nodeKind === "trigger" ||
-    String(selectedNode.data.kind ?? "").toUpperCase() === "TRIGGER";
+  const isManual = isManualTriggerNode(selectedNode);
 
   if (isManual) {
-    const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
-
-    const handleRemoveAttachment = (indexToRemove: number) => {
-      const updated = attachments.filter((_, idx) => idx !== indexToRemove);
-      onUpdateNodeData("attachments", updated);
-    };
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      if (file.size > 5 * 1024 * 1024) {
-        alert("File is too large. Maximum size is 5MB.");
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64Data = event.target?.result as string;
-        const newAttachment: AIAttachment = {
-          name: file.name,
-          mimeType: file.type || "application/octet-stream",
-          data: base64Data,
-        };
-        onUpdateNodeData("attachments", [...attachments, newAttachment]);
-      };
-      reader.readAsDataURL(file);
-      e.target.value = "";
-    };
-
     return (
       <>
-        <Section title="Input Config">
+        <Section title="Input Config" last>
           <Label>Input</Label>
           <TextArea
             value={str("input")}
             onChange={set("input")}
-            height="h-32"
+            height="h-20"
             placeholder="Enter Input text input..."
           />
-        </Section>
-
-        <Section title="Attachments" last>
-          <div className="space-y-3">
-            {attachments.length > 0 && (
-              <div className="space-y-2 mb-3">
-                {attachments.map((att, idx) => {
-                  const isImage = att.mimeType.startsWith("image/");
-                  const isPdf = att.mimeType === "application/pdf";
-                  
-                  return (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5 transition hover:border-amber-100 hover:bg-amber-50/10"
-                    >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span className="flex h-8 w-8 shrink-0 place-items-center justify-center rounded-lg bg-white border border-slate-100 text-sm shadow-sm">
-                          {isImage ? "🖼️" : isPdf ? "📄" : "📁"}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-semibold text-slate-700 leading-tight">
-                            {att.name || `attachment-${idx + 1}`}
-                          </p>
-                          <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate uppercase">
-                            {att.mimeType}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveAttachment(idx)}
-                        className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors"
-                        aria-label="Remove attachment"
-                      >
-                        <BuilderIcon name="x" className="h-4 w-4" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="relative">
-              <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer bg-slate-50/40 hover:bg-amber-50/20 hover:border-amber-300 transition-all duration-200 group">
-                <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                  <svg
-                    className="w-6 h-6 mb-2 text-slate-400 group-hover:text-amber-500 transition-colors"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                    ></path>
-                  </svg>
-                  <p className="text-[11px] font-semibold text-slate-500 group-hover:text-amber-600 transition-colors">
-                    Click or drag file to attach
-                  </p>
-                  <p className="text-[9px] text-slate-400 mt-1">
-                    Supports Images, PDFs, Docs (Max 5MB)
-                  </p>
-                </div>
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  onChange={handleFileChange}
-                />
-              </label>
-            </div>
-          </div>
         </Section>
       </>
     );
@@ -1920,7 +2134,7 @@ function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   );
 }
 
-function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+function MemoryNodeProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
   const [copied, setCopied] = useState(false);
@@ -1966,28 +2180,27 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
       <Section title="General">
         <Label>Node name</Label>
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
-
-        <div className="mt-4">
-          <Label>Summary</Label>
-          <TextInput value={str("subtitle", "Aggregates memory and documents")} onChange={set("subtitle")} />
-        </div>
       </Section>
 
-      <Section title="Memory Notes & Guidelines">
-        <Label>Custom notes for downstream steps</Label>
+      <Section title="Memory configuration">
+        <Label>Custom context</Label>
         <TextArea
           value={str("customMemoryNotes", str("notes"))}
           onChange={set("customMemoryNotes")}
           height="h-36"
-          placeholder="Type any instructions or story guidelines for downstream steps... (e.g. Keep responses friendly and fantasy-styled)"
+          placeholder="Type custom context or guidelines for downstream steps..."
         />
-        <p className="mt-2 text-[11px] text-slate-400">
-          These notes are stored directly into memory and passed to all connected downstream steps.
-        </p>
+        <UnknownVariablesNote
+          text={str("customMemoryNotes", str("notes"))}
+          nodePrefixes={variableNodePrefixes}
+          testId="memory-node-notes-variable-warning"
+        />
       </Section>
 
-      <Section title="Manual Attachments & Documents">
+      <Section title="Attachments">
         <div className="space-y-3">
+          <Label>Files (Images / PDFs / Docs)</Label>
+
           {attachments.length > 0 && (
             <div className="space-y-2 mb-3">
               {attachments.map((att, idx) => {
@@ -2061,7 +2274,7 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
         </div>
       </Section>
 
-      <Section title="Output Variable" last>
+      <Section title="Output variable" last>
         <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-3.5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-violet-800">Memory Variable</span>
@@ -2074,7 +2287,7 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
             </button>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-            Paste <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-violet-700">{"{{memory}}"}</code> into any downstream AI step prompt to pass all previous steps and attached files automatically.
+            Memory is passed to connected AI steps automatically — no setup needed. Optionally paste <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-violet-700">{"{{memory}}"}</code> into a prompt to control exactly where it appears.
           </p>
         </div>
       </Section>
@@ -2082,19 +2295,28 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   );
 }
 
-function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+function AiProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
   if (selectedNode.data.type === "ai.memory") {
-    return <MemoryNodeProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} />;
+    return <MemoryNodeProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} variableNodePrefixes={variableNodePrefixes} />;
   }
 
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const lastOutput = str("lastTestOutput");
 
-  // Provider first, then its models — same pairing the AI Brain node uses, so
-  // a model can never be sent to a provider that cannot run it.
   const { availability: aiAvailability } = useLlmAvailability();
   const aiSelection = resolveLlmSelection(str("provider"), str("model"));
   const aiModelId = aiSelection.modelId ?? defaultLlmModelForProvider(aiSelection.providerId) ?? "";
+
+  useEffect(() => {
+    if (!aiAvailability) return;
+    if (isProviderDisabled(aiAvailability, aiSelection.providerId)) {
+      const firstUsable = LLM_PROVIDERS.find((p) => !isProviderDisabled(aiAvailability, p.id));
+      if (firstUsable && firstUsable.id !== aiSelection.providerId) {
+        onUpdateNodeData("provider", firstUsable.id);
+        onUpdateNodeData("model", defaultLlmModelForProvider(firstUsable.id) ?? "");
+      }
+    }
+  }, [aiAvailability, aiSelection.providerId, onUpdateNodeData]);
 
   return (
     <>
@@ -2118,9 +2340,6 @@ function AiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
             onUpdateNodeData("model", defaultLlmModelForProvider(providerId) ?? "");
           }}
           options={LLM_PROVIDERS.map((provider) => ({
-            // Same rule as the AI Brain node: a provider the backend cannot
-            // run is greyed out rather than failing at run time. The label
-            // stays clean — the disabled state is the whole signal.
             value: provider.id,
             label: provider.displayName,
             disabled: isProviderDisabled(aiAvailability, provider.id)
@@ -2198,7 +2417,9 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
   const isVapi = connector === "Vapi";
   const isCalendar = connector === "Google Calendar";
   const isCore = connector === "CoreAI" || connector === "Triven";
+  const isWhatsApp = connector === "WhatsApp";
   const coreAction = str("connectorAction", "save_lead");
+  const whatsappMessageType = str("whatsappMessageType", "text");
 
   return (
     <>
@@ -2212,7 +2433,7 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
         </div>
       </Section>
 
-      <Section title={isGmail ? "Gmail" : isVapi ? "Vapi voice" : isCalendar ? "Google Calendar" : isCore ? "Triven action" : "SMS"} last>
+      <Section title={isGmail ? "Gmail" : isVapi ? "Vapi voice" : isCalendar ? "Google Calendar" : isCore ? "Triven action" : isWhatsApp ? "WhatsApp" : "SMS"} last>
         {isGmail ? (
           <>
             <ConnectorRequirements node={selectedNode} />
@@ -2337,6 +2558,117 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
               </p>
             ) : null}
           </div>
+        ) : isWhatsApp ? (
+          <>
+            <ConnectorRequirements node={selectedNode} />
+            <div className="mt-4">
+              <Label>Connection</Label>
+              <WhatsAppConnectionPicker
+                value={str("connectionId")}
+                onChange={set("connectionId")}
+                testId="whatsapp-connector-connection"
+              />
+            </div>
+            {coreAction === "send_template" ? (
+              <>
+                <div className="mt-4">
+                  <Label>Recipient</Label>
+                  <TextInput mono value={str("recipient", "{{contact.phone}}")} onChange={set("recipient")} />
+                </div>
+                <div className="mt-4">
+                  <Label>Template name</Label>
+                  <TextInput mono value={str("templateName")} onChange={set("templateName")} />
+                </div>
+                <div className="mt-4">
+                  <Label>Language code</Label>
+                  <TextInput mono value={str("languageCode", "en_US")} onChange={set("languageCode")} />
+                </div>
+              </>
+            ) : coreAction === "send_media" ? (
+              <>
+                <div className="mt-4">
+                  <Label>Recipient</Label>
+                  <TextInput mono value={str("recipient", "{{contact.phone}}")} onChange={set("recipient")} />
+                </div>
+                <div className="mt-4">
+                  <Label>Media type</Label>
+                  <SelectBox
+                    value={str("mediaType", "image")}
+                    onChange={set("mediaType")}
+                    options={["image", "document", "audio", "video"]}
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>Media link (URL)</Label>
+                  <TextInput mono value={str("mediaLink")} onChange={set("mediaLink")} placeholder="https://..." />
+                </div>
+                <div className="mt-4">
+                  <Label>Media ID (optional)</Label>
+                  <TextInput mono value={str("mediaId")} onChange={set("mediaId")} placeholder="Meta media id" />
+                </div>
+                <div className="mt-4">
+                  <Label>Caption (optional)</Label>
+                  <TextArea height="h-[88px]" value={str("caption", str("message"))} onChange={set("caption")} />
+                </div>
+                <div className="mt-4">
+                  <Label>Filename (optional, documents)</Label>
+                  <TextInput mono value={str("filename")} onChange={set("filename")} placeholder="file.pdf" />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mt-4">
+                  <Label>Recipient</Label>
+                  <TextInput mono value={str("recipient", "{{contact.phone}}")} onChange={set("recipient")} />
+                </div>
+                <div className="mt-4">
+                  <Label>WhatsApp content type</Label>
+                  <SelectBox
+                    value={whatsappMessageType}
+                    onChange={set("whatsappMessageType")}
+                    options={["text", "image", "document", "audio", "video", "template"]}
+                    data-testid="whatsapp-content-type"
+                  />
+                </div>
+                {whatsappMessageType === "text" ? (
+                  <div className="mt-4">
+                    <Label>Message</Label>
+                    <TextArea height="h-[88px]" value={str("message")} onChange={set("message")} data-testid="whatsapp-message-text" />
+                  </div>
+                ) : whatsappMessageType === "template" ? (
+                  <>
+                    <div className="mt-4">
+                      <Label>Template name</Label>
+                      <TextInput mono value={str("templateName")} onChange={set("templateName")} data-testid="whatsapp-template-name" />
+                    </div>
+                    <div className="mt-4">
+                      <Label>Language code</Label>
+                      <TextInput mono value={str("languageCode", "en_US")} onChange={set("languageCode")} data-testid="whatsapp-template-language-code" />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-4">
+                      <Label>Media link (URL)</Label>
+                      <TextInput mono value={str("mediaLink")} onChange={set("mediaLink")} placeholder="https://..." data-testid="whatsapp-media-link" />
+                    </div>
+                    <div className="mt-4">
+                      <Label>Media ID (optional)</Label>
+                      <TextInput mono value={str("mediaId")} onChange={set("mediaId")} placeholder="Meta media id" data-testid="whatsapp-media-id" />
+                    </div>
+                    <div className="mt-4">
+                      <Label>Caption (optional)</Label>
+                      <TextArea height="h-[88px]" value={str("caption", str("message"))} onChange={set("caption")} data-testid="whatsapp-media-caption" />
+                    </div>
+                    <div className="mt-4">
+                      <Label>Filename (optional, documents)</Label>
+                      <TextInput mono value={str("filename")} onChange={set("filename")} placeholder="file.pdf" data-testid="whatsapp-media-filename" />
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </>
         ) : (
           <>
             <ConnectorRequirements node={selectedNode} />

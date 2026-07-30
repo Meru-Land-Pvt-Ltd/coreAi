@@ -3,10 +3,12 @@
 import type { Route } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CoreFooter } from "@/components/common/footer";
+import { MarketplaceFeaturedSection } from "@/components/common/marketplace-featured-section";
 import { apiGet } from "@/lib/api";
-import { ASSIGNMENT_PATH } from "@/lib/routes";
+import { ASSIGNMENT_PATH, businessCheckoutPath, publicAgentPath } from "@/lib/routes";
+import { getConnectorIncludedItem } from "@coreai/shared";
 import { BotIcon, Download, Search } from "lucide-react";
 
 type Agent = {
@@ -14,6 +16,7 @@ type Agent = {
   name: string;
   category: string;
   industry: string;
+  industries: string[];
   description: string;
   price: number;
   installs: number;
@@ -21,10 +24,15 @@ type Agent = {
   author: string;
   isNew?: boolean;
   freeTrial?: boolean;
+  tags: string[];
+  requiredConnectors: string[];
+  supportedLlms: string[];
+  whatYouGet: string[];
   createdAt?: string;
   pricingModel?: string | null;
   freeTrialEnabled?: boolean | null;
   trialDays?: number | null;
+  iconUrl?: string | null;
 };
 
 type ApiArchitectProfile = {
@@ -63,6 +71,8 @@ type ApiListing = {
   priceCents?: number | null;
   status?: string;
   tags?: string[];
+  industryTags?: string[];
+  category?: string | null;
   requiredConnectors?: string[];
   supportedLlms?: string[];
   createdAt?: string;
@@ -73,6 +83,9 @@ type ApiListing = {
   pricingModel?: string | null;
   freeTrialEnabled?: boolean | null;
   trialDays?: number | null;
+  iconUrl?: string | null;
+  includedFeatures?: string[];
+  capabilities?: string[];
 };
 
 type ListingsApiResponse = {
@@ -92,6 +105,7 @@ type Industry = {
 };
 
 const LISTINGS_API_PATH = "/architect/listings/public";
+const MARKETPLACE_AGENTS_SECTION_ID = "marketplace-agents";
 
 const baseIndustries: Omit<Industry, "count">[] = [
   { id: "all", label: "All industries", icon: "✨" },
@@ -222,24 +236,45 @@ function normalizeIndustryId(value: string) {
   return industryAliasByTag[normalized] ?? normalized;
 }
 
-function getAgentIndustry(listing: ApiListing) {
+function getAgentIndustries(listing: ApiListing): string[] {
+  const fromIndustryTags = (listing.industryTags ?? []).map((tag) => tag.trim()).filter(Boolean);
+  if (fromIndustryTags.length > 0) {
+    return Array.from(new Set(fromIndustryTags));
+  }
+
   const tags = listing.tags ?? [];
+  const prefixed = tags
+    .filter((tag) => tag.toLowerCase().startsWith("industry:"))
+    .map((tag) => tag.replace(/^industry:/i, "").trim())
+    .filter(Boolean);
+  if (prefixed.length > 0) {
+    return Array.from(new Set(prefixed));
+  }
 
-  const industryTag =
-    tags.find((tag) => tag.toLowerCase().startsWith("industry:")) ??
-    tags.find((tag) => Boolean(industryAliasByTag[normalizeFilterValue(tag)]));
+  return [];
+}
 
-  if (!industryTag) return "all";
-
-  return normalizeIndustryId(industryTag.replace(/^industry:/i, ""));
+function getAgentIndustry(listing: ApiListing) {
+  const industries = getAgentIndustries(listing);
+  if (industries.length === 0) return "all";
+  return normalizeFilterValue(industries[0]);
 }
 
 function getAgentCategory(listing: ApiListing) {
+  if (listing.category?.trim()) {
+    return formatLabel(listing.category.trim());
+  }
+
+  const industrySet = new Set(getAgentIndustries(listing).map((tag) => tag.toLowerCase()));
   const tags = listing.tags ?? [];
 
   const categoryTag =
     tags.find((tag) => tag.toLowerCase().startsWith("category:")) ??
-    tags.find((tag) => !tag.toLowerCase().startsWith("industry:"));
+    tags.find((tag) => {
+      const lower = tag.toLowerCase();
+      if (lower.startsWith("industry:")) return false;
+      return !industrySet.has(lower);
+    });
 
   if (categoryTag) {
     return formatLabel(categoryTag.replace(/^category:/i, ""));
@@ -250,6 +285,31 @@ function getAgentCategory(listing: ApiListing) {
   }
 
   return "AI Agent";
+}
+
+function getWhatYouGetItems(listing: ApiListing): string[] {
+  const fromFeatures = (listing.includedFeatures ?? [])
+    .map((feature) => feature.trim())
+    .filter(Boolean);
+  if (fromFeatures.length) return fromFeatures;
+
+  const fromNodes = (listing.capabilities ?? [])
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (fromNodes.length) return fromNodes;
+
+  const connectors = listing.requiredConnectors ?? [];
+  if (connectors.length) {
+    return connectors.map((connector) => getConnectorIncludedItem(connector));
+  }
+
+  return [
+    listing.shortDescription ||
+      listing.description ||
+      listing.workflow?.description ||
+      "Automates business workflows with AI.",
+  ];
 }
 
 function isRecentlyCreated(createdAt?: string) {
@@ -264,14 +324,40 @@ function isRecentlyCreated(createdAt?: string) {
   return Date.now() - createdTime <= thirtyDays;
 }
 
+function getWhatYouGetItems(listing: ApiListing): string[] {
+  const fromFeatures = (listing.includedFeatures ?? [])
+    .map((feature) => feature.trim())
+    .filter(Boolean);
+  if (fromFeatures.length) return fromFeatures;
+
+  const fromNodes = (listing.capabilities ?? [])
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (fromNodes.length) return fromNodes;
+
+  const connectors = listing.requiredConnectors ?? [];
+  if (connectors.length) {
+    return connectors.map((connector) => getConnectorIncludedItem(connector));
+  }
+
+  return [
+    listing.shortDescription ||
+      listing.description ||
+      listing.workflow?.description ||
+      "Automates business workflows with AI."
+  ];
+}
+
 function mapListingToAgent(listing: ApiListing): Agent {
   const profile = listing.architect?.architectProfile;
+  const industries = getAgentIndustries(listing);
 
   return {
     id: listing.id,
     name: listing.name,
     category: getAgentCategory(listing),
     industry: getAgentIndustry(listing),
+    industries,
     description:
       listing.shortDescription ||
       listing.description ||
@@ -286,11 +372,19 @@ function mapListingToAgent(listing: ApiListing): Agent {
       listing.architect?.email ||
       "Triven Architect",
     isNew: isRecentlyCreated(listing.createdAt),
-    freeTrial: (listing.priceCents ?? 0) === 0 || listing.pricingModel === "FREE" || Boolean(listing.freeTrialEnabled),
+    freeTrial:
+      (listing.priceCents ?? 0) === 0 ||
+      listing.pricingModel === "FREE" ||
+      Boolean(listing.freeTrialEnabled),
+    tags: listing.tags ?? [],
+    requiredConnectors: listing.requiredConnectors ?? [],
+    supportedLlms: listing.supportedLlms ?? [],
+    whatYouGet: getWhatYouGetItems(listing),
     createdAt: listing.createdAt,
     pricingModel: listing.pricingModel,
     freeTrialEnabled: listing.freeTrialEnabled,
-    trialDays: listing.trialDays
+    trialDays: listing.trialDays,
+    iconUrl: listing.iconUrl?.trim() || null
   };
 }
 
@@ -301,10 +395,19 @@ function industryMatchesFilter(agentIndustry: string, selectedIndustry: string) 
   return broadIndustryGroups[selectedIndustry]?.includes(agentIndustry) ?? false;
 }
 
+function agentMatchesIndustry(agent: Agent, industryId: string) {
+  if (industryId === "all") return true;
+  if (industryMatchesFilter(agent.industry, industryId)) return true;
+
+  return agent.industries.some((label) =>
+    industryMatchesFilter(normalizeIndustryId(label), industryId)
+  );
+}
+
 function getIndustryAgentCount(industryId: string, agents: Agent[]) {
   if (industryId === "all") return agents.length;
 
-  return agents.filter((agent) => industryMatchesFilter(agent.industry, industryId)).length;
+  return agents.filter((agent) => agentMatchesIndustry(agent, industryId)).length;
 }
 
 function isIndustryAvailable(id: string, agents: Agent[]) {
@@ -336,38 +439,6 @@ function buildFilterIndustriesWithCounts(agents: Agent[]): Industry[] {
   }));
 }
 
-function getAgentInitials(name: string) {
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-
-  return initials || "AI";
-}
-
-function getAgentPreviewQuestion(agent: Agent) {
-  const industryLabel = getIndustryDisplayLabel(agent.industry).toLowerCase();
-
-  if (agent.industry === "dental") return "Do you have openings this week for a cleaning?";
-  if (agent.industry === "restaurant") return "Can I book a table for tonight?";
-  if (agent.industry === "realestate") return "Can I schedule a property viewing?";
-  if (agent.industry === "plumber" || agent.industry === "hvac" || agent.industry === "electrician") {
-    return "Can you send someone out this week?";
-  }
-
-  return `Can you help me with ${industryLabel}?`;
-}
-
-function getAgentPreviewReply(agent: Agent) {
-  const firstSentence = agent.description.split(/[.!?]/)[0]?.trim();
-
-  if (firstSentence) return `${firstSentence}.`;
-
-  return "Yes — I can help with availability, questions, and next steps.";
-}
-
 const sortOptions = [
   { value: "popular", label: "Most popular" },
   { value: "priceLow", label: "Price: low to high" },
@@ -379,7 +450,6 @@ const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 
 const HOME_PATH = "/" as Route;
 const BUSINESS_LOGIN_PATH = "/business/login" as Route;
-const BUSINESS_SETUP_PATH = "/business/agents/setup" as Route;
 const ARCHITECT_LOGIN_PATH = "/architect/login" as Route;
 
 type SortValue = (typeof sortOptions)[number]["value"];
@@ -399,6 +469,23 @@ export default function MarketplacePage() {
   const [priceMax, setPriceMax] = useState(200);
   const [minRating, setMinRating] = useState(0);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+
+  const scrollToAgents = useCallback(() => {
+    const section = document.getElementById(MARKETPLACE_AGENTS_SECTION_ID);
+    if (!section) return;
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    const timer = window.setTimeout(() => {
+      scrollToAgents();
+    }, 280);
+
+    return () => window.clearTimeout(timer);
+  }, [query, scrollToAgents]);
 
   useEffect(() => {
     let mounted = true;
@@ -450,11 +537,11 @@ export default function MarketplacePage() {
     const filtered = agents.filter((agent) => {
       const matchesQuery =
         !cleanQuery ||
-        `${agent.name} ${agent.category} ${agent.description}`
+        `${agent.name} ${agent.category} ${agent.description} ${agent.tags.join(" ")} ${agent.industries.join(" ")} ${agent.requiredConnectors.join(" ")} ${agent.supportedLlms.join(" ")}`
           .toLowerCase()
           .includes(cleanQuery);
 
-      const matchesIndustry = industryMatchesFilter(agent.industry, industry);
+      const matchesIndustry = industry === "all" || agentMatchesIndustry(agent, industry);
 
       const matchesPrice = agent.price >= priceMin && agent.price <= priceMax;
       const matchesRating = agent.rating >= minRating;
@@ -631,6 +718,12 @@ export default function MarketplacePage() {
                 <input data-testid="marketplace-search-input"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && query.trim()) {
+                      event.preventDefault();
+                      scrollToAgents();
+                    }
+                  }}
                   placeholder="Search agents by name, industry, or problem..."
                   className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-11 pr-4 text-sm text-slate-800 placeholder:text-slate-400 transition focus:border-amber-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-amber-100"
                 />
@@ -667,6 +760,12 @@ export default function MarketplacePage() {
               <input data-testid="app-marketplace-page-input-1-mobile"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && query.trim()) {
+                    event.preventDefault();
+                    scrollToAgents();
+                  }
+                }}
                 placeholder="Search agents by name, industry, or problem..."
                 className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-11 pr-4 text-sm text-slate-800 placeholder:text-slate-400 transition focus:border-amber-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-amber-100"
               />
@@ -728,6 +827,7 @@ export default function MarketplacePage() {
                     onClick={() => {
                       if (!hasAgents) return;
                       setIndustry(item.id);
+                      scrollToAgents();
                     }}
                     className={`group relative rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 ${hasAgents
                       ? `hover:-translate-y-1 hover:border-amber-200 hover:shadow-lg ${industry === item.id
@@ -761,131 +861,24 @@ export default function MarketplacePage() {
         </div>
 
         {featuredAgent ? (
-          <div data-testid="app-marketplace-page-div-11" className="relative mx-auto mt-12 max-w-5xl">
-            <div data-testid="app-marketplace-page-div-12" className="absolute inset-x-8 bottom-2 h-24 rounded-full bg-amber-400/30 blur-2xl" />
-
-            <div className="relative grid items-center gap-8 overflow-hidden rounded-3xl border border-amber-100 bg-white p-7 shadow-[0_30px_80px_-28px_rgba(245,158,11,.55)] sm:p-9 md:grid-cols-2">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white" data-testid="marketplace-featured-text">
-                    ⭐ Featured
-                  </span>
-                  <span data-testid="app-marketplace-page-span-6" className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-                    {featuredAgent.category}
-                  </span>
-                </div>
-
-                <h2 data-testid="app-marketplace-page-h2-1" className="mt-4 text-3xl font-extrabold text-slate-900">
-                  {featuredAgent.name}
-                </h2>
-
-                <p data-testid="app-marketplace-page-p-2" className="mt-3 text-slate-600">
-                  {featuredAgent.description}
-                </p>
-
-                <div className="mt-5 flex flex-col">
-                  <div data-testid="app-marketplace-page-div-16" className="flex items-end gap-2">
-                    {featuredAgent.pricingModel === "FREE" ? (
-                      <span className="text-2xl font-black text-slate-900" data-testid="app-marketplace-page-span-7">
-                        Free
-                      </span>
-                    ) : (
-                      <>
-                        <span className="text-2xl font-black text-slate-900" data-testid="app-marketplace-page-span-7">
-                          ${featuredAgent.price}
-                        </span>
-                        {featuredAgent.pricingModel !== "ONE_TIME" && (
-                          <span className="text-sm text-slate-500 pb-0.5" data-testid="app-marketplace-page-span-8">
-                            /month
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  <span className="text-xs font-semibold text-slate-600 mt-1">
-                    {featuredAgent.pricingModel === "FREE" ? "Free to install" : featuredAgent.pricingModel === "ONE_TIME" ? "One-time purchase" : "Monthly subscription"}
-                  </span>
-                  <span className="text-[10px] text-slate-400 italic">
-                    {featuredAgent.pricingModel === "FREE" ? "Pay only for usage" : featuredAgent.pricingModel === "ONE_TIME" ? "Usage charges apply separately" : "Usage charges billed separately"}
-                  </span>
-                </div>
-
-                <div className="mt-6 flex flex-wrap items-center gap-3">
-                  <Link
-                    data-testid="marketplace-start-free-trial-link"
-                    href={BUSINESS_SETUP_PATH}
-                    className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
-                  >
-                    {featuredAgent.pricingModel === "FREE"
-                      ? "Install Agent"
-                      : featuredAgent.freeTrialEnabled && (featuredAgent.trialDays ?? 7) > 0
-                        ? `Start ${featuredAgent.trialDays ?? 7} days free trial`
-                        : featuredAgent.pricingModel === "ONE_TIME"
-                          ? "Get It Now"
-                          : "Get Access Instantly"}
-                  </Link>
-                </div>
-
-                {featuredAgent.pricingModel !== "FREE" && featuredAgent.freeTrialEnabled && (featuredAgent.trialDays ?? 7) > 0 ? (
-                <div className="mt-5 flex flex-wrap items-center gap-x-8 gap-y-3 text-sm font-medium text-slate-500 sm:text-base">
-                  <span className="inline-flex items-center gap-2">
-                    <span className="text-lg font-bold leading-none text-amber-500">✓</span>
-                    {featuredAgent.trialDays ?? 7}-day free trial
-                  </span>
-
-                  <span className="inline-flex items-center gap-2">
-                    <span className="text-lg font-bold leading-none text-amber-500">✓</span>
-                    Cancel anytime
-                  </span>
-                </div>
-                ) : null}
-              </div>
-
-              <div className="flex justify-center md:justify-end">
-                <div className="relative w-[240px] rotate-3 rounded-[2.4rem] border-[10px] border-slate-900 bg-slate-900 shadow-2xl">
-                  <div className="overflow-hidden rounded-[1.7rem] bg-slate-50">
-                    <div className="flex items-center gap-2.5 bg-white px-4 pb-3 pt-6">
-                      <span className="grid h-8 w-8 place-items-center rounded-full bg-amber-500 text-[11px] font-bold text-white" data-testid="marketplace-bs-text">
-                        {getAgentInitials(featuredAgent.name)}
-                      </span>
-                      <div>
-                        <p className="max-w-[150px] truncate text-[13px] font-semibold text-slate-900" data-testid="marketplace-bright-smile-dental-text">
-                          {featuredAgent.name}
-                        </p>
-                        <p className="text-[10px] text-emerald-500" data-testid="marketplace-active-now-text">
-                          ● Active now
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2.5 px-3 py-4 text-[12px] leading-snug">
-                      <div className="mx-auto w-fit rounded-full bg-slate-200/70 px-3 py-1 text-[10px] text-slate-500">
-                        Missed call · 9:42 AM
-                      </div>
-                      <Message mine>
-                        Hi! This is {featuredAgent.name}. Sorry we missed your call. How can we help?
-                      </Message>
-                      <Message>
-                        {getAgentPreviewQuestion(featuredAgent)}
-                      </Message>
-                      <Message mine>
-                        {getAgentPreviewReply(featuredAgent)}
-                      </Message>
-                    </div>
-
-                    <div className="flex items-center gap-2 border-t border-gray-100 bg-white px-3 py-2.5">
-                      <div className="flex-1 rounded-full bg-gray-100 px-3 py-1.5 text-[11px] text-slate-400">
-                        Text message…
-                      </div>
-                      <span className="grid h-7 w-7 place-items-center rounded-full bg-amber-500 text-white">
-                        ➤
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <MarketplaceFeaturedSection
+            agent={featuredAgent}
+            primaryAction={
+              <Link
+                data-testid="marketplace-start-free-trial-link"
+                href={businessCheckoutPath(featuredAgent.id)}
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-3 font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:bg-amber-600"
+              >
+                {featuredAgent.pricingModel === "FREE"
+                  ? "Install Agent"
+                  : featuredAgent.freeTrialEnabled && (featuredAgent.trialDays ?? 7) > 0
+                    ? `Start ${featuredAgent.trialDays ?? 7} days free trial`
+                    : featuredAgent.pricingModel === "ONE_TIME"
+                      ? "Get It Now"
+                      : "Get Access Instantly"}
+              </Link>
+            }
+          />
         ) : null}
       </section>
 
@@ -1167,7 +1160,11 @@ export default function MarketplacePage() {
         </div>
       </section>
 
-      <section data-testid="app-marketplace-page-section-4" className="bg-gray-50 py-12">
+      <section
+        id={MARKETPLACE_AGENTS_SECTION_ID}
+        data-testid="app-marketplace-page-section-4"
+        className="scroll-mt-28 bg-gray-50 py-12"
+      >
         <div data-testid="app-marketplace-page-div-33" className="w-full max-w-none px-4 sm:px-6 lg:px-8">
           {isLoading ? (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -1300,25 +1297,6 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Message({
-  children,
-  mine
-}: {
-  children: React.ReactNode;
-  mine?: boolean;
-}) {
-  return (
-    <div
-      className={`max-w-[82%] rounded-2xl px-3 py-2 shadow-sm ${mine
-        ? "ml-auto rounded-br-md bg-amber-500 text-white"
-        : "mr-auto rounded-bl-md bg-white text-slate-700"
-        }`}
-    >
-      {children}
-    </div>
-  );
-}
-
 function AgentGridCard({
   agent,
   onViewDetails
@@ -1326,18 +1304,22 @@ function AgentGridCard({
   agent: Agent;
   onViewDetails: () => void;
 }) {
+  const category = agent.category;
+  const otherTags = Array.from(
+    new Set(
+      [...(agent.industries ?? []), ...(agent.tags ?? [])].map((t) => t.trim()).filter(Boolean)
+    )
+  ).filter((tag) => tag.toLowerCase() !== category.toLowerCase());
+  const visibleOtherTags = otherTags.slice(0, 3);
+  const extraOtherTagsCount = Math.max(0, otherTags.length - 3);
+
   return (
     <article
       className="group flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
     >
       <div className="flex-1 p-6">
         <div className="flex items-start justify-between">
-          <span className="grid h-12 w-12 place-items-center rounded-xl bg-amber-50 text-xl ring-1 ring-amber-100">
-            
-            <BotIcon
-              className="h-6 w-6 text-amber-500"
-            />
-          </span>
+          <AgentCardIcon iconUrl={agent.iconUrl} size={12} />
 
           <div className="text-right flex flex-col items-end">
             <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white block" data-testid="marketplace-agent-price-text">
@@ -1366,14 +1348,61 @@ function AgentGridCard({
           ) : null}
         </h3>
 
-        <div className="mt-2 flex flex-wrap gap-2">
-          <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600" data-testid="marketplace-agent-category-text">
-            {agent.category}
-          </span>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {category ? (
+            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600" data-testid="marketplace-agent-category-text">
+              {category}
+            </span>
+          ) : null}
 
-          <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700" data-testid="marketplace-agent-industry-all-industries-agent-industry-text">
-            {getIndustryDisplayLabel(agent.industry)}
-          </span>
+          {otherTags.length > 0 ? (
+            <div className="group/tags relative" data-testid={`marketplace-agent-tags-container-${agent.id}`}>
+              <div className="inline-flex max-w-full flex-wrap items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                {visibleOtherTags.map((tag, index) => (
+                  <span
+                    key={`${tag}-${index}`}
+                    className="flex items-center text-[11px] font-semibold text-amber-700"
+                  >
+                    {tag}
+                    {index < visibleOtherTags.length - 1 || extraOtherTagsCount > 0 ? (
+                      <span className="mx-1 font-bold text-amber-700">·</span>
+                    ) : null}
+                  </span>
+                ))}
+                {extraOtherTagsCount > 0 ? (
+                  <span
+                    className="text-[11px] font-bold text-amber-700"
+                    data-testid={`marketplace-agent-tags-more-${agent.id}`}
+                    aria-label={`${extraOtherTagsCount} more tags`}
+                  >
+                    +{extraOtherTagsCount}
+                  </span>
+                ) : null}
+              </div>
+              {extraOtherTagsCount > 0 ? (
+                <div
+                  role="tooltip"
+                  className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden max-w-[min(100%,18rem)] rounded-xl border border-amber-100 bg-white px-3 py-2 shadow-lg group-hover/tags:block"
+                  data-testid={`marketplace-agent-tags-tooltip-${agent.id}`}
+                >
+                  <div className="flex flex-wrap gap-1.5">
+                    {otherTags.map((tag, index) => (
+                      <span
+                        key={`${tag}-${index}`}
+                        className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700" data-testid="marketplace-agent-industry-all-industries-agent-industry-text">
+              {getIndustryDisplayLabel(agent.industry)}
+            </span>
+          )}
         </div>
 
         <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-slate-600" data-testid="marketplace-agent-description-text">
@@ -1412,11 +1441,7 @@ function AgentListCard({
 }) {
   return (
     <article className="group flex flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg sm:flex-row sm:items-center">
-      <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-amber-50 text-xl ring-1 ring-amber-100">
-        <BotIcon
-          className="h-6 w-6 text-amber-500"
-        />
-      </span>
+      <AgentCardIcon iconUrl={agent.iconUrl} size={14} />
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -1478,12 +1503,29 @@ function AgentDetailsModal({
   agent: Agent;
   onClose: () => void;
 }) {
-  const features = [
-    "Connects to your existing tools and workflow in minutes",
-    "Fully editable automation setup based on your business needs",
-    "Built for service-business automation",
-    "Ready to install and test with your team"
-  ];
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+
+  const industryLabel =
+    agent.industries && agent.industries.length > 0
+      ? agent.industries.join(" · ")
+      : agent.industry === "all"
+        ? "All industries"
+        : getIndustryDisplayLabel(agent.industry);
+
+  const hasFreeTrial = Boolean(agent.freeTrialEnabled) && (agent.trialDays ?? 7) > 0 && agent.pricingModel !== "FREE";
+  const trialDays = agent.trialDays ?? 7;
 
   return (
     <div
@@ -1510,9 +1552,12 @@ function AgentDetailsModal({
         <div className="border-b border-slate-100 px-6 py-6 sm:px-7">
           <div className="flex items-start gap-4 pr-10">
             <span className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl border border-amber-200 bg-amber-50 text-3xl">
-              <BotIcon
-                className="h-6 w-6 text-amber-500"
-              />
+              {agent.iconUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={agent.iconUrl} alt={agent.name} className="h-full w-full object-cover rounded-2xl" />
+              ) : (
+                <BotIcon className="h-6 w-6 text-amber-500" />
+              )}
             </span>
 
             <div className="min-w-0">
@@ -1522,12 +1567,12 @@ function AgentDetailsModal({
                 </span>
 
                 <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700" data-testid="marketplace-agent-industry-all-industries-agent-industry-text-2">
-                  {getIndustryDisplayLabel(agent.industry)}
+                  {industryLabel}
                 </span>
 
-                {agent.pricingModel !== "FREE" && agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0 ? (
+                {hasFreeTrial ? (
                   <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700" data-testid="marketplace-free-trial-text">
-                    {agent.trialDays ?? 7}-day trial
+                    {trialDays}-day trial
                   </span>
                 ) : null}
               </div>
@@ -1554,11 +1599,11 @@ function AgentDetailsModal({
 
           <div className="mt-7">
             <h3 className="text-sm font-black uppercase tracking-[0.12em] text-slate-400" data-testid="marketplace-what-you-get-heading">
-              What you get
+              What's Included
             </h3>
 
             <div className="mt-4 space-y-3">
-              {features.map((feature) => (
+              {agent.whatYouGet.map((feature) => (
                 <div key={feature} className="flex items-start gap-3">
                   <span className="mt-0.5 text-sm font-black text-amber-500">✓</span>
                   <p className="text-sm leading-6 text-slate-600" data-testid="marketplace-feature-text">{feature}</p>
@@ -1597,17 +1642,24 @@ function AgentDetailsModal({
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Link data-testid="marketplace-start-free-trial-link-2"
-              href={BUSINESS_SETUP_PATH}
+            <Link
+              data-testid="marketplace-start-free-trial-link-2"
+              href={businessCheckoutPath(agent.id)}
               className="inline-flex min-w-[166px] items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-amber-500/25 transition hover:bg-amber-600"
             >
-              {agent.pricingModel === "FREE"
-                ? "Install agent"
-                : agent.freeTrialEnabled && (agent.trialDays ?? 7) > 0
-                  ? `Start ${agent.trialDays ?? 7}-day free trial`
-                  : agent.pricingModel === "ONE_TIME"
-                    ? "Get It Now"
-                    : "Get Access Instantly"}
+              {hasFreeTrial
+                ? `Start ${trialDays}-day Free Trial`
+                : agent.pricingModel === "FREE"
+                  ? "Install Agent"
+                  : "Buy This Agent"}
+            </Link>
+
+            <Link
+              data-testid="marketplace-modal-view-full-details"
+              href={publicAgentPath(agent.id)}
+              className="inline-flex min-w-[140px] items-center justify-center gap-2 rounded-xl border-2 border-amber-500 px-5 py-3 text-sm font-bold text-amber-600 transition hover:bg-amber-50"
+            >
+              View Full Details
             </Link>
           </div>
         </div>

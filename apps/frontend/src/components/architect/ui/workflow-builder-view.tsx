@@ -35,6 +35,7 @@ import {
   getArchitectWorkflow,
   getGmailConnectorStatus,
   getGmailOAuthUrl,
+  // listWhatsAppConnections, // WhatsApp feature paused
   postGmailDisclosureConsent,
   getLatestArchitectTestEvent,
   getWorkflowConfigure,
@@ -66,6 +67,8 @@ function browserTimeZone(): string {
   }
 }
 import { getAuthUser } from "@/lib/auth";
+// Temporarily hidden — WhatsApp feature paused
+// import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
 import { BuilderHeader } from "./workflow-builder/builder-header";
 import { BuilderStatusBar } from "./workflow-builder/builder-status-bar";
 import { ComponentLibrary } from "./workflow-builder/component-library";
@@ -91,6 +94,11 @@ const BUILDER_TABS: readonly BuilderTab[] = ["build", "test", "configure", "publ
 
 function isBuilderTab(value: string | null): value is BuilderTab {
   return Boolean(value) && (BUILDER_TABS as readonly string[]).includes(value as string);
+}
+
+export function isManualTriggerNode(node: { data?: Record<string, unknown>; type?: unknown }): boolean {
+  const dataType = String(node.data?.type ?? node.type ?? "").toLowerCase();
+  return dataType === "trigger.manual" || dataType === "manual_trigger" || dataType === "manual";
 }
 
 function testInputsStashKey(workflowId: string): string {
@@ -119,6 +127,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [gmailEmail, setGmailEmail] = useState<string | null>(null);
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
+  // Temporarily paused — WhatsApp feature
+  const [whatsappConnected] = useState(false);
+  // const [connectingWhatsApp, setConnectingWhatsApp] = useState(false);
+  // const [whatsappConnectOpen, setWhatsAppConnectOpen] = useState(false);
+  const connectingWhatsApp = false;
   const [googleDisclosureOpen, setGoogleDisclosureOpen] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgentName);
   const [tagline, setTagline] = useState(defaultAgentDescription);
@@ -235,6 +248,16 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     [nodes]
   );
 
+  const hasWhatsAppFlow = useMemo(
+    () =>
+      nodes.some((node) => {
+        const type = String(node.data.type ?? "").toLowerCase();
+        const connector = String(node.data.connector ?? "").toLowerCase();
+        return type.includes("whatsapp") || connector === "whatsapp";
+      }),
+    [nodes]
+  );
+
   // Voice workflow = uses the generic voice-booking nodes (phone trigger / AI
   // voice conversation). The Dental AI Receptionist template is one of these.
   const isVoiceWorkflow = useMemo(() => {
@@ -271,22 +294,76 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     testDeployment?.status === "READY" || Boolean(testDeployment?.assignedPhoneNumber);
   const needsTwilioConnection = liveSandboxActive && (isVoiceWorkflow || hasSmsFlow);
   const needsVapiConnection = liveSandboxActive && isVoiceWorkflow;
+  // Temporarily hide WhatsApp connection UI
+  const needsWhatsAppConnection = false; // was: hasWhatsAppFlow;
+  void hasWhatsAppFlow;
   const needsAnyTestConnection =
-    needsGoogleConnection || needsCalendarConnection || needsTwilioConnection || needsVapiConnection;
+    needsGoogleConnection ||
+    needsCalendarConnection ||
+    needsTwilioConnection ||
+    needsVapiConnection ||
+    needsWhatsAppConnection;
 
   const isDentalWorkflow = useMemo(() => {
     const name = `${agentName} ${workflow?.name ?? ""}`.toLowerCase();
     return isVoiceWorkflow && name.includes("dental");
   }, [agentName, workflow?.name, isVoiceWorkflow]);
 
-  const isManualTriggerWorkflow = useMemo(() => {
-    return nodes.some(
-      (node) =>
-        ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
-        node.data.nodeKind === "trigger" ||
-        String(node.data.kind ?? "").toUpperCase() === "TRIGGER"
-    );
+  const isMissedCallWorkflow = useMemo(() => {
+    return nodes.some((node) => {
+      const type = String(node.data.type ?? "").toLowerCase();
+      const title = String(node.data.title ?? "").toLowerCase();
+      const label = String(node.data.label ?? "").toLowerCase();
+      return (
+        type === "trigger.twilio_missed_call" ||
+        type === "twilio_missed_call" ||
+        type === "missed_call" ||
+        title.includes("missed call") ||
+        label.includes("missed call")
+      );
+    });
   }, [nodes]);
+
+  const isSmsWorkflow = useMemo(() => {
+    return nodes.some((node) => {
+      const type = String(node.data.type ?? "").toLowerCase();
+      const title = String(node.data.title ?? "").toLowerCase();
+      const label = String(node.data.label ?? "").toLowerCase();
+      return (
+        type === "trigger.twilio_inbound_sms" ||
+        type === "twilio_inbound_sms" ||
+        type === "inbound_sms" ||
+        title.includes("inbound sms") ||
+        label.includes("inbound sms")
+      );
+    });
+  }, [nodes]);
+
+  const isManualTriggerWorkflow = useMemo(() => {
+    const hasCallOrVoice =
+      isVoiceWorkflow ||
+      nodes.some((node) => {
+        const type = String(node.data.type ?? "").toLowerCase();
+        return (
+          type === VOICE_NODE_TYPES.phoneCallTrigger ||
+          type === "trigger.phone_call" ||
+          type === "phone_call"
+        );
+      });
+
+    if (hasCallOrVoice || isMissedCallWorkflow || isSmsWorkflow) {
+      return false;
+    }
+
+    return nodes.some((node) => {
+      const dataType = String(node.data.type ?? node.type ?? "").toLowerCase();
+      return (
+        dataType === "trigger.manual" ||
+        dataType === "manual_trigger" ||
+        dataType === "manual"
+      );
+    });
+  }, [nodes, isVoiceWorkflow, isMissedCallWorkflow, isSmsWorkflow]);
 
   // Send Email node present → the Test tab offers a Test Email recipient field.
   const hasEmailNode = useMemo(
@@ -346,7 +423,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
         creatingDraftRef.current = false;
 
-        if (!res.success || !res.data) return false;
+        if (!res.success || !res.data) {
+          if (res.error) setMessage(`Save failed: ${res.error}`);
+          return false;
+        }
 
         const newId = res.data.workflow.id;
 
@@ -365,6 +445,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         description: snap.tagline,
         workflowJson: { nodes: snap.nodes, edges: snap.edges }
       });
+
+      if (!res.success && res.error) {
+        setMessage(`Save failed: ${res.error}`);
+      }
 
       return res.success;
     },
@@ -443,12 +527,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       setEdges(parsedEdges);
       setSelectedNodeId(parsedNodes[0]?.id ?? null);
 
-      const triggerNode = parsedNodes.find(
-        (node) =>
-          ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
-          node.data.nodeKind === "trigger" ||
-          String(node.data.kind ?? "").toUpperCase() === "TRIGGER"
-      );
+      const triggerNode = parsedNodes.find(isManualTriggerNode);
       if (triggerNode) {
         if (typeof triggerNode.data.input === "string" && triggerNode.data.input) {
           setTriggerMessage(triggerNode.data.input);
@@ -474,6 +553,15 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
   }
 
+  // Temporarily paused — WhatsApp feature
+  // async function loadWhatsAppStatus() {
+  //   const result = await listWhatsAppConnections();
+  //   if (!result.success) return;
+  //
+  //   const connections = result.data?.connections ?? [];
+  //   setWhatsAppConnected(connections.some((c) => c.status === "CONNECTED"));
+  // }
+
   async function loadTestDeployment() {
     const id = currentWorkflowIdRef.current;
     if (!id) return;
@@ -487,6 +575,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   /** Opens the mandatory pre-OAuth disclosure — OAuth starts only from its agree action. */
   function connectGmail() {
     setGoogleDisclosureOpen(true);
+  }
+
+  // Temporarily paused — WhatsApp feature
+  // function connectWhatsApp() {
+  //   setWhatsAppConnectOpen(true);
+  // }
+  function connectWhatsApp() {
+    // no-op while WhatsApp is paused
   }
 
   async function handleGoogleDisclosureAgreed() {
@@ -549,7 +645,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   async function refreshConnections() {
     setMessage("Refreshing connection status...");
-    await Promise.all([loadGmailStatus(), loadTestDeployment()]);
+    await Promise.all([loadGmailStatus(), /* loadWhatsAppStatus(), */ loadTestDeployment()]);
     setMessage("Connection status refreshed");
   }
 
@@ -616,6 +712,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   useEffect(() => {
     void loadWorkflow();
     void loadGmailStatus();
+    // Temporarily paused — WhatsApp feature
+    // void loadWhatsAppStatus();
     void loadTestDeployment();
   }, [workflowId]);
 
@@ -775,10 +873,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       currentNodes.map((node) => {
         if (node.id !== selectedNodeId) return node;
 
-        const isTriggerNode =
-          ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
-          node.data.nodeKind === "trigger" ||
-          String(node.data.kind ?? "").toUpperCase() === "TRIGGER";
+        const isTriggerNode = isManualTriggerNode(node);
 
         if (isTriggerNode) {
           if (field === "input") {
@@ -1017,103 +1112,105 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setChatting(true);
     setMessage("Running browser call test...");
 
-    const saved = await saveAgent(false);
+    try {
+      const saved = await saveAgent(false);
 
-    if (!saved || !currentWorkflowIdRef.current) {
-      setChatting(false);
-      setMessage("Save the agent before testing browser call.");
-      return null;
-    }
-
-    const previousMessages = conversationMessagesRef.current.slice(-30);
-
-    const pendingMessages = isCallStart
-      ? previousMessages
-      : [
-        ...previousMessages,
-        {
-          role: "user" as const,
-          content: cleanMessage,
-          createdAt: new Date().toISOString()
-        }
-      ];
-
-    setConversationTranscript(pendingMessages);
-
-    const serviceName = appointmentService.trim();
-    const result = await runArchitectConversationTest(currentWorkflowIdRef.current, {
-      message: cleanMessage,
-      history: previousMessages,
-      testSessionId: testSessionIdRef.current,
-      useTestCalendar,
-      // After-hours simulation ("current" = no override, real behavior).
-      simulateBusinessHoursState: testAfterHoursState,
-      testContext: {
-        businessName: businessName.trim() || "Sample Business",
-        businessType: businessType.trim() || "Service Business",
-        callerName: callerName.trim() || "Test caller",
-        callerPhone: callerNumber.trim() || "+15555550100",
-        calendarId: calendarId.trim() || "primary",
-        timeZone: timeZone.trim() || browserTimeZone(),
-        // The exact service the architect typed — the backend only falls back
-        // when nothing was supplied.
-        appointmentService: serviceName || undefined,
-        // Test-form date/time seed the booking; chat statements still win.
-        requestedDate: testDate || undefined,
-        requestedTime: testTime || undefined,
-        services: serviceName
-          ? [serviceName, "General inquiry"]
-          : ["Consultation", "Appointment booking", "General inquiry"],
-        faqs: [
-          "Pricing depends on the selected service.",
-          "Urgent requests should be escalated to the team."
-        ]
+      if (!saved || !currentWorkflowIdRef.current) {
+        setMessage("Save the agent before testing browser call.");
+        return null;
       }
-    });
 
-    setChatting(false);
+      const previousMessages = conversationMessagesRef.current.slice(-30);
 
-    if (!result.success || !result.data) {
-      const errorMessage = result.error ?? "Could not run browser call test.";
+      const pendingMessages = isCallStart
+        ? previousMessages
+        : [
+          ...previousMessages,
+          {
+            role: "user" as const,
+            content: cleanMessage,
+            createdAt: new Date().toISOString()
+          }
+        ];
 
-      const assistantError: ArchitectConversationMessage = {
-        role: "assistant",
-        content: errorMessage,
-        createdAt: new Date().toISOString()
-      };
+      setConversationTranscript(pendingMessages);
 
-      setConversationTranscript([...pendingMessages, assistantError]);
-      setMessage(errorMessage);
+      const serviceName = appointmentService.trim();
+      const result = await runArchitectConversationTest(currentWorkflowIdRef.current, {
+        message: cleanMessage,
+        history: previousMessages,
+        testSessionId: testSessionIdRef.current,
+        useTestCalendar,
+        // After-hours simulation ("current" = no override, real behavior).
+        simulateBusinessHoursState: testAfterHoursState,
+        testContext: {
+          businessName: businessName.trim() || "Sample Business",
+          businessType: businessType.trim() || "Service Business",
+          callerName: callerName.trim() || "Test caller",
+          callerPhone: callerNumber.trim() || "+15555550100",
+          calendarId: calendarId.trim() || "primary",
+          timeZone: timeZone.trim() || browserTimeZone(),
+          // The exact service the architect typed — the backend only falls back
+          // when nothing was supplied.
+          appointmentService: serviceName || undefined,
+          // Test-form date/time seed the booking; chat statements still win.
+          requestedDate: testDate || undefined,
+          requestedTime: testTime || undefined,
+          services: serviceName
+            ? [serviceName, "General inquiry"]
+            : ["Consultation", "Appointment booking", "General inquiry"],
+          faqs: [
+            "Pricing depends on the selected service.",
+            "Urgent requests should be escalated to the team."
+          ]
+        }
+      });
+
+      if (!result.success || !result.data) {
+        const errorMessage = result.error ?? "Could not run browser call test.";
+
+        const assistantError: ArchitectConversationMessage = {
+          role: "assistant",
+          content: errorMessage,
+          createdAt: new Date().toISOString()
+        };
+
+        setConversationTranscript([...pendingMessages, assistantError]);
+        setMessage(errorMessage);
+        setActiveTab("test");
+
+        return errorMessage;
+      }
+
+      setConversationTranscript(result.data.conversation.transcript);
+      setConversationLogs(result.data.conversation.executedNodes);
+      setConversationToolCalls(result.data.conversation.toolCalls);
+      if (result.data.conversation.calendarEvent) {
+        setConversationCalendarEvent(result.data.conversation.calendarEvent);
+      }
+      // Config errors (timezone) and booking failures (calendar disconnected,
+      // event-create failure) share the actionable error panel.
+      setConversationConfigError(
+        result.data.conversation.configError ?? result.data.conversation.calendarError ?? null
+      );
+      setMessage("Browser call test complete");
       setActiveTab("test");
 
+      return result.data.conversation.reply;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Could not run browser call test.";
+      setMessage(errorMessage);
       return errorMessage;
+    } finally {
+      setChatting(false);
     }
-
-    setConversationTranscript(result.data.conversation.transcript);
-    setConversationLogs(result.data.conversation.executedNodes);
-    setConversationToolCalls(result.data.conversation.toolCalls);
-    if (result.data.conversation.calendarEvent) {
-      setConversationCalendarEvent(result.data.conversation.calendarEvent);
-    }
-    // Config errors (timezone) and booking failures (calendar disconnected,
-    // event-create failure) share the actionable error panel.
-    setConversationConfigError(
-      result.data.conversation.configError ?? result.data.conversation.calendarError ?? null
-    );
-    setMessage("Browser call test complete");
-    setActiveTab("test");
-
-    return result.data.conversation.reply;
   }
 
   const handleTriggerMessageChange = useCallback((newMsg: string) => {
     setTriggerMessage(newMsg);
     setNodes((currentNodes) =>
       currentNodes.map((node) => {
-        const isTriggerNode =
-          ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
-          node.data.nodeKind === "trigger" ||
-          String(node.data.kind ?? "").toUpperCase() === "TRIGGER";
+        const isTriggerNode = isManualTriggerNode(node);
         if (isTriggerNode) {
           return {
             ...node,
@@ -1132,10 +1229,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setTriggerAttachments(newAtts);
     setNodes((currentNodes) =>
       currentNodes.map((node) => {
-        const isTriggerNode =
-          ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
-          node.data.nodeKind === "trigger" ||
-          String(node.data.kind ?? "").toUpperCase() === "TRIGGER";
+        const isTriggerNode = isManualTriggerNode(node);
         if (isTriggerNode) {
           return {
             ...node,
@@ -1181,29 +1275,30 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setRunLogs([]);
     setRunContext({});
 
-    const saved = await saveAgent(false);
+    try {
+      const saved = await saveAgent(false);
 
-    if (!saved) {
-      setRunning(false);
-      return;
-    }
+      if (!saved || !currentWorkflowIdRef.current) {
+        setMessage("Could not save agent before running test.");
+        return;
+      }
 
-    const triggerNode = nodes.find(
-      (node) =>
-        ["trigger.manual", "manual_trigger"].includes(String(node.data.type ?? "")) ||
-        node.data.nodeKind === "trigger" ||
-        String(node.data.kind ?? "").toUpperCase() === "TRIGGER"
-    );
-    const nodeInput = typeof triggerNode?.data.input === "string" ? triggerNode.data.input.trim() : "";
-    const nodeAttachments = (triggerNode?.data.attachments as AIAttachment[] | undefined) ?? [];
+      const triggerNode = nodes.find(isManualTriggerNode);
+      const nodeInput = typeof triggerNode?.data.input === "string" ? triggerNode.data.input.trim() : "";
+      const nodeAttachments = (triggerNode?.data.attachments as AIAttachment[] | undefined) ?? [];
 
-    const effectiveTriggerMessage =
-      triggerMessage.trim() ||
-      nodeInput ||
-      (isManualTriggerWorkflow ? "Hello, I would like to know more about your services." : undefined);
+      const effectiveTriggerMessage =
+        triggerMessage.trim() ||
+        nodeInput ||
+        (isManualTriggerWorkflow ? "Hello, I would like to know more about your services." : undefined);
 
-    const effectiveAttachments =
-      triggerAttachments.length > 0 ? triggerAttachments : nodeAttachments.length > 0 ? nodeAttachments : undefined;
+      const effectiveAttachments = isManualTriggerWorkflow
+        ? undefined
+        : triggerAttachments.length > 0
+          ? triggerAttachments
+          : nodeAttachments.length > 0
+            ? nodeAttachments
+            : undefined;
 
     const payload = {
       input: {
@@ -1254,19 +1349,22 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       }
     };
 
-    const result = await runArchitectWorkflowTest(currentWorkflowIdRef.current, payload);
+      const result = await runArchitectWorkflowTest(currentWorkflowIdRef.current, payload);
 
-    if (!result.success || !result.data) {
-      setMessage(result.error ?? "Could not run test");
+      if (!result.success || !result.data) {
+        setMessage(result.error ?? "Could not run test");
+        return;
+      }
+
+      setRunLogs(result.data.run.logs);
+      setRunContext(result.data.run.context);
+      setMessage("Dry run complete");
+      setActiveTab("test");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not run test");
+    } finally {
       setRunning(false);
-      return;
     }
-
-    setRunLogs(result.data.run.logs);
-    setRunContext(result.data.run.context);
-    setMessage("Dry run complete");
-    setActiveTab("test");
-    setRunning(false);
   }
 
   const nodeTypeOf = (node: BuilderNode): string => {
@@ -1302,6 +1400,26 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       type.includes("send_sms")
     );
   });
+  const previewSmsData = (
+    nodes.find((node) => {
+      const type = nodeTypeOf(node);
+      return type === VOICE_NODE_TYPES.sendSms || type === "action.send_sms" || type.includes("send_sms");
+    })?.data ?? {}
+  ) as Record<string, unknown>;
+  const previewSmsBodyRaw =
+    typeof previewSmsData.smsBody === "string"
+      ? previewSmsData.smsBody
+      : typeof previewSmsData.message === "string"
+        ? previewSmsData.message
+        : "";
+  const previewSmsBody = previewSmsBodyRaw
+    .replace(/\{\{\s*assistantName\s*\}\}/gi, previewAssistantName || "our assistant")
+    .replace(/\{\{\s*business[_]?name\s*\}\}/gi, previewDisplayName)
+    .replace(/\{\{\s*business\.name\s*\}\}/gi, previewDisplayName)
+    .replace(/\{\{\s*contact\.name\s*\}\}/gi, "there")
+    .replace(/\{\{[^}]*\}\}/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
   const previewBookingSlots = (() => {
     const availability = runContext.calendarAvailability as { slots?: unknown } | undefined;
     if (!availability || !Array.isArray(availability.slots)) return [];
@@ -1364,6 +1482,19 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onCancel={() => setGoogleDisclosureOpen(false)}
       />
 
+      {/* Temporarily hidden — WhatsApp feature paused
+      <WhatsAppConnectModal
+        open={whatsappConnectOpen}
+        onClose={() => {
+          setWhatsAppConnectOpen(false);
+          setConnectingWhatsApp(false);
+        }}
+        onConnected={() => {
+          void loadWhatsAppStatus();
+        }}
+      />
+      */}
+
       <BuilderHeader
         agentName={agentName}
         message={message}
@@ -1380,7 +1511,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onRedo={redo}
         onAgentNameChange={setAgentName}
         onTabChange={setActiveTab}
-        onRunTest={() => void runAgent()}
+        onRunTest={() => setActiveTab("test")}
         onSave={() => void saveAgent()}
         onPreview={() => setPreviewOpen(true)}
       />
@@ -1562,10 +1693,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             needsCalendarConnection={needsCalendarConnection}
             needsTwilioConnection={needsTwilioConnection}
             needsVapiConnection={needsVapiConnection}
+            needsWhatsAppConnection={needsWhatsAppConnection}
             gmailConnected={gmailConnected}
             gmailEmail={gmailEmail}
             calendarConnected={calendarConnected}
             connectingGmail={connectingGmail}
+            whatsappConnected={whatsappConnected}
+            connectingWhatsApp={connectingWhatsApp}
             running={running}
             startingLive={startingLive}
             stoppingLive={stoppingLive}
@@ -1594,6 +1728,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             triggerMessage={triggerMessage}
             triggerAttachments={triggerAttachments}
             isManualTriggerWorkflow={isManualTriggerWorkflow}
+            isMissedCallWorkflow={isMissedCallWorkflow}
+            isSmsWorkflow={isSmsWorkflow}
             onConnectGmail={connectGmail}
             onDisconnectGoogle={() => void disconnectGoogle()}
             onRefreshConnections={() => void refreshConnections()}
@@ -1619,6 +1755,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onTestEmailChange={setTestEmail}
             onTriggerMessageChange={handleTriggerMessageChange}
             onTriggerAttachmentsChange={handleTriggerAttachmentsChange}
+            onConnectWhatsApp={connectWhatsApp}
           />
         ) : null}
 
@@ -1693,9 +1830,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       <PreviewModal
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
+        workflowId={currentWorkflowId}
         businessName={previewDisplayName}
         assistantName={previewAssistantName}
         greeting={previewGreeting}
+        smsBody={previewSmsBody}
         agentPurpose={tagline.trim()}
         canBook={previewCanBook}
         canText={previewCanText}

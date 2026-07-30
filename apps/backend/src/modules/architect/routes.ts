@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys } from "@coreai/shared";
+import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys, workflowJsonForTemplate } from "@coreai/shared";
 import { llmCredentialStatus } from "../ai-provider-engine/llm-credentials";
 import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
 import { llmProviderAvailability } from "../ai-provider-engine/llm-probe";
@@ -36,6 +36,8 @@ import {
   handleTwilioVoiceAction,
   handleVapiWebhook
 } from "./twilio-business-routing";
+import { whatsappRoutes } from "../whatsapp/routes";
+import { handleWhatsAppWebhookPost, verifyWhatsAppWebhookChallenge } from "../whatsapp/webhook";
 import {
   getWorkflowConfigure,
   getWorkflowMarketplacePreview,
@@ -181,6 +183,10 @@ architectRoutes.get("/connectors/vapi/webhook", (c) =>
 architectRoutes.get("/connectors/telegram/webhook/:connectionId", (c) =>
   successResponse(c, { ok: true, note: "Telegram webhook is up. Updates arrive via POST." })
 );
+
+// Meta WhatsApp Cloud API webhooks (verify challenge + inbound messages).
+architectRoutes.get("/connectors/whatsapp", verifyWhatsAppWebhookChallenge);
+architectRoutes.post("/connectors/whatsapp", handleWhatsAppWebhookPost);
 
 architectRoutes.get("/connectors/voice/status", (c) => successResponse(c, getVoiceAnswerStatus()));
 
@@ -603,6 +609,7 @@ architectRoutes.post("/media/upload", async (c) => {
 
 architectRoutes.route("/payouts", architectPayoutRoutes);
 architectRoutes.route("/settings", architectSettingsRoutes);
+architectRoutes.route("/whatsapp", whatsappRoutes);
 
 architectRoutes.get("/dashboard/activity", async (c) => {
   try {
@@ -683,17 +690,29 @@ architectRoutes.get("/agents/stats", async (c) => {
         prisma.agentListing.findMany({
           where: { architectUserId: authUser.id },
           select: { id: true, workflowId: true, status: true, createdAt: true }
+        }).catch((err) => {
+          console.error("[stats] agentListing.findMany failed", err);
+          return [];
         }),
         prisma.workflowDefinition.findMany({
           where: { architectUserId: authUser.id },
           select: { id: true, createdAt: true }
+        }).catch((err) => {
+          console.error("[stats] workflowDefinition.findMany failed", err);
+          return [];
         }),
-        loadArchitectEarnings(authUser.id),
+        loadArchitectEarnings(authUser.id).catch((err) => {
+          console.error("[stats] loadArchitectEarnings failed", err);
+          return [];
+        }),
         prisma.installedAgent.findMany({
           where: {
             listing: { architectUserId: authUser.id }
           },
           select: { id: true, listingId: true, businessId: true, configJson: true }
+        }).catch((err) => {
+          console.error("[stats] installedAgent.findMany failed", err);
+          return [];
         })
       ]);
 
@@ -1402,13 +1421,17 @@ architectRoutes.post("/workflows", async (c) => {
       return errorResponse(c, "Cannot create empty workflow draft.", 422, "EMPTY_WORKFLOW_DRAFT");
     }
 
+    const workflowJson = input.isTemplate
+      ? workflowJsonForTemplate(input.workflowJson)
+      : input.workflowJson;
+
     const workflow = await prisma.workflowDefinition.create({
       data: {
         architectUserId: authUser.id,
         name: input.name,
         description: input.description || null,
         isTemplate: input.isTemplate,
-        workflowJson: input.workflowJson as never
+        workflowJson: workflowJson as never
       }
     });
 
@@ -1478,6 +1501,15 @@ architectRoutes.put("/workflows/:workflowId", async (c) => {
       return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
     }
 
+    const becomingTemplate = input.isTemplate === true;
+    const alreadyTemplate = existingWorkflow.isTemplate;
+    let nextWorkflowJson = input.workflowJson as unknown | undefined;
+    if (nextWorkflowJson !== undefined && (becomingTemplate || (alreadyTemplate && input.isTemplate !== false))) {
+      nextWorkflowJson = workflowJsonForTemplate(nextWorkflowJson);
+    } else if (becomingTemplate && nextWorkflowJson === undefined) {
+      nextWorkflowJson = workflowJsonForTemplate(existingWorkflow.workflowJson);
+    }
+
     const workflow = await prisma.workflowDefinition.update({
       where: {
         id: workflowId
@@ -1488,8 +1520,8 @@ architectRoutes.put("/workflows/:workflowId", async (c) => {
           ? { description: input.description || null }
           : {}),
         ...(input.isTemplate !== undefined ? { isTemplate: input.isTemplate } : {}),
-        ...(input.workflowJson !== undefined
-          ? { workflowJson: input.workflowJson as never }
+        ...(nextWorkflowJson !== undefined
+          ? { workflowJson: nextWorkflowJson as never }
           : {})
       }
     });
@@ -1890,11 +1922,19 @@ async function runOwnedWorkflow({
     );
   }
 
+  // Tenant identity is never taken from the request body on architect-owned
+  // runs: a client-supplied businessId/installedAgentId would become another
+  // tenant's memory identity (cross-tenant writes + their retention caps).
+  // Live buyer runs get these ids server-side from the resolved agent instead.
+  const sanitizedInput = input.input
+    ? { ...input.input, businessId: undefined, businessOwnerId: undefined, installedAgentId: undefined }
+    : input.input;
+
   const run = await runWorkflowTest({
     userId: authUser.id,
     workflowId,
     workflowJson: workflow.workflowJson,
-    input: input.input,
+    input: sanitizedInput,
     mode
   });
 
@@ -2295,204 +2335,221 @@ function computeReviewProgress(listing: {
 }
 
 architectRoutes.get("/listings", async (c) => {
-  const authUser = c.get("authUser");
-  const statusFilter = c.req.query("status");
+  try {
+    const authUser = c.get("authUser");
+    const statusFilter = c.req.query("status");
 
-  const [allListings, sales, profile, installedAgents] = await Promise.all([
-    prisma.agentListing.findMany({
-      where: {
-        architectUserId: authUser.id,
-        // Soft-deleted live listings stay in the DB (earnings history) but
-        // disappear from My Agents.
-        NOT: { AND: [{ status: "SUSPENDED" }, { rejectionReason: { startsWith: "[deleted by architect]" } }] }
-      },
-      include: {
-        workflow: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-            configureJson: true,
-            updatedAt: true
+    const [allListings, sales, profile, installedAgents] = await Promise.all([
+      prisma.agentListing.findMany({
+        where: {
+          architectUserId: authUser.id,
+          // Soft-deleted live listings stay in the DB (earnings history) but
+          // disappear from My Agents.
+          NOT: { AND: [{ status: "SUSPENDED" }, { rejectionReason: { startsWith: "[deleted by architect]" } }] }
+        },
+        include: {
+          workflow: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              configureJson: true,
+              updatedAt: true
+            }
+          },
+          _count: {
+            select: { installedAgents: true }
           }
         },
-        _count: {
-          select: { installedAgents: true }
+        orderBy: {
+          createdAt: "desc"
         }
-      },
-      orderBy: {
-        createdAt: "desc"
-      }
-    }),
-    loadArchitectEarnings(authUser.id),
-    prisma.architectProfile.findUnique({
-      where: { userId: authUser.id },
-      select: { rating: true }
-    }),
-    prisma.installedAgent.findMany({
-      where: { listing: { architectUserId: authUser.id } },
-      select: { id: true, listingId: true, businessId: true, configJson: true, status: true }
-    })
-  ]);
+      }).catch((err) => {
+        console.error("[listings] findMany failed", err);
+        return [];
+      }),
+      loadArchitectEarnings(authUser.id).catch((err) => {
+        console.error("[listings] loadArchitectEarnings failed", err);
+        return [];
+      }),
+      prisma.architectProfile.findUnique({
+        where: { userId: authUser.id },
+        select: { rating: true }
+      }).catch(() => null),
+      prisma.installedAgent.findMany({
+        where: { listing: { architectUserId: authUser.id } },
+        select: { id: true, listingId: true, businessId: true, configJson: true, status: true }
+      }).catch((err) => {
+        console.error("[listings] installedAgent.findMany failed", err);
+        return [];
+      })
+    ]);
 
-  const revenueByListing = new Map<string, number>();
-  const installCountByListing = new Map<string, number>();
-  for (const sale of sales) {
-    installCountByListing.set(sale.listingId, (installCountByListing.get(sale.listingId) ?? 0) + 1);
-    if (effectiveEarningStatus(sale) === "REJECTED") continue;
-    revenueByListing.set(
-      sale.listingId,
-      (revenueByListing.get(sale.listingId) ?? 0) + sale.earningsCents
-    );
-  }
-
-  const buyerInstalls = installedAgents.filter((agent) => {
-    const config = agent.configJson;
-    if (!config || typeof config !== "object" || Array.isArray(config)) return true;
-    return (config as Record<string, unknown>).purpose !== "ARCHITECT_TEST";
-  });
-  const executionByListing = new Map<string, number>();
-  const activeBuyerInstalls = buyerInstalls.filter((agent) => agent.status === "ACTIVE");
-  const activeTotals = await executionTotalsByInstalledAgent({
-    installedAgentIds: activeBuyerInstalls.map((agent) => agent.id)
-  });
-  for (const agent of activeBuyerInstalls) {
-    if (!agent.listingId) continue;
-    const executions = activeTotals.get(agent.id)?.executions ?? 0;
-    executionByListing.set(agent.listingId, (executionByListing.get(agent.listingId) ?? 0) + executions);
-  }
-
-  const architectRating = typeof profile?.rating === "number" ? profile.rating : null;
-
-  const seenWorkflowIds = new Set<string>();
-  const listings = allListings
-    .filter((listing) => {
-      if (!listing.workflowId) return true;
-      if (seenWorkflowIds.has(listing.workflowId)) return false;
-      seenWorkflowIds.add(listing.workflowId);
-      return true;
-    })
-    .map(({ _count, workflow, ...listing }) => {
-      const configureFields = workflow
-        ? myAgentsCardFieldsFromConfigure(workflow.configureJson, {
-            name: workflow.name || listing.name,
-            description: workflow.description ?? listing.shortDescription
-          })
-        : null;
-      const screenshotUrls =
-        listing.screenshotUrls?.length
-          ? listing.screenshotUrls
-          : configureFields?.screenshotUrls ?? [];
-      const tags =
-        listing.industryTags?.length
-          ? listing.industryTags
-          : listing.tags?.length
-            ? listing.tags
-            : configureFields?.tags ?? [];
-      const includedFeatures =
-        listing.includedFeatures?.length
-          ? listing.includedFeatures
-          : configureFields?.includedFeatures ?? [];
-      const draftProgress = computeDraftProgress(workflow?.configureJson ?? null, {
-        name: workflow?.name || listing.name,
-        description: workflow?.description ?? listing.shortDescription
-      });
-      const reviewProgress = computeReviewProgress(listing);
-      return {
-        ...listing,
-        name: listing.name?.trim() || configureFields?.name || "Untitled Agent",
-        shortDescription:
-          listing.shortDescription?.trim() ||
-          configureFields?.shortDescription ||
-          "",
-        tagline: listing.tagline ?? configureFields?.tagline ?? null,
-        category: listing.category ?? configureFields?.category ?? null,
-        tags,
-        industryTags: listing.industryTags?.length
-          ? listing.industryTags
-          : configureFields?.industryTags ?? [],
-        iconUrl: listing.iconUrl ?? configureFields?.iconUrl ?? null,
-        includedFeatures,
-        screenshotUrls,
-        coverUrl: screenshotUrls[0] ?? configureFields?.coverUrl ?? null,
-        installCount: installCountByListing.get(listing.id) ?? _count.installedAgents ?? 0,
-        executionCount: executionByListing.get(listing.id) ?? 0,
-        revenueCents: revenueByListing.get(listing.id) ?? 0,
-        rating: architectRating,
-        draftProgress,
-        reviewProgress,
-        updatedAt: listing.updatedAt ?? listing.createdAt,
-        submittedAt: listing.submittedAt ?? null,
-        workflow: workflow
-          ? { id: workflow.id, name: workflow.name, description: workflow.description }
-          : null
-      };
-    });
-
-  // Workflows the architect saved or imported (builder/template) but hasn't
-  // published yet → their DRAFT agents. Never hidden.
-  const workflows = await prisma.workflowDefinition.findMany({
-    where: { architectUserId: authUser.id },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      createdAt: true,
-      updatedAt: true,
-      configureJson: true
+    const revenueByListing = new Map<string, number>();
+    const installCountByListing = new Map<string, number>();
+    for (const sale of sales) {
+      installCountByListing.set(sale.listingId, (installCountByListing.get(sale.listingId) ?? 0) + 1);
+      if (effectiveEarningStatus(sale) === "REJECTED") continue;
+      revenueByListing.set(
+        sale.listingId,
+        (revenueByListing.get(sale.listingId) ?? 0) + sale.earningsCents
+      );
     }
-  });
-  const drafts = workflows
-    .filter((workflow) => !seenWorkflowIds.has(workflow.id))
-    .map((workflow) => {
-      const card = myAgentsCardFieldsFromConfigure(workflow.configureJson, {
-        name: workflow.name,
-        description: workflow.description
-      });
-      const draftProgress = computeDraftProgress(workflow.configureJson, {
-        name: workflow.name,
-        description: workflow.description
-      });
-      return {
-        id: `draft-${workflow.id}`,
-        workflowId: workflow.id,
-        name: card.name,
-        shortDescription: card.shortDescription,
-        description: workflow.description ?? null,
-        tagline: card.tagline,
-        category: card.category,
-        priceCents: 0,
-        status: "DRAFT" as const,
-        tags: card.tags,
-        industryTags: card.industryTags,
-        iconUrl: card.iconUrl,
-        includedFeatures: card.includedFeatures,
-        screenshotUrls: card.screenshotUrls,
-        coverUrl: card.coverUrl,
-        requiredConnectors: [] as string[],
-        supportedLlms: [] as string[],
-        installCount: 0,
-        executionCount: 0,
-        revenueCents: 0,
-        rating: architectRating,
-        draftProgress,
-        reviewProgress: null,
-        createdAt: workflow.createdAt,
-        updatedAt: workflow.updatedAt,
-        submittedAt: null,
-        workflow: null
-      };
+
+    const buyerInstalls = installedAgents.filter((agent) => {
+      const config = agent.configJson;
+      if (!config || typeof config !== "object" || Array.isArray(config)) return true;
+      return (config as Record<string, unknown>).purpose !== "ARCHITECT_TEST";
     });
+    const executionByListing = new Map<string, number>();
+    const activeBuyerInstalls = buyerInstalls.filter((agent) => agent.status === "ACTIVE");
+    const activeTotals = await executionTotalsByInstalledAgent({
+      installedAgentIds: activeBuyerInstalls.map((agent) => agent.id)
+    }).catch(() => new Map());
+    for (const agent of activeBuyerInstalls) {
+      if (!agent.listingId) continue;
+      const executions = activeTotals.get(agent.id)?.executions ?? 0;
+      executionByListing.set(agent.listingId, (executionByListing.get(agent.listingId) ?? 0) + executions);
+    }
 
-  const combined = [...listings, ...drafts].sort(
-    (a, b) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime()
-  );
-  const result = statusFilter ? combined.filter((agent) => agent.status === statusFilter) : combined;
+    const architectRating = typeof profile?.rating === "number" ? profile.rating : null;
 
-  return successResponse(c, {
-    listings: result
-  });
+    const seenWorkflowIds = new Set<string>();
+    const listings = allListings
+      .filter((listing) => {
+        if (!listing.workflowId) return true;
+        if (seenWorkflowIds.has(listing.workflowId)) return false;
+        seenWorkflowIds.add(listing.workflowId);
+        return true;
+      })
+      .map(({ _count, workflow, ...listing }) => {
+        const configureFields = workflow
+          ? myAgentsCardFieldsFromConfigure(workflow.configureJson, {
+              name: workflow.name || listing.name,
+              description: workflow.description ?? listing.shortDescription
+            })
+          : null;
+        const screenshotUrls =
+          listing.screenshotUrls?.length
+            ? listing.screenshotUrls
+            : configureFields?.screenshotUrls ?? [];
+        const tags =
+          listing.industryTags?.length
+            ? listing.industryTags
+            : listing.tags?.length
+              ? listing.tags
+              : configureFields?.tags ?? [];
+        const includedFeatures =
+          listing.includedFeatures?.length
+            ? listing.includedFeatures
+            : configureFields?.includedFeatures ?? [];
+        const draftProgress = computeDraftProgress(workflow?.configureJson ?? null, {
+          name: workflow?.name || listing.name,
+          description: workflow?.description ?? listing.shortDescription
+        });
+        const reviewProgress = computeReviewProgress(listing);
+        return {
+          ...listing,
+          name: listing.name?.trim() || configureFields?.name || "Untitled Agent",
+          shortDescription:
+            listing.shortDescription?.trim() ||
+            configureFields?.shortDescription ||
+            "",
+          tagline: listing.tagline ?? configureFields?.tagline ?? null,
+          category: listing.category ?? configureFields?.category ?? null,
+          tags,
+          industryTags: listing.industryTags?.length
+            ? listing.industryTags
+            : configureFields?.industryTags ?? [],
+          iconUrl: listing.iconUrl ?? configureFields?.iconUrl ?? null,
+          includedFeatures,
+          screenshotUrls,
+          coverUrl: screenshotUrls[0] ?? configureFields?.coverUrl ?? null,
+          installCount: installCountByListing.get(listing.id) ?? _count.installedAgents ?? 0,
+          executionCount: executionByListing.get(listing.id) ?? 0,
+          revenueCents: revenueByListing.get(listing.id) ?? 0,
+          rating: architectRating,
+          draftProgress,
+          reviewProgress,
+          updatedAt: listing.updatedAt ?? listing.createdAt,
+          submittedAt: listing.submittedAt ?? null,
+          workflow: workflow
+            ? { id: workflow.id, name: workflow.name, description: workflow.description }
+            : null
+        };
+      });
+
+    // Workflows the architect saved or imported (builder/template) but hasn't
+    // published yet → their DRAFT agents. Never hidden.
+    const workflows = await prisma.workflowDefinition.findMany({
+      where: { architectUserId: authUser.id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        createdAt: true,
+        updatedAt: true,
+        configureJson: true
+      }
+    }).catch((err) => {
+      console.error("[listings] workflowDefinition.findMany failed", err);
+      return [];
+    });
+    const drafts = workflows
+      .filter((workflow) => !seenWorkflowIds.has(workflow.id))
+      .map((workflow) => {
+        const card = myAgentsCardFieldsFromConfigure(workflow.configureJson, {
+          name: workflow.name,
+          description: workflow.description
+        });
+        const draftProgress = computeDraftProgress(workflow.configureJson, {
+          name: workflow.name,
+          description: workflow.description
+        });
+        return {
+          id: `draft-${workflow.id}`,
+          workflowId: workflow.id,
+          name: card.name,
+          shortDescription: card.shortDescription,
+          description: workflow.description ?? null,
+          tagline: card.tagline,
+          category: card.category,
+          priceCents: 0,
+          status: "DRAFT" as const,
+          tags: card.tags,
+          industryTags: card.industryTags,
+          iconUrl: card.iconUrl,
+          includedFeatures: card.includedFeatures,
+          screenshotUrls: card.screenshotUrls,
+          coverUrl: card.coverUrl,
+          requiredConnectors: [] as string[],
+          supportedLlms: [] as string[],
+          installCount: 0,
+          executionCount: 0,
+          revenueCents: 0,
+          rating: architectRating,
+          draftProgress,
+          reviewProgress: null,
+          createdAt: workflow.createdAt,
+          updatedAt: workflow.updatedAt,
+          submittedAt: null,
+          workflow: null
+        };
+      });
+
+    const combined = [...listings, ...drafts].sort(
+      (a, b) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime()
+    );
+    const result = statusFilter ? combined.filter((agent) => agent.status === statusFilter) : combined;
+
+    return successResponse(c, {
+      listings: result
+    });
+  } catch (error) {
+    console.error("[GET /architect/listings] failed", error);
+    return errorResponse(c, "Could not load agent listings", 500, "LISTINGS_FAILED");
+  }
 });
 
 architectRoutes.post("/listings", async (c) => {

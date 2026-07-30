@@ -172,6 +172,21 @@ export function BusinessHoursSection({
   const [selectedDay, setSelectedDay] = useState<BusinessHoursWeekday>("monday");
   const [showPreview, setShowPreview] = useState(false);
 
+  const dismissedSuggestionKeyRef = useRef<string | null>(null);
+
+  const getSuggestionKey = (s: BusinessHoursData["suggestion"]) => {
+    if (!s) return null;
+    return s.sourceFilename
+      ? `${s.sourceFilename}:${JSON.stringify(s.days)}`
+      : JSON.stringify(s);
+  };
+
+  const filterSuggestion = useCallback((s: BusinessHoursData["suggestion"]) => {
+    if (!s) return null;
+    const key = getSuggestionKey(s);
+    if (key && key === dismissedSuggestionKeyRef.current) return null;
+    return s;
+  }, []);
 
   const effectiveTimeZone = timeZoneOverride?.trim() ? timeZoneOverride.trim() : timeZone;
 
@@ -183,10 +198,10 @@ export function BusinessHoursSection({
     setConfirmedAt(data.confirmedAt);
     setLiveAssistant(data.liveAssistant);
     setOpenStatusText(data.openStatus?.description ?? "");
-    setSuggestion(data.suggestion ?? null);
+    setSuggestion(filterSuggestion(data.suggestion ?? null));
     if (data.sync) setSync(data.sync);
     setDirty(false);
-  }, []);
+  }, [filterSuggestion]);
 
   useEffect(() => {
     let mounted = true;
@@ -222,7 +237,7 @@ export function BusinessHoursSection({
     getBusinessHours().then((response) => {
       if (cancelled || !response.success || !response.data) return;
       if (dirtyRef.current) {
-        setSuggestion(response.data.suggestion ?? null);
+        setSuggestion(filterSuggestion(response.data.suggestion ?? null));
         setOpenStatusText(response.data.openStatus?.description ?? "");
         setLiveAssistant(response.data.liveAssistant);
       } else {
@@ -234,7 +249,7 @@ export function BusinessHoursSection({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh only on token change
-  }, [refreshToken, applyServerData]);
+  }, [refreshToken, applyServerData, filterSuggestion]);
 
   useEffect(() => {
     if (!dirty || embedded) return;
@@ -405,6 +420,7 @@ export function BusinessHoursSection({
 
   function applySuggestion() {
     if (!suggestion) return;
+    dismissedSuggestionKeyRef.current = getSuggestionKey(suggestion);
     setWeek((current) =>
       current.map((row) => {
         const suggested = suggestion.days[row.day];
@@ -415,6 +431,7 @@ export function BusinessHoursSection({
       })
     );
     setDirty(true);
+    setSuggestion(null);
     setStatusMsg("Detected hours loaded — review and save to confirm them.");
   }
 
@@ -581,7 +598,10 @@ export function BusinessHoursSection({
             <button
               type="button"
               data-testid="business-hours-suggestion-dismiss"
-              onClick={() => setSuggestion(null)}
+              onClick={() => {
+                dismissedSuggestionKeyRef.current = getSuggestionKey(suggestion);
+                setSuggestion(null);
+              }}
               className="rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-bold text-amber-700 transition hover:bg-amber-100"
             >
               Ignore
@@ -590,7 +610,11 @@ export function BusinessHoursSection({
         </div>
       ) : null}
 
-      {!timeZoneOverride ? (
+      {timeZoneOverride ? (
+        <p className="mt-2 text-xs text-slate-500" data-testid="business-hours-timezone-note">
+          Timezone: <span className="font-semibold text-slate-700">{timeZoneOverride}</span> (Change in Connect)
+        </p>
+      ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <label className="text-xs font-semibold text-slate-600" htmlFor="business-hours-timezone">
             Timezone
@@ -617,7 +641,7 @@ export function BusinessHoursSection({
             ))}
           </select>
         </div>
-      ) : null}
+      )}
 
       {/* Reference Design Main Card */}
       <div className="mt-3 rounded-none border-0 bg-transparent p-0">

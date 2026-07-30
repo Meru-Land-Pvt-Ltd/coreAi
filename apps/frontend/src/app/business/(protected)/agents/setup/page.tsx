@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { PhoneCall, CalendarSearch, Search, CalendarCheck, MessageSquare, Mail } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -41,6 +42,7 @@ import { GoogleDisclosureModal } from "@/components/common/google-disclosure-mod
 import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
 import { GOOGLE_CALENDAR_DISCLOSURE, GOOGLE_DISCLOSURE_ACTION_AGREED } from "@coreai/shared";
 import {
+  getLatestBusinessTestEvent,
   checkMailAliasAvailability,
   deleteBusinessTestEvent,
   disconnectBusinessCalendar,
@@ -523,6 +525,7 @@ function SetupWizard() {
   const [statusMsg, setStatusMsg] = useState("");
   const [error, setError] = useState("");
   const [deployed, setDeployed] = useState(false);
+  const [redeploySuccess, setRedeploySuccess] = useState(false);
   const [successNumber, setSuccessNumber] = useState<string | null>(null);
   const [liveVapiAssistantId, setLiveVapiAssistantId] = useState<string | null>(null);
   const [liveInstalledAgentId, setLiveInstalledAgentId] = useState<string | null>(null);
@@ -530,9 +533,17 @@ function SetupWizard() {
   const isEditParam = searchParams.get("mode") === "edit";
   const isEditMode = isEditParam || deployed || Boolean(liveVapiAssistantId);
 
+  useEffect(() => {
+    if (isEditMode && !redeploySuccess && step === 4) {
+      setStep(1);
+    }
+  }, [isEditMode, redeploySuccess, step]);
+
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<CallRoutingResult | null>(null);
   const [browserTestOutcome, setBrowserTestOutcome] = useState<"passed" | "failed" | null>(null);
+  // Latest test booking, so the guided appointment step can open the actual event.
+  const [lastTestEvent, setLastTestEvent] = useState<BusinessTestCalendarEvent | null>(null);
 
   const [businessName, setBusinessName] = useState("");
   const [listing, setListing] = useState<any>(null);
@@ -876,13 +887,18 @@ function SetupWizard() {
 
       setRequiredKeys(keys);
 
+      const isEditingSetup = isEditParam || Boolean(data.installedAgentId) || Boolean(data.profile?.vapiAssistantId);
+
       if (typeof window !== "undefined") {
         const savedStep = Number(window.sessionStorage.getItem(STEP_STORAGE_KEY) || "");
 
-        if (savedStep >= 1 && savedStep <= STEPS.length) {
+        if (isEditingSetup || isEditParam || isEditMode) {
+          // Always start at Step 1 ("Connect") when opening setup or editing configuration
+          setStep(1);
+        } else if (savedStep >= 1 && savedStep < STEPS.length) {
           setStep(savedStep);
         } else {
-          // Always start at Step 1 ("Connect") when opening setup or editing configuration
+          // Always start at Step 1 ("Connect") when opening setup
           setStep(1);
         }
 
@@ -1396,6 +1412,7 @@ function SetupWizard() {
     }
 
     setDeployed(true);
+    setRedeploySuccess(true);
     setSuccessNumber(result.number || assignedNumber || "");
     buildConfetti();
     setStep(4);
@@ -1469,9 +1486,7 @@ function SetupWizard() {
   const phoneSelected = Boolean(selectedPhoneId) || Boolean(assignedNumber);
   const forwardRequired = answeringMode !== "AI_FIRST";
   const phoneComplete = phoneSelected && (!forwardRequired || forwardToPhone.trim().length >= 5);
-  const voiceChoiceComplete =
-    voiceChoice !== "" &&
-    (voiceChoice !== "custom" || customVoiceId.trim().length > 0);
+  const voiceChoiceComplete = voiceChoice !== "";
   const voiceComplete = assistantNameComplete && voiceChoiceComplete;
 
   const connectorsKnown = requiredKeys.length > 0 || (!loading && Boolean(listingId));
@@ -1513,21 +1528,25 @@ function SetupWizard() {
     1: connectComplete,
     2: connectReady && configureComplete,
     3: connectReady && configureComplete && testPassed,
-    4: deployed
+    4: isEditMode ? redeploySuccess : deployed
   };
 
   const canAccessStep = (targetStep: number) => {
     if (targetStep <= 1) return true;
     if (targetStep === 2) return connectReady;
     if (targetStep === 3) return connectReady && configureComplete;
-    if (targetStep === 4) return deployed;
+    if (targetStep === 4) return isEditMode ? redeploySuccess : deployed;
     return false;
   };
 
   const getStepLockMessage = (targetStep: number) => {
     if (targetStep === 2) return "Complete the Connect step before opening Configure.";
     if (targetStep === 3) return "Complete Connect and Configure before opening Test.";
-    if (targetStep === 4) return "Complete the setup flow and go live from the Test screen.";
+    if (targetStep === 4) {
+      return isEditMode
+        ? "Complete your configuration and click Redeploy to finish."
+        : "Complete the setup flow and go live from the Test screen.";
+    }
     return "Complete the previous steps before opening this one.";
   };
 
@@ -1649,7 +1668,7 @@ function SetupWizard() {
             ? "Add your AI assistant name."
             : voiceChoiceComplete
               ? undefined
-              : "Enter a custom voice ID or choose a preset."
+              : "Choose a voice."
         }
       ]
       : [])
@@ -1686,17 +1705,6 @@ function SetupWizard() {
             >
               {(typeof listing?.name === "string" && listing.name.trim()) || businessName.trim() || "Your AI agent"}
             </h1>
-            {isEditMode && (
-              <span
-                className="ml-2.5 inline-flex items-center gap-1.5 rounded-full bg-amber-100/90 border border-amber-300/80 px-2.5 py-0.5 text-xs font-semibold text-amber-900 shrink-0"
-                data-testid="business-setup-edit-badge-header"
-              >
-                <svg className="w-3 h-3 text-amber-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                Editing Mode
-              </span>
-            )}
           </div>
 
           {/* Center: Step Indicator (always centered) */}
@@ -2039,6 +2047,7 @@ function SetupWizard() {
               showCalendarTest={showCalendar}
               calendarConnected={calendar.connected}
               timeZone={timeZone}
+              lastTestEvent={lastTestEvent}
               agentName={(typeof listing?.name === "string" ? listing.name : "") || assistantName}
               calendarId={calendarId}
               serviceName={
@@ -2123,6 +2132,7 @@ function SetupWizard() {
                   <button
                     type="button"
                     onClick={() => {
+                      setRedeploySuccess(false);
                       setStep(1);
                       if (typeof window !== "undefined") {
                         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -3918,6 +3928,7 @@ function StepTest({
   showCalendarTest = false,
   calendarConnected = false,
   timeZone = "",
+  lastTestEvent = null,
   agentName = "",
   calendarId = "",
   serviceName = "",
@@ -3940,6 +3951,7 @@ function StepTest({
   showCalendarTest?: boolean;
   calendarConnected?: boolean;
   timeZone?: string;
+  lastTestEvent?: BusinessTestCalendarEvent | null;
   agentName?: string;
   calendarId?: string;
   serviceName?: string;
@@ -4097,6 +4109,8 @@ function StepTest({
                         <WorkflowAppointmentStepPanel
                           calendarConnected={calendarConnected}
                           timeZone={timeZone}
+                          eventUrl={lastTestEvent?.htmlLink ?? null}
+                          eventStartAt={lastTestEvent?.startAt ?? null}
                           onComplete={() => completeStep(step.id, index)}
                         />
                       )}
@@ -4128,6 +4142,20 @@ function StepTest({
 
 /* ==================== Workflow step interaction panels ==================== */
 
+/** Maps an icon key string to the corresponding Lucide icon for the Live Activity log. */
+function ActivityIcon({ iconKey }: { iconKey: string }) {
+  const cls = "h-3 w-3 text-amber-600";
+  switch (iconKey) {
+    case "phone-call":      return <PhoneCall className={cls} />;
+    case "calendar-search": return <CalendarSearch className={cls} />;
+    case "search":          return <Search className={cls} />;
+    case "calendar-check":  return <CalendarCheck className={cls} />;
+    case "message-square":  return <MessageSquare className={cls} />;
+    case "mail":            return <Mail className={cls} />;
+    default:                return <PhoneCall className={cls} />;
+  }
+}
+
 /** Voice/call step — browser preview call with microphone animation, live activity log, and countdown timer */
 function WorkflowVoiceStepPanel({
   callState,
@@ -4155,12 +4183,13 @@ function WorkflowVoiceStepPanel({
   const [error, setError] = useState("");
   const [timedOut, setTimedOut] = useState(false);
   const [session, setSession] = useState<BusinessPreviewCallSession | null>(null);
-  const [activityLog, setActivityLog] = useState<{ id: number; text: string; icon: string }[]>([]);
+  const [activityLog, setActivityLog] = useState<{ id: number; text: string; iconKey: string }[]>([]);
   const clientRef = useRef<PreviewVapiClient | null>(null);
   const detachRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const activityTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const seenActivitiesRef = useRef<Set<string>>(new Set());
+  const activityIdRef = useRef(0);
   const startInFlightRef = useRef(false);
   const elapsedRef = useRef(0);
   const timedOutRef = useRef(false);
@@ -4170,7 +4199,6 @@ function WorkflowVoiceStepPanel({
       detachRef.current?.();
       if (timerRef.current) clearInterval(timerRef.current);
       if (countdownRef.current) clearInterval(countdownRef.current);
-      activityTimersRef.current.forEach(clearTimeout);
       try { clientRef.current?.stop(); } catch { /* best-effort */ }
     };
   }, []);
@@ -4178,23 +4206,106 @@ function WorkflowVoiceStepPanel({
   function stopTimers() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
-    activityTimersRef.current.forEach(clearTimeout);
-    activityTimersRef.current = [];
   }
 
-  function startActivityLog() {
-    const ACTIVITY_STEPS = [
-      { delay: 500,  text: "Your AI agent answered the call", icon: "✅" },
-      { delay: 4000, text: "Checking your calendar for open slots…", icon: "📅" },
-      { delay: 9000, text: "Finding the best appointment time…", icon: "🔍" },
-      { delay: 14000, text: "Preparing your confirmation message…", icon: "💬" },
-    ];
-    ACTIVITY_STEPS.forEach(({ delay, text, icon }, index) => {
-      const t = setTimeout(() => {
-        setActivityLog((prev) => [...prev, { id: index, text, icon }]);
-      }, delay);
-      activityTimersRef.current.push(t);
-    });
+  /** Append an activity entry only if it hasn't been shown yet (deduplication by key). */
+  function pushActivity(key: string, text: string, iconKey: string) {
+    if (seenActivitiesRef.current.has(key)) return;
+    seenActivitiesRef.current.add(key);
+    const id = activityIdRef.current++;
+    setActivityLog((prev) => [...prev, { id, text, iconKey }]);
+  }
+
+  /**
+   * Derive a human-readable activity entry from a Vapi tool-call function name.
+   * Returns null for unrecognised tool names (they are silently ignored).
+   */
+  function activityFromToolName(name: string): { key: string; text: string; iconKey: string } | null {
+    const n = name.toLowerCase();
+    if (/check.?avail|get.?avail|list.?slot|open.?slot|free.?slot|calendar.?avail/.test(n)) {
+      return { key: "calendar-check", text: "Checking calendar for available slots.", iconKey: "calendar-search" };
+    }
+    if (/book.?appoint|create.?appoint|schedule.?appoint|google_calendar_create|create_event/.test(n)) {
+      return { key: "book-appointment", text: "Finding the best appointment time.", iconKey: "search" };
+    }
+    if (/booked|confirm.?appoint|appoint.*booked|event.?created/.test(n)) {
+      return { key: "appointment-booked", text: "Appointment booked successfully.", iconKey: "calendar-check" };
+    }
+    if (/send.?sms|send.?text|notify.?sms|twilio|send_notification/.test(n)) {
+      return { key: "send-sms", text: "Sending confirmation SMS to the customer.", iconKey: "message-square" };
+    }
+    if (/send.?email|email.?confirm|notify.?email/.test(n)) {
+      return { key: "send-email", text: "Sending confirmation email.", iconKey: "mail" };
+    }
+    if (/confirm|send.?confirm/.test(n)) {
+      return { key: "confirmation", text: "Preparing your confirmation message.", iconKey: "message-square" };
+    }
+    return null;
+  }
+
+  /**
+   * Inspect the Vapi 'message' event payload and add activity log entries
+   * that accurately reflect what the agent is doing right now.
+   */
+  function handleVapiMessage(payload: unknown) {
+    if (!payload || typeof payload !== "object") return;
+    const msg = payload as Record<string, unknown>;
+
+    // tool-calls: agent is invoking a backend function
+    if (msg.type === "tool-calls") {
+      // Vapi may send toolCallList or toolCalls depending on version
+      const calls = (msg.toolCallList ?? msg.toolCalls) as unknown[];
+      if (Array.isArray(calls)) {
+        calls.forEach((call) => {
+          const c = call as Record<string, unknown>;
+          const fn = (c.function ?? c.fn) as Record<string, unknown> | undefined;
+          const name = typeof fn?.name === "string" ? fn.name
+            : typeof c.name === "string" ? c.name
+            : "";
+          if (!name) return;
+          // Show "Checking calendar…" before the actual book call
+          if (/book.?appoint|create.?appoint|schedule.?appoint|google_calendar_create|create_event/.test(name.toLowerCase())) {
+            // Ensure "checking calendar" appears first as a precursor
+            pushActivity("calendar-check", "Checking calendar for available slots.", "calendar-search");
+          }
+          const activity = activityFromToolName(name);
+          if (activity) pushActivity(activity.key, activity.text, activity.iconKey);
+        });
+      }
+    }
+
+    // tool-call-result: agent received result back — appointment booked
+    if (msg.type === "tool-calls-result" || msg.type === "tool-call-result") {
+      const result = msg.result as Record<string, unknown> | undefined;
+      const resultStr = JSON.stringify(result ?? "").toLowerCase();
+      if (/booked|confirmed|created|appointment/.test(resultStr)) {
+        pushActivity("appointment-booked", "Appointment booked successfully.", "calendar-check");
+      }
+      if (/sms|text.*sent|message.*sent/.test(resultStr)) {
+        pushActivity("send-sms", "Sending confirmation SMS to the customer.", "message-square");
+      }
+    }
+
+    // transcript: use keywords as a lightweight fallback for agents
+    // that don't surface tool-call events to the client
+    if (msg.type === "transcript" && msg.role === "assistant") {
+      const text = (typeof msg.transcript === "string" ? msg.transcript : "").toLowerCase();
+      if (/check.*calendar|checking.*calendar|look.*avail|checking.*avail/.test(text)) {
+        pushActivity("calendar-check", "Checking calendar for available slots.", "calendar-search");
+      }
+      if (/finding.*time|best.*time|available.*slot|look.*slot/.test(text)) {
+        pushActivity("find-time", "Finding the best appointment time.", "search");
+      }
+      if (/appointment.*booked|booked.*appointment|scheduled.*for|confirmed.*appoint/.test(text)) {
+        pushActivity("appointment-booked", "Appointment booked successfully.", "calendar-check");
+      }
+      if (/send.*text|send.*sms|confirmation.*text|text.*message/.test(text)) {
+        pushActivity("send-sms", "Sending confirmation SMS to the customer.", "message-square");
+      }
+      if (/send.*email|confirmation.*email/.test(text)) {
+        pushActivity("send-email", "Sending confirmation email.", "mail");
+      }
+    }
   }
 
   function endPreviewCall(stopClient = true) {
@@ -4222,6 +4333,8 @@ function WorkflowVoiceStepPanel({
     timedOutRef.current = false;
     setElapsedSeconds(0);
     setActivityLog([]);
+    seenActivitiesRef.current = new Set();
+    activityIdRef.current = 0;
     setSecondsLeft(0);
     elapsedRef.current = 0;
     onCallStateChange("in-progress");
@@ -4260,8 +4373,8 @@ function WorkflowVoiceStepPanel({
             return c - 1;
           });
         }, 1000);
-        // Animate the live activity log
-        startActivityLog();
+        // Show the first real-time activity: agent answered
+        pushActivity("call-answered", "AI agent answered the call.", "phone-call");
       };
       const onCallEnd = () => endPreviewCall(false);
       const onSpeechStart = () => setAgentSpeaking(true);
@@ -4278,11 +4391,14 @@ function WorkflowVoiceStepPanel({
         endPreviewCall();
       };
 
+      const onMessage = (payload?: unknown) => handleVapiMessage(payload);
+
       client.on("call-start", onCallStart);
       client.on("call-end", onCallEnd);
       client.on("speech-start", onSpeechStart);
       client.on("speech-end", onSpeechEnd);
       client.on("error", onError);
+      client.on("message", onMessage);
 
       detachRef.current = () => {
         client.off?.("call-start", onCallStart);
@@ -4290,6 +4406,7 @@ function WorkflowVoiceStepPanel({
         client.off?.("speech-start", onSpeechStart);
         client.off?.("speech-end", onSpeechEnd);
         client.off?.("error", onError);
+        client.off?.("message", onMessage);
       };
 
       await client.start(nextSession.assistantId, { metadata: { purpose: "BUYER_SETUP_PREVIEW" } });
@@ -4404,7 +4521,9 @@ function WorkflowVoiceStepPanel({
               <div className="space-y-2">
                 {activityLog.map((entry) => (
                   <div key={entry.id} className="flex items-center gap-2.5 animate-in">
-                    <span className="text-base leading-none">{entry.icon}</span>
+                    <span className="shrink-0 flex items-center justify-center w-5 h-5 rounded-full bg-amber-50 border border-amber-200">
+                      <ActivityIcon iconKey={entry.iconKey} />
+                    </span>
                     <span className="text-xs text-slate-600 font-medium flex-1">{entry.text}</span>
                     {callState === "in-progress" && entry.id === activityLog[activityLog.length - 1]?.id && (
                       <span className="flex gap-0.5 ml-auto shrink-0">
@@ -4538,15 +4657,61 @@ function WorkflowVoiceStepPanel({
 function WorkflowAppointmentStepPanel({
   calendarConnected,
   timeZone,
+  eventUrl,
+  eventStartAt,
   onComplete
 }: {
   calendarConnected: boolean;
   timeZone: string;
+  /** Google's own link to the created event (htmlLink). */
+  eventUrl?: string | null;
+  /** ISO start — used to open the right DAY when there is no event link. */
+  eventStartAt?: string | null;
   onComplete: () => void;
 }) {
+  // Nothing upstream reliably supplies the booking (the guided test books
+  // server-side), so ask for the latest one when the step opens.
+  const [fetchedEvent, setFetchedEvent] = useState<BusinessTestCalendarEvent | null>(null);
+
+  useEffect(() => {
+    if (!calendarConnected || eventUrl) return;
+    let active = true;
+    void getLatestBusinessTestEvent().then((res) => {
+      if (active && res.success && res.data?.event) setFetchedEvent(res.data.event);
+    });
+    return () => {
+      active = false;
+    };
+  }, [calendarConnected, eventUrl]);
+
+  const resolvedEventUrl = eventUrl || fetchedEvent?.htmlLink || null;
+
+  // Prefer the event itself. Opening the calendar root made the buyer hunt for
+  // the appointment they were just told about.
+  const dayUrl = (() => {
+    const startIso = eventStartAt || fetchedEvent?.startAt;
+    if (!startIso) return null;
+    const date = new Date(startIso);
+    if (Number.isNaN(date.getTime())) return null;
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timeZone || undefined,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date);
+    const get = (type: string) => parts.find((part) => part.type === type)?.value;
+    const [y, m, d] = [get("year"), get("month"), get("day")];
+    return y && m && d
+      ? `https://calendar.google.com/calendar/u/0/r/day/${y}/${Number(m)}/${Number(d)}`
+      : null;
+  })();
+
   const calendarUrl = calendarConnected
-    ? `https://calendar.google.com/calendar/r${timeZone ? `?ctz=${encodeURIComponent(timeZone)}` : ""}`
+    ? resolvedEventUrl ||
+      dayUrl ||
+      `https://calendar.google.com/calendar/r${timeZone ? `?ctz=${encodeURIComponent(timeZone)}` : ""}`
     : null;
+  const opensExactEvent = Boolean(calendarConnected && resolvedEventUrl);
 
   return (
     <div className="space-y-4">
@@ -4583,7 +4748,7 @@ function WorkflowAppointmentStepPanel({
               <line x1="8" y1="2" x2="8" y2="6" />
               <line x1="3" y1="10" x2="21" y2="10" />
             </svg>
-            Open Calendar
+            {opensExactEvent ? "Open Appointment" : "Open Calendar"}
           </a>
         ) : null}
         <button
@@ -5149,11 +5314,6 @@ function StepGoLive({
     </div>
   );
 }
-/* ------------------------------------------------------------------ */
-/* Business calendar booking test — real agent logic; bookings create  */
-/* clearly-marked [TRIVEN BUSINESS TEST] events on the connected       */
-/* business calendar. Never counts as production activity.             */
-/* ------------------------------------------------------------------ */
 
 /** Visual meta for the per-turn node execution timeline. */
 const NODE_STATUS_META: Record<BusinessTestExecutedNode["status"], { label: string; pill: string; dot: string }> = {
@@ -5181,12 +5341,15 @@ function chatTimeLabel(iso?: string): string {
 function BusinessCalendarTestSection({
   calendarConnected,
   timeZone,
-  onResult
+  onResult,
+  onCalendarEvent
 }: {
   calendarConnected: boolean;
   timeZone: string;
   /** Reports each turn's full result to the step-level test summary. */
   onResult?: (result: BusinessChatTestResult) => void;
+  /** Reports each test booking upward so the guided step can link to it. */
+  onCalendarEvent?: (event: BusinessTestCalendarEvent) => void;
 }) {
   const [messages, setMessages] = useState<BusinessChatTestMessage[]>([]);
   const [input, setInput] = useState("");
@@ -5234,7 +5397,10 @@ function BusinessCalendarTestSection({
       // Latest turn's node timeline replaces the previous one — including
       // failed/skipped nodes, which must stay visible.
       setExecutedNodes(res.data.executedNodes ?? []);
-      if (res.data.calendarEvent) setCalendarEvent(res.data.calendarEvent);
+      if (res.data.calendarEvent) {
+        setCalendarEvent(res.data.calendarEvent);
+        onCalendarEvent?.(res.data.calendarEvent);
+      }
       setCalendarError(res.data.calendarError ?? null);
       setConfigError(res.data.configError ?? null);
       onResult?.(res.data);

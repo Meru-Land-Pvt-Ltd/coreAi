@@ -930,7 +930,7 @@ export function genericAssistantTools() {
       function: {
         name: VOICE_TOOL_NAMES.recordSmsConsent,
         description:
-          "Record the caller's answer to the SMS-consent disclosure. Call this ONLY after reading the full SMS consent disclosure aloud and hearing the caller's answer. Pass affirmative=true ONLY for a clear, unambiguous yes (e.g. 'yes', 'yes please', 'sure, that's fine'). Pass affirmative=false for no, silence, hesitation, an unclear answer, or an interruption. NEVER pass a phone number — the confirmation is sent to the number already on the booking (verified server-side). Never call it with affirmative=true because the caller merely provided a phone number or completed a booking.",
+          "Record the caller's answer to the SMS-consent disclosure. Call this ONLY after reading the full SMS consent disclosure aloud and hearing the caller's answer. Pass affirmative=true ONLY for a clear, unambiguous yes (e.g. 'yes', 'yes please', 'sure, that's fine') — a yes still counts when the caller says it by interrupting you. Pass affirmative=false for no, silence, hesitation, or an unclear answer. If the caller cut you off before you finished the disclosure, call it anyway with their answer: the server will tell you which parts are still unspoken so you can finish them without starting over. NEVER pass a phone number — the confirmation is sent to the number already on the booking (verified server-side). Never call it with affirmative=true because the caller merely provided a phone number or completed a booking.",
         parameters: {
           type: "object",
           properties: {

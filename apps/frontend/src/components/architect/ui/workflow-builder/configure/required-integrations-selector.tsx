@@ -10,7 +10,8 @@ const INTEGRATION_ICONS: Record<RequiredIntegrationKey, string> = {
   webhook: "git-branch",
   telegram: "telegram",
   vapi: "mic",
-  twilio: "phone-call"
+  twilio: "phone-call",
+  whatsapp: "whatsapp"
 };
 
 export function RequiredIntegrationsSelector({

@@ -1,4 +1,4 @@
-import { env } from "../../../config/env";
+import { llmProviderApiKey } from "../llm-credentials";
 import type {
   AIProviderAdapter,
   AIExecuteRequest,
@@ -44,12 +44,14 @@ class MistralAdapter implements AIProviderAdapter {
   }
 
   async validate(): Promise<ValidationResult> {
-    return checkEnvKey("MISTRAL_API_KEY");
+    const apiKey = llmProviderApiKey("mistral");
+    return apiKey ? { valid: true, message: "Mistral API key is present." } : { valid: false, message: "MISTRAL_API_KEY is not set." };
   }
 
   async execute(request: AIExecuteRequest): Promise<AIExecuteResponse> {
     const startMs = Date.now();
     const model = request.model ?? this.defaultModel;
+    const apiKey = llmProviderApiKey("mistral");
 
     try {
       const messages = this.buildMessages(request);
@@ -59,7 +61,7 @@ class MistralAdapter implements AIProviderAdapter {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${env.MISTRAL_API_KEY}`,
+            Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
             model,

@@ -8,9 +8,9 @@ import {
 } from "../notifications/consent-offer-store";
 import {
   parseTranscriptSegments,
-  segmentsSmsDisclosureState,
-  transcriptSmsDisclosureState,
-  type SmsDisclosureState
+  segmentsSmsDisclosureProgress,
+  transcriptSmsDisclosureProgress,
+  type SmsDisclosureProgress
 } from "../notifications/sms-disclosure";
 import { createTestCalendarEvent } from "./test-calendar-events";
 import {
@@ -37,7 +37,9 @@ import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/a
 import {
   checkBusinessExactTime,
   computeBusinessAvailability,
-  revalidateAndReserveSlot
+  resolveScheduleForBusiness,
+  revalidateAndReserveSlot,
+  serviceDurationFor
 } from "../business/scheduling";
 import { detectFactIntents, loadBusinessFacts, lookupStructuredFacts } from "../business/business-facts";
 import { businessOpenStatusNow, specialEntriesFromRows } from "../business/business-hours-state";
@@ -910,8 +912,6 @@ function buildInboundSmsReply(
   const knowledge = [...(business?.faqs ?? []), ...(business?.knowledge ?? [])];
   const normalizedMessage = incomingBody.toLowerCase();
 
-  // Use prior conversation context so we do not re-introduce the business on
-  // every message and can keep the thread moving toward a booking.
   const hasGreeted = history.some((turn) => turn.direction === "OUTBOUND");
   const askedForTime = history.some(
     (turn) => turn.direction === "OUTBOUND" && /time|day|when|book/i.test(turn.body)
@@ -1043,10 +1043,6 @@ async function maybeStartVapiAfterMissedCall({
       },
       create: {
         businessId: agent.business.businessId,
-        // Attribute the outbound AI callback to its agent at creation. Without
-        // this the row is billing-orphaned: the reconciler requires a non-null
-        // installedAgentId, so a lost end-of-call webhook would strand the call
-        // in pricingState PENDING forever, unbillable and inflating run counts.
         installedAgentId: agent.business.installedAgentId ?? undefined,
         conversationId: conversationId ?? undefined,
         callId: call.id,
@@ -1220,8 +1216,6 @@ async function buildVapiAnswerTwiml({
       });
     }
   } catch (error) {
-    // The hours decision must never break call answering — fall back to the
-    // neutral "unknown" behavior baked into the prompt.
     console.error("[after-hours] live hours decision failed (non-fatal)", error);
   }
 
@@ -2612,28 +2606,36 @@ function consentOfferKey(ctx: VapiToolContext): ConsentOfferKey | null {
  * gate a full turn late, so a correctly-read disclosure was rejected and the
  * caller had to sit through it a second time.
  */
-async function smsDisclosureState(ctx: VapiToolContext): Promise<SmsDisclosureState> {
+async function smsDisclosureState(ctx: VapiToolContext): Promise<SmsDisclosureProgress> {
   const key = consentOfferKey(ctx);
-  if (key && (await wasConsentOffered(key))) return "ANSWERED";
+  if (key && (await wasConsentOffered(key))) return { state: "ANSWERED", missing: [] };
 
   const businessName = ctx.business?.businessName ?? "";
-  const structured = segmentsSmsDisclosureState(
+  const structured = segmentsSmsDisclosureProgress(
     (ctx.callTurns ?? []).map((turn) => ({ role: turn.role, text: turn.content })),
     businessName
   );
-  const flat = transcriptSmsDisclosureState(ctx.transcript ?? "", businessName);
+  const flat = transcriptSmsDisclosureProgress(ctx.transcript ?? "", businessName);
 
-  const state: SmsDisclosureState =
-    structured === "ANSWERED" || flat === "ANSWERED"
-      ? "ANSWERED"
-      : structured === "AWAITING_ANSWER" || flat === "AWAITING_ANSWER"
-        ? "AWAITING_ANSWER"
-        : "NOT_PRESENTED";
+  const progress: SmsDisclosureProgress =
+    structured.state === "ANSWERED" || flat.state === "ANSWERED"
+      ? { state: "ANSWERED", missing: [] }
+      : structured.state === "AWAITING_ANSWER" || flat.state === "AWAITING_ANSWER"
+        ? { state: "AWAITING_ANSWER", missing: [] }
+        : structured.state === "INTERRUPTED" || flat.state === "INTERRUPTED"
+          // Whichever source heard more of it has the shorter missing list, and
+          // its remainingLine is the one that keeps the confirmation shortest.
+          ? (() => {
+            const bothInterrupted = structured.state === "INTERRUPTED" && flat.state === "INTERRUPTED";
+            const best = bothInterrupted
+              ? (structured.missing.length <= flat.missing.length ? structured : flat)
+              : (structured.state === "INTERRUPTED" ? structured : flat);
+            return { state: "INTERRUPTED" as const, missing: best.missing, remainingLine: best.remainingLine };
+          })()
+          : { state: "NOT_PRESENTED", missing: [] };
 
-  /* Only a fully answered disclosure is persisted. AWAITING_ANSWER is never
-     latched, so consent can never be recorded without a caller turn. */
-  if (state === "ANSWERED" && key) await markConsentOffered(key);
-  return state;
+  if (progress.state === "ANSWERED" && key) await markConsentOffered(key);
+  return progress;
 }
 
 const NEEDS_CUSTOMER_NAME_RESULT = {
@@ -2940,7 +2942,33 @@ export async function runCheckAvailabilityTool(args: Record<string, unknown>, ct
   };
 }
 
-/** book_appointment: validate date/time, then create a real Google Calendar event or a local record. */
+async function resolveBookingDurationMinutes(
+  ctx: VapiToolContext,
+  args: Record<string, unknown>,
+  service: string
+): Promise<number> {
+  const businessId = ctx.business?.businessId;
+  if (businessId) {
+    try {
+      const { schedule } = await resolveScheduleForBusiness({
+        businessId,
+        installedAgentId: ctx.installedAgentId ?? null
+      });
+      const minutes = serviceDurationFor(schedule, service);
+      if (Number.isFinite(minutes) && minutes > 0) return minutes;
+    } catch (error) {
+      console.warn("[vapi-tool] book_appointment schedule lookup failed; using legacy duration", {
+        businessId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  const explicit = Number(args.duration_minutes);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  return ctx.dental?.defaultDurationMinutes || 30;
+}
+
 export async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   console.log("[vapi-tool] book_appointment raw args", JSON.stringify(redactForLog(args)));
 
@@ -2978,8 +3006,6 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
   } else if (rawPhone && !hasExplicitCountryCode(rawPhone)) {
     const dictatedDigits = rawPhone.replace(/\D/g, "");
     if (callerIdPhone && dictatedDigits.length >= 7 && callerIdPhone.endsWith(dictatedDigits)) {
-      // The caller dictated their OWN number without the code — the verified
-      // caller-ID form is the confirmed canonical recipient.
       patientPhone = callerIdPhone;
     } else if (rememberedContact.canonicalPhoneE164) {
       // A full number was already confirmed earlier in this call.
@@ -3012,7 +3038,7 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
     ctx.dental?.bookingLabel ||
     "Appointment";
   const providerName = resolveRequestedProvider(args);
-  const duration = Number(args.duration_minutes) || ctx.dental?.defaultDurationMinutes || 30;
+  const duration = await resolveBookingDurationMinutes(ctx, args, service);
   const time =
     parseClockTime(argStr(args, ["time", "appointment_time"])) ??
     parseClockTime(callerOnlyTranscript(ctx.transcript)) ??
@@ -4100,7 +4126,8 @@ async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx: VapiTo
       content: section.content,
       source: section.sourceFilename
     })),
-    message: "Answer using ONLY these sections. If they do not cover the question, say you will have the team confirm."
+    message:
+      "Answer using ONLY these sections. Read across ALL of them before answering — when the caller asks who or what the business has, name every match found in these sections, not just the first one. If they do not cover the question, say you will have the team confirm."
   };
 }
 
@@ -4238,11 +4265,28 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
     };
   }
 
-  const disclosureState = await smsDisclosureState(ctx);
+  const disclosure = await smsDisclosureState(ctx);
+  const disclosureState = disclosure.state;
+
+  if (disclosureState === "INTERRUPTED") {
+    console.warn("[vapi-webhook] record_sms_consent deferred — disclosure interrupted", {
+      callId: ctx.callId ?? null,
+      executionMode: ctx.executionMode ?? "LIVE",
+      missing: disclosure.missing.length
+    });
+    return {
+      success: false,
+      error: "DISCLOSURE_INTERRUPTED",
+      consent_recorded: false,
+      sms_allowed: false,
+      customerSpeechCode: "NONE" as const,
+      confirmation_line: disclosure.remainingLine ?? "",
+      message:
+        "Consent was NOT saved yet — the caller answered before the disclosure finished. Do NOT read the disclosure again and do NOT apologize. Say the ONE sentence in confirmation_line, word-for-word, and nothing else. It is short by design: it carries only the terms they have not heard yet and ends by confirming their answer. Then call record_sms_consent again with that answer."
+    };
+  }
 
   if (disclosureState === "AWAITING_ANSWER") {
-    // The disclosure WAS read in full. Re-reading it is the wrong correction —
-    // the assistant only has to wait for the caller's yes or no.
     console.warn("[vapi-webhook] record_sms_consent deferred — disclosure read, answer not yet in transcript", {
       callId: ctx.callId ?? null,
       executionMode: ctx.executionMode ?? "LIVE"

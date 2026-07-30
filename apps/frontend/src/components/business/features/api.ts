@@ -868,6 +868,14 @@ export function runBusinessSetupChatTest(body: {
   return apiPost<BusinessChatTestResult>("/business/setup/test-conversation", body);
 }
 
+/** Most recent test booking for this buyer — used to link straight to the event. */
+export function getLatestBusinessTestEvent(testSessionId?: string) {
+  const query = testSessionId ? `?testSessionId=${encodeURIComponent(testSessionId)}` : "";
+  return apiGet<{ event: BusinessTestCalendarEvent | null }>(
+    `/business/setup/test-events/latest${query}`
+  );
+}
+
 /** Delete a business test calendar event (ownership-validated, idempotent). */
 export function deleteBusinessTestEvent(testEventId: string) {
   return apiPost<{ outcome: string }>(`/business/setup/test-events/${encodeURIComponent(testEventId)}/delete`, {});
@@ -945,6 +953,22 @@ export function resumeInstalledAgent(installedAgentId: string) {
 
 export function getBusinessCalendarStatus() {
   return apiGet<BusinessCalendarStatus>("/business/connectors/google-calendar/status");
+}
+
+export type BusinessWhatsAppStatus = {
+  connected: boolean;
+  connectionId: string | null;
+  displayName: string | null;
+  phoneNumber: string | null;
+  status: string | null;
+};
+
+export function getBusinessWhatsAppStatus() {
+  return apiGet<BusinessWhatsAppStatus>("/business/connectors/whatsapp/status");
+}
+
+export function disconnectBusinessWhatsApp() {
+  return apiDelete<{ disconnected: number }>("/business/connectors/whatsapp");
 }
 
 export function getBusinessCalendarOAuthUrl(redirect?: string) {

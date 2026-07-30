@@ -40,6 +40,7 @@ export type CalendarBookingInput = {
   service: string;
   customerName: string;
   customerPhone: string;
+  durationMinutes?: number;
 };
 
 export type CalendarBookingEventDetails = {
@@ -220,7 +221,9 @@ async function bookTestAppointment(
     };
   }
 
-  const durationMinutes = 30;
+  // Must match the length availability offered — a 40-minute service booked
+  // as 30 leaves the calendar disagreeing with what the caller was told.
+  const durationMinutes = input.durationMinutes && input.durationMinutes > 0 ? input.durationMinutes : 30;
   const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
 
   const result = await createTestCalendarEvent({

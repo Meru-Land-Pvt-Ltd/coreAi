@@ -10,6 +10,7 @@ import {
   findLlmModel,
   getLlmModelsForProvider,
   getLlmProvider,
+  isMultimodalModel,
   resolveLlmSelection,
 } from "./llm-catalog";
 import { isProviderDisabled, providerDisabledTitle, useLlmAvailability } from "./use-llm-availability";
@@ -40,6 +41,7 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
   const providerModels = getLlmModelsForProvider(selection.providerId);
   const activeModelId = selection.modelId ?? defaultLlmModelForProvider(selection.providerId) ?? "";
   const currentModel = findLlmModel(activeModelId);
+  const isMultimodal = isMultimodalModel(currentModel, selection.providerId);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -55,6 +57,18 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Auto-switch away from a disabled provider (e.g. OpenAI when disabled) to the first usable provider
+  useEffect(() => {
+    if (!availability) return;
+    if (isProviderDisabled(availability, selection.providerId)) {
+      const firstUsable = LLM_PROVIDERS.find((p) => !isProviderDisabled(availability, p.id));
+      if (firstUsable && firstUsable.id !== selection.providerId) {
+        onUpdateNodeData("llmProvider", firstUsable.id);
+        onUpdateNodeData("llmModel", defaultLlmModelForProvider(firstUsable.id) ?? "");
+      }
+    }
+  }, [availability, selection.providerId, onUpdateNodeData]);
 
   // Switching provider also switches to that provider's first model, so the
   // node never keeps a model the new provider cannot run.
@@ -263,83 +277,85 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
         </div>
       </Section>
 
-      {/* --- Section 4: Attachments --- */}
-      <Section title="Attachments">
-        <div className="space-y-3">
-          <Label>Files (Images / PDFs / Docs)</Label>
+      {/* --- Section 4: Attachments (Only shown if model supports Multimodal capabilities) --- */}
+      {isMultimodal && (
+        <Section title="Attachments">
+          <div className="space-y-3">
+            <Label>Files (Images / PDFs / Docs)</Label>
 
-          {attachments.length > 0 && (
-            <div className="space-y-2 mb-3">
-              {attachments.map((att, idx) => {
-                const isImage = att.mimeType.startsWith("image/");
-                const isPdf = att.mimeType === "application/pdf";
+            {attachments.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {attachments.map((att, idx) => {
+                  const isImage = att.mimeType.startsWith("image/");
+                  const isPdf = att.mimeType === "application/pdf";
 
-                return (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5 transition hover:border-violet-100 hover:bg-violet-50/10"
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="flex h-8 w-8 shrink-0 place-items-center justify-center rounded-lg bg-white border border-slate-100 text-sm shadow-sm">
-                        {isImage ? "🖼️" : isPdf ? "📄" : "📁"}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-semibold text-slate-700 leading-tight">
-                          {att.name || `attachment-${idx + 1}`}
-                        </p>
-                        <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate uppercase">
-                          {att.mimeType}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAttachment(idx)}
-                      className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors"
-                      aria-label="Remove attachment"
+                  return (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5 transition hover:border-violet-100 hover:bg-violet-50/10"
                     >
-                      <BuilderIcon name="x" className="h-4 w-4" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="relative">
-            <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer bg-slate-50/40 hover:bg-violet-50/20 hover:border-violet-300 transition-all duration-200 group">
-              <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                <svg
-                  className="w-6 h-6 mb-2 text-slate-400 group-hover:text-violet-500 transition-colors"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                  ></path>
-                </svg>
-                <p className="text-[11px] font-semibold text-slate-500 group-hover:text-violet-600 transition-colors">
-                  Click or drag file to attach
-                </p>
-                <p className="text-[9px] text-slate-400 mt-1">
-                  Supports Images, PDFs, Docs (Max 5MB)
-                </p>
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="flex h-8 w-8 shrink-0 place-items-center justify-center rounded-lg bg-white border border-slate-100 text-sm shadow-sm">
+                          {isImage ? "🖼️" : isPdf ? "📄" : "📁"}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-semibold text-slate-700 leading-tight">
+                            {att.name || `attachment-${idx + 1}`}
+                          </p>
+                          <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate uppercase">
+                            {att.mimeType}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAttachment(idx)}
+                        className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors"
+                        aria-label="Remove attachment"
+                      >
+                        <BuilderIcon name="x" className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
-              <input
-                type="file"
-                className="hidden"
-                accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={handleFileChange}
-              />
-            </label>
+            )}
+
+            <div className="relative">
+              <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer bg-slate-50/40 hover:bg-violet-50/20 hover:border-violet-300 transition-all duration-200 group">
+                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                  <svg
+                    className="w-6 h-6 mb-2 text-slate-400 group-hover:text-violet-500 transition-colors"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                    ></path>
+                  </svg>
+                  <p className="text-[11px] font-semibold text-slate-500 group-hover:text-violet-600 transition-colors">
+                    Click or drag file to attach
+                  </p>
+                  <p className="text-[9px] text-slate-400 mt-1">
+                    Supports Images, PDFs, Docs (Max 5MB)
+                  </p>
+                </div>
+                <input
+                  type="file"
+                  className="hidden"
+                  accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  onChange={handleFileChange}
+                />
+              </label>
+            </div>
           </div>
-        </div>
-      </Section>
+        </Section>
+      )}
 
       {/* --- Section 5: Advanced Options --- */}
       <Section title="Advanced options" last>
