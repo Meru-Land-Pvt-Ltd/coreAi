@@ -9,6 +9,7 @@ import { MarketplaceFeaturedSection } from "@/components/common/marketplace-feat
 import { apiGet } from "@/lib/api";
 import { ASSIGNMENT_PATH, businessCheckoutPath, publicAgentPath } from "@/lib/routes";
 import { getConnectorIncludedItem } from "@coreai/shared";
+import { getWorkflowFeatures } from "@/components/agent-description/shared/agent-listing";
 import { BotIcon, Download, Search } from "lucide-react";
 
 type Agent = {
@@ -343,27 +344,7 @@ function AgentCardIcon({ iconUrl, size = 12 }: { iconUrl?: string | null; size?:
 }
 
 function getWhatYouGetItems(listing: ApiListing): string[] {
-  const fromFeatures = (listing.includedFeatures ?? [])
-    .map((feature) => feature.trim())
-    .filter(Boolean);
-  if (fromFeatures.length) return fromFeatures;
-
-  const fromNodes = (listing.capabilities ?? [])
-    .map((value) => value.trim())
-    .filter(Boolean);
-  if (fromNodes.length) return fromNodes;
-
-  const connectors = listing.requiredConnectors ?? [];
-  if (connectors.length) {
-    return connectors.map((connector) => getConnectorIncludedItem(connector));
-  }
-
-  return [
-    listing.shortDescription ||
-      listing.description ||
-      listing.workflow?.description ||
-      "Automates business workflows with AI."
-  ];
+  return getWorkflowFeatures(listing as any);
 }
 
 function mapListingToAgent(listing: ApiListing): Agent {

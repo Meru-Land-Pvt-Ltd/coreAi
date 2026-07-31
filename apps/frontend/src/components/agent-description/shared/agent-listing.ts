@@ -60,6 +60,7 @@ export type ApiListing = {
   demoVideoUrl?: string | null;
   architect?: ApiArchitect | null;
   workflow?: ApiWorkflow | null;
+  capabilities?: string[];
 };
 
 export type ListingApiResponse = {
@@ -143,7 +144,7 @@ export function getListingTags(listing: ApiListing): string[] {
 
 /**
  * "Everything this agent does" — the agent's capabilities/features as defined by the architect.
- * Uses includedFeatures first, then workflow nodes, then connectors, then description fallback.
+ * Uses includedFeatures first, then workflow nodes, then capabilities, then connectors, then description fallback.
  */
 export function getWorkflowFeatures(listing: ApiListing) {
   const fromFeatures = (listing.includedFeatures ?? [])
@@ -158,6 +159,12 @@ export function getWorkflowFeatures(listing: ApiListing) {
     .filter((value): value is string => Boolean(value?.trim()));
 
   if (fromNodes.length) return fromNodes;
+
+  const fromCapabilities = (listing.capabilities ?? [])
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (fromCapabilities.length) return fromCapabilities;
 
   const connectors = listing.requiredConnectors ?? [];
   if (connectors.length) {

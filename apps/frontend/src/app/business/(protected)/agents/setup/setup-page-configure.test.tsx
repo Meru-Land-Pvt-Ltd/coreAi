@@ -106,7 +106,7 @@ vi.mock("@/components/business/features/api", () => ({
     }
   }),
   getBusinessKnowledgeFiles: vi.fn().mockResolvedValue({ success: true, data: { files: [] } }),
-  getBusinessMailSetup: vi.fn().mockResolvedValue({ success: true, data: { alias: null } }),
+  getBusinessMailSetup: vi.fn().mockResolvedValue({ success: true, data: { alias: { localPart: "agent", domain: "triven.ai", displayName: "Test Biz", status: "ACTIVE" } } }),
   getVoiceSamplePreview: vi.fn().mockResolvedValue({ success: true, data: { audioBase64: "", mimeType: "audio/mpeg" } }),
   reprocessBusinessKnowledgeFile: vi.fn().mockResolvedValue({
     success: true,
@@ -613,13 +613,13 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     });
     await user.click(screen.getByTestId("business-setup-dot-3"));
 
-    expect((await screen.findByTestId("business-setup-test-flow")).textContent).toMatch(/speak to the assistant|call/i);
+    expect((await screen.findByTestId("business-setup-test-flow")).textContent).toMatch(/speak to the assistant|talk to your agent|call/i);
   });
 
   it("SMS workflows get an SMS test panel", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({
-        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "", twilioPhoneNumberSid: null },
+        phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "123456789", twilioPhoneNumberSid: null },
         requiredConnectors: [{ connector: "twilio", label: "Phone", ownedBy: "platform", note: "" }],
         triggerKind: "inbound_sms"
       }) as never

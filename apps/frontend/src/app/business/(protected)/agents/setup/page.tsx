@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PhoneCall, CalendarSearch, Search, CalendarCheck, MessageSquare, Mail } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { Route } from "next";
@@ -8,6 +8,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   COMMON_TIMEZONES,
   DEFAULT_SILENCE,
+  deriveSetupVisibility,
+  getSetupValidationPlan,
   getAgentSuccessMessage,
   getWorkflowTriggerKind,
   isBuyerAnswerEmpty,
@@ -856,6 +858,7 @@ function SetupWizard() {
       }
 
       let keys = (data.requiredConnectors ?? []).map((req) => req.connector);
+      setRequiredKeys(keys);
       let loadedBuyerSetupFields = data.buyerSetupSchema?.filter((field) => field && field.key && field.label) || [];
 
       if (listingId) {
@@ -866,8 +869,8 @@ function SetupWizard() {
           if (listingRes.data.listing.setupTimeEstimate) {
             setSetupTimeEstimate(listingRes.data.listing.setupTimeEstimate);
           }
-          if (!data.installedAgent) {
-            keys = Array.from(new Set([...keys, ...listingRes.data.listing.requiredConnectors]));
+          if (!data.installedAgent && Array.isArray(listingRes.data.listing.requiredConnectors) && listingRes.data.listing.requiredConnectors.length > 0) {
+            keys = listingRes.data.listing.requiredConnectors as string[];
           }
 
           const setupFields = normalizeBuyerSetupFields(listingRes.data.listing.requiredBuyerSetup).filter(
@@ -1174,7 +1177,7 @@ function SetupWizard() {
           }
         }
         : {}),
-      ...(needsMail
+      ...(setupVisibility.mail
         ? {
           emailRecipients: {
             recipientType: emailRecipientType,
@@ -1372,19 +1375,19 @@ function SetupWizard() {
       return;
     }
 
-    if (showVoice && assistantName.trim().length < 2) {
+    if (setupValidationPlan.requireVoiceIdentity && assistantName.trim().length < 2) {
       setStep(2);
       setError("Add your AI assistant name.");
       return;
     }
 
-    if (showPhone && !(selectedPhoneId || assignedNumber)) {
+    if (setupValidationPlan.requirePhoneSelection && !(selectedPhoneId || assignedNumber)) {
       setStep(1);
       setError("Select a Triven phone number.");
       return;
     }
 
-    if (showCallForwarding && answeringMode !== "AI_FIRST" && forwardToPhone.trim().length < 5) {
+    if (setupValidationPlan.requireCallForwarding && answeringMode !== "AI_FIRST" && forwardToPhone.trim().length < 5) {
       setStep(1);
       setError("Add the phone number that should receive forwarded/live calls.");
       return;
@@ -1441,7 +1444,22 @@ function SetupWizard() {
   }
 
   const needs = new Set(requiredKeys);
-  const businessComplete = businessName.trim().length >= 2 && businessType.trim().length >= 2 && isAddressValid;
+  const workflowJson = useMemo(() => workflowJsonFromListing(listing), [listing]);
+
+  const setupVisibility = useMemo(
+    () => deriveSetupVisibility(workflowJson, requiredKeys),
+    [workflowJson, requiredKeys]
+  );
+
+  const setupValidationPlan = useMemo(
+    () => getSetupValidationPlan(setupVisibility),
+    [setupVisibility]
+  );
+
+  const businessNameComplete = !setupValidationPlan.requireBusinessName || businessName.trim().length >= 2;
+  const businessTypeComplete = !setupValidationPlan.requireBusinessType || businessType.trim().length >= 2;
+  const addressComplete = !setupValidationPlan.requireAddress || isAddressValid;
+  const businessComplete = businessNameComplete && businessTypeComplete && addressComplete;
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     "business-profile": true
@@ -1484,45 +1502,98 @@ function SetupWizard() {
   const buyerSetupComplete = buyerSetupIssues.length === 0;
   const assistantNameComplete = assistantName.trim().length >= 2;
   const phoneSelected = Boolean(selectedPhoneId) || Boolean(assignedNumber);
-  const forwardRequired = answeringMode !== "AI_FIRST";
-  const phoneComplete = phoneSelected && (!forwardRequired || forwardToPhone.trim().length >= 5);
+  const forwardRequired = setupValidationPlan.requireCallForwarding && answeringMode !== "AI_FIRST";
+  const phoneComplete = !setupValidationPlan.requirePhoneSelection || (phoneSelected && (!forwardRequired || forwardToPhone.trim().length >= 5));
   const voiceChoiceComplete = voiceChoice !== "";
-  const voiceComplete = assistantNameComplete && voiceChoiceComplete;
+  const voiceComplete = !setupValidationPlan.requireVoiceIdentity || (assistantNameComplete && voiceChoiceComplete);
 
-  const connectorsKnown = requiredKeys.length > 0 || (!loading && Boolean(listingId));
-  const needsCalendar = needs.has("google_calendar");
-  const needsGmail = needs.has("gmail");
-  const needsPhone = needs.has("phone_provider") || needs.has("twilio") || needs.has("phone");
-  const needsSms = needs.has("twilio") && triggerKind === "inbound_sms";
-  const needsVoice = needs.has("vapi") || triggerKind === "voice";
-  const needsMail = needs.has("triven_mail");
-  const needsTelegram = needs.has("telegram");
-  const mailComplete = mailAlias?.status === "ACTIVE";
+  const mailComplete = !setupValidationPlan.requireMail || Boolean(mailAlias?.localPart || mailAlias?.status === "ACTIVE");
 
-  // showPhone: always true (number verification is universal)
-  const showPhone = true;
-  // showCallForwarding: only for missed-call or voice workflows that need forwarding
-  const showCallForwarding = triggerKind === "missed_call" || triggerKind === "voice";
-  // showAnsweringMode: only for voice workflows (missed-call always uses NO_ANSWER / forward)
-  const showAnsweringMode = triggerKind === "voice";
-  const showCalendar = !connectorsKnown || needsCalendar || needsGmail;
-  const showSmsNote = triggerKind === "inbound_sms" || needsSms;
-  const showMail = !connectorsKnown || needsMail;
-  const showVoice = !connectorsKnown ? triggerKind === "voice" : needsVoice;
-  const showTelegram = needsTelegram;
+  const showPhone = setupVisibility.phone;
+  const showCallForwarding = setupVisibility.callForwarding;
+  const showAnsweringMode = setupVisibility.answeringMode;
+  const showCalendar = setupVisibility.calendar;
+  const showSmsNote = setupVisibility.smsNote;
+  const showMail = setupVisibility.mail;
+  const showVoice = setupVisibility.voiceIdentity;
+  const showTelegram = setupVisibility.telegram;
+
+  const needsCalendar = setupVisibility.calendar;
+  const needsGmail = setupVisibility.calendar;
+  const needsPhone = setupVisibility.phone;
+  const needsSms = setupVisibility.smsNote;
+  const needsMail = setupVisibility.mail;
+  const needsTelegram = setupVisibility.telegram;
+  const needsVoice = setupVisibility.voiceIdentity;
+
+  const showCallTest = setupVisibility.callTest;
+  const showCalendarTest = setupVisibility.calendarTest;
+  const showVoicePreview = setupVisibility.voicePreview;
+
+  const showTimeZone =
+    setupVisibility.businessProfile ||
+    setupVisibility.hours ||
+    setupVisibility.calendar ||
+    setupVisibility.bookingRules;
+
+  const hasConnectStep =
+    showPhone ||
+    showCalendar ||
+    showMail ||
+    showTelegram ||
+    showSmsNote ||
+    showTimeZone;
 
   const connectTitle =
     showPhone && showCalendar ? "Connect your phone & calendar" : showPhone ? "Connect your phone" : "Connect your services";
 
   const connectComplete =
-    (!showPhone || phoneSelected) &&
-    (!showCallForwarding || forwardToPhone.trim().length >= 5 || answeringMode === "AI_FIRST") &&
-    (!needsCalendar || calendar.connected) &&
-    (!needsGmail || calendar.connected) &&
-    (!needsMail || mailComplete) &&
-    (!needsTelegram || telegramConnected);
+    !hasConnectStep ||
+    ((!showPhone || phoneSelected) &&
+      (!showCallForwarding || forwardToPhone.trim().length >= 5 || answeringMode === "AI_FIRST") &&
+      (!showCalendar || calendar.connected) &&
+      (!showMail || mailComplete) &&
+      (!showTelegram || telegramConnected));
   const connectReady = connectComplete;
-  const configureComplete = businessComplete && buyerSetupComplete && (!showVoice || voiceComplete);
+
+  const hasConfigureSections =
+    setupVisibility.businessProfile ||
+    setupVisibility.knowledge ||
+    setupVisibility.hours ||
+    setupVisibility.bookingRules ||
+    setupVisibility.aiCallCoverage ||
+    setupVisibility.voiceIdentity ||
+    setupVisibility.agentBehaviorVoice ||
+    buyerSetupFields.length > 0;
+
+  const configureComplete =
+    !hasConfigureSections ||
+    ((!setupVisibility.businessProfile || businessComplete) &&
+      buyerSetupComplete &&
+      (!setupVisibility.voiceIdentity || voiceComplete) &&
+      (!setupValidationPlan.requireBookingRules || !bookingRulesBlocked));
+
+  const activeSteps = useMemo(() => {
+    const list: { id: number; title: string }[] = [];
+    if (hasConnectStep) {
+      list.push({ id: 1, title: "Connect" });
+    }
+    if (hasConfigureSections) {
+      list.push({ id: 2, title: "Configure" });
+    }
+    list.push({ id: 3, title: "Test" });
+    list.push({ id: 4, title: isEditMode ? "Redeploy" : "Go live" });
+    return list;
+  }, [hasConnectStep, hasConfigureSections, isEditMode]);
+
+  useEffect(() => {
+    if (loading) return;
+    const isStepActive = activeSteps.some((s) => s.id === step);
+    if (!isStepActive && activeSteps.length > 0) {
+      setStep(activeSteps[0].id);
+    }
+  }, [loading, activeSteps, step]);
+
   const testPassed = browserTestOutcome === "passed" || Boolean(testResult?.readyForCall);
   const stepDone: Record<number, boolean> = {
     1: connectComplete,
@@ -1535,7 +1606,7 @@ function SetupWizard() {
     if (targetStep <= 1) return true;
     if (targetStep === 2) return connectReady;
     if (targetStep === 3) return connectReady && configureComplete;
-    if (targetStep === 4) return isEditMode ? redeploySuccess : deployed;
+    if (targetStep === 4) return isEditMode ? redeploySuccess : connectReady && configureComplete;
     return false;
   };
 
@@ -1710,19 +1781,20 @@ function SetupWizard() {
           {/* Center: Step Indicator (always centered) */}
           <div className="flex items-center justify-center min-w-0">
             <nav className="progress" aria-label="Setup progress" data-testid="business-setup-progress-dots">
-              {STEPS.map((entry, index) => {
+              {activeSteps.map((entry, index) => {
                 const active = entry.id === step;
                 const done = stepDone[entry.id];
                 const upcoming = step < entry.id && !done;
                 const locked = entry.id > step && !canAccessStep(entry.id);
                 const clickable = !locked;
+                const stepDisplayNum = index + 1;
 
                 return (
                   <div key={entry.id} className="flex items-center">
                     {index > 0 ? (
                       <span
                         aria-hidden="true"
-                        className={`pconn ${stepDone[STEPS[index - 1].id] ? "filled" : ""}`}
+                        className={`pconn ${stepDone[activeSteps[index - 1].id] ? "filled" : ""}`}
                       />
                     ) : null}
 
@@ -1736,7 +1808,7 @@ function SetupWizard() {
                         setError("");
                         setStep(entry.id);
                       }}
-                      aria-label={`Go to step ${entry.id}: ${entry.title}`}
+                      aria-label={`Go to step ${stepDisplayNum}: ${entry.title}`}
                       aria-current={active ? "step" : undefined}
                       aria-disabled={locked ? "true" : undefined}
                       disabled={locked}
@@ -1749,7 +1821,7 @@ function SetupWizard() {
                             <polyline points="20 6 9 17 4 12" />
                           </svg>
                         ) : (
-                          entry.id
+                          stepDisplayNum
                         )}
                       </span>
                       <span className="plabel">{entry.id === 4 && isEditMode ? "Redeploy" : entry.title}</span>
@@ -1806,6 +1878,7 @@ function SetupWizard() {
               showSmsNote={showSmsNote}
               showMail={showMail}
               showTelegram={showTelegram}
+              showTimeZone={showTimeZone}
               onTelegramConnectedChange={setTelegramConnected}
               businessName={businessName}
               onMailAliasChange={setMailAlias}
@@ -1853,49 +1926,51 @@ function SetupWizard() {
                 </p>
               </div>
 
-              <ConfigureSectionCard
-                id="business-profile"
-                title="Business Profile & Knowledge"
-                icon={
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
-                    <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18" />
-                    <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
-                    <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
-                    <path d="M10 6h4" />
-                    <path d="M10 10h4" />
-                    <path d="M10 14h4" />
-                    <path d="M10 18h4" />
-                  </svg>
-                }
-                status={businessComplete ? "complete" : "incomplete"}
-                open={Boolean(openSections["business-profile"])}
-                onToggle={(open) => toggleSection("business-profile", open)}
-              >
-                <BusinessProfileSection
-                  businessName={businessName}
-                  businessType={businessType}
-                  contactName={contactName}
-                  servicesText={servicesText}
-                  onBusinessName={dirtyWrap(setBusinessName)}
-                  onBusinessType={dirtyWrap(setBusinessType)}
-                  onContactName={dirtyWrap(setContactName)}
-                  onServices={setServicesText}
-                  onAddressDirtyChange={setAddressDirty}
-                  onAddressValidChange={setIsAddressValid}
-                  registerAddressApi={registerAddressApi}
-                  addressRefreshToken={knowledgeVersion}
-                  listingId={listingId}
-                  installedAgentId={liveInstalledAgentId}
-                  faqs={faqs}
-                  onFaqs={dirtyWrap(setFaqs)}
-                  onSummaryChange={setKnowledgeSummary}
-                  onKnowledgeChanged={handleKnowledgeChanged}
-                  hoursSuggestionReady={businessHours.suggestion}
-                  onReviewHours={() => jumpToConfigureSection("hours-availability")}
-                />
-              </ConfigureSectionCard>
+              {(setupVisibility.businessProfile || setupVisibility.knowledge) && (
+                <ConfigureSectionCard
+                  id="business-profile"
+                  title="Business Profile & Knowledge"
+                  icon={
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+                      <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18" />
+                      <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+                      <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
+                      <path d="M10 6h4" />
+                      <path d="M10 10h4" />
+                      <path d="M10 14h4" />
+                      <path d="M10 18h4" />
+                    </svg>
+                  }
+                  status={businessComplete ? "complete" : "incomplete"}
+                  open={Boolean(openSections["business-profile"])}
+                  onToggle={(open) => toggleSection("business-profile", open)}
+                >
+                  <BusinessProfileSection
+                    businessName={businessName}
+                    businessType={businessType}
+                    contactName={contactName}
+                    servicesText={servicesText}
+                    onBusinessName={dirtyWrap(setBusinessName)}
+                    onBusinessType={dirtyWrap(setBusinessType)}
+                    onContactName={dirtyWrap(setContactName)}
+                    onServices={setServicesText}
+                    onAddressDirtyChange={setAddressDirty}
+                    onAddressValidChange={setIsAddressValid}
+                    registerAddressApi={registerAddressApi}
+                    addressRefreshToken={knowledgeVersion}
+                    listingId={listingId}
+                    installedAgentId={liveInstalledAgentId}
+                    faqs={faqs}
+                    onFaqs={dirtyWrap(setFaqs)}
+                    onSummaryChange={setKnowledgeSummary}
+                    onKnowledgeChanged={handleKnowledgeChanged}
+                    hoursSuggestionReady={businessHours.suggestion}
+                    onReviewHours={() => jumpToConfigureSection("hours-availability")}
+                  />
+                </ConfigureSectionCard>
+              )}
 
-              {showVoice && (
+              {setupVisibility.voiceIdentity && (
                 <ConfigureSectionCard
                   id="agent-identity"
                   title="Agent Identity & Voice"
@@ -1924,117 +1999,128 @@ function SetupWizard() {
                 </ConfigureSectionCard>
               )}
 
-              <ConfigureSectionCard
-                id="hours-availability"
-                title="Business Hours & Availability"
-                icon={
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
-                    <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
-                    <line x1="16" x2="16" y1="2" y2="6" />
-                    <line x1="8" x2="8" y1="2" y2="6" />
-                    <line x1="3" x2="21" y1="10" y2="10" />
-                    <path d="M8 14h.01" />
-                    <path d="M12 14h.01" />
-                    <path d="M16 14h.01" />
-                    <path d="M8 18h.01" />
-                    <path d="M12 18h.01" />
-                    <path d="M16 18h.01" />
-                  </svg>
-                }
-                warningCount={apptLoaded ? Object.keys(bookingRules.errors).length : 0}
-                status={
-                  bookingRulesBlocked
-                    ? "attention"
-                    : businessHours.configured
-                      ? "complete"
-                      : "attention"
-                }
-                open={Boolean(openSections["hours-availability"])}
-                onToggle={(open) => toggleSection("hours-availability", open)}
-              >
-                <HoursAvailabilitySection
-                  timeZone={timeZone}
-                  persistTimeZone={tzEdited}
-                  onBusinessHoursLoaded={handleBusinessHoursData}
-                  onBusinessHoursSaved={handleBusinessHoursData}
-                  onBusinessHoursChange={handleBusinessHoursData}
-                  onBusinessHoursDirtyChange={setBhDirty}
-                  registerBusinessHoursApi={registerBusinessHoursApi}
-                  businessHoursRefreshToken={knowledgeVersion}
-                  businessHoursSummary={businessHours.summary}
-                  businessHoursConfigured={businessHours.configured}
-                  apptUseBusinessHours={apptUseBusinessHours}
-                  onApptUseBusinessHours={updateApptUseBusinessHours}
-                  apptDays={apptDays}
-                  onApptDay={updateApptDay}
-                  apptFields={apptFields}
-                  onApptField={updateApptField}
-                  apptRulesValidation={bookingRules}
-                  apptConfirmed={apptConfirmed}
-                  onApptConfirmed={updateApptConfirmed}
-                  apptLoaded={apptLoaded}
-                  coverageKind={coverageKind}
-                  onCoverageKind={updateCoverageKind}
-                  answeringDays={answeringDays}
-                  onAnsweringDay={updateAnsweringDay}
-                  triggerKind={triggerKind}
-                />
-              </ConfigureSectionCard>
+              {(setupVisibility.hours || setupVisibility.bookingRules || setupVisibility.aiCallCoverage) && (
+                <ConfigureSectionCard
+                  id="hours-availability"
+                  title="Business Hours & Availability"
+                  icon={
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+                      <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
+                      <line x1="16" x2="16" y1="2" y2="6" />
+                      <line x1="8" x2="8" y1="2" y2="6" />
+                      <line x1="3" x2="21" y1="10" y2="10" />
+                      <path d="M8 14h.01" />
+                      <path d="M12 14h.01" />
+                      <path d="M16 14h.01" />
+                      <path d="M8 18h.01" />
+                      <path d="M12 18h.01" />
+                      <path d="M16 18h.01" />
+                    </svg>
+                  }
+                  warningCount={apptLoaded ? Object.keys(bookingRules.errors).length : 0}
+                  status={
+                    bookingRulesBlocked
+                      ? "attention"
+                      : businessHours.configured
+                        ? "complete"
+                        : "attention"
+                  }
+                  open={Boolean(openSections["hours-availability"])}
+                  onToggle={(open) => toggleSection("hours-availability", open)}
+                >
+                  <HoursAvailabilitySection
+                    timeZone={timeZone}
+                    persistTimeZone={tzEdited}
+                    onBusinessHoursLoaded={handleBusinessHoursData}
+                    onBusinessHoursSaved={handleBusinessHoursData}
+                    onBusinessHoursChange={handleBusinessHoursData}
+                    onBusinessHoursDirtyChange={setBhDirty}
+                    registerBusinessHoursApi={registerBusinessHoursApi}
+                    businessHoursRefreshToken={knowledgeVersion}
+                    businessHoursSummary={businessHours.summary}
+                    businessHoursConfigured={businessHours.configured}
+                    apptUseBusinessHours={apptUseBusinessHours}
+                    onApptUseBusinessHours={updateApptUseBusinessHours}
+                    apptDays={apptDays}
+                    onApptDay={updateApptDay}
+                    apptFields={apptFields}
+                    onApptField={updateApptField}
+                    apptRulesValidation={bookingRules}
+                    apptConfirmed={apptConfirmed}
+                    onApptConfirmed={updateApptConfirmed}
+                    apptLoaded={apptLoaded}
+                    coverageKind={coverageKind}
+                    onCoverageKind={updateCoverageKind}
+                    answeringDays={answeringDays}
+                    onAnsweringDay={updateAnsweringDay}
+                    triggerKind={triggerKind}
+                  />
+                </ConfigureSectionCard>
+              )}
 
-              <ConfigureSectionCard
-                id="agent-behavior"
-                title="Agent Instructions & Behavior"
-                icon={
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
-                    <rect width="16" height="16" x="4" y="4" rx="2" />
-                    <rect width="6" height="6" x="9" y="9" rx="1" />
-                    <path d="M9 1v3" />
-                    <path d="M15 1v3" />
-                    <path d="M9 20v3" />
-                    <path d="M15 20v3" />
-                    <path d="M20 9h3" />
-                    <path d="M20 15h3" />
-                    <path d="M1 9h3" />
-                    <path d="M1 15h3" />
-                  </svg>
-                }
-                status={
-                  buyerSetupFields.length > 0
-                    ? buyerSetupComplete
-                      ? "complete"
-                      : "incomplete"
-                    : customInstructions.trim()
-                      ? "complete"
-                      : "optional"
-                }
-                open={Boolean(openSections["agent-behavior"])}
-                onToggle={(open) => toggleSection("agent-behavior", open)}
-              >
-                <AgentBehaviorSection
-                  showVoice={showVoice}
-                  customInstructions={customInstructions}
-                  silenceRepromptCount={silenceRepromptCount}
-                  silenceMessage1={silenceMessage1}
-                  silenceMessage2={silenceMessage2}
-                  goodbyeMessage={goodbyeMessage}
-                  setupFields={buyerSetupFields}
-                  setupInstructions={buyerSetupInstructions}
-                  customValues={customFieldValues}
-                  onCustomInstructions={dirtyWrap(setCustomInstructions)}
-                  onSilenceCount={dirtyWrap(setSilenceRepromptCount)}
-                  onSilence1={dirtyWrap(setSilenceMessage1)}
-                  onSilence2={dirtyWrap(setSilenceMessage2)}
-                  onGoodbye={dirtyWrap(setGoodbyeMessage)}
-                  onCustomField={setCustomFieldValue}
-                />
-              </ConfigureSectionCard>
+              {(setupVisibility.agentBehaviorVoice || buyerSetupFields.length > 0) && (
+                <ConfigureSectionCard
+                  id="agent-behavior"
+                  title="Agent Instructions & Behavior"
+                  icon={
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+                      <rect width="16" height="16" x="4" y="4" rx="2" />
+                      <rect width="6" height="6" x="9" y="9" rx="1" />
+                      <path d="M9 1v3" />
+                      <path d="M15 1v3" />
+                      <path d="M9 20v3" />
+                      <path d="M15 20v3" />
+                      <path d="M20 9h3" />
+                      <path d="M20 15h3" />
+                      <path d="M1 9h3" />
+                      <path d="M1 15h3" />
+                    </svg>
+                  }
+                  status={
+                    buyerSetupFields.length > 0
+                      ? buyerSetupComplete
+                        ? "complete"
+                        : "incomplete"
+                      : customInstructions.trim()
+                        ? "complete"
+                        : "optional"
+                  }
+                  open={Boolean(openSections["agent-behavior"])}
+                  onToggle={(open) => toggleSection("agent-behavior", open)}
+                >
+                  <AgentBehaviorSection
+                    showVoice={showVoice}
+                    customInstructions={customInstructions}
+                    silenceRepromptCount={silenceRepromptCount}
+                    silenceMessage1={silenceMessage1}
+                    silenceMessage2={silenceMessage2}
+                    goodbyeMessage={goodbyeMessage}
+                    setupFields={buyerSetupFields}
+                    setupInstructions={buyerSetupInstructions}
+                    customValues={customFieldValues}
+                    onCustomInstructions={dirtyWrap(setCustomInstructions)}
+                    onSilenceCount={dirtyWrap(setSilenceRepromptCount)}
+                    onSilence1={dirtyWrap(setSilenceMessage1)}
+                    onSilence2={dirtyWrap(setSilenceMessage2)}
+                    onGoodbye={dirtyWrap(setGoodbyeMessage)}
+                    onCustomField={setCustomFieldValue}
+                  />
+                </ConfigureSectionCard>
+              )}
+
+              {!hasConfigureSections && (
+                <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-slate-600" data-testid="no-configure-needed">
+                  <p className="font-medium">This agent requires no custom configuration.</p>
+                  <p className="mt-1 text-sm text-slate-400">Click Next to proceed to testing.</p>
+                </div>
+              )}
             </div>
           ) : null}
 
           {step === 3 ? (
             <StepTest
-              showPreview={showVoice}
-              showCallTest={showPhone}
+              showPreview={showVoicePreview}
+              showCallTest={showCallTest}
               deployedLive={Boolean(liveVapiAssistantId)}
               assignedNumber={assignedNumber}
               testing={testing}
@@ -2044,7 +2130,7 @@ function SetupWizard() {
               onTestCallRouting={handleTestCallRouting}
               answeringMode={answeringMode}
               listing={listing}
-              showCalendarTest={showCalendar}
+              showCalendarTest={showCalendarTest}
               calendarConnected={calendar.connected}
               timeZone={timeZone}
               lastTestEvent={lastTestEvent}
@@ -2251,6 +2337,7 @@ function StepConnect({
   showSmsNote,
   showMail,
   showTelegram,
+  showTimeZone,
   onTelegramConnectedChange,
   phoneNumbers,
   selectedPhoneId,
@@ -2290,6 +2377,7 @@ function StepConnect({
   showSmsNote: boolean;
   showMail: boolean;
   showTelegram: boolean;
+  showTimeZone?: boolean;
   onTelegramConnectedChange: (connected: boolean) => void;
   businessName: string;
   onMailAliasChange: (alias: BusinessEmailAliasData | null) => void;
@@ -2584,29 +2672,29 @@ function StepConnect({
         </div>
       ) : null}
 
-      {/* Business timezone — the ONE place it is edited. Availability,
-          bookings, and call times all use this value. */}
-      <div className="mt-6 border-t border-gray-100 pt-6">
-        <h3 className="text-sm font-bold text-slate-900 mb-3">Timezone</h3>
-        <div className="py-2">
-          <label className="mb-1.5 block text-sm font-semibold text-slate-700" htmlFor="business-timezone">
-            Business timezone
-          </label>
-          <select
-            id="business-timezone"
-            data-testid="business-setup-timezone-select"
-            value={timeZone}
-            onChange={(e) => onTimeZone(e.target.value)}
-            className="field w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 focus:outline-none"
-          >
-            {timeZoneOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+      {showTimeZone ? (
+        <div className="mt-6 border-t border-gray-100 pt-6">
+          <h3 className="text-sm font-bold text-slate-900 mb-3">Timezone</h3>
+          <div className="py-2">
+            <label className="mb-1.5 block text-sm font-semibold text-slate-700" htmlFor="business-timezone">
+              Business timezone
+            </label>
+            <select
+              id="business-timezone"
+              data-testid="business-setup-timezone-select"
+              value={timeZone}
+              onChange={(e) => onTimeZone(e.target.value)}
+              className="field w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 focus:outline-none"
+            >
+              {timeZoneOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {showSmsNote ? (
         <div className={SECTION} data-testid="business-setup-sms-note">
@@ -2806,7 +2894,7 @@ function MailSetupSection({
 
   // Debounced availability check while the buyer edits the alias.
   useEffect(() => {
-    if (!loaded || !localPart.trim() || localPart === savedAlias?.localPart) {
+    if (!loaded || !(localPart || "").trim() || localPart === savedAlias?.localPart) {
       setAvailability(null);
       return;
     }
@@ -2865,8 +2953,8 @@ function MailSetupSection({
     }
   }
 
-  const previewName = displayName.trim() || businessName.trim() || "Your business";
-  const previewAddress = `${localPart.trim() || "your-alias"}@${domain}`;
+  const previewName = (displayName || "").trim() || (businessName || "").trim() || "Your business";
+  const previewAddress = `${(localPart || "").trim() || "your-alias"}@${domain}`;
 
   return (
     <div className="mt-8 border-t border-gray-100 pt-8" data-testid="business-setup-mail">
@@ -3051,7 +3139,7 @@ function MailSetupSection({
               type="button"
               data-testid="business-setup-mail-save"
               onClick={() => void handleSave()}
-              disabled={busy || !localPart.trim() || !displayName.trim()}
+              disabled={busy || !(localPart || "").trim() || !(displayName || "").trim()}
               className="btn rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
               {busy ? "Working…" : savedAlias ? "Update setup" : "Save setup"}
