@@ -850,16 +850,17 @@ export function ConfigurePanel({
     [configure.template.requiredBuyerSetup]
   );
 
-  const workflowHasSms = workflowUsesSms(workflowFlow);
-  const workflowHasWhatsApp = workflowUsesWhatsApp(workflowFlow);
-  void workflowHasWhatsApp; // WhatsApp UI temporarily paused
-
   /** Integrations the current workflow nodes actually require — used for auto-seed and sync. */
   const workflowDerivedIntegrations = useMemo(
     () => deriveRequiredIntegrationsFromWorkflow(workflowFlow),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [JSON.stringify(workflowFlow)]
   );
+
+  const workflowHasSms = workflowUsesSms(workflowFlow);
+  const workflowHasWhatsApp = workflowUsesWhatsApp(workflowFlow);
+  const workflowHasTelegram = Boolean(workflowDerivedIntegrations.telegram);
+  void workflowHasWhatsApp; // WhatsApp UI temporarily paused
 
   /**
    * Re-apply the derived integrations from the live workflow graph.
@@ -875,6 +876,40 @@ export function ConfigurePanel({
     });
     pushToast("Required integrations synced from your workflow.");
   }, [configure.template.requiredIntegrations, isLocked, pushToast, updateTemplate, workflowDerivedIntegrations]);
+
+  // Soft auto-sync: when canvas nodes change, turn ON newly required integrations.
+  // Never turns OFF flags the architect enabled manually.
+  const lastSoftSyncKeyRef = useRef("");
+  useEffect(() => {
+    if (isLocked || loading) return;
+    const key = JSON.stringify(workflowDerivedIntegrations);
+    if (key === lastSoftSyncKeyRef.current) return;
+    lastSoftSyncKeyRef.current = key;
+
+    const current = configureRef.current.template.requiredIntegrations;
+    let changed = false;
+    const next = { ...current };
+    for (const keyName of Object.keys(workflowDerivedIntegrations) as RequiredIntegrationKey[]) {
+      if (workflowDerivedIntegrations[keyName] && !next[keyName]) {
+        next[keyName] = true;
+        changed = true;
+      }
+    }
+    if (changed) {
+      updateTemplate({ requiredIntegrations: next });
+    }
+  }, [workflowDerivedIntegrations, isLocked, loading, updateTemplate]);
+
+  // If "What's included" is still blank, fill from the live graph when nodes change.
+  useEffect(() => {
+    if (isLocked || loading) return;
+    const features = configureRef.current.media.includedFeatures;
+    if (features.some((feature) => feature.trim())) return;
+    const generated = generateIncludedFeaturesFromWorkflow(workflowFlowRef.current);
+    if (generated.length === 0) return;
+    while (generated.length < 4) generated.push("");
+    updateMedia({ includedFeatures: generated });
+  }, [workflowDerivedIntegrations, isLocked, loading, updateMedia]);
 
   const toggleIntegration = useCallback(
     (key: RequiredIntegrationKey) => {
@@ -1403,7 +1438,12 @@ export function ConfigurePanel({
                   onToggle={toggleIntegration}
                   disabled={isLocked}
                   hiddenKeys={[
-                    ...(workflowHasSms || configure.template.requiredIntegrations.sms ? [] : (["sms"] as RequiredIntegrationKey[])),
+                    ...(workflowHasSms || configure.template.requiredIntegrations.sms
+                      ? []
+                      : (["sms"] as RequiredIntegrationKey[])),
+                    ...(workflowHasTelegram || configure.template.requiredIntegrations.telegram
+                      ? []
+                      : (["telegram"] as RequiredIntegrationKey[])),
                     // Temporarily hide WhatsApp from required integrations
                     "whatsapp" as RequiredIntegrationKey
                     // ...(workflowHasWhatsApp || configure.template.requiredIntegrations.whatsapp

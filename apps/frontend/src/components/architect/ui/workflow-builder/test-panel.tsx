@@ -74,6 +74,7 @@ export function TestPanel({
   isManualTriggerWorkflow = false,
   isMissedCallWorkflow = false,
   isSmsWorkflow = false,
+  isTelegramWorkflow = false,
   onConnectGmail,
   onDisconnectGoogle,
   onRefreshConnections,
@@ -148,6 +149,7 @@ export function TestPanel({
   isManualTriggerWorkflow?: boolean;
   isMissedCallWorkflow?: boolean;
   isSmsWorkflow?: boolean;
+  isTelegramWorkflow?: boolean;
   onConnectGmail: () => void;
   onDisconnectGoogle: () => void;
   onRefreshConnections: () => void;
@@ -242,7 +244,17 @@ export function TestPanel({
         ? "Test Missed Call Agent"
         : isSmsWorkflow
           ? "Test SMS Agent"
-          : "Test console";
+          : isTelegramWorkflow
+            ? "Test Telegram Agent"
+            : "Test console";
+
+  // Field visibility driven by live canvas node capabilities (no theme changes).
+  const showCallerFields =
+    !isManualTriggerWorkflow && (isVoiceWorkflow || isMissedCallWorkflow || isSmsWorkflow);
+  const showTriggerMessage = isManualTriggerWorkflow || isSmsWorkflow || isTelegramWorkflow;
+  const showBusinessContextFields =
+    !isManualTriggerWorkflow &&
+    (isVoiceWorkflow || isMissedCallWorkflow || isSmsWorkflow || needsCalendarConnection || hasGmailFlow);
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
@@ -255,7 +267,7 @@ export function TestPanel({
                 {subtitle}
               </p>
             ) : null}
-            {hasGmailFlow ? (
+            {hasGmailFlow || needsCalendarConnection ? (
               <p className="mt-2 text-[12.5px] font-medium text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-gmail-connected-gmail-connected-gmail-email-gmail-text">
                 {googleReady
                   ? `Google Calendar connected${gmailEmail ? ` as ${gmailEmail}` : ""}`
@@ -326,10 +338,12 @@ export function TestPanel({
                 ? "Simulate a missed call"
                 : isSmsWorkflow
                   ? "Simulate an inbound SMS"
-                  : "Simulate a customer event"}
+                  : isTelegramWorkflow
+                    ? "Simulate a Telegram message"
+                    : "Simulate a customer event"}
           </h3>
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-            {!isManualTriggerWorkflow && (
+            {showCallerFields && (
               <>
                 <label data-testid="architect-ui-workflow-builder-test-panel-caller-number-on-caller-number-change-event-label">
                   <span className="mb-1.5 block text-[13px] font-semibold text-slate-700" data-testid="architect-ui-workflow-builder-test-panel-caller-number-text">
@@ -357,10 +371,14 @@ export function TestPanel({
                 </label>
               </>
             )}
-            {(isManualTriggerWorkflow || isSmsWorkflow) && (
+            {showTriggerMessage && (
               <label className="col-span-1 sm:col-span-2">
                 <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
-                  {isSmsWorkflow ? "SMS Message / Text input" : "Trigger message / Text input"}
+                  {isSmsWorkflow
+                    ? "SMS Message / Text input"
+                    : isTelegramWorkflow
+                      ? "Telegram message / Text input"
+                      : "Trigger message / Text input"}
                 </span>
                 <textarea
                   rows={2}
@@ -369,14 +387,16 @@ export function TestPanel({
                   placeholder={
                     isSmsWorkflow
                       ? "Type SMS message content to trigger the workflow..."
-                      : "Type or paste text content (e.g. resume content or SMS text) to trigger the workflow..."
+                      : isTelegramWorkflow
+                        ? "Type a Telegram message to trigger the workflow..."
+                        : "Type or paste text content (e.g. resume content or SMS text) to trigger the workflow..."
                   }
                   className="fld h-16 w-full resize-none rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
                 />
               </label>
             )}
 
-            {!isManualTriggerWorkflow && (
+            {showBusinessContextFields && (
               <>
                 <label data-testid="architect-ui-workflow-builder-test-panel-business-on-business-change-event-placeholder-mitchell">
                   <span className="mb-1.5 block text-[13px] font-semibold text-slate-700" data-testid="architect-ui-workflow-builder-test-panel-business-text">

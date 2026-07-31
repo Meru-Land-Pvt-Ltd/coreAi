@@ -1,0 +1,8 @@
+-- RenameIndex
+ALTER INDEX "TelegramConversationState_businessId_installedAgentId_telegramC" RENAME TO "TelegramConversationState_businessId_installedAgentId_teleg_key";
+
+-- RenameIndex
+ALTER INDEX "TelegramConversationState_telegramConnectionId_telegramUserId_i" RENAME TO "TelegramConversationState_telegramConnectionId_telegramUser_idx";
+
+-- RenameIndex
+ALTER INDEX "TelegramMessageExecution_businessId_installedAgentId_createdAt_" RENAME TO "TelegramMessageExecution_businessId_installedAgentId_create_idx";
