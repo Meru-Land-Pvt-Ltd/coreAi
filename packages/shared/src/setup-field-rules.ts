@@ -1,0 +1,126 @@
+import type { SetupFieldKey, SetupVisibility } from "./setup-visibility.js";
+
+export interface SetupFieldRulesConfig {
+  version: number;
+  default: SetupVisibility;
+  nodes: Record<string, Partial<Record<SetupFieldKey, boolean>>>;
+}
+
+export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
+  version: 1,
+  default: {
+    phone: false,
+    callForwarding: false,
+    answeringMode: false,
+    calendar: false,
+    mail: false,
+    telegram: false,
+    smsNote: false,
+    businessProfile: false,
+    knowledge: false,
+    hours: false,
+    bookingRules: false,
+    aiCallCoverage: false,
+    voiceIdentity: false,
+    agentBehaviorVoice: false,
+    callTest: false,
+    calendarTest: false,
+    voicePreview: false
+  },
+  nodes: {
+    "trigger.twilio_missed_call": {
+      phone: true,
+      callForwarding: true,
+      aiCallCoverage: true,
+      callTest: true
+    },
+    "trigger.phone_call": {
+      phone: true,
+      callForwarding: true,
+      answeringMode: true,
+      aiCallCoverage: true,
+      hours: true,
+      callTest: true
+    },
+    "trigger.twilio_inbound_sms": {
+      phone: true,
+      smsNote: true
+    },
+    "ai.context_reply": {
+      businessProfile: true,
+      knowledge: true,
+      hours: true
+    },
+    "ai.voice_conversation": {
+      businessProfile: true,
+      knowledge: true,
+      hours: true,
+      voiceIdentity: true,
+      agentBehaviorVoice: true,
+      voicePreview: true
+    },
+    "ai.knowledge_base_search": {
+      knowledge: true
+    },
+    "calendar.availability": {
+      calendar: true,
+      hours: true,
+      bookingRules: true,
+      calendarTest: true
+    },
+    "calendar.book_appointment": {
+      calendar: true,
+      hours: true,
+      bookingRules: true,
+      calendarTest: true
+    },
+    "communication.send_email": {
+      mail: true
+    },
+    "trigger.telegram_message": {
+      telegram: true,
+      businessProfile: true
+    },
+    "trigger.manual": {},
+    "ai.memory": {},
+    "action.send_sms": {
+      phone: true,
+      smsNote: true
+    },
+    "communication.send_sms": {
+      phone: true,
+      smsNote: true
+    },
+    "action.google_calendar_availability": {
+      calendar: true,
+      hours: true,
+      bookingRules: true,
+      calendarTest: true
+    },
+    "action.google_calendar_create_appointment": {
+      calendar: true,
+      hours: true,
+      bookingRules: true,
+      calendarTest: true
+    },
+    "integration.gmail_send_email": {
+      mail: true
+    },
+    "integration.gmail_read_emails": {
+      mail: true
+    },
+    "integration.gmail_create_draft": {
+      mail: true
+    },
+    "inbound_sms": {
+      phone: true,
+      smsNote: true
+    },
+    "gmail_send": {
+      mail: true
+    },
+    "trigger.gmail_new_email": {
+      mail: true
+    }
+  }
+};

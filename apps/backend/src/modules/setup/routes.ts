@@ -16,6 +16,7 @@ import {
 } from "../business/receptionist-template";
 import { canBusinessAccessListing, findActiveListingPurchase } from "../business/purchase-access";
 import { grantRole } from "../../lib/roles";
+import { deriveSetupVisibility } from "@coreai/shared";
 import type { InstallSource } from "@prisma/client";
 
 export const setupRoutes = new Hono();
@@ -106,7 +107,7 @@ export async function loadOwnedListing(userId: string, listingId: string) {
   return prisma.agentListing.findUnique({
     where: { id: listingId },
     include: {
-      workflow: { select: { id: true, name: true, description: true } },
+      workflow: { select: { id: true, name: true, description: true, workflowJson: true } },
       architect: {
         select: {
           id: true,
@@ -410,7 +411,11 @@ setupRoutes.get("/agent/:listingId", async (c) => {
       tested: Boolean(setup.tested),
       live: Boolean(setup.live)
     },
-    status: agent?.status ?? null
+    status: agent?.status ?? null,
+    setupVisibility: deriveSetupVisibility(
+      (listing as any).workflowJson || listing.workflow?.workflowJson,
+      listing.requiredConnectors as string[] | undefined
+    )
   });
 });
 

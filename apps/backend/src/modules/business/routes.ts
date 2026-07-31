@@ -5,6 +5,8 @@ import { calendarEventTitleForMode,
   AFTER_HOURS_CONTACT_METHODS,
   AFTER_HOURS_CONTACT_METHOD_UNSUPPORTED,
   AFTER_HOURS_EMERGENCY_CATEGORIES,
+  deriveSetupVisibility,
+  getSetupValidationPlan,
   isBuyerAnswerEmpty,
   isSupportedAfterHoursContactMethod,
   normalizeAfterHoursPolicy,
@@ -986,8 +988,8 @@ const hoursItemSchema = z.object({
 const businessSetupSchema = z.object({
   deploy: z.boolean().default(false),
 
-  businessName: z.string().trim().min(2, "Business name is required"),
-  businessType: z.string().trim().min(2, "Business type is required"),
+  businessName: z.string().trim().optional().or(z.literal("")).default(""),
+  businessType: z.string().trim().optional().or(z.literal("")).default(""),
   assistantName: z.string().trim().optional().or(z.literal("")),
 
   forwardToPhone: z.string().trim().optional().or(z.literal("")),
@@ -2885,10 +2887,21 @@ businessRoutes.get("/setup", async (c) => {
     ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
     : business?.installedAgents?.[0] ?? null;
   const phoneOptions = await loadPhoneOptions(business?.id ?? null, setupAgent?.id ?? null);
+  let setupVisibility = deriveSetupVisibility(null);
+
+  if (listingId) {
+    const listing = await prisma.agentListing.findUnique({
+      where: { id: listingId },
+      include: { workflow: { select: { workflowJson: true } } }
+    });
+    const wfJson = listing?.workflow?.workflowJson;
+    setupVisibility = deriveSetupVisibility(wfJson, listing?.requiredConnectors as string[] | undefined);
+  }
 
   return successResponse(c, {
     ...serializeSetup(business, calendar, listingId),
-    ...phoneOptions
+    ...phoneOptions,
+    setupVisibility
   });
 });
 
