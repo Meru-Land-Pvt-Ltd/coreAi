@@ -85,6 +85,7 @@ import { PublishPanel } from "./workflow-builder/publish-panel";
 import { TestPanel } from "./workflow-builder/test-panel";
 import { isMeaningfulWorkflow, useBuilderAutosaveHistory } from "./workflow-builder/use-builder-autosave-history";
 import { WorkflowBuilderStyles } from "./workflow-builder/builder-styles";
+import { deriveWorkflowCapabilities } from "./workflow-builder/workflow-capabilities";
 import type { BuilderNode, BuilderNodeData, BuilderTab, MobilePanel, NodeKind, AIAttachment } from "./workflow-builder/types";
 
 const REVIEW_LOCK_MESSAGE = "Agent is under review";
@@ -235,58 +236,17 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     return false;
   }, [isLive, isUnderReview]);
 
-  const hasGmailFlow = useMemo(
-    () => nodes.some((node) => String(node.data.connector ?? "").toLowerCase() === "gmail"),
-    [nodes]
-  );
-
-  const hasSmsFlow = useMemo(
-    () =>
-      nodes.some((node) =>
-        ["sms", "twilio"].includes(String(node.data.connector ?? "").toLowerCase())
-      ),
-    [nodes]
-  );
-
-  const hasWhatsAppFlow = useMemo(
-    () =>
-      nodes.some((node) => {
-        const type = String(node.data.type ?? "").toLowerCase();
-        const connector = String(node.data.connector ?? "").toLowerCase();
-        return type.includes("whatsapp") || connector === "whatsapp";
-      }),
-    [nodes]
-  );
-
-  // Voice workflow = uses the generic voice-booking nodes (phone trigger / AI
-  // voice conversation). The Dental AI Receptionist template is one of these.
-  const isVoiceWorkflow = useMemo(() => {
-    const voiceTypes = new Set<string>([
-      VOICE_NODE_TYPES.phoneCallTrigger,
-      VOICE_NODE_TYPES.voiceConversation
-    ]);
-    return nodes.some((node) => voiceTypes.has(String(node.data.type ?? "")));
-  }, [nodes]);
-
-  const isTelegramWorkflow = useMemo(
-    () => nodes.some((node) => String(node.data.type ?? "") === "trigger.telegram_message"),
-    [nodes]
-  );
-
-  const needsCalendarConnection = useMemo(
-    () =>
-      nodes.some((node) => {
-        const type = String(node.data.type ?? "").toLowerCase();
-        const connector = String(node.data.connector ?? "").toLowerCase();
-        return (
-          type === VOICE_NODE_TYPES.calendarAvailability ||
-          type === VOICE_NODE_TYPES.bookAppointment ||
-          type.includes("calendar") ||
-          connector.includes("calendar")
-        );
-      }),
-    [nodes]
-  );
+  // Live canvas → Test / Configure capability flags (recomputes when nodes change).
+  const capabilities = useMemo(() => deriveWorkflowCapabilities(nodes), [nodes]);
+  const hasGmailFlow = capabilities.hasGmail;
+  const hasSmsFlow = capabilities.hasSmsSendOrTwilioConnector;
+  const isVoiceWorkflow = capabilities.hasVoice;
+  const isTelegramWorkflow = capabilities.hasTelegram;
+  const needsCalendarConnection = capabilities.hasCalendar;
+  const isMissedCallWorkflow = capabilities.hasMissedCall;
+  const isSmsWorkflow = capabilities.hasInboundSms;
+  const isManualTriggerWorkflow = capabilities.hasManualTrigger;
+  const hasEmailNode = capabilities.hasEmailSend;
 
   const needsGoogleConnection = hasGmailFlow || needsCalendarConnection;
   // Twilio/Vapi cards are for live sandbox only — browser call test does not need them.
@@ -294,9 +254,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     testDeployment?.status === "READY" || Boolean(testDeployment?.assignedPhoneNumber);
   const needsTwilioConnection = liveSandboxActive && (isVoiceWorkflow || hasSmsFlow);
   const needsVapiConnection = liveSandboxActive && isVoiceWorkflow;
-  // Temporarily hide WhatsApp connection UI
-  const needsWhatsAppConnection = false; // was: hasWhatsAppFlow;
-  void hasWhatsAppFlow;
+  // Temporarily hide WhatsApp connection UI (capability still tracked for when re-enabled).
+  const needsWhatsAppConnection = false; // was: capabilities.hasWhatsApp
+  void capabilities.hasWhatsApp;
   const needsAnyTestConnection =
     needsGoogleConnection ||
     needsCalendarConnection ||
@@ -308,68 +268,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     const name = `${agentName} ${workflow?.name ?? ""}`.toLowerCase();
     return isVoiceWorkflow && name.includes("dental");
   }, [agentName, workflow?.name, isVoiceWorkflow]);
-
-  const isMissedCallWorkflow = useMemo(() => {
-    return nodes.some((node) => {
-      const type = String(node.data.type ?? "").toLowerCase();
-      const title = String(node.data.title ?? "").toLowerCase();
-      const label = String(node.data.label ?? "").toLowerCase();
-      return (
-        type === "trigger.twilio_missed_call" ||
-        type === "twilio_missed_call" ||
-        type === "missed_call" ||
-        title.includes("missed call") ||
-        label.includes("missed call")
-      );
-    });
-  }, [nodes]);
-
-  const isSmsWorkflow = useMemo(() => {
-    return nodes.some((node) => {
-      const type = String(node.data.type ?? "").toLowerCase();
-      const title = String(node.data.title ?? "").toLowerCase();
-      const label = String(node.data.label ?? "").toLowerCase();
-      return (
-        type === "trigger.twilio_inbound_sms" ||
-        type === "twilio_inbound_sms" ||
-        type === "inbound_sms" ||
-        title.includes("inbound sms") ||
-        label.includes("inbound sms")
-      );
-    });
-  }, [nodes]);
-
-  const isManualTriggerWorkflow = useMemo(() => {
-    const hasCallOrVoice =
-      isVoiceWorkflow ||
-      nodes.some((node) => {
-        const type = String(node.data.type ?? "").toLowerCase();
-        return (
-          type === VOICE_NODE_TYPES.phoneCallTrigger ||
-          type === "trigger.phone_call" ||
-          type === "phone_call"
-        );
-      });
-
-    if (hasCallOrVoice || isMissedCallWorkflow || isSmsWorkflow) {
-      return false;
-    }
-
-    return nodes.some((node) => {
-      const dataType = String(node.data.type ?? node.type ?? "").toLowerCase();
-      return (
-        dataType === "trigger.manual" ||
-        dataType === "manual_trigger" ||
-        dataType === "manual"
-      );
-    });
-  }, [nodes, isVoiceWorkflow, isMissedCallWorkflow, isSmsWorkflow]);
-
-  // Send Email node present → the Test tab offers a Test Email recipient field.
-  const hasEmailNode = useMemo(
-    () => nodes.some((node) => String(node.data.type ?? "") === VOICE_NODE_TYPES.sendEmail),
-    [nodes]
-  );
 
   const testRunStatus = useMemo(() => {
     const totalNodes = nodes.length;
@@ -1730,6 +1628,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             isManualTriggerWorkflow={isManualTriggerWorkflow}
             isMissedCallWorkflow={isMissedCallWorkflow}
             isSmsWorkflow={isSmsWorkflow}
+            isTelegramWorkflow={isTelegramWorkflow}
             onConnectGmail={connectGmail}
             onDisconnectGoogle={() => void disconnectGoogle()}
             onRefreshConnections={() => void refreshConnections()}
