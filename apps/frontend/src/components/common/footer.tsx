@@ -56,6 +56,7 @@ export function CoreFooter() {
               { label: "Terms", href: "/terms", newTab: true },
               { label: "Data Deletion", href: "/data-deletion", newTab: true },
               { label: "Security", href: "/security", newTab: true },
+              { label: "DPA", href: "/DPA", newTab: true },
               { label: "Help Center", href: "/contact", newTab: true },
             ]}
           />
