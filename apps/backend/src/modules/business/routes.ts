@@ -1200,16 +1200,35 @@ async function loadBusinessForOwner(ownerId: string) {
 
 type LoadedBusiness = NonNullable<Awaited<ReturnType<typeof loadBusinessForOwner>>>;
 
-async function loadPhoneOptions(businessId: string | null) {
-  const numbers = await prisma.platformPhoneNumber.findMany({
-    where: {
-      provider: "TWILIO",
-      // The reserved shared Triven SMS sender is never shown to buyers.
-      isPlatformSmsSender: false,
-      OR: [{ status: "AVAILABLE" }, ...(businessId ? [{ businessId }] : [])]
-    },
-    orderBy: [{ status: "asc" }, { createdAt: "asc" }]
-  });
+async function loadPhoneOptions(businessId: string | null, installedAgentId?: string | null) {
+  const [numbers, assignments] = await Promise.all([
+    prisma.platformPhoneNumber.findMany({
+      where: {
+        provider: "TWILIO",
+        // The reserved shared Triven SMS sender is never shown to buyers.
+        isPlatformSmsSender: false,
+        OR: [{ status: "AVAILABLE" }, ...(businessId ? [{ businessId }] : [])]
+      },
+      orderBy: [{ status: "asc" }, { createdAt: "asc" }]
+    }),
+    /* BusinessPhoneNumber is the authoritative owner record — it carries the
+       one-active-number-per-agent unique index. PlatformPhoneNumber.installedAgentId
+       can still be null on assignments made before per-agent scoping, so
+       trusting it alone would let a second agent inherit a sibling's number. */
+    businessId
+      ? prisma.businessPhoneNumber.findMany({
+        where: { businessId, isActive: true },
+        select: { phoneNumber: true, installedAgentId: true }
+      })
+      : Promise.resolve([])
+  ]);
+
+  const agentByNumber = new Map(
+    assignments.map((row) => [row.phoneNumber, row.installedAgentId ?? null])
+  );
+  /** Owner of this number: the assignment record wins, the platform row is the fallback. */
+  const ownerAgentOf = (number: { phoneNumber: string; installedAgentId: string | null }) =>
+    agentByNumber.get(number.phoneNumber) ?? number.installedAgentId ?? null;
 
   const mapped = numbers.map((number) => ({
     id: number.id,
@@ -1217,14 +1236,26 @@ async function loadPhoneOptions(businessId: string | null) {
     provider: number.provider,
     status: number.status,
     assignedToThisBusiness: Boolean(businessId && number.businessId === businessId),
+    assignedToThisAgent: Boolean(installedAgentId && ownerAgentOf(number) === installedAgentId),
+    /* Owned by a SIBLING agent — surfaced so the buyer can see it is taken, but
+       it must never be pre-selected for this agent. */
+    assignedToOtherAgent: Boolean(ownerAgentOf(number) && ownerAgentOf(number) !== installedAgentId),
     capabilities: number.capabilities ?? null,
     country: number.country ?? null,
     region: number.region ?? null,
     locality: number.locality ?? null
   }));
 
+  /* One number per agent. Selecting the business's first number made a second
+     agent's Connect step show the first agent's number as already chosen.
+     Prefer this agent's own number; fall back to a business number that no
+     agent claims yet (single-agent installs predating per-agent assignment);
+     never inherit a sibling agent's number. */
   const selectedPlatformPhoneNumberId =
-    mapped.find((number) => number.assignedToThisBusiness)?.id ?? null;
+    mapped.find((number) => number.assignedToThisAgent)?.id ??
+    (installedAgentId
+      ? mapped.find((number) => number.assignedToThisBusiness && !number.assignedToOtherAgent)?.id ?? null
+      : mapped.find((number) => number.assignedToThisBusiness)?.id ?? null);
 
   const availablePhoneNumbers = mapped.map((number) => ({
     ...number,
@@ -2576,10 +2607,17 @@ function serializeSetup(
   listingId?: string | null
 ) {
   const profile = business?.profile ?? null;
-  const phone = business?.phoneNumbers?.[0] ?? null;
   const installedAgent = listingId
     ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
     : business?.installedAgents?.[0] ?? null;
+  /* One number per agent. Reading phoneNumbers[0] here handed the SECOND
+     agent's wizard whichever number the business happened to own first —
+     normally the first agent's — so it looked already provisioned and the buyer
+     was never offered a number of its own. Only this agent's own assignment
+     counts; an unassigned spare is offered to an agent that has none yet. */
+  const phone = installedAgent
+    ? business?.phoneNumbers?.find((row) => row.installedAgentId === installedAgent.id) ?? null
+    : business?.phoneNumbers?.find((row) => !row.installedAgentId) ?? null;
   const readiness = buildSetupReadiness(business, calendar.connected, listingId);
 
   const config = (installedAgent?.configJson ?? null) as Record<string, unknown> | null;
@@ -2841,7 +2879,12 @@ businessRoutes.get("/setup", async (c) => {
     getGmailConnectionStatus(authUser.id)
   ]);
 
-  const phoneOptions = await loadPhoneOptions(business?.id ?? null);
+  // Scope the number picker to THIS agent, so a second agent is never shown the
+  // first agent's number as already selected.
+  const setupAgent = listingId
+    ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
+    : business?.installedAgents?.[0] ?? null;
+  const phoneOptions = await loadPhoneOptions(business?.id ?? null, setupAgent?.id ?? null);
 
   return successResponse(c, {
     ...serializeSetup(business, calendar, listingId),
@@ -3535,11 +3578,11 @@ businessRoutes.post("/setup", async (c) => {
       getGmailConnectionStatus(authUser.id)
     ]);
 
-    const phoneOptions = await loadPhoneOptions(refreshed?.id ?? null);
-
     const refreshedAgent = input.listingId
       ? refreshed?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
       : refreshed?.installedAgents?.[0] ?? null;
+    // Agent-scoped, so the saved response cannot echo a sibling agent's number.
+    const phoneOptions = await loadPhoneOptions(refreshed?.id ?? null, refreshedAgent?.id ?? null);
     const refreshedConfig = (refreshedAgent?.configJson ?? null) as Record<string, unknown> | null;
 
     const responseVapiAssistantId =
