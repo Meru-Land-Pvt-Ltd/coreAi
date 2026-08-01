@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { runWorkflowTest } from "../architect/workflow-runner";
 import {
@@ -158,7 +159,12 @@ export async function verifyWhatsAppWebhookChallenge(c: Context) {
     return c.text("Bad Request", 400);
   }
 
-  // Accept if any CONNECTED connection has this verify token, or env fallback.
+  const envVerifyToken = env.META_WHATSAPP_VERIFY_TOKEN?.trim();
+  if (envVerifyToken && token === envVerifyToken) {
+    return c.text(challenge, 200);
+  }
+
+  // Accept if any CONNECTED/PENDING connection has this verify token.
   const connections = await prisma.whatsAppConnection.findMany({
     where: { status: { in: ["CONNECTED", "PENDING"] } },
     select: { webhookVerifyTokenEnc: true },

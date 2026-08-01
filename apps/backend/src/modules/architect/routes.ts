@@ -184,7 +184,7 @@ architectRoutes.get("/connectors/telegram/webhook/:connectionId", (c) =>
   successResponse(c, { ok: true, note: "Telegram webhook is up. Updates arrive via POST." })
 );
 
-// Meta WhatsApp Cloud API webhooks (verify challenge + inbound messages).
+// Meta WhatsApp Cloud API webhooks (legacy path — preferred: /webhook/meta/whatsapp).
 architectRoutes.get("/connectors/whatsapp", verifyWhatsAppWebhookChallenge);
 architectRoutes.post("/connectors/whatsapp", handleWhatsAppWebhookPost);
 

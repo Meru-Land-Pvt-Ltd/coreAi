@@ -46,5 +46,5 @@ export function renderSimpleTemplate(template: string, vars: Record<string, stri
 }
 
 export function whatsappWebhookCallbackUrl(backendUrl: string): string {
-  return `${backendUrl.replace(/\/$/, "")}/architect/connectors/whatsapp`;
+  return `${backendUrl.replace(/\/$/, "")}/webhook/meta/whatsapp`;
 }

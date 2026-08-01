@@ -795,21 +795,21 @@ export default function HomePage() {
               {[
                 {
                   quote: "“I built a missed-call agent in 20 minutes. It's already earning me $400/month.”",
-                  image: "/image3.png",
+                  testimonialImage: "/image3.png",
                   name: "Alex Rao",
                   role: "AI Architect",
                   alt: "Alex Rao testimonial photo"
                 },
                 {
                   quote: "“We were losing 30% of leads to missed calls. Triven's agent recovered $12,000 in the first month.”",
-                  image: "/image1.png",
+                  testimonialImage: "/image1.png",
                   name: "Dr. Sarah Mehta",
                   role: "Dentist",
                   alt: "Dr. Sarah Mehta testimonial photo"
                 },
                 {
                   quote: "“The simplest platform I've ever used. Drag, drop, publish. That's it.”",
-                  image: "/image2.png",
+                  testimonialImage: "/image2.png",
                   name: "James Kapoor",
                   role: "Freelancer",
                   alt: "James Kapoor testimonial photo"
@@ -820,7 +820,7 @@ export default function HomePage() {
                   <blockquote data-testid="app-page-blockquote-1" className="flex-1 text-lg leading-relaxed text-slate-700">{t.quote}</blockquote>
                   <figcaption data-testid="app-page-figcaption-1" className="mt-6 flex items-center gap-3 border-t border-gray-200 pt-6">
                     <Image
-                      src={t.image}
+                      src={t.testimonialImage}
                       alt={t.alt}
                       width={40}
                       height={40}

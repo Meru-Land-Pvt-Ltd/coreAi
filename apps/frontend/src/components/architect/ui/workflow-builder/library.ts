@@ -110,13 +110,13 @@ export const libraryGroups: LibraryGroup[] = [
       // paletteItem("action.send_whatsapp", { icon: "whatsapp", accent: "green" })
     ]
   },
-  {
-    title: "CRM / Data",
-    items: [
-      paletteItem("action.save_lead", { icon: "capture", accent: "blue" }),
-      paletteItem("action.save_conversation_message", { icon: "message", accent: "green" })
-    ]
-  },
+  // {
+  //   title: "CRM / Data",
+  //   items: [
+  //     paletteItem("action.save_lead", { icon: "capture", accent: "blue" }),
+  //     paletteItem("action.save_conversation_message", { icon: "message", accent: "green" })
+  //   ]
+  // },
   {
     title: "Routing / Logic",
     items: [
