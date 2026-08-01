@@ -735,6 +735,21 @@ export function setMemoryScopeForContext(context: RunnerContext, scopeKey: strin
 
 function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainNodeConfig {
   const isLlmCall = asString(node.data?.type) === "ai.llm_call";
+  const isTestMode = context._mode === "test";
+
+  const rawMaxTokens = isLlmCall
+    ? (node.data?.llmMaxTokens ?? node.data?.maxTokens)
+    : node.data?.maxTokens;
+
+  // Convert rawMaxTokens to number safely
+  const parsedMaxTokens = typeof rawMaxTokens === "number"
+    ? rawMaxTokens
+    : (typeof rawMaxTokens === "string" ? Number(rawMaxTokens) : NaN);
+
+  // Boost maxTokens in test mode so outputs are not cut off
+  const finalMaxTokens = isTestMode
+    ? (isNaN(parsedMaxTokens) || parsedMaxTokens < 2048 ? 2048 : parsedMaxTokens)
+    : rawMaxTokens;
 
   const data = isLlmCall
     ? {
@@ -749,12 +764,13 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
         llmPrompt: renderTemplate(node.data?.llmPrompt, context),
         llmRequirements: renderTemplate(node.data?.llmRequirements, context),
         temperature: node.data?.llmTemperature ?? node.data?.temperature,
-        maxTokens: node.data?.llmMaxTokens ?? node.data?.maxTokens,
+        maxTokens: finalMaxTokens,
         outputFormat: node.data?.llmOutputFormat ?? node.data?.outputFormat,
       }
     : {
         ...node.data,
         prompt: renderTemplate(node.data?.prompt, context),
+        maxTokens: finalMaxTokens,
       };
 
   return {
@@ -1003,6 +1019,7 @@ function seedMissedCallContext(
     }
   }
 
+  context._mode = mode;
   return context;
 }
 

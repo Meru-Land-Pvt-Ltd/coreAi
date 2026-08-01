@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import BusinessAgentSetupPage from "./page";
+import { isDeploymentReadyForWorkflowRequirements } from "./deployment-readiness";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
@@ -63,6 +64,14 @@ vi.mock("@/components/business/features/api", () => ({
 describe("Dynamic Buyer Setup — node->field rule engine UI integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("allows deployment without a saved phone number when the workflow does not require one", () => {
+    const plan = { requirePhoneSelection: false } as const;
+
+    expect(isDeploymentReadyForWorkflowRequirements(plan, { installedAgentId: "agent-1" }, null)).toBe(true);
+    expect(isDeploymentReadyForWorkflowRequirements(plan, { installedAgentId: "agent-1" }, "+15551234567")).toBe(true);
+    expect(isDeploymentReadyForWorkflowRequirements(plan, { installedAgentId: "agent-1" }, "")).toBe(true);
   });
 
   it("Resume Analyzer graph (manual trigger + memory) hides phone and business profile", async () => {

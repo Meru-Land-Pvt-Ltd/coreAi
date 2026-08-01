@@ -1,6 +1,7 @@
 import axios from "axios";
 import type { BuyerSetupField } from "@coreai/shared";
 import { apiClient, apiDelete, apiGet, apiPost, apiPut, type ApiResponse } from "@/lib/api";
+import type { WorkflowRunResult } from "@/components/architect/features/types";
 
 /**
  * POST multipart/form-data through the shared authenticated axios client.
@@ -866,6 +867,18 @@ export function runBusinessSetupChatTest(body: {
   simulateBusinessHoursState?: "current" | "open" | "closed";
 }) {
   return apiPost<BusinessChatTestResult>("/business/setup/test-conversation", body);
+}
+
+export function runBusinessSetupWorkflowTest(
+  workflowId: string,
+  body: {
+    input?: Record<string, any>;
+  }
+) {
+  return apiPost<{ run: WorkflowRunResult }>(
+    `/business/setup/workflows/${workflowId}/run-test`,
+    body
+  );
 }
 
 /** Most recent test booking for this buyer — used to link straight to the event. */
