@@ -23,7 +23,8 @@ import {
   GOOGLE_CALENDAR_DISCLOSURE,
   GOOGLE_DISCLOSURE_ACTION_AGREED,
   VOICE_NODE_TYPES,
-  normalizeTimeZone
+  normalizeTimeZone,
+  validateConfigureForSubmit
 } from "@coreai/shared";
 import { GoogleDisclosureModal } from "@/components/common/google-disclosure-modal";
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
@@ -86,15 +87,22 @@ import { TestPanel } from "./workflow-builder/test-panel";
 import { isMeaningfulWorkflow, useBuilderAutosaveHistory } from "./workflow-builder/use-builder-autosave-history";
 import { WorkflowBuilderStyles } from "./workflow-builder/builder-styles";
 import { deriveWorkflowCapabilities } from "./workflow-builder/workflow-capabilities";
+import { analyzeWorkflowGraph } from "./workflow-builder/workflow-graph-validation";
 import type { BuilderNode, BuilderNodeData, BuilderTab, MobilePanel, NodeKind, AIAttachment } from "./workflow-builder/types";
 
 const REVIEW_LOCK_MESSAGE = "Agent is under review";
 const LIVE_PUBLISH_LOCK_MESSAGE = "Agent is live — publishing is locked";
 
 const BUILDER_TABS: readonly BuilderTab[] = ["build", "test", "configure", "publish"];
+/** Tabs that require a single connected trigger workflow. */
+const TABS_REQUIRING_CONNECTED_FLOW: readonly BuilderTab[] = ["test", "configure", "publish"];
 
 function isBuilderTab(value: string | null): value is BuilderTab {
   return Boolean(value) && (BUILDER_TABS as readonly string[]).includes(value as string);
+}
+
+function tabRequiresConnectedFlow(tab: BuilderTab): boolean {
+  return (TABS_REQUIRING_CONNECTED_FLOW as readonly string[]).includes(tab);
 }
 
 export function isManualTriggerNode(node: { data?: Record<string, unknown>; type?: unknown }): boolean {
@@ -113,6 +121,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<BuilderTab>("build");
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>(null);
+  const [flowGateNotice, setFlowGateNotice] = useState<{
+    title: string;
+    message: string;
+    issue: string | null;
+    kind: "graph" | "configure";
+  } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [runLogs, setRunLogs] = useState<WorkflowRunLog[]>([]);
@@ -238,6 +252,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   // Live canvas → Test / Configure capability flags (recomputes when nodes change).
   const capabilities = useMemo(() => deriveWorkflowCapabilities(nodes), [nodes]);
+  const graphValidation = useMemo(() => analyzeWorkflowGraph(nodes, edges), [nodes, edges]);
+  const isConnectedWorkflowReady = graphValidation.ok;
   const hasGmailFlow = capabilities.hasGmail;
   const hasSmsFlow = capabilities.hasSmsSendOrTwilioConnector;
   const isVoiceWorkflow = capabilities.hasVoice;
@@ -263,6 +279,140 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     needsTwilioConnection ||
     needsVapiConnection ||
     needsWhatsAppConnection;
+
+  const requestTabChange = useCallback(
+    async (tab: BuilderTab) => {
+      if (tabRequiresConnectedFlow(tab) && !isConnectedWorkflowReady) {
+        setActiveTab("build");
+        setFlowGateNotice({
+          kind: "graph",
+          title: graphValidation.title,
+          message: graphValidation.message || "Connect your workflow before continuing.",
+          issue: graphValidation.issue
+        });
+        return;
+      }
+
+      if (tab === "publish") {
+        const workflowIdForConfigure = currentWorkflowIdRef.current;
+        if (!workflowIdForConfigure) {
+          setActiveTab("configure");
+          setFlowGateNotice({
+            kind: "configure",
+            title: "Finish Configure first",
+            message: "Complete the required Configure steps before you can open Publish.",
+            issue: "configure_incomplete"
+          });
+          return;
+        }
+
+        const configureResult = await getWorkflowConfigure(workflowIdForConfigure);
+        if (!configureResult.success || !configureResult.data?.configure) {
+          setActiveTab("configure");
+          setFlowGateNotice({
+            kind: "configure",
+            title: "Finish Configure first",
+            message:
+              configureResult.error ??
+              "Complete the required Configure steps before you can open Publish.",
+            issue: "configure_incomplete"
+          });
+          return;
+        }
+
+        const issues = validateConfigureForSubmit(configureResult.data.configure);
+        if (issues.length > 0) {
+          setActiveTab("configure");
+          setFlowGateNotice({
+            kind: "configure",
+            title: "Finish Configure first",
+            message:
+              issues[0]?.message ??
+              "Complete all required Configure fields before you can open Publish.",
+            issue: "configure_incomplete"
+          });
+          return;
+        }
+      }
+
+      setFlowGateNotice(null);
+      setActiveTab(tab);
+    },
+    [graphValidation.issue, graphValidation.message, graphValidation.title, isConnectedWorkflowReady]
+  );
+
+  useEffect(() => {
+    if (loading) return;
+    if (tabRequiresConnectedFlow(activeTab) && !isConnectedWorkflowReady) {
+      setActiveTab("build");
+      setFlowGateNotice({
+        kind: "graph",
+        title: graphValidation.title,
+        message: graphValidation.message || "Connect your workflow before continuing.",
+        issue: graphValidation.issue
+      });
+    }
+  }, [activeTab, graphValidation.issue, graphValidation.message, graphValidation.title, isConnectedWorkflowReady, loading]);
+
+  useEffect(() => {
+    if (loading || activeTab !== "publish") return;
+
+    let cancelled = false;
+    const workflowIdForConfigure = currentWorkflowIdRef.current;
+
+    void (async () => {
+      if (!workflowIdForConfigure) {
+        if (cancelled) return;
+        setActiveTab("configure");
+        setFlowGateNotice({
+          kind: "configure",
+          title: "Finish Configure first",
+          message: "Complete the required Configure steps before you can open Publish.",
+          issue: "configure_incomplete"
+        });
+        return;
+      }
+
+      const configureResult = await getWorkflowConfigure(workflowIdForConfigure);
+      if (cancelled) return;
+
+      if (!configureResult.success || !configureResult.data?.configure) {
+        setActiveTab("configure");
+        setFlowGateNotice({
+          kind: "configure",
+          title: "Finish Configure first",
+          message:
+            configureResult.error ??
+            "Complete the required Configure steps before you can open Publish.",
+          issue: "configure_incomplete"
+        });
+        return;
+      }
+
+      const issues = validateConfigureForSubmit(configureResult.data.configure);
+      if (issues.length > 0) {
+        setActiveTab("configure");
+        setFlowGateNotice({
+          kind: "configure",
+          title: "Finish Configure first",
+          message:
+            issues[0]?.message ??
+            "Complete all required Configure fields before you can open Publish.",
+          issue: "configure_incomplete"
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, loading]);
+
+  useEffect(() => {
+    if (isConnectedWorkflowReady && flowGateNotice?.kind === "graph") {
+      setFlowGateNotice(null);
+    }
+  }, [flowGateNotice, isConnectedWorkflowReady]);
 
   const isDentalWorkflow = useMemo(() => {
     const name = `${agentName} ${workflow?.name ?? ""}`.toLowerCase();
@@ -1408,8 +1558,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onUndo={undo}
         onRedo={redo}
         onAgentNameChange={setAgentName}
-        onTabChange={setActiveTab}
-        onRunTest={() => setActiveTab("test")}
+        onTabChange={requestTabChange}
+        onRunTest={() => requestTabChange("test")}
         onSave={() => void saveAgent()}
         onPreview={() => setPreviewOpen(true)}
       />
@@ -1458,6 +1608,43 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               Editing is locked while this agent is in review. It will be live in 24-48 hrs after review.
             </p>
           </div>
+        </div>
+      ) : null}
+
+      {flowGateNotice ? (
+        <div
+          data-testid="builder-workflow-connect-banner"
+          className="fixed left-1/2 top-[7.25rem] z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-lg md:top-20"
+          role="status"
+        >
+          <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-50 text-amber-600">
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v4" />
+              <path d="M12 16h.01" />
+            </svg>
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-black text-slate-900" data-testid="builder-workflow-connect-title">
+              {flowGateNotice.title}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-slate-600" data-testid="builder-workflow-connect-text">
+              {flowGateNotice.message}
+            </p>
+
+          </div>
+          <button
+            type="button"
+            data-testid="builder-workflow-connect-dismiss"
+            onClick={() => setFlowGateNotice(null)}
+            className="shrink-0 rounded-lg p-1 text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
+            aria-label="Dismiss"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
         </div>
       ) : null}
 
@@ -1687,7 +1874,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               setMessage("Submitted for review");
               void loadWorkflow("Applying configuration...");
             }}
-            onGoPublish={() => setActiveTab("publish")}
+            onGoPublish={() => void requestTabChange("publish")}
             onGoBuild={() => setActiveTab("build")}
             onSave={() => void saveAgent()}
           />
@@ -1714,7 +1901,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                   ? "Publishing is locked while this agent is under review."
                   : ""
             }
-            onGoConfigure={() => setActiveTab("configure")}
+            onGoConfigure={() => {
+              setFlowGateNotice(null);
+              setActiveTab("configure");
+            }}
             onSave={() => void publishAgent()}
           />
         ) : null}

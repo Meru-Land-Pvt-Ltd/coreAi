@@ -154,3 +154,21 @@ export function deriveWorkflowCapabilities(nodes: CapabilityNode[]): WorkflowCap
     hasLlm
   };
 }
+
+/**
+ * True when the canvas has at least one workflow trigger (manual, phone, SMS,
+ * missed-call, telegram, whatsapp, or nodeKind=trigger).
+ */
+export function workflowHasTriggerNode(nodes: CapabilityNode[]): boolean {
+  return nodes.some((node) => {
+    const type = nodeType(node);
+    const kind = String(node.data?.nodeKind ?? "").toLowerCase();
+    if (kind === "trigger") return true;
+    if (type.startsWith("trigger.")) return true;
+    if (type === "manual_trigger" || type === "manual") return true;
+    if (type === "phone_call" || type === "twilio_missed_call" || type === "twilio_inbound_sms") {
+      return true;
+    }
+    return false;
+  });
+}

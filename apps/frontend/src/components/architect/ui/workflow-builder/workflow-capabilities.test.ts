@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { VOICE_NODE_TYPES } from "@coreai/shared";
-import { deriveWorkflowCapabilities } from "./workflow-capabilities";
+import { deriveWorkflowCapabilities, workflowHasTriggerNode } from "./workflow-capabilities";
 
 describe("deriveWorkflowCapabilities", () => {
   it("detects voice + calendar + email send nodes", () => {
@@ -43,5 +43,21 @@ describe("deriveWorkflowCapabilities", () => {
     ]);
     expect(caps.hasGmail).toBe(true);
     expect(caps.hasTelegram).toBe(true);
+  });
+});
+
+describe("workflowHasTriggerNode", () => {
+  it("returns false when canvas has no trigger", () => {
+    expect(
+      workflowHasTriggerNode([{ data: { type: "ai.llm_call", nodeKind: "ai" } }])
+    ).toBe(false);
+  });
+
+  it("returns true for phone, manual, and sms triggers", () => {
+    expect(
+      workflowHasTriggerNode([{ data: { type: VOICE_NODE_TYPES.phoneCallTrigger } }])
+    ).toBe(true);
+    expect(workflowHasTriggerNode([{ data: { type: "trigger.manual" } }])).toBe(true);
+    expect(workflowHasTriggerNode([{ data: { type: "trigger.twilio_inbound_sms" } }])).toBe(true);
   });
 });
