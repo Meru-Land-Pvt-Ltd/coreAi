@@ -1,4 +1,4 @@
-import { buildVoiceBookingWorkflow, getNodeDefinition, TELEGRAM_NODE_TYPES, VOICE_NODE_TYPES } from "@coreai/shared";
+import { getNodeDefinition, TELEGRAM_NODE_TYPES, VOICE_NODE_TYPES, workflowJsonForTemplate } from "@coreai/shared";
 
 export type WorkflowTemplate = {
   id: string;
@@ -58,55 +58,20 @@ function flow(specs: NodeSpec[]) {
   return { nodes: tnodes(specs), edges: tedges(specs.map((s) => s.id)) };
 }
 
-function buildDentalReceptionistWorkflow() {
-  const base = buildVoiceBookingWorkflow();
-  const overrides: Record<string, Record<string, unknown>> = {
-    [VOICE_NODE_TYPES.phoneCallTrigger]: { callHandlingMode: "AI_ANSWERS" },
-    [VOICE_NODE_TYPES.voiceConversation]: {
-      practiceName: "",
-      doctorName: "",
-      practiceHours: "Mon–Fri 9:00 AM–5:00 PM",
-      services: "Cleaning 45min, Filling 30min, Crown 60min, Emergency 30min",
-      firstMessage: "Hello, this is {{assistant_name}} from {{business_name}}. How can I help you today?",
-      fallbackResponse: "Let me take a message and have the team call you back shortly.",
-      customInstructions: [
-        "New patients should be offered a 60-minute first visit and asked for their full name and a callback number.",
-        "For tooth pain, swelling, or bleeding, treat it as urgent — offer the soonest available slot or escalate to the on-call dentist.",
-        "We accept most major insurance. If asked about coverage, take the patient's provider name and tell them the team will confirm.",
-        "Never quote exact prices; give a general range and offer to have the team follow up with details.",
-        "Free parking is available behind the building.",
-        "Always repeat the chosen date and time back to the patient to confirm before booking."
-      ].join("\n"),
-      afterHoursPolicy: {
-        enabled: true,
-        emergencyScreeningEnabled: true,
-        emergencyCategory: "DENTAL",
-        emergencyContactMethod: "SMS",
-        offerAppointmentBooking: true,
-        preferEarliestAvailableSlot: true,
-        allowUrgentCallbackRequest: true,
-        includeCallbackInStaffAlert: true
-      }
-    },
-    [VOICE_NODE_TYPES.bookAppointment]: {
-      eventTitleFormat: "[Service] - [Patient Name]",
-      confirmationMessage: "Perfect, you're all set for [Service] on [Date] at [Time] with [Doctor Name]."
-    },
-    [VOICE_NODE_TYPES.sendSms]: {
-      sendToDentist: "true",
-      patientTemplate: "Confirmed: [Service] with [Doctor Name], [Date] at [Time]. Reply C to cancel.",
-      dentistTemplate: "New booking: [Patient Name], [Date] [Time], [Service]. Phone: [Patient Phone]"
-    },
-    [VOICE_NODE_TYPES.endFlow]: {
-      closingMessage: "You're all set! Have a wonderful day.",
-      callRecording: "true"
-    }
-  };
-  const nodes = base.nodes.map((node) => {
-    const type = String(node.data.type ?? "");
-    return { ...node, data: { ...node.data, ...(overrides[type] ?? {}) } };
-  });
-  return { nodes, edges: base.edges };
+/**
+ * Architect-side Dental AI Receptionist import: 6-node voice booking chain with
+ * Send SMS (not email). Registry defaults only — same as saving a template.
+ */
+function buildDentalReceptionistWorkflow(): WorkflowTemplate["workflowJson"] {
+  const graph = flow([
+    { id: VOICE_NODE_TYPES.phoneCallTrigger, type: VOICE_NODE_TYPES.phoneCallTrigger },
+    { id: VOICE_NODE_TYPES.voiceConversation, type: VOICE_NODE_TYPES.voiceConversation },
+    { id: VOICE_NODE_TYPES.calendarAvailability, type: VOICE_NODE_TYPES.calendarAvailability },
+    { id: VOICE_NODE_TYPES.bookAppointment, type: VOICE_NODE_TYPES.bookAppointment },
+    { id: VOICE_NODE_TYPES.sendSms, type: VOICE_NODE_TYPES.sendSms },
+    { id: VOICE_NODE_TYPES.endFlow, type: VOICE_NODE_TYPES.endFlow }
+  ]);
+  return workflowJsonForTemplate(graph) as WorkflowTemplate["workflowJson"];
 }
 
 function buildTelegramAppointmentWorkflow(): WorkflowTemplate["workflowJson"] {

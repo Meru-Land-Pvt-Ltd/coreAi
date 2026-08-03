@@ -77,7 +77,7 @@ describe("renderSimpleTemplate", () => {
 describe("whatsappWebhookCallbackUrl", () => {
   it("appends the public webhook path", () => {
     expect(whatsappWebhookCallbackUrl("https://api.example.com/")).toBe(
-      "https://api.example.com/architect/connectors/whatsapp"
+      "https://api.example.com/webhook/meta/whatsapp"
     );
   });
 });

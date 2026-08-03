@@ -22,6 +22,10 @@ import { publicBookingRoutes } from "./modules/public/booking-routes";
 import { chatbotRoutes } from "./modules/chatbot/routes";
 import { supportRoutes } from "./modules/support/routes";
 import { integrationsRoutes } from "./modules/integrations/routes";
+import {
+  handleWhatsAppWebhookPost,
+  verifyWhatsAppWebhookChallenge
+} from "./modules/whatsapp/webhook";
 
 export const app = new Hono();
 
@@ -58,6 +62,11 @@ app.route("/legal", legalRoutes);
 // Public customer-facing booking/service-request endpoints (slug-addressed).
 app.route("/public", publicBookingRoutes);
 app.route("/chatbot", chatbotRoutes);
+
+// Meta WhatsApp Cloud API — public webhook (verify challenge + inbound events).
+// Meta dashboard Callback URL: https://triven.ai/api/webhook/meta/whatsapp
+app.get("/webhook/meta/whatsapp", verifyWhatsAppWebhookChallenge);
+app.post("/webhook/meta/whatsapp", handleWhatsAppWebhookPost);
 
 app.notFound((c) => {
   return errorResponse(c, "Route not found", 404, "ROUTE_NOT_FOUND");
