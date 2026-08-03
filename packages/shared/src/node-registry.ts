@@ -379,26 +379,35 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     launchCritical: true,
     comingSoon: false,
     runtime: { nodeKind: "trigger", connector: "Telegram" },
+    /* Generic by default. Booking is ONE thing a Telegram bot can do, not what
+       it is — a gym, a law firm or a shop should be able to drop this trigger in
+       and wire it to whatever the workflow does. Turning telegramBookingMode on
+       adds the built-in appointment commands on top.
+
+       Only NEW nodes take these defaults; workflows already saved carry their
+       own values, and the runtime still falls back to booking mode when the key
+       is absent, so existing booking bots are unaffected. */
     defaultConfig: {
-      telegramBotNameTemplate: "{{business.name}} Booking Assistant",
-      telegramBotDescription: "View services and book an appointment with {{business.name}}.",
-      telegramBotShortDescription: "Book an appointment with {{business.name}}.",
-      telegramWelcomeMessage: "Welcome to {{business.name}}. Choose a service or book an appointment below.",
-      telegramFallbackMessage: "I didn't understand that. Use /services to view services or /book to book an appointment.",
+      telegramBotNameTemplate: "{{business.name}} Assistant",
+      telegramBotDescription: "Chat with {{business.name}} on Telegram.",
+      telegramBotShortDescription: "Chat with {{business.name}}.",
+      telegramWelcomeMessage: "Hi! You're chatting with {{business.name}}. How can I help?",
+      telegramFallbackMessage: "Sorry, I didn't catch that. Send /help to see what I can do.",
       telegramEventType: "message",
       telegramCommand: "",
       telegramKeywords: "",
       telegramMatchType: "contains",
       telegramChatAccess: "private",
       telegramIgnoreBots: "true",
-      telegramBookingMode: "true",
-      telegramServicesCommand: "true",
-      telegramBookCommand: "true",
-      telegramMyBookingsCommand: "true",
-      telegramRescheduleCommand: "true",
-      telegramCancelCommand: "true",
+      // Appointment features are opt-in; the workflow itself handles the rest.
+      telegramBookingMode: "false",
+      telegramServicesCommand: "false",
+      telegramBookCommand: "false",
+      telegramMyBookingsCommand: "false",
+      telegramRescheduleCommand: "false",
+      telegramCancelCommand: "false",
       telegramHelpCommand: "true",
-      telegramRequestPhone: "true",
+      telegramRequestPhone: "false",
       telegramRequestEmail: "false",
       telegramRequestNotes: "false"
     },

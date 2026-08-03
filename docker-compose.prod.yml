@@ -101,6 +101,33 @@ services:
       redis:
         condition: service_healthy
 
+  # Telegram updates are queued by the webhook and processed here. Without this
+  # service every incoming message is stored and queued, and then nothing ever
+  # runs the workflow — bots go silent with no error anywhere.
+  telegram-worker:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: coreai-telegram-worker
+    restart: unless-stopped
+    command: ["node", "dist/telegram-worker.js"]
+    env_file:
+      - apps/backend/.env.production
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      # The worker exits immediately without Redis — it is the queue transport.
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      FRONTEND_URL: ${FRONTEND_URL}
+      BACKEND_URL: ${BACKEND_URL}
+      VAPI_API_KEY: ${VAPI_API_KEY}
+      VAPI_WEBHOOK_SECRET: ${VAPI_WEBHOOK_SECRET:?VAPI_WEBHOOK_SECRET is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   frontend:
     build:
       context: .

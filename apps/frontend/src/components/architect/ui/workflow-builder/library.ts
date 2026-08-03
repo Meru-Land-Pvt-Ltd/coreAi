@@ -46,8 +46,7 @@ export const libraryGroups: LibraryGroup[] = [
     title: "Triggers",
     items: [
       paletteItem(VOICE_NODE_TYPES.phoneCallTrigger, { icon: "phone", accent: "amber" }),
-      // Temporarily hidden — Telegram feature paused
-      // paletteItem(TELEGRAM_NODE_TYPES.trigger, { icon: "telegram", accent: "amber", kind: "TELEGRAM BOT" }),
+      paletteItem(TELEGRAM_NODE_TYPES.trigger, { icon: "telegram", accent: "amber", kind: "TELEGRAM BOT" }),
       paletteItem("trigger.twilio_inbound_sms", { icon: "message", accent: "amber" }),
       paletteItem("trigger.twilio_missed_call", { icon: "phone", accent: "amber" }),
       // Temporarily hidden — WhatsApp feature paused
@@ -85,7 +84,8 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(VOICE_NODE_TYPES.bookAppointment, { icon: "calendar", accent: "blue" })
     ]
   },
-  // Temporarily hidden — Telegram feature paused
+  /* Telegram ACTION nodes are hidden — only the Telegram Bot Trigger is offered.
+     Restore this group to bring the send/edit/delete actions back. */
   // {
   //   title: "Telegram Bot",
   //   items: [

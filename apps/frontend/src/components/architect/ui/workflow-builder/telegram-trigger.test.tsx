@@ -32,20 +32,41 @@ function telegramNode(): BuilderNode {
 }
 
 describe("Telegram trigger architect setup", () => {
-  // Temporarily skipped — Telegram feature paused (palette entry commented out
-  // in library.ts). Re-enable together with that entry.
-  it.skip("is available in the trigger library with isolated-business defaults", () => {
+  it("is available in the trigger library with isolated-business defaults", () => {
     const triggerGroup = libraryGroups.find((group) => group.title === "Triggers");
     const item = triggerGroup?.items.find(
       (candidate) => candidate.overrides?.type === "trigger.telegram_message"
     );
 
     expect(item?.label).toBe("Telegram Bot Trigger");
-    expect(item?.overrides?.telegramBotNameTemplate).toBe(
-      "{{business.name}} Booking Assistant"
+    // Business-scoped copy, never a hardcoded business name.
+    expect(item?.overrides?.telegramBotNameTemplate).toContain("{{business.name}}");
+  });
+
+  /* The trigger must drop into ANY workflow — a shop, a gym, a law firm — not
+     only an appointment bot. Booking commands and contact collection are opt-in
+     so a new bot starts as a plain message trigger the workflow answers. */
+  it("defaults to a general-purpose bot, with booking features opt-in", () => {
+    const triggerGroup = libraryGroups.find((group) => group.title === "Triggers");
+    const item = triggerGroup?.items.find(
+      (candidate) => candidate.overrides?.type === "trigger.telegram_message"
     );
-    expect(item?.overrides?.telegramRequestPhone).toBe("true");
-    expect(item?.overrides?.telegramBookingMode).toBe("true");
+
+    expect(item?.overrides?.telegramBookingMode).toBe("false");
+    expect(item?.overrides?.telegramRequestPhone).toBe("false");
+    for (const command of [
+      "telegramServicesCommand",
+      "telegramBookCommand",
+      "telegramMyBookingsCommand",
+      "telegramRescheduleCommand",
+      "telegramCancelCommand"
+    ]) {
+      expect(item?.overrides?.[command]).toBe("false");
+    }
+    // /help stays on — it is useful for every bot, booking or not.
+    expect(item?.overrides?.telegramHelpCommand).toBe("true");
+    // Default copy must not presuppose appointments.
+    expect(String(item?.overrides?.telegramWelcomeMessage)).not.toMatch(/book|appointment|service/i);
   });
 
   it("marks Telegram as a required integration for the workflow", () => {
