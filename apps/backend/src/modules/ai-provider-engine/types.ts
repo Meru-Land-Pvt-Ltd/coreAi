@@ -117,6 +117,8 @@ export type AIExecuteResponse = {
   modelName: string;
   durationMs: number;
   error: string | null;
+  errorCode?: string | null;
+  retryable?: boolean;
 };
 
 export type SelectionExplanation = {

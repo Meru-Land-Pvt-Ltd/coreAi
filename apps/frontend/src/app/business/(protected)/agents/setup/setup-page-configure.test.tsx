@@ -551,12 +551,38 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(screen.getByTestId("business-setup-success-title").textContent).toBeTruthy();
     expect(screen.getByTestId("business-setup-success-capabilities")).toBeTruthy();
 
+    // The Test step should be marked complete after a successful Go live.
+    expect(screen.getByTestId("business-setup-dot-3").className).toContain("done");
+
     // Click "Edit configuration again" button on the success screen
     const editBtn = screen.getByRole("button", { name: /edit configuration again/i });
     await user.click(editBtn);
 
     // Verify it returns to Step 1 (Connect)
     expect(screen.getByTestId("business-setup-dot-1").getAttribute("aria-current")).toBe("step");
+  });
+
+  it("marks the Test step complete after a successful Go live", async () => {
+    vi.mocked(getBusinessSetup).mockResolvedValue(
+      setupData({ installedAgent: null, installedAgentId: null }) as never
+    );
+    vi.mocked(saveBusinessSetup).mockResolvedValue({
+      success: true,
+      data: { installedAgentId: "agent-1", number: "+12135550999", vapiAssistantId: "vapi-1" }
+    } as never);
+
+    render(<BusinessAgentSetupPage />);
+    const user = userEvent.setup();
+    await screen.findByTestId("business-setup-wizard");
+    await waitFor(() => {
+      expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz");
+    });
+
+    await user.click(screen.getByTestId("business-setup-dot-3"));
+    await user.click(screen.getByTestId("business-setup-submit"));
+
+    await screen.findByTestId("business-setup-success");
+    expect(screen.getByTestId("business-setup-dot-3").className).toContain("done");
   });
 
   it("Configure shows a read-only timezone note pointing at Connect — never a second selector", async () => {

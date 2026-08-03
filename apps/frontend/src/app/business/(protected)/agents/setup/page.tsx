@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { PhoneCall, CalendarSearch, Search, CalendarCheck, MessageSquare, Mail } from "lucide-react";
+import { PhoneCall, CalendarSearch, Search, CalendarCheck, MessageSquare, Mail, Brain, Database, Sparkles, Lightbulb } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -59,6 +59,7 @@ import {
   getMarketplaceListing,
   putBusinessHours,
   runBusinessSetupChatTest,
+  runBusinessSetupWorkflowTest,
   saveBusinessMailSetup,
   saveBusinessSetup,
   sendMailSetupTestEmail,
@@ -85,6 +86,10 @@ import {
   type KnowledgeFileSummary,
   type PlatformPhoneOption
 } from "@/components/business/features/api";
+import { runArchitectWorkflowTest } from "@/components/architect/features/api";
+import type { WorkflowRunLog } from "@/components/architect/features/types";
+import { marked } from "marked";
+import { isDeploymentReadyForWorkflowRequirements } from "./deployment-readiness";
 
 const DASHBOARD_ROUTE = "/business/dashboard" as Route;
 const STEP_STORAGE_KEY = "biz-setup-step";
@@ -1408,7 +1413,9 @@ function SetupWizard() {
       return;
     }
 
-    if (!result.installedAgentId || !(result.number || assignedNumber)) {
+    const deploymentReady = isDeploymentReadyForWorkflowRequirements(setupValidationPlan, result, assignedNumber);
+
+    if (!deploymentReady) {
       setStep(3);
       setError("Deploy did not complete — the agent or phone number was not saved. Please try again.");
       return;
@@ -1594,7 +1601,11 @@ function SetupWizard() {
     }
   }, [loading, activeSteps, step]);
 
-  const testPassed = browserTestOutcome === "passed" || Boolean(testResult?.readyForCall);
+  const testPassed =
+    browserTestOutcome === "passed" ||
+    Boolean(testResult?.readyForCall) ||
+    deployed ||
+    redeploySuccess;
   const stepDone: Record<number, boolean> = {
     1: connectComplete,
     2: connectReady && configureComplete,
@@ -1784,6 +1795,7 @@ function SetupWizard() {
               {activeSteps.map((entry, index) => {
                 const active = entry.id === step;
                 const done = stepDone[entry.id];
+                const completed = done && !active;
                 const upcoming = step < entry.id && !done;
                 const locked = entry.id > step && !canAccessStep(entry.id);
                 const clickable = !locked;
@@ -1813,10 +1825,10 @@ function SetupWizard() {
                       aria-disabled={locked ? "true" : undefined}
                       disabled={locked}
                       data-testid={`business-setup-dot-${entry.id}`}
-                      className={`pstep group ${active ? "active" : ""} ${done ? "done" : ""} ${upcoming ? "upcoming" : ""} ${clickable ? "clickable" : ""} ${locked ? "opacity-60" : ""}`}
+                      className={`pstep group ${active ? "active" : ""} ${completed ? "done" : ""} ${upcoming ? "upcoming" : ""} ${clickable ? "clickable" : ""} ${locked ? "opacity-60" : ""}`}
                     >
                       <span className="pdot" data-dot="true">
-                        {done ? (
+                        {completed ? (
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                             <polyline points="20 6 9 17 4 12" />
                           </svg>
@@ -3220,7 +3232,7 @@ function formatSeconds(total: number): string {
 }
 
 
-type WorkflowTestStepKind = "voice" | "appointment" | "sms" | "confirmation" | "generic";
+type WorkflowTestStepKind = "voice" | "appointment" | "sms" | "confirmation" | "generic" | "input" | "processing";
 
 type WorkflowTestStep = {
   id: string;
@@ -3249,6 +3261,14 @@ const WORKFLOW_STEP_COPY: Record<WorkflowTestStepKind, { title: string; detail: 
   generic: {
     title: "Workflow Step",
     detail: "Complete this step, then continue to the next one."
+  },
+  input: {
+    title: "Submit Test Query",
+    detail: "Provide input to trigger the workflow and preview the processing steps and final agent response."
+  },
+  processing: {
+    title: "Processing Query",
+    detail: "View the execution timeline of your workflow nodes and the final output."
   }
 };
 
@@ -3288,6 +3308,12 @@ function inferWorkflowStepKind(node: any): WorkflowTestStepKind | "skip" {
     .join(" ");
 
   if (!haystack.trim()) return "skip";
+
+  const dataType = String(data.type ?? node.type ?? "").toLowerCase();
+  if (dataType === "trigger.manual" || dataType === "manual_trigger" || dataType === "manual") {
+    return "input";
+  }
+
   if (includesAny(haystack, ["flow.end", "end flow", "confirmation received", "complete"])) return "confirmation";
   if (includesAny(haystack, ["send_sms", "send sms", "sms", "text message", "send_notification"])) return "sms";
   if (includesAny(haystack, ["book_appointment", "create_appointment", "calendar.book", "appointment booking", "google_calendar_create_appointment", "google_calendar", "googlecalendar", "calendar", "appointment", "schedule_appointment", "book appointment"])) return "appointment";
@@ -3338,11 +3364,19 @@ function buildWorkflowTestSteps({
 }): WorkflowTestStep[] {
   const workflowJson = workflowJsonFromListing(listing);
   const nodes = orderedWorkflowNodes(workflowJson);
+  
+  const hasManualTrigger = nodes.some((node) => {
+    const data = workflowNodeData(node);
+    const dataType = String(data.type ?? node.type ?? "").toLowerCase();
+    return dataType === "trigger.manual" || dataType === "manual_trigger" || dataType === "manual";
+  });
+
   const seenKinds = new Set<WorkflowTestStepKind>();
   const steps = nodes
     .map((node, index) => {
       const kind = inferWorkflowStepKind(node);
       if (kind === "skip") return null;
+      if (hasManualTrigger && kind === "generic") return null;
       // Deduplicate: if this kind already appeared (e.g. two SMS nodes), skip the duplicate.
       if (seenKinds.has(kind)) return null;
       seenKinds.add(kind);
@@ -3358,6 +3392,9 @@ function buildWorkflowTestSteps({
   if (steps.length > 0) {
     if (steps.some((step) => step.kind === "sms") && !steps.some((step) => step.kind === "confirmation")) {
       steps.push({ id: "sms-confirmation-received", kind: "confirmation", ...WORKFLOW_STEP_COPY.confirmation });
+    }
+    if (steps.some((step) => step.kind === "input") && !steps.some((step) => step.kind === "processing")) {
+      steps.push({ id: "workflow-processing-query", kind: "processing", ...WORKFLOW_STEP_COPY.processing });
     }
     return steps;
   }
@@ -4061,6 +4098,7 @@ function StepTest({
 
   // Voice step state — lifted here so it persists across step renders
   const [voiceCallState, setVoiceCallState] = useState<"idle" | "in-progress" | "ended">("idle");
+  const [testQuery, setTestQuery] = useState("");
 
   function completeStep(stepId: string, stepIndex: number) {
     setCompletedSteps((prev) => new Set([...prev, stepId]));
@@ -4210,6 +4248,22 @@ function StepTest({
                       {step.kind === "confirmation" && (
                         <WorkflowConfirmationStepPanel
                           agentName={agentName}
+                          onComplete={() => completeStep(step.id, index)}
+                        />
+                      )}
+                      {step.kind === "input" && (
+                        <WorkflowInputStepPanel
+                          initialValue={testQuery}
+                          onRunTest={(query) => {
+                            setTestQuery(query);
+                            completeStep(step.id, index);
+                          }}
+                        />
+                      )}
+                      {step.kind === "processing" && (
+                        <WorkflowProcessingStepPanel
+                          listing={listing}
+                          testQuery={testQuery}
                           onComplete={() => completeStep(step.id, index)}
                         />
                       )}
@@ -5018,6 +5072,366 @@ function WorkflowConfirmationStepPanel({
           Once you receive the message, tap the button above to finish the test.
         </p>
       </div>
+    </div>
+  );
+}
+
+/** Input step — manual input trigger panel for AI Brain workflows */
+function WorkflowInputStepPanel({
+  initialValue,
+  onRunTest
+}: {
+  initialValue: string;
+  onRunTest: (query: string) => void;
+}) {
+  const [inputVal, setInputVal] = useState(initialValue);
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <label className="text-xs font-semibold text-slate-700">Trigger Message</label>
+        <textarea
+          value={inputVal}
+          onChange={(e) => setInputVal(e.target.value)}
+          placeholder="Enter a message to trigger the workflow..."
+          className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:border-amber-400 focus:outline-none transition"
+          rows={3}
+        />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => onRunTest(inputVal.trim())}
+            disabled={!inputVal.trim()}
+            className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-5 py-2 text-sm font-bold text-white hover:bg-amber-600 transition-all shadow-sm disabled:opacity-50"
+          >
+            Run test
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Helper Markdown renderer using marked library with local CSS styles
+function Markdown({ content, className = "" }: { content: string; className?: string }) {
+  const html = typeof content === "string" ? (marked.parse(content, { breaks: true, gfm: true }) as string) : "";
+  return (
+    <div className={`markdown-content-preview min-w-0 max-w-full break-words [overflow-wrap:anywhere] ${className}`}>
+      <style>{`
+        .markdown-content-preview h1,
+        .markdown-content-preview h2,
+        .markdown-content-preview h3,
+        .markdown-content-preview h4,
+        .markdown-content-preview h5,
+        .markdown-content-preview h6 {
+          font-weight: 700;
+          color: #0f172a;
+          margin-top: 1.25em;
+          margin-bottom: 0.5em;
+          line-height: 1.35;
+        }
+        .markdown-content-preview h1 { font-size: 1.5em; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.3em; }
+        .markdown-content-preview h2 { font-size: 1.3em; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.3em; }
+        .markdown-content-preview h3 { font-size: 1.15em; }
+        .markdown-content-preview p { margin-top: 0; margin-bottom: 0.75em; }
+        .markdown-content-preview p:last-child { margin-bottom: 0; }
+        .markdown-content-preview strong { font-weight: 700; color: #0f172a; }
+        .markdown-content-preview em { font-style: italic; }
+        .markdown-content-preview ul { list-style-type: disc; padding-left: 1.25rem; margin-bottom: 0.75em; }
+        .markdown-content-preview ol { list-style-type: decimal; padding-left: 1.25rem; margin-bottom: 0.75em; }
+        .markdown-content-preview li { margin-top: 0.2em; margin-bottom: 0.2em; }
+        .markdown-content-preview blockquote {
+          border-left: 4px solid #e2e8f0;
+          padding-left: 1rem;
+          color: #475569;
+          font-style: italic;
+          margin: 1em 0;
+        }
+        .markdown-content-preview pre {
+          background-color: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 0.5rem;
+          padding: 0.75rem;
+          overflow-x: auto;
+          margin: 1rem 0;
+        }
+        .markdown-content-preview code {
+          font-family: monospace;
+          background-color: #f1f5f9;
+          padding: 0.125rem 0.25rem;
+          border-radius: 0.25rem;
+          font-size: 0.875em;
+        }
+      `}</style>
+      <div dangerouslySetInnerHTML={{ __html: html }} />
+    </div>
+  );
+}
+
+/** Processing step — dynamic log execution timeline and output display */
+function WorkflowProcessingStepPanel({
+  listing,
+  testQuery,
+  onComplete
+}: {
+  listing: any;
+  testQuery: string;
+  onComplete: () => void;
+}) {
+  const [fetching, setFetching] = useState(false);
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [error, setError] = useState("");
+  const [runLogs, setRunLogs] = useState<WorkflowRunLog[]>([]);
+  const [finalOutput, setFinalOutput] = useState("");
+  const [visibleLogCount, setVisibleLogCount] = useState(0);
+  const [apiResult, setApiResult] = useState<{ logs: WorkflowRunLog[]; reply: string } | null>(null);
+
+  const workflowJson = workflowJsonFromListing(listing);
+  const workflowNodes = useMemo(() => orderedWorkflowNodes(workflowJson), [workflowJson]);
+  const workflowId = listing?.workflowId || listing?.workflow?.id || "";
+
+  // 1. Fetch real simulation from API
+  useEffect(() => {
+    if (!testQuery || !workflowId) return;
+
+    let active = true;
+    setFetching(true);
+    setError("");
+    setRunLogs([]);
+    setFinalOutput("");
+    setApiResult(null);
+    setVisibleLogCount(0);
+    setIsSimulating(false);
+
+    const payload = {
+      input: {
+        callerNumber: "test-user",
+        callerName: "Test User",
+        businessName: "Sample Business",
+        businessType: "Service Business",
+        businessPhoneNumber: "",
+        calendarId: "primary",
+        timeZone: "America/Los_Angeles",
+        inboundSmsBody: testQuery,
+        latestMessage: testQuery,
+        useTestCalendar: false
+      }
+    };
+
+    runBusinessSetupWorkflowTest(workflowId, payload)
+      .then((res) => {
+        if (!active) return;
+        if (res.success && res.data?.run) {
+          const run = res.data.run;
+          const logs = run.logs || [];
+          const lastLog = logs[logs.length - 1];
+          let lastNodeOutput = "";
+          if (lastLog && lastLog.output) {
+            const out = lastLog.output as any;
+            if (typeof out === "string") {
+              lastNodeOutput = out;
+            } else if (typeof out === "object" && out !== null) {
+              lastNodeOutput = out.text || out.reply || out.body || out.message || out.result || JSON.stringify(out);
+            }
+          }
+          const reply = lastNodeOutput || (run.context?.reply as string) || "";
+          
+          setApiResult({ logs, reply });
+          setIsSimulating(true);
+        } else {
+          setError(res.error || "Failed to execute workflow test.");
+        }
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : "Failed to execute workflow test.");
+      })
+      .finally(() => {
+        if (active) setFetching(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [testQuery, workflowId]);
+
+  // 2. Sequential simulation loop
+  useEffect(() => {
+    if (!isSimulating || !apiResult || workflowNodes.length === 0) return;
+
+    const timer = setInterval(() => {
+      setVisibleLogCount((prev) => {
+        const next = prev + 1;
+        if (next >= workflowNodes.length) {
+          clearInterval(timer);
+          setIsSimulating(false);
+          setRunLogs(apiResult.logs);
+          setFinalOutput(apiResult.reply);
+          return workflowNodes.length;
+        }
+        return next;
+      });
+    }, 850); // Delay between each node transition
+
+    return () => clearInterval(timer);
+  }, [isSimulating, apiResult, workflowNodes.length]);
+
+  const activeNodeIndex = isSimulating ? visibleLogCount : -1;
+  const activeNodeName = activeNodeIndex >= 0 && activeNodeIndex < workflowNodes.length
+    ? workflowNodeLabel(workflowNodes[activeNodeIndex], "generic", activeNodeIndex)
+    : "";
+
+  return (
+    <div className="space-y-4">
+      {/* Loading state from API fetch */}
+      {fetching && (
+        <div className="flex items-center gap-2.5 text-xs text-slate-500 animate-pulse">
+          <svg className="animate-spin h-4 w-4 text-amber-500" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+          <span>Executing workflow test...</span>
+        </div>
+      )}
+
+      {/* Sequential processing step info */}
+      {!fetching && isSimulating && activeNodeName && (
+        <div className="flex items-center gap-2.5 text-xs text-amber-600 font-medium">
+          <svg className="animate-spin h-4 w-4 text-amber-500" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+          <span>Processing step: &quot;{activeNodeName}&quot;...</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-xl p-3 animate-in fade-in duration-200">
+          {error}
+        </div>
+      )}
+
+      {/* Dynamic Workflow Timeline */}
+      {workflowNodes.length > 0 && (
+        <div className="pt-2 space-y-2 border-t border-slate-100 animate-in fade-in duration-300">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Live Activity</p>
+          <div className="flex flex-col pl-2 pt-2">
+            {workflowNodes.map((node, idx) => {
+              const nodeId = String(node.id || idx);
+              const data = workflowNodeData(node);
+              const nodeLabel = data.title || data.label || node.type || "Workflow Node";
+              const nodeType = String(data.type ?? data.kind ?? node.type ?? "").toLowerCase();
+              const isLast = idx === workflowNodes.length - 1;
+
+              const isBrain = nodeType.includes("llm_call") || nodeType.includes("ai") || nodeType.includes("brain");
+              const isMemory = nodeType.includes("memory");
+              const isCondition = nodeType.includes("condition") || nodeType.includes("rule");
+              const isSms = nodeType.includes("sms");
+              const isCalendar = nodeType.includes("calendar") || nodeType.includes("appointment");
+              const isMail = nodeType.includes("mail") || nodeType.includes("gmail");
+
+              // Determine simulation status
+              let status: "success" | "waiting" | "error" | "skipped" | "pending" = "pending";
+              if (isSimulating) {
+                if (idx < visibleLogCount) {
+                  const matchedLog = apiResult?.logs.find((l) => l.nodeId === nodeId);
+                  status = matchedLog ? matchedLog.status : "skipped";
+                } else if (idx === visibleLogCount) {
+                  status = "waiting";
+                } else {
+                  status = "pending";
+                }
+              } else {
+                if (runLogs.length > 0) {
+                  const matchedLog = runLogs.find((l) => l.nodeId === nodeId);
+                  status = matchedLog ? matchedLog.status : "skipped";
+                } else {
+                  status = fetching ? "pending" : "skipped";
+                }
+              }
+
+              let IconComponent = Sparkles;
+              let iconBg = "bg-slate-50 text-slate-400 border-slate-200/60";
+
+              if (status === "success") {
+                iconBg = "bg-green-50 text-green-600 border-green-200";
+              } else if (status === "error") {
+                iconBg = "bg-rose-50 text-rose-600 border-rose-200";
+              } else if (status === "waiting") {
+                iconBg = "bg-amber-50 text-amber-500 border-amber-200";
+              } else if (status === "skipped") {
+                iconBg = "bg-slate-50 text-slate-300 border-slate-200/40";
+              }
+
+              if (isBrain) {
+                IconComponent = Lightbulb;
+              } else if (isMemory) {
+                IconComponent = Database;
+              } else if (isCondition) {
+                IconComponent = Search;
+              } else if (isSms) {
+                IconComponent = MessageSquare;
+              } else if (isCalendar) {
+                IconComponent = CalendarCheck;
+              } else if (isMail) {
+                IconComponent = Mail;
+              }
+
+              return (
+                <div key={nodeId} className="flex gap-4 items-center relative pb-6 last:pb-2">
+                  {/* Connecting Line */}
+                  {!isLast && (
+                    <div className="absolute left-4 top-[32px] bottom-0 w-[1.5px] bg-slate-200/80 -translate-x-[0.75px]" />
+                  )}
+                  {/* Circle Icon */}
+                  <span className={`relative z-10 shrink-0 flex items-center justify-center w-8 h-8 rounded-full border ${iconBg}`}>
+                    {status === "waiting" ? (
+                      <svg className="animate-spin h-4 w-4 text-amber-500" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                    ) : (
+                      <IconComponent className="h-4 w-4" />
+                    )}
+                  </span>
+                  {/* Text (Only icon, name, and status indicator; no descriptions or badge labels in chain) */}
+                  <div className="flex-1 min-w-0">
+                    <span className={`text-xs font-semibold block transition-colors duration-300 ${
+                      status === "waiting" ? "text-amber-600 font-bold" :
+                      status === "success" ? "text-slate-800" :
+                      status === "skipped" ? "text-slate-400" : "text-slate-500"
+                    }`}>
+                      {nodeLabel}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Final AI Brain Output */}
+      {!fetching && !isSimulating && finalOutput && (
+        <div className="space-y-2 border-t border-slate-100 pt-3 animate-in fade-in duration-300">
+          <label className="text-xs font-semibold text-slate-700">Final Agent Response</label>
+          <div className="rounded-xl border border-violet-100 bg-violet-50/30 p-3.5 text-sm text-slate-800 leading-relaxed">
+            <Markdown content={finalOutput} />
+          </div>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={onComplete}
+              className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-5 py-2 text-sm font-bold text-white hover:bg-green-700 transition-all shadow-sm"
+            >
+              Continue
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -97,6 +97,7 @@ import {
 } from "./deploy";
 import { buildAfterHoursSnapshotForBusiness } from "./after-hours-state";
 import { runArchitectConversationTest } from "../architect/workflow-conversation-test";
+import { runWorkflowTest } from "../architect/workflow-runner";
 import { deleteTestCalendarEvent } from "../architect/test-calendar-events";
 import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
 import {
@@ -2173,6 +2174,58 @@ businessRoutes.post("/setup/preview-call", async (c) => {
     }
     console.error("[setup-preview] failed", error);
     return errorResponse(c, "Could not start the preview call.", 500, "PREVIEW_FAILED");
+  }
+});
+
+businessRoutes.post("/setup/workflows/:workflowId/run-test", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+
+  if (!workflowId) {
+    return errorResponse(c, "Workflow id is required", 422, "WORKFLOW_ID_REQUIRED");
+  }
+
+  if (!(await hasAnyAgentAcquisition(authUser.id))) {
+    return errorResponse(c, "Purchase an agent before using setup test tools.", 403, "PURCHASE_REQUIRED");
+  }
+
+  const business = await prisma.business.findFirst({
+    where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
+    select: { id: true }
+  });
+
+  if (!business) {
+    return errorResponse(c, "Create your business profile first (Configure step of setup).", 404, "BUSINESS_NOT_FOUND");
+  }
+
+  const workflow = await prisma.workflowDefinition.findFirst({
+    where: { id: workflowId }
+  });
+
+  if (!workflow) {
+    return errorResponse(c, "Workflow not found", 404, "WORKFLOW_NOT_FOUND");
+  }
+
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const chatSetup = await buildInstalledAgentChatTestSetup(business.id);
+    const sanitizedInput = {
+      ...(chatSetup?.context ?? {}),
+      ...(body.input ?? {})
+    };
+
+    const run = await runWorkflowTest({
+      userId: authUser.id,
+      workflowId,
+      workflowJson: workflow.workflowJson,
+      input: sanitizedInput,
+      mode: "test"
+    });
+
+    return successResponse(c, { run }, "Workflow test completed");
+  } catch (error) {
+    console.error("[business-workflow-test] failed", error);
+    return errorResponse(c, "Could not run workflow test", 500, "WORKFLOW_TEST_FAILED");
   }
 });
 
