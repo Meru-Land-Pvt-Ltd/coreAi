@@ -101,6 +101,7 @@ type ListingAccess = {
     canPayNow?: boolean;
     amountCents: number;
     phoneNumberFee?: { label: string; amountCents: number } | null;
+    needsPhoneNumber?: boolean;
     purchaseStatus: string | null;
     pricingModel?: string | null;
     freeTrialEnabled?: boolean | null;
@@ -2042,6 +2043,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                                 ? listingAccess.usagePricing.services
                                                 : []
                                         }
+                                        includesDedicatedPhoneNumber={listingAccess?.needsPhoneNumber === true}
                                         executionPricing={executionPricing}
                                         executionPricingLoading={executionPricingLoading}
                                         executionPricingUnavailable={executionPricingError}
@@ -2344,6 +2346,7 @@ function OrderSummary({
     trialDays = 7,
     usageRatePerMinuteUsd = null,
     usageServices = [],
+    includesDedicatedPhoneNumber = false,
     executionPricing = null,
     executionPricingLoading = false,
     executionPricingUnavailable = false
@@ -2367,6 +2370,7 @@ function OrderSummary({
     /** Configured per-minute execution rate; null = no rate available at display time. */
     usageRatePerMinuteUsd?: number | null;
     usageServices?: CheckoutUsageRate[];
+    includesDedicatedPhoneNumber?: boolean;
     executionPricing?: BuyerExecutionPricingPayload | null;
     executionPricingLoading?: boolean;
     executionPricingUnavailable?: boolean;
@@ -2426,7 +2430,12 @@ function OrderSummary({
                     </div>
                 ) : null}
 
-                {!isUsageMode ? <CheckoutUsageCharges services={usageServices} /> : null}
+                {!isUsageMode ? (
+                    <CheckoutUsageCharges
+                        services={usageServices}
+                        includesDedicatedPhoneNumber={includesDedicatedPhoneNumber}
+                    />
+                ) : null}
 
                 <div className="px-6 py-5">
                     <div className="space-y-3">

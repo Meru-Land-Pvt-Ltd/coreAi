@@ -22,6 +22,13 @@ import {
   getGmailOAuthRedirectPath,
   handleGmailOAuthCallback
 } from "./gmail-connector";
+import {
+  createCalendlyOAuthUrl,
+  disconnectCalendly,
+  getCalendlyConnectionStatus,
+  getCalendlyOAuthRedirectPath,
+  handleCalendlyOAuthCallback
+} from "../calendly/calendly-connector";
 import { GOOGLE_CALENDAR_INTEGRATION } from "@coreai/shared";
 import {
   DisclosureConsentError,
@@ -109,7 +116,13 @@ const voicePreviewSchema = z.object({
   text: z.string().trim().max(300).optional()
 });
 
+import { getAllModelStatuses } from "../ai-provider-engine/model-quota-manager";
+
 export const architectRoutes = new Hono();
+
+architectRoutes.get("/model-statuses", (c) => {
+  return successResponse(c, getAllModelStatuses());
+});
 
 architectRoutes.get("/connectors/gmail/callback", async (c) => {
   try {
@@ -159,6 +172,46 @@ architectRoutes.get("/connectors/gmail/callback", async (c) => {
 
     const separator = target.includes("?") ? "&" : "?";
     return c.redirect(`${env.FRONTEND_URL}${target}${separator}gmail=failed`);
+  }
+});
+
+architectRoutes.get("/connectors/calendly/callback", async (c) => {
+  try {
+    const code = c.req.query("code");
+    const state = c.req.query("state");
+    const oauthError = c.req.query("error");
+
+    if (!code || !state || oauthError) {
+      let target = "/architect/agents";
+      if (state) {
+        try {
+          target = getCalendlyOAuthRedirectPath(state) ?? target;
+        } catch {
+          // Forged/undecodable state: fall back to agents.
+        }
+      }
+      const result = oauthError === "access_denied" ? "denied" : "failed";
+      const separator = target.includes("?") ? "&" : "?";
+      return c.redirect(`${env.FRONTEND_URL}${target}${separator}calendly=${result}`);
+    }
+
+    const { redirectPath } = await handleCalendlyOAuthCallback({ code, state });
+    const target = redirectPath ?? "/architect/agents";
+    const separator = target.includes("?") ? "&" : "?";
+    return c.redirect(`${env.FRONTEND_URL}${target}${separator}calendly=connected`);
+  } catch (error) {
+    console.error(error);
+    const state = c.req.query("state");
+    let target = "/architect/agents";
+    if (state) {
+      try {
+        target = getCalendlyOAuthRedirectPath(state) ?? target;
+      } catch {
+        // Invalid or expired state.
+      }
+    }
+    const separator = target.includes("?") ? "&" : "?";
+    return c.redirect(`${env.FRONTEND_URL}${target}${separator}calendly=failed`);
   }
 });
 
@@ -930,6 +983,40 @@ const workflowRunInputSchema = z.object({
   testEmail: z.string().trim().email("Enter a valid test email address").optional(),
   useTestCalendar: z.boolean().optional(),
   testSessionId: z.string().trim().max(64).optional(),
+  calendlyEventTypeUri: z.string().trim().optional(),
+  calendlyEventUuid: z.string().trim().optional(),
+  calendlyInviteeUuid: z.string().trim().optional(),
+  calendlyStartTime: z.string().trim().optional(),
+  calendlyEndTime: z.string().trim().optional(),
+  calendlyStatus: z.string().trim().optional(),
+  calendlyTimezone: z.string().trim().optional(),
+  calendlyTriggerEvent: z.string().trim().optional(),
+  calendlyInviteeName: z.string().trim().optional(),
+  calendlyInviteeEmail: z.string().trim().optional(),
+  calendlyMeetingName: z.string().trim().optional(),
+  triggerType: z.string().trim().optional(),
+  calendly: z.record(z.string(), z.unknown()).optional(),
+  whatsapp: z
+    .object({
+      type: z.literal("WHATSAPP_MESSAGE"),
+      connectionId: z.string().trim().min(1),
+      contact: z.object({
+        name: z.string().nullable(),
+        phone: z.string().trim().min(1)
+      }),
+      customer: z.object({
+        name: z.string().nullable(),
+        phone: z.string().trim().min(1)
+      }),
+      message: z.object({
+        id: z.string().trim().min(1),
+        type: z.string().trim().min(1),
+        text: z.string().nullable(),
+        mediaUrl: z.string().nullable()
+      }),
+      timestamp: z.string().trim().min(1)
+    })
+    .optional(),
   attachments: z
     .array(
       z.object({
@@ -1267,6 +1354,35 @@ architectRoutes.delete("/connectors/gmail", async (c) => {
   await disconnectGmail(authUser.id);
 
   return successResponse(c, null, "Gmail disconnected");
+});
+
+architectRoutes.get("/connectors/calendly/status", async (c) => {
+  const authUser = c.get("authUser");
+  const status = await getCalendlyConnectionStatus(authUser.id);
+  return successResponse(c, status);
+});
+
+architectRoutes.get("/connectors/calendly/oauth-url", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const redirect = c.req.query("redirect");
+    const redirectPath = redirect && redirect.startsWith("/") ? redirect : undefined;
+    const url = createCalendlyOAuthUrl(authUser.id, redirectPath);
+    return successResponse(c, { url });
+  } catch (error) {
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not create Calendly OAuth URL",
+      500,
+      "CALENDLY_OAUTH_URL_FAILED"
+    );
+  }
+});
+
+architectRoutes.delete("/connectors/calendly", async (c) => {
+  const authUser = c.get("authUser");
+  await disconnectCalendly(authUser.id);
+  return successResponse(c, null, "Calendly disconnected");
 });
 
 architectRoutes.post("/connectors/twilio/business-installations", async (c) => {

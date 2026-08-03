@@ -1,4 +1,7 @@
 import {
+  CALENDLY_ACTION_OPTIONS,
+  CALENDLY_NODE_TYPES,
+  CALENDLY_TRIGGER_EVENTS,
   EMAIL_TEMPLATE_VARIABLES,
   LLM_PROVIDERS,
   TELEGRAM_NODE_TYPES,
@@ -11,7 +14,13 @@ import {
 } from "@coreai/shared";
 import { useState, useEffect, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
-import { listWhatsAppConnections, type WhatsAppConnection } from "@/components/architect/features/api";
+import {
+  disconnectCalendlyConnector,
+  getCalendlyConnectorStatus,
+  getCalendlyOAuthUrl,
+  listWhatsAppConnections,
+  type WhatsAppConnection
+} from "@/components/architect/features/api";
 import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
 import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
 import { BuilderIcon } from "./icons";
@@ -105,7 +114,8 @@ export function NodeInspector({
 
   let panel: ReactNode;
 
-  if (type === "ai.llm_call") panel = <LlmNodeInspector {...base} />;
+  if (type === "ai.image_generation") panel = <ImageGenNodeProps {...base} />;
+  else if (type === "ai.llm_call") panel = <LlmNodeInspector {...base} />;
   else if (type === "ai.memory") panel = <MemoryNodeProps {...base} />;
   else if (type === TELEGRAM_NODE_TYPES.trigger) panel = <TelegramTriggerProps {...base} />;
   else if (Object.values(TELEGRAM_NODE_TYPES).includes(type as (typeof TELEGRAM_NODE_TYPES)[keyof typeof TELEGRAM_NODE_TYPES])) {
@@ -120,6 +130,12 @@ export function NodeInspector({
   } else if (type === VOICE_NODE_TYPES.sendEmail) panel = <SendEmailProps {...base} />;
   else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
   else if (type === "trigger.whatsapp_message_received") panel = <WhatsAppTriggerProps {...base} />;
+  else if (type === CALENDLY_NODE_TYPES.trigger || type.startsWith("trigger.calendly_")) {
+    panel = <CalendlyTriggerProps {...base} />;
+  }
+  else if (type === CALENDLY_NODE_TYPES.action || type.startsWith("action.calendly_")) {
+    panel = <ConnectorProps {...base} calendar={calendar} ownership={ownership} />;
+  }
   else if (type === "action.send_whatsapp" || type === "communication.send_whatsapp") {
     panel = <WhatsAppSendProps {...base} />;
   } else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
@@ -405,6 +421,138 @@ function WhatsAppRequirementNotice({
         Architect WhatsApp setup
       </p>
       <p className="mt-1 text-[11px] leading-5 text-emerald-900/80">{children}</p>
+    </div>
+  );
+}
+
+function useCalendlyConnection() {
+  const [connected, setConnected] = useState(false);
+  const [email, setEmail] = useState<string | null>(null);
+  const [name, setName] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void getCalendlyConnectorStatus()
+      .then((result) => {
+        if (cancelled) return;
+        if (result.success && result.data) {
+          setConnected(result.data.connected);
+          setEmail(result.data.email);
+          setName(result.data.name);
+          setError("");
+          return;
+        }
+        setConnected(false);
+        setEmail(null);
+        setName(null);
+        setError(result.error ?? "Failed to load Calendly status");
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setConnected(false);
+        setEmail(null);
+        setName(null);
+        setError(err instanceof Error ? err.message : "Failed to load Calendly status");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
+
+  async function connect() {
+    setBusy(true);
+    setError("");
+    const returnTo = new URL(window.location.href);
+    returnTo.searchParams.delete("calendly");
+    const result = await getCalendlyOAuthUrl(`${returnTo.pathname}${returnTo.search}`);
+    if (result.success && result.data) {
+      window.location.href = result.data.url;
+      return;
+    }
+    setBusy(false);
+    setError(result.error ?? "Could not start Calendly connection");
+  }
+
+  async function disconnect() {
+    setBusy(true);
+    setError("");
+    const result = await disconnectCalendlyConnector();
+    setBusy(false);
+    if (!result.success) {
+      setError(result.error ?? "Could not disconnect Calendly");
+      return;
+    }
+    setConnected(false);
+    setEmail(null);
+    setName(null);
+    setReloadToken((value) => value + 1);
+  }
+
+  return {
+    connected,
+    email,
+    name,
+    loading,
+    busy,
+    error,
+    connect,
+    disconnect
+  };
+}
+
+/** One-line Calendly connect / disconnect for node properties. */
+function CalendlyConnectBlock({ testId }: { testId: string }) {
+  const { connected, email, name, loading, busy, error, connect, disconnect } = useCalendlyConnection();
+  const account = email || name;
+
+  if (loading) {
+    return (
+      <p data-testid={testId} className="text-[11px] leading-5 text-slate-400">
+        Checking Calendly…
+      </p>
+    );
+  }
+
+  return (
+    <div data-testid={testId}>
+      <p className="text-[11px] leading-5 text-slate-400">
+        {connected ? (
+          <>
+            Connected{account ? ` as ${account}` : ""}.{" "}
+            <button
+              type="button"
+              onClick={() => void disconnect()}
+              disabled={busy}
+              className="inline font-semibold text-amber-700 hover:underline disabled:opacity-60"
+              data-testid={`${testId}-disconnect`}
+            >
+              {busy ? "Disconnecting…" : "Disconnect"}
+            </button>
+          </>
+        ) : (
+          <>
+            Not connected.{" "}
+            <button
+              type="button"
+              onClick={() => void connect()}
+              disabled={busy}
+              className="inline font-semibold text-amber-700 hover:underline disabled:opacity-60"
+              data-testid={`${testId}-connect`}
+            >
+              {busy ? "Connecting…" : "Connect Calendly"}
+            </button>
+          </>
+        )}
+      </p>
+      {error ? <p className="mt-1 text-[11px] text-rose-600">{error}</p> : null}
     </div>
   );
 }
@@ -1427,6 +1575,15 @@ function WhatsAppTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel
 
   return (
     <>
+      <Section title="General">
+        <Label>Node name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+        <div className="mt-4">
+          <Label>Description</Label>
+          <TextArea value={str("subtitle")} onChange={set("subtitle")} height="h-16" />
+        </div>
+      </Section>
+
       <Section title="WhatsApp connection">
         <WhatsAppRequirementNotice testId="whatsapp-trigger-requirement">
           Inbound WhatsApp messages run this workflow when they arrive on the selected Meta Cloud API number.
@@ -1483,6 +1640,15 @@ function WhatsAppSendProps({ selectedNode, onUpdateNodeData, variableNodePrefixe
 
   return (
     <>
+      <Section title="General">
+        <Label>Node name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+        <div className="mt-4">
+          <Label>Description</Label>
+          <TextArea value={str("subtitle")} onChange={set("subtitle")} height="h-16" />
+        </div>
+      </Section>
+
       <Section title="WhatsApp connection">
         <WhatsAppRequirementNotice testId="whatsapp-send-requirement">
           Messages are sent with your connected Meta Cloud API credentials (not buyer Twilio).
@@ -2134,6 +2300,53 @@ function TriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   );
 }
 
+function CalendlyTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const calendlyEvent = str("calendlyEvent", "meeting_booked");
+  const selectedMeta = CALENDLY_TRIGGER_EVENTS.find((event) => event.value === calendlyEvent);
+
+  return (
+    <>
+      <Section title="General">
+        <Label>Node name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+        <div className="mt-4">
+          <Label>Description</Label>
+          <TextArea value={str("subtitle")} onChange={set("subtitle")} height="h-16" />
+        </div>
+      </Section>
+      <Section title="Calendly event" last>
+        <ConnectorRequirements node={selectedNode} />
+        <div className="mt-4">
+          <Label>Connection</Label>
+          <CalendlyConnectBlock testId="calendly-trigger-connection" />
+        </div>
+        <div className="mt-4">
+          <Label>Trigger when</Label>
+          <SelectBox
+            value={calendlyEvent}
+            onChange={(value) => {
+              set("calendlyEvent")(value);
+              const meta = CALENDLY_TRIGGER_EVENTS.find((event) => event.value === value);
+              if (meta) {
+                onUpdateNodeData("subtitle", meta.description);
+              }
+            }}
+            options={CALENDLY_TRIGGER_EVENTS.map((event) => ({
+              value: event.value,
+              label: event.label
+            }))}
+            testId="node-inspector-calendly-event"
+          />
+        </div>
+        <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
+          {selectedMeta?.description ?? "The selected webhook event starts this workflow."}
+        </p>
+      </Section>
+    </>
+  );
+}
+
 function MemoryNodeProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
@@ -2416,10 +2629,14 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
   const isGmail = connector === "Gmail";
   const isVapi = connector === "Vapi";
   const isCalendar = connector === "Google Calendar";
+  const isCalendly =
+    connector === "Calendly" ||
+    String(selectedNode.data.type ?? "").includes("calendly");
   const isCore = connector === "CoreAI" || connector === "Triven";
   const isWhatsApp = connector === "WhatsApp";
   const coreAction = str("connectorAction", "save_lead");
   const whatsappMessageType = str("whatsappMessageType", "text");
+  const calendlyAction = str("connectorAction", "get_my_profile");
 
   return (
     <>
@@ -2433,8 +2650,106 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
         </div>
       </Section>
 
-      <Section title={isGmail ? "Gmail" : isVapi ? "Vapi voice" : isCalendar ? "Google Calendar" : isCore ? "Triven action" : isWhatsApp ? "WhatsApp" : "SMS"} last>
-        {isGmail ? (
+      <Section
+        title={
+          isGmail
+            ? "Gmail"
+            : isVapi
+              ? "Vapi voice"
+              : isCalendar
+                ? "Google Calendar"
+                : isCalendly
+                  ? "Calendly"
+                  : isCore
+                    ? "Triven action"
+                    : isWhatsApp
+                      ? "WhatsApp"
+                      : "SMS"
+        }
+        last
+      >
+        {isCalendly ? (
+          <>
+            <ConnectorRequirements node={selectedNode} />
+            <div className="mt-4">
+              <Label>Connection</Label>
+              <CalendlyConnectBlock testId="calendly-action-connection" />
+            </div>
+            <div className="mt-4">
+              <Label>Action</Label>
+              <SelectBox
+                value={calendlyAction}
+                onChange={set("connectorAction")}
+                options={CALENDLY_ACTION_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: option.label
+                }))}
+                testId="node-inspector-calendly-action"
+              />
+            </div>
+            {(calendlyAction === "find_available_times" || calendlyAction === "create_scheduling_link") && (
+              <div className="mt-4">
+                <Label>Event type URI</Label>
+                <TextInput
+                  mono
+                  value={str("calendlyEventTypeUri")}
+                  onChange={set("calendlyEventTypeUri")}
+                  placeholder="https://api.calendly.com/event_types/…"
+                />
+              </div>
+            )}
+            {calendlyAction === "find_available_times" && (
+              <>
+                <div className="mt-4">
+                  <Label>Start time (ISO)</Label>
+                  <TextInput mono value={str("calendlyStartTime")} onChange={set("calendlyStartTime")} />
+                </div>
+                <div className="mt-4">
+                  <Label>End time (ISO)</Label>
+                  <TextInput mono value={str("calendlyEndTime")} onChange={set("calendlyEndTime")} />
+                </div>
+                <div className="mt-4">
+                  <Label>Timezone</Label>
+                  <TextInput value={str("calendlyTimezone", "America/New_York")} onChange={set("calendlyTimezone")} />
+                </div>
+              </>
+            )}
+            {(calendlyAction === "get_event" ||
+              calendlyAction === "list_invitees" ||
+              calendlyAction === "get_invitee") && (
+              <div className="mt-4">
+                <Label>Event UUID</Label>
+                <TextInput mono value={str("calendlyEventUuid")} onChange={set("calendlyEventUuid")} />
+              </div>
+            )}
+            {calendlyAction === "get_invitee" && (
+              <div className="mt-4">
+                <Label>Invitee UUID</Label>
+                <TextInput mono value={str("calendlyInviteeUuid")} onChange={set("calendlyInviteeUuid")} />
+              </div>
+            )}
+            {calendlyAction === "list_events" && (
+              <>
+                <div className="mt-4">
+                  <Label>Min start time (ISO)</Label>
+                  <TextInput mono value={str("calendlyStartTime")} onChange={set("calendlyStartTime")} />
+                </div>
+                <div className="mt-4">
+                  <Label>Max start time (ISO)</Label>
+                  <TextInput mono value={str("calendlyEndTime")} onChange={set("calendlyEndTime")} />
+                </div>
+                <div className="mt-4">
+                  <Label>Status</Label>
+                  <SelectBox
+                    value={str("calendlyStatus", "active")}
+                    onChange={set("calendlyStatus")}
+                    options={["active", "canceled"]}
+                  />
+                </div>
+              </>
+            )}
+          </>
+        ) : isGmail ? (
           <>
             <ConnectorRequirements node={selectedNode} />
 
@@ -2713,5 +3028,122 @@ function GenericProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
         </p>
       </Section>
     </>
+  );
+}
+
+import { getModelStatusesFromBackend } from "@/components/architect/features/api";
+
+type BackendModelStatus = { available: boolean; disabledReason?: string; hasKey: boolean; isQuotaExceeded: boolean };
+
+export function getImageGenerationModelOptions(backendStatuses?: Record<string, BackendModelStatus>): SelectBoxOption[] {
+  const defaultModels = [
+    { value: "gemini-3.1-flash-image", label: "Nano Banana 2", provider: "gemini" },
+    { value: "gemini-3.1-flash-lite-image", label: "Nano Banana 2 Lite", provider: "gemini" },
+    { value: "gemini-3-pro-image", label: "Nano Banana Pro", provider: "gemini" },
+    { value: "gemini-2.5-flash-image", label: "Nano Banana", provider: "gemini" },
+    { value: "sd3.5-large", label: "Stable Diffusion 3.5 Large", provider: "stability" },
+    { value: "sd3.5-large-turbo", label: "Stable Diffusion 3.5 Large Turbo", provider: "stability" },
+    { value: "sd3.5-medium", label: "Stable Diffusion 3.5 Medium", provider: "stability" },
+    { value: "sd3.5-flash", label: "Stable Diffusion 3.5 Flash", provider: "stability" },
+    { value: "dall-e-3", label: "OpenAI DALL-E 3", provider: "dalle" },
+    { value: "dall-e-2", label: "OpenAI DALL-E 2", provider: "dalle" }
+  ];
+
+  return defaultModels.map((item) => {
+    const status = backendStatuses?.[item.value];
+    let label = item.label;
+    let disabled = false;
+
+    if (status) {
+      if (!status.hasKey) {
+        label = `${item.label} (API Key Missing)`;
+        disabled = true;
+      } else if (status.isQuotaExceeded) {
+        label = `${item.label} (Quota Exceeded - 3h Cooldown)`;
+        disabled = true;
+      } else if (!status.available) {
+        label = `${item.label} (${status.disabledReason || "Unavailable"})`;
+        disabled = true;
+      }
+    }
+
+    return {
+      value: item.value,
+      label,
+      disabled
+    };
+  });
+}
+
+export const IMAGE_GENERATION_MODELS: SelectBoxOption[] = getImageGenerationModelOptions();
+
+function ImageGenNodeProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
+  const data = selectedNode.data ?? {};
+  const str = (field: string, fallback = "") =>
+    typeof data[field] === "string" ? (data[field] as string) : fallback;
+
+  const currentModel = str("model") || "gemini-3.1-flash-image";
+  const prompt = str("prompt");
+
+  const [backendStatuses, setBackendStatuses] = useState<Record<string, BackendModelStatus>>({});
+
+  useEffect(() => {
+    let isMounted = true;
+    getModelStatusesFromBackend()
+      .then((res) => {
+        if (isMounted && res && res.data) {
+          setBackendStatuses(res.data);
+        }
+      })
+      .catch(() => {
+        // Ignore API fetch errors
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const dynamicModelOptions = getImageGenerationModelOptions(backendStatuses);
+
+  return (
+    <div>
+      <Section title="General">
+        <Label>Node name</Label>
+        <TextInput value={selectedNode.data.title ?? "Image Generation"} onChange={(val) => onUpdateNodeData("title", val)} />
+      </Section>
+
+      <Section title="Model Selection">
+        <div className="space-y-1.5">
+          <Label>Image Model</Label>
+          <SelectBox
+            testId="image-gen-model-select"
+            value={currentModel}
+            onChange={(val) => onUpdateNodeData("model", val)}
+            options={dynamicModelOptions}
+          />
+        </div>
+      </Section>
+
+      <Section title="Image Prompt" last>
+        <div className="space-y-3">
+          <div>
+            <Label>Prompt</Label>
+            <TextArea
+              testId="image-gen-prompt-textarea"
+              height="h-32"
+              value={prompt}
+              onChange={(val) => onUpdateNodeData("prompt", val)}
+              placeholder="Describe the image to generate, e.g. A sleek logo for {{business.name}}"
+            />
+          </div>
+
+          <UnknownVariablesNote
+            text={prompt}
+            nodePrefixes={variableNodePrefixes}
+            testId="image-gen-prompt-unknown-vars"
+          />
+        </div>
+      </Section>
+    </div>
   );
 }

@@ -1,4 +1,14 @@
-import { CORE_CONNECTOR_ACTIONS, MAX_WORKFLOW_CHAIN_DEPTH, TELEGRAM_NODE_TYPES, VOICE_NODE_TYPES, normalizeTimeZone, zonedWallClockToUtc } from "@coreai/shared";
+import {
+  CALENDLY_LEGACY_TRIGGER_TYPES,
+  CALENDLY_NODE_TYPES,
+  CORE_CONNECTOR_ACTIONS,
+  MAX_WORKFLOW_CHAIN_DEPTH,
+  TELEGRAM_NODE_TYPES,
+  VOICE_NODE_TYPES,
+  normalizeTimeZone,
+  zonedWallClockToUtc
+} from "@coreai/shared";
+import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
 import { createTestCalendarEvent } from "./test-calendar-events";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -22,6 +32,16 @@ import {
   listAvailableSlots
 } from "./google-calendar-connector";
 import { startVapiOutboundCall } from "./vapi-connector";
+import {
+  calendlyCreateSchedulingLink,
+  calendlyGetAvailability,
+  calendlyGetEvent,
+  calendlyGetInvitee,
+  calendlyGetUser,
+  calendlyListEventTypes,
+  calendlyListEvents,
+  calendlyListInvitees
+} from "../calendly/calendly-connector";
 import { MISSING_LLM_CREDENTIALS_MESSAGE } from "../ai-provider-engine/llm-credentials";
 import { smsAttributionPrefix } from "../notifications/sms-format";
 import {
@@ -130,6 +150,25 @@ export type WorkflowRunInput = {
     };
     timestamp: string;
   };
+  /** Free-form trigger message for manual / webhook-started runs. */
+  message?: string;
+  /** Calendly webhook event type mapped to a trigger node slug. */
+  triggerType?: string;
+  /** Raw Calendly webhook payload fields for downstream nodes. */
+  calendly?: Record<string, unknown>;
+  /** Architect Test console overrides for Calendly action nodes. */
+  calendlyEventTypeUri?: string;
+  calendlyEventUuid?: string;
+  calendlyInviteeUuid?: string;
+  calendlyStartTime?: string;
+  calendlyEndTime?: string;
+  calendlyStatus?: string;
+  calendlyTimezone?: string;
+  /** Architect Test console sample fields for Calendly trigger simulation. */
+  calendlyTriggerEvent?: string;
+  calendlyInviteeName?: string;
+  calendlyInviteeEmail?: string;
+  calendlyMeetingName?: string;
 };
 
 type RunnerNodeData = {
@@ -139,12 +178,22 @@ type RunnerNodeData = {
   kind?: unknown;
   description?: unknown;
   prompt?: unknown;
+  reference_image?: unknown;
+  imageSize?: unknown;
   connector?: unknown;
   connectorAction?: unknown;
   gmailQuery?: unknown;
   gmailTo?: unknown;
   gmailSubject?: unknown;
   gmailBody?: unknown;
+  calendlyEventTypeUri?: unknown;
+  calendlyEventUuid?: unknown;
+  calendlyInviteeUuid?: unknown;
+  calendlyStartTime?: unknown;
+  calendlyEndTime?: unknown;
+  calendlyTimezone?: unknown;
+  calendlyStatus?: unknown;
+  calendlyEvent?: unknown;
   smsTo?: unknown;
   smsBody?: unknown;
   connectionId?: unknown;
@@ -357,6 +406,21 @@ type RunnerContext = {
     subject?: string;
     body?: string;
   };
+  calendly?: Record<string, unknown>;
+  calendlyEventTypeUri?: string;
+  calendlyEventUuid?: string;
+  calendlyInviteeUuid?: string;
+  calendlyStartTime?: string;
+  calendlyEndTime?: string;
+  calendlyStatus?: string;
+  calendlyTimezone?: string;
+  calendly_event_type_uri?: string;
+  calendly_event_uuid?: string;
+  calendly_invitee_uuid?: string;
+  calendly_start_time?: string;
+  calendly_end_time?: string;
+  calendly_status?: string;
+  triggerType?: string;
   ai?: {
     output?: string;
   };
@@ -448,6 +512,14 @@ type RunnerContext = {
     output: string;
     providerId: string;
     modelName: string;
+  }>;
+  /** Accumulated per-node outputs for Image Generation pipelines (ai.image_generation nodes). */
+  imagePipeline?: Record<string, {
+    label: string;
+    imageUrl: string;
+    prompt: string;
+    model: string;
+    revisedPrompt?: string;
   }>;
   [key: string]: unknown;
 };
@@ -786,6 +858,7 @@ function shouldUseProviderEngine(node: RunnerNode, mode: WorkflowRunMode): boole
   if (type === VOICE_NODE_TYPES.voiceConversation) return false;
   if (type === "ai.brain") return true;
   if (type === "ai.llm_call") return true;
+  if (type === "ai.image_generation") return true;
   if (type === "ai.context_reply") return mode === "test";
   if (Boolean(asString(node.data?.provider))) return true;
   return false;
@@ -1003,6 +1076,106 @@ function seedMissedCallContext(
   if (input?.useTestCalendar === true) context.useTestCalendar = true;
   if (optionalString(input?.testSessionId)) context.testSessionId = optionalString(input?.testSessionId);
 
+  if (optionalString(input?.calendlyEventTypeUri)) {
+    context.calendlyEventTypeUri = optionalString(input?.calendlyEventTypeUri);
+    context.calendly_event_type_uri = context.calendlyEventTypeUri;
+  }
+  if (optionalString(input?.calendlyEventUuid)) {
+    context.calendlyEventUuid = optionalString(input?.calendlyEventUuid);
+    context.calendly_event_uuid = context.calendlyEventUuid;
+  }
+  if (optionalString(input?.calendlyInviteeUuid)) {
+    context.calendlyInviteeUuid = optionalString(input?.calendlyInviteeUuid);
+    context.calendly_invitee_uuid = context.calendlyInviteeUuid;
+  }
+  if (optionalString(input?.calendlyStartTime)) {
+    context.calendlyStartTime = optionalString(input?.calendlyStartTime);
+    context.calendly_start_time = context.calendlyStartTime;
+  }
+  if (optionalString(input?.calendlyEndTime)) {
+    context.calendlyEndTime = optionalString(input?.calendlyEndTime);
+    context.calendly_end_time = context.calendlyEndTime;
+  }
+  if (optionalString(input?.calendlyStatus)) {
+    context.calendlyStatus = optionalString(input?.calendlyStatus);
+    context.calendly_status = context.calendlyStatus;
+  }
+  if (optionalString(input?.calendlyTimezone)) {
+    context.calendlyTimezone = optionalString(input?.calendlyTimezone);
+  }
+
+  const inviteeName = optionalString(input?.calendlyInviteeName);
+  const inviteeEmail = optionalString(input?.calendlyInviteeEmail);
+  const meetingName = optionalString(input?.calendlyMeetingName);
+  const triggerEventSlug =
+    optionalString(input?.calendlyTriggerEvent) ||
+    (typeof input?.calendly === "object" && input.calendly
+      ? optionalString(String((input.calendly as Record<string, unknown>).calendlyEvent ?? ""))
+      : undefined) ||
+    "meeting_booked";
+
+  const shouldSeedCalendlyTrigger =
+    Boolean(input?.calendly) ||
+    Boolean(inviteeName) ||
+    Boolean(inviteeEmail) ||
+    Boolean(meetingName) ||
+    Boolean(optionalString(input?.calendlyTriggerEvent));
+
+  if (shouldSeedCalendlyTrigger) {
+    const eventUuid = optionalString(input?.calendlyEventUuid) || "SAMPLE_EVENT_UUID";
+    const inviteeUuid = optionalString(input?.calendlyInviteeUuid) || "SAMPLE_INVITEE_UUID";
+    const startTime =
+      optionalString(input?.calendlyStartTime) || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const endTime =
+      optionalString(input?.calendlyEndTime) || new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString();
+    const webhookEvent =
+      triggerEventSlug === "meeting_cancelled"
+        ? "invitee.canceled"
+        : triggerEventSlug === "routing_form_submitted"
+          ? "routing_form_submission.created"
+          : "invitee.created";
+
+    const seededCalendly = {
+      event: webhookEvent,
+      calendlyEvent: triggerEventSlug,
+      invitee: {
+        name: inviteeName || "Jordan Lee",
+        email: inviteeEmail || "jordan@example.com",
+        uri: `https://api.calendly.com/scheduled_events/${eventUuid}/invitees/${inviteeUuid}`,
+        timezone: optionalString(input?.calendlyTimezone) || optionalString(input?.timeZone) || "America/Los_Angeles"
+      },
+      scheduledEvent: {
+        name: meetingName || "30 Minute Meeting",
+        uri: `https://api.calendly.com/scheduled_events/${eventUuid}`,
+        start_time: startTime,
+        end_time: endTime,
+        status: optionalString(input?.calendlyStatus) || "active"
+      },
+      raw: { dryRun: true }
+    };
+
+    context.calendly = {
+      ...(typeof context.calendly === "object" && context.calendly ? context.calendly : {}),
+      ...seededCalendly,
+      ...(typeof input?.calendly === "object" && input.calendly ? input.calendly : {})
+    };
+    context.triggerType = optionalString(input?.triggerType) || CALENDLY_NODE_TYPES.trigger;
+    if (!context.latestMessage) {
+      context.latestMessage =
+        triggerEventSlug === "meeting_cancelled"
+          ? "Calendly meeting cancelled"
+          : triggerEventSlug === "routing_form_submitted"
+            ? "Calendly routing form submitted"
+            : triggerEventSlug === "meeting_rescheduled"
+              ? "Calendly meeting rescheduled"
+              : "Calendly meeting booked";
+    }
+  }
+
+  if (input?.calendly && typeof input.calendly === "object" && !shouldSeedCalendlyTrigger) {
+    context.calendly = { ...(context.calendly ?? {}), ...input.calendly };
+  }
+
   if (input?.whatsapp) {
     context.whatsapp = input.whatsapp;
     context.contact = input.whatsapp.contact;
@@ -1046,21 +1219,106 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
   }
 
   if (asString(node.data?.type) === "trigger.manual") {
+    const inputMsg =
+      asString(context.latestMessage) ||
+      asString((context.inboundSms as Record<string, unknown> | undefined)?.body) ||
+      asString(context.text) ||
+      asString(context.query) ||
+      asString(context.prompt) ||
+      "";
+
+    if (inputMsg && inputMsg !== "No custom message") {
+      context.lastOutput = inputMsg;
+      context.text = inputMsg;
+      context.output = inputMsg;
+    }
+
     logs.push(
       createLog(node, "success", "Input fired.", {
-        message: context.inboundSms?.body || context.latestMessage || "No custom message"
+        message: inputMsg || "No custom message"
       })
     );
     return;
   }
 
   if (asString(node.data?.type) === "trigger.whatsapp_message_received") {
+    const connectionId =
+      asString(node.data?.connectionId) || asString(context.whatsapp?.connectionId);
+    if (!connectionId) {
+      logs.push(
+        createLog(
+          node,
+          "error",
+          "WhatsApp trigger requires a connected Meta Cloud API number. Connect WhatsApp and select a connection on this node before testing."
+        )
+      );
+      return;
+    }
+
+    const messageText =
+      context.whatsapp?.message?.text ||
+      context.message?.text ||
+      context.inboundSms?.body ||
+      context.latestMessage ||
+      "";
+    const contactPhone =
+      context.whatsapp?.contact?.phone ||
+      context.contact?.phone ||
+      context.caller_number ||
+      "";
+
+    if (!contactPhone) {
+      logs.push(createLog(node, "error", "WhatsApp trigger requires a sender phone number."));
+      return;
+    }
+
+    if (!messageText) {
+      logs.push(createLog(node, "error", "WhatsApp trigger requires a message body to simulate."));
+      return;
+    }
+
     logs.push(
       createLog(node, "success", "WhatsApp message received.", {
-        connectionId: context.whatsapp?.connectionId,
-        contact: context.contact ?? context.whatsapp?.contact,
-        message: context.message ?? context.whatsapp?.message,
-        timestamp: context.whatsapp?.timestamp
+        connectionId,
+        contact: context.contact ?? context.whatsapp?.contact ?? { name: context.caller_name ?? null, phone: contactPhone },
+        message: context.message ?? context.whatsapp?.message ?? { id: "dry-run", type: "text", text: messageText, mediaUrl: null },
+        timestamp: context.whatsapp?.timestamp ?? new Date().toISOString()
+      })
+    );
+    return;
+  }
+
+  const triggerType = asString(node.data?.type);
+  const isCalendlyTrigger =
+    triggerType === CALENDLY_NODE_TYPES.trigger ||
+    Boolean(CALENDLY_LEGACY_TRIGGER_TYPES[triggerType]) ||
+    (asString(node.data?.nodeKind) === "trigger" &&
+      asString(node.data?.connector).toLowerCase() === "calendly");
+
+  if (isCalendlyTrigger) {
+    const nodeEvent =
+      asString(node.data?.calendlyEvent) ||
+      CALENDLY_LEGACY_TRIGGER_TYPES[triggerType] ||
+      asString(context.calendly?.calendlyEvent) ||
+      "meeting_booked";
+    const invitee =
+      context.calendly && typeof context.calendly.invitee === "object"
+        ? (context.calendly.invitee as Record<string, unknown>)
+        : undefined;
+    const scheduledEvent =
+      context.calendly && typeof context.calendly.scheduledEvent === "object"
+        ? (context.calendly.scheduledEvent as Record<string, unknown>)
+        : undefined;
+
+    logs.push(
+      createLog(node, "success", "Calendly event received.", {
+        calendlyEvent: nodeEvent,
+        inviteeName: invitee?.name ?? null,
+        inviteeEmail: invitee?.email ?? null,
+        meetingName: scheduledEvent?.name ?? null,
+        startTime: scheduledEvent?.start_time ?? null,
+        endTime: scheduledEvent?.end_time ?? null,
+        eventUri: scheduledEvent?.uri ?? null
       })
     );
     return;
@@ -1754,6 +2012,99 @@ async function runGmailConnectorNode({
       `Gmail action "${action}" is no longer supported — Google connection only grants calendar access. Use the Send Email node instead.`
     )
   );
+}
+
+async function runCalendlyConnectorNode({
+  userId,
+  node,
+  context,
+  logs
+}: {
+  userId: string;
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+}) {
+  const action = asString(node.data?.connectorAction, "get_my_profile");
+  const eventTypeUri = asString(
+    node.data?.calendlyEventTypeUri || context.calendlyEventTypeUri || context.calendly_event_type_uri
+  );
+  const eventUuid = asString(
+    node.data?.calendlyEventUuid || context.calendlyEventUuid || context.calendly_event_uuid
+  );
+  const inviteeUuid = asString(
+    node.data?.calendlyInviteeUuid || context.calendlyInviteeUuid || context.calendly_invitee_uuid
+  );
+  const startTime = asString(
+    node.data?.calendlyStartTime || context.calendlyStartTime || context.calendly_start_time
+  );
+  const endTime = asString(
+    node.data?.calendlyEndTime || context.calendlyEndTime || context.calendly_end_time
+  );
+  const timezone = asString(
+    node.data?.calendlyTimezone || context.calendlyTimezone || context.timeZone,
+    "UTC"
+  );
+  const status = asString(node.data?.calendlyStatus || context.calendlyStatus || context.calendly_status);
+
+  try {
+    let result: unknown;
+    switch (action) {
+      case "find_available_times":
+        if (!eventTypeUri || !startTime || !endTime) {
+          throw new Error("Calendly Find Available Times needs event type URI, start time, and end time");
+        }
+        result = await calendlyGetAvailability(userId, {
+          eventTypeUri,
+          startTime,
+          endTime,
+          timezone
+        });
+        break;
+      case "get_event":
+        if (!eventUuid) throw new Error("Calendly Get Event Details needs an event UUID");
+        result = await calendlyGetEvent(userId, eventUuid);
+        break;
+      case "list_events":
+        result = await calendlyListEvents(userId, {
+          minStartTime: startTime || undefined,
+          maxStartTime: endTime || undefined,
+          status: status || undefined
+        });
+        break;
+      case "get_invitee":
+        if (!eventUuid || !inviteeUuid) {
+          throw new Error("Calendly Get Invitee Details needs event UUID and invitee UUID");
+        }
+        result = await calendlyGetInvitee(userId, eventUuid, inviteeUuid);
+        break;
+      case "list_invitees":
+        if (!eventUuid) throw new Error("Calendly List Invitees needs an event UUID");
+        result = await calendlyListInvitees(userId, eventUuid);
+        break;
+      case "get_event_types":
+        result = await calendlyListEventTypes(userId);
+        break;
+      case "create_scheduling_link":
+        if (!eventTypeUri) throw new Error("Calendly Create Scheduling Link needs an event type URI");
+        result = await calendlyCreateSchedulingLink(userId, eventTypeUri);
+        break;
+      case "get_my_profile":
+      default:
+        result = await calendlyGetUser(userId);
+        break;
+    }
+
+    context.calendly = {
+      ...(typeof context.calendly === "object" && context.calendly ? context.calendly : {}),
+      action,
+      result
+    };
+    logs.push(createLog(node, "success", `Calendly ${action} completed`, { result }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Calendly action failed";
+    logs.push(createLog(node, "error", message));
+  }
 }
 
 function customerPhoneFromContext(context: RunnerContext) {
@@ -2576,6 +2927,16 @@ async function runConnectorNode({
     return;
   }
 
+  if (connector === "calendly") {
+    await runCalendlyConnectorNode({
+      userId,
+      node,
+      context,
+      logs
+    });
+    return;
+  }
+
   if (connector === "sms" || connector === "twilio") {
     await runSmsConnectorNode({
       node,
@@ -2948,12 +3309,22 @@ function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowR
     typeof context.llmPipeline === "object" &&
     Object.keys(context.llmPipeline as Record<string, unknown>).length > 0;
 
+  const hasImagePipeline =
+    context.imagePipeline &&
+    typeof context.imagePipeline === "object" &&
+    Object.keys(context.imagePipeline as Record<string, unknown>).length > 0;
+
   context.output = {
     key: outputKey,
     value: hasLlmPipeline
       ? {
           finalOutput: context.ai?.output ?? "",
           pipeline: context.llmPipeline,
+        }
+      : hasImagePipeline
+      ? {
+          image: context.image_url ?? context.image ?? "",
+          pipeline: context.imagePipeline,
         }
       : (context.calendarAppointment ??
         context.calendarAvailability ??
@@ -3227,6 +3598,7 @@ export async function runWorkflowTest({
           if (context.inboundSms) triggerOutput.inboundSms = context.inboundSms;
           if (context.missedCall) triggerOutput.missedCall = context.missedCall;
           if (context.business) triggerOutput.business = context.business;
+          if (context.calendly) triggerOutput.calendly = context.calendly;
           if (input?.latestMessage) triggerOutput.message = input.latestMessage;
 
           await memoryBroker.saveNodeMemory({
@@ -3276,6 +3648,111 @@ export async function runWorkflowTest({
             continue;
           }
 
+          if (asString(node.data?.type) === "ai.image_generation") {
+            const promptRaw = asString(node.data?.prompt);
+            let prompt = renderTemplate(promptRaw, context);
+            const model = asString(node.data?.model) || "imagen-3.0-generate-002";
+            const refConfig = asString(node.data?.reference_image);
+            let referenceImage: Buffer | string | undefined = undefined;
+
+            if (refConfig) {
+              const resolvedRefKey = renderTemplate(refConfig, context);
+              const val = context[resolvedRefKey] ?? context[refConfig];
+              if (
+                Buffer.isBuffer(val) ||
+                typeof val === "string" ||
+                (typeof val === "object" && val !== null && (val as any).type === "Buffer")
+              ) {
+                referenceImage = val as any;
+              }
+            }
+            if (
+              !referenceImage &&
+              (Buffer.isBuffer(context.image) ||
+                typeof context.image === "string" ||
+                (typeof context.image === "object" && context.image !== null && (context.image as any).type === "Buffer"))
+            ) {
+              referenceImage = context.image as any;
+            }
+
+            if (!prompt || !prompt.trim()) {
+              const prevOutput =
+                asString(context.lastOutput) ||
+                asString((context.ai as Record<string, unknown> | undefined)?.output) ||
+                asString(context.latestMessage) ||
+                asString((context.inboundSms as Record<string, unknown> | undefined)?.body) ||
+                asString(context.text) ||
+                asString(context.query) ||
+                asString(context.llmOutput) ||
+                asString(context.output) ||
+                asString(context.result) ||
+                asString(context.message) ||
+                asString((context.input as Record<string, unknown> | undefined)?.message) ||
+                asString((context.input as Record<string, unknown> | undefined)?.text) ||
+                asString(context.userInput);
+
+              if (prevOutput && prevOutput.trim() && prevOutput !== "No custom message") {
+                prompt = prevOutput.trim();
+              } else {
+                prompt = referenceImage ? "Generate variation of reference image" : "Generate image";
+              }
+            }
+
+            const imgResult = await executeImageGeneration({ prompt, model, referenceImage });
+            const binaryOutput = imgResult.imageBuffer ?? imgResult.imageUrl ?? "";
+            const jsonOutput = {
+              prompt,
+              model: imgResult.modelName || model,
+              revised_prompt: imgResult.revisedPrompt || prompt
+            };
+
+            const dataUri =
+              imgResult.imageUrl ||
+              (Buffer.isBuffer(imgResult.imageBuffer)
+                ? `data:${imgResult.imageMimeType || "image/png"};base64,${imgResult.imageBuffer.toString("base64")}`
+                : String(binaryOutput));
+
+            context.image = binaryOutput;
+            context.image_url = dataUri;
+            context.prompt = jsonOutput.prompt;
+            context.model = jsonOutput.model;
+            context.revised_prompt = jsonOutput.revised_prompt;
+            context[`node.${node.id}.image`] = binaryOutput;
+
+            if (!context.imagePipeline || typeof context.imagePipeline !== "object") {
+              context.imagePipeline = {};
+            }
+            (context.imagePipeline as Record<string, unknown>)[node.id] = {
+              label: asString(node.data?.title ?? node.data?.label, node.id),
+              imageUrl: dataUri,
+              prompt,
+              model: imgResult.modelName || model,
+              revisedPrompt: imgResult.revisedPrompt || prompt,
+            };
+
+            const nodeLabelSlug = (asString(node.data?.title ?? node.data?.label) || node.id)
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "_");
+            if (nodeLabelSlug) {
+              context[`${nodeLabelSlug}.image`] = binaryOutput;
+            }
+
+            logs.push(
+              createLog(
+                node,
+                imgResult.status === "success" ? "success" : "error",
+                imgResult.status === "success"
+                  ? `Generated image using ${imgResult.modelName || model}.`
+                  : imgResult.error ?? "Image generation failed.",
+                {
+                  ...jsonOutput,
+                  image: binaryOutput ? "[Binary Image Data]" : ""
+                }
+              )
+            );
+            continue;
+          }
+
           if (shouldUseProviderEngine(node, mode)) {
             const aiConfig = toAiBrainNodeConfig(node, context);
             await deliverMemoryToAiConfig(aiConfig, context);
@@ -3296,8 +3773,9 @@ export async function runWorkflowTest({
 
             const outputText = simulatedReply ?? result.text ?? "";
 
-            // Always update context.ai so generic downstream nodes see it
+            // Always update context.ai & context.lastOutput so generic downstream nodes see it
             context.ai = { output: outputText };
+            context.lastOutput = outputText;
 
             if (isLlmCall) {
               const outputKey = asString(node.data?.llmOutputKey, "ai.output");

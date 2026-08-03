@@ -181,6 +181,18 @@ function formatRelativeTime(value: string) {
   return formatter.format(elapsedSeconds, "second");
 }
 
+const DEFAULT_ACTIVITY_DOT_TONE = "bg-yellow-400 ring-yellow-100";
+const ACTIVITY_DOT_TONES = [
+  "bg-green-500 ring-green-100",
+  DEFAULT_ACTIVITY_DOT_TONE,
+  "bg-red-500 ring-red-100",
+  "bg-orange-500 ring-orange-100"
+] as const;
+
+function activityDotTone(index: number) {
+  return ACTIVITY_DOT_TONES[index % ACTIVITY_DOT_TONES.length] ?? DEFAULT_ACTIVITY_DOT_TONE;
+}
+
 const REVENUE_RANGES = ["7D", "30D", "90D", "6M", "1Y"] as const;
 type RevenueRange = (typeof REVENUE_RANGES)[number];
 const EARNINGS_COLORS = ["#f59e0b", "#fbbf24", "#fcd34d", "#fde68a"];
@@ -588,18 +600,14 @@ function ActivityFeed({
         className="relative min-h-full space-y-5 pl-8 pr-1 before:absolute before:bottom-6 before:left-2 before:top-2 before:w-px before:bg-slate-100"
         data-testid="architect-dashboard-activity-feed"
       >
-        {activities.map((activity) => {
-          const dotTone =
-            activity.type === "PAYOUT"
-              ? "bg-green-500 ring-green-100"
-              : activity.type === "SALE"
-                ? "bg-amber-500 ring-amber-100"
-                : "bg-slate-300 ring-slate-100";
+        {activities.map((activity, index) => {
+          const dotTone = activityDotTone(index);
 
           return (
             <li key={activity.id} className="relative min-h-11">
               <span
                 className={`absolute -left-7 top-1 h-2.5 w-2.5 rounded-full ring-4 ${dotTone}`}
+                data-activity-color-index={index % ACTIVITY_DOT_TONES.length}
                 aria-hidden="true"
               />
               <p className="text-sm leading-5 text-slate-700">

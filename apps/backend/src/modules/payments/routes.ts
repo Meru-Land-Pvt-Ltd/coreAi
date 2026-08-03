@@ -1264,6 +1264,7 @@ paymentRoutes.get("/listing-access/:listingId", async (c) => {
     // Honest phone-number billing state: when disabled, the UI must say so
     // instead of displaying a payable rate that is never charged.
     phoneNumberBilling,
+    needsPhoneNumber: needsPhone,
     currency: "usd",
     usagePricing,
     canStartTrial: listing.freeTrialEnabled && !anyPayment && !installedAgent,
