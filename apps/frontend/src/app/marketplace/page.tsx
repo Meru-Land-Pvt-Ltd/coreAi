@@ -877,6 +877,15 @@ export default function MarketplacePage() {
                       : "Get Access Instantly"}
               </Link>
             }
+            secondaryAction={
+              <Link
+                href={publicAgentPath(featuredAgent.id)}
+                data-testid="marketplace-featured-details"
+                className="rounded-xl border-2 border-gray-200 px-5 py-3 font-semibold text-slate-700 transition hover:border-amber-300 hover:text-amber-600"
+              >
+                View details
+              </Link>
+            }
           />
         ) : null}
       </section>

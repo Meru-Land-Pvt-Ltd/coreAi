@@ -1056,14 +1056,13 @@ export default function MarketplacePage() {
                 )
               }
               secondaryAction={
-                <button
-                  type="button"
-                  onClick={() => openDetailsModal(featuredAgent)}
+                <Link
+                  href={businessAgentDetailPath(featuredAgent.id)}
                   data-testid="business-marketplace-featured-details"
                   className="rounded-xl border-2 border-gray-200 px-5 py-3 font-semibold text-slate-700 transition hover:border-amber-300 hover:text-amber-600"
                 >
                   View details
-                </button>
+                </Link>
               }
             />
           ) : null}
@@ -1441,7 +1440,7 @@ export default function MarketplacePage() {
                         key={agent.id}
                         agent={agent}
                         onOpen={() => openAgentPage(agent)}
-                        onViewDetails={() => openDetailsModal(agent)}
+                        onViewDetails={() => openAgentPage(agent)}
                         executionPricing={executionPricing}
                         executionPricingLoading={executionPricingLoading}
                         executionPricingUnavailable={executionPricingError}
@@ -1451,7 +1450,7 @@ export default function MarketplacePage() {
                         key={agent.id}
                         agent={agent}
                         onOpen={() => openAgentPage(agent)}
-                        onViewDetails={() => openDetailsModal(agent)}
+                        onViewDetails={() => openAgentPage(agent)}
                         executionPricing={executionPricing}
                         executionPricingLoading={executionPricingLoading}
                         executionPricingUnavailable={executionPricingError}

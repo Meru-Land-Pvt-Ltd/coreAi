@@ -172,6 +172,27 @@ function getAgentPreviewConversation(agent: MarketplaceFeaturedAgent): PreviewMe
     ];
   }
 
+  if (industry === "custom") {
+    return [
+      greeting,
+      { text: "Hi! I'm looking for some information." },
+      {
+        mine: true,
+        text: "Of course! I'd be happy to help. What would you like to know?"
+      },
+      { text: "Can you tell me more about your services?" },
+      {
+        mine: true,
+        text: "Absolutely! We offer a range of services tailored to our customers' needs. Let me know what you're looking for, and I'll guide you."
+      },
+      { text: "That sounds great. How do I get started?" },
+      {
+        mine: true,
+        text: "Getting started is easy! Just share your requirements, and I'll recommend the best option for you."
+      }
+    ];
+  }
+
   if (
     industry === "medical" ||
     industry === "medical-clinic" ||
@@ -354,9 +375,7 @@ export function MarketplaceFeaturedSection({
               </div>
 
               <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain px-3 py-4 text-[12px] leading-snug [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <div className="mx-auto w-fit rounded-full bg-slate-200/70 px-3 py-1 text-[10px] text-slate-500">
-                  Missed call · 9:42 AM
-                </div>
+
                 {getAgentPreviewConversation(agent).map((message, index) => (
                   <Message key={`${agent.id}-preview-${index}`} mine={message.mine}>
                     {message.text}
