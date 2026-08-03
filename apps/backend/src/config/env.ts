@@ -149,17 +149,21 @@ const envSchema = z.object({
 
   /** Platform-wide cap on marketplace demo call starts per day (cost control). */
   MARKETPLACE_DEMO_GLOBAL_DAILY_LIMIT: z.coerce.number().int().positive().default(200),
-  MEMORY_VECTOR_THRESHOLD_TOKENS: z.coerce.number().int().positive().default(1_000_000),
-  MEMORY_VECTOR_TOP_K: z.coerce.number().int().positive().default(20),
-  MEMORY_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
-  MEMORY_MAX_CHUNKS_PER_SCOPE: z.coerce.number().int().positive().default(5000),
-  MEMORY_EMBED_MAX_PER_CALL: z.coerce.number().int().positive().default(256),
-  /** Smart Memory: token cap per tenant (business or architect) — oldest records pruned beyond it. */
-  MEMORY_MAX_TOKENS_PER_TENANT: z.coerce.number().int().positive().default(50_000_000),
-  /** Smart Memory: delete records older than this many days (0 disables). */
-  MEMORY_RETENTION_DAYS: z.coerce.number().int().min(0).default(365),
-  /** Smart Memory: shorter retention for test-session records (0 disables). */
-  MEMORY_TEST_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
+  /** Pinecone Vector Database configuration */
+  PINECONE_API_KEY: z.string().optional(),
+  PINECONE_INDEX_NAME: z.string().default("memory"),
+
+  /** Dynamic Embedding provider selection: auto (default), openai, or gemini */
+  EMBEDDING_PROVIDER: z.enum(["openai", "gemini", "auto"]).default("auto"),
+  EMBEDDING_MODEL: z.string().optional(),
+
+  /** Smart Memory Node settings */
+  MEMORY_SEARCH_TOP_K: z.coerce.number().int().positive().default(10),
+  MEMORY_TIMELINE_MAX_WORDS: z.coerce.number().int().positive().default(500),
+  MEMORY_TIMELINE_SAMPLE_LIMIT: z.coerce.number().int().positive().default(400),
+  MEMORY_TIMELINE_SNIPPET_WORDS: z.coerce.number().int().positive().default(18),
+  MEMORY_CHUNK_TARGET_CHARS: z.coerce.number().int().positive().default(2000),
+  MEMORY_CHUNK_MAX_CHARS: z.coerce.number().int().positive().default(2500),
 
   /** Meta WhatsApp Cloud API (optional — connections store their own tokens). */
   META_WHATSAPP_APP_ID: z.string().optional(),

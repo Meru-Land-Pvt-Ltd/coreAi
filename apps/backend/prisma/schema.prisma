@@ -1600,7 +1600,6 @@ model MemoryRecord {
   installedAgent InstalledAgent?     @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
   workflow       WorkflowDefinition? @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   architect      User?               @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
-  chunks         MemoryChunk[]
 
   @@unique([scopeKey, contentHash])
   @@index([scopeKey])
@@ -1608,35 +1607,6 @@ model MemoryRecord {
   @@index([architectUserId, createdAt])
   @@index([testSessionId])
   @@index([createdAt])
-}
-
-model MemoryChunk {
-  id             String                       @id @default(cuid())
-  recordId       String?
-  scopeKey       String /// Same compound scope as the parent MemoryRecord
-  workflowRunId  String?
-  nodeRunId      String?
-  threadId       String?
-  workflowId     String?
-  nodeId         String? /// Memory node canvas id
-  sourceType     String                       @default("node_output") /// node_output | attachment | notes | variables
-  sourceLabel    String?
-  chunkIndex     Int                          @default(0)
-  content        String
-  tokenCount     Int                          @default(0)
-  contentHash    String
-  embedding      Unsupported("vector(1536)")?
-  embeddingModel String?
-  createdAt      DateTime                     @default(now())
-  updatedAt      DateTime                     @updatedAt
-
-  record MemoryRecord? @relation(fields: [recordId], references: [id], onDelete: Cascade)
-
-  @@unique([scopeKey, contentHash])
-  @@index([recordId])
-  @@index([scopeKey])
-  @@index([workflowRunId])
-  @@index([threadId])
 }
 
 enum EmailAliasStatus {

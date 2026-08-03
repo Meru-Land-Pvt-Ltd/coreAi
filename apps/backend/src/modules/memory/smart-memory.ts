@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { prisma } from "../../lib/prisma";
 import { env } from "../../config/env";
-import { embedTexts } from "../ai-provider-engine/embeddings";
+import { embedTexts, embeddingsConfigured } from "../ai-provider-engine/embeddings";
+import { isPineconeConfigured, getPineconeIndex } from "../../lib/pinecone-client";
+import { buildSparseVector, prepareHybridQueryVectors } from "./sparse-encoder";
 import {
   extractDocumentText,
   normalizeExtractedText,
@@ -89,31 +91,13 @@ export type TimelineRecord = {
 };
 
 export type SmartMemoryDeps = {
-  /** Persist records + their chunks (dedupe on scopeKey+contentHash). */
+  /** Persist records to Postgres & upsert chunks to Pinecone (dedupe on scopeKey+contentHash). */
   storeCorpus(records: MemoryRecordDraft[]): Promise<{ newRecords: number; newChunks: number }>;
-  /** Sum of record tokenCount in the scope. */
-  sumStoredTokens(scopeKey: string): Promise<number>;
-  /** Delete the oldest chunks beyond maxChunks (per-scope backstop). */
-  pruneScope(scopeKey: string, maxChunks: number): Promise<void>;
-  /**
-   * Embed up to `limit` not-yet-embedded chunks in the scope. Returns how many
-   * were embedded this call and how many remain (0 embedded with pending > 0
-   * means embeddings are unavailable right now).
-   */
-  embedPendingChunks(scopeKey: string, limit: number): Promise<{ embedded: number; pending: number }>;
-  /**
-   * Top-K chunks by cosine similarity to the query. MUST throw when similarity
-   * retrieval is impossible (no query, embeddings unavailable, nothing
-   * embedded) so callers degrade to the raw string — never silently substitute
-   * a different ordering.
-   */
+  /** Top-K chunks by Pinecone hybrid vector search (dense + sparse BM25). */
   searchChunks(scopeKey: string, query: string, topK: number): Promise<StoredMemoryChunk[]>;
   /** Records sampled evenly across the scope's full time range (chronological). */
   sampleRecordsForTimeline(scopeKey: string, limit: number): Promise<TimelineRecord[]>;
-  countChunks(scopeKey: string): Promise<number>;
   countRecords(scopeKey: string): Promise<number>;
-  /** TTL + per-tenant cap cleanup for the tenant that owns this scope. */
-  enforceRetention(scope: SmartMemoryScope): Promise<void>;
 };
 
 /* ------------------------------- pure helpers ------------------------------ */
@@ -123,16 +107,13 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-export function buildScopeKey(scope: SmartMemoryScope): string {
+export function buildConversationScopeKey(scope: SmartMemoryScope): string {
   const tenant = scope.businessId
     ? `biz:${scope.businessId}`
     : scope.architectUserId
       ? `arch:${scope.architectUserId}`
       : "anon";
   const agent = scope.installedAgentId ? `agent:${scope.installedAgentId}` : `wf:${scope.workflowId || "none"}`;
-  // Conversation continuity: an explicit thread wins; then the test session
-  // (canvas/chat tests) or the caller (live calls/SMS), so the same customer's
-  // conversation accumulates across runs; a fresh run id is the safe fallback.
   const conversation = scope.threadId
     ? `thread:${scope.threadId}`
     : scope.testSessionId
@@ -142,21 +123,25 @@ export function buildScopeKey(scope: SmartMemoryScope): string {
         : scope.workflowRunId
           ? `run:${scope.workflowRunId}`
           : "solo";
-  return `${tenant}|${agent}|node:${scope.nodeId || "none"}|${conversation}`;
+  return `${tenant}|${agent}|${conversation}`;
+}
+
+export function buildScopeKey(scope: SmartMemoryScope): string {
+  return `${buildConversationScopeKey(scope)}|node:${scope.nodeId || "none"}`;
 }
 
 function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
-const CHUNK_TARGET_CHARS = 2000;
-const CHUNK_MAX_CHARS = 2500;
-
 /** Deterministic paragraph-first, then sentence-boundary chunking. */
 export function chunkText(text: string): string[] {
+  const targetChars = env.MEMORY_CHUNK_TARGET_CHARS || 2000;
+  const maxChars = env.MEMORY_CHUNK_MAX_CHARS || 2500;
+
   const trimmed = text.trim();
   if (!trimmed) return [];
-  if (trimmed.length <= CHUNK_MAX_CHARS) return [trimmed];
+  if (trimmed.length <= maxChars) return [trimmed];
 
   const paragraphs = trimmed.split(/\n{2,}/);
   const chunks: string[] = [];
@@ -169,22 +154,21 @@ export function chunkText(text: string): string[] {
 
   const pushPiece = (piece: string) => {
     if (!piece) return;
-    if (current && current.length + piece.length + 2 > CHUNK_TARGET_CHARS) flush();
+    if (current && current.length + piece.length + 2 > targetChars) flush();
     current = current ? `${current}\n\n${piece}` : piece;
-    if (current.length >= CHUNK_TARGET_CHARS) flush();
+    if (current.length >= targetChars) flush();
   };
 
   for (const paragraph of paragraphs) {
-    if (paragraph.length <= CHUNK_MAX_CHARS) {
+    if (paragraph.length <= maxChars) {
       pushPiece(paragraph);
       continue;
     }
-    // Oversized paragraph: split at sentence-ish boundaries, hard-split as a last resort.
     let rest = paragraph;
-    while (rest.length > CHUNK_MAX_CHARS) {
-      let cut = rest.lastIndexOf(". ", CHUNK_TARGET_CHARS);
-      if (cut < CHUNK_TARGET_CHARS / 2) cut = rest.lastIndexOf(" ", CHUNK_TARGET_CHARS);
-      if (cut < CHUNK_TARGET_CHARS / 2) cut = CHUNK_TARGET_CHARS;
+    while (rest.length > maxChars) {
+      let cut = rest.lastIndexOf(". ", targetChars);
+      if (cut < targetChars / 2) cut = rest.lastIndexOf(" ", targetChars);
+      if (cut < targetChars / 2) cut = targetChars;
       pushPiece(rest.slice(0, cut + 1).trim());
       rest = rest.slice(cut + 1);
     }
@@ -197,7 +181,6 @@ export function chunkText(text: string): string[] {
 
 type DecodedAttachment = {
   bytes: Buffer | null;
-  /** Inline (non data-URL) text, already usable as-is. */
   inlineText: string | null;
   mime: string;
   name: string;
@@ -231,11 +214,6 @@ function decodeAttachment(att: MemoryAttachment): DecodedAttachment {
   }
 }
 
-/**
- * Extract real text from an uploaded attachment using the platform's document
- * pipeline (pdf-parse / mammoth / text sniffing). Unsupported or unreadable
- * files return an explicit marker — never a pretend extraction.
- */
 export async function extractAttachmentText(att: MemoryAttachment): Promise<string> {
   const decoded = decodeAttachment(att);
   if (decoded.inlineText !== null) return decoded.inlineText.trim();
@@ -257,13 +235,12 @@ export async function extractAttachmentText(att: MemoryAttachment): Promise<stri
       return normalizeExtractedText(result.text);
     }
     if (kind === "txt" || textualMime) {
-      return normalizeExtractedText(decoded.bytes.toString("utf8").replace(/^﻿/, ""));
+      return normalizeExtractedText(decoded.bytes.toString("utf8").replace(/^\uFEFF/, ""));
     }
   } catch {
     return `[unreadable attachment: ${decoded.name} (${decoded.mime || "unknown type"}) — extraction failed]`;
   }
 
-  // Images and other binary formats are not processed — say so honestly.
   return `[unsupported attachment: ${decoded.name} (${decoded.mime || "unknown type"}) — content was not extracted]`;
 }
 
@@ -273,7 +250,6 @@ type CorpusPiece = {
   text: string;
 };
 
-/** Full-fidelity corpus (no truncation) — what actually gets stored and embedded. */
 export async function buildCorpusPieces(input: SmartMemoryInput): Promise<CorpusPiece[]> {
   const pieces: CorpusPiece[] = [];
 
@@ -330,17 +306,11 @@ export function corpusToRecordDrafts(
   });
 }
 
-const TIMELINE_MAX_WORDS = 500;
-const TIMELINE_SAMPLE_LIMIT = 400;
-const TIMELINE_SNIPPET_WORDS = 18;
-const EMBED_MAX_ROUNDS = 8;
-
-/**
- * Deterministic chronological digest over records sampled across the WHOLE
- * scope history — never calls an LLM. The 500-word budget includes the header.
- */
 export function buildTimelineSummary(records: TimelineRecord[], totalRecords: number): string {
   if (records.length === 0) return "";
+
+  const maxWords = env.MEMORY_TIMELINE_MAX_WORDS || 500;
+  const snippetWordsLimit = env.MEMORY_TIMELINE_SNIPPET_WORDS || 18;
 
   const header =
     totalRecords > records.length
@@ -353,17 +323,14 @@ export function buildTimelineSummary(records: TimelineRecord[], totalRecords: nu
 
   for (const record of records) {
     const label = record.sourceLabel || record.sourceType;
-    // Collapse only CONSECUTIVE repeats: recurring sources (the same node
-    // label across many runs) still reappear along the timeline instead of
-    // being frozen at their earliest snippet.
     if (label === previousLabel) continue;
     previousLabel = label;
 
     const contentWords = record.content.replace(/\s+/g, " ").trim().split(" ");
-    const snippet = contentWords.slice(0, TIMELINE_SNIPPET_WORDS).join(" ");
-    const line = `• ${label}: ${snippet}${contentWords.length > TIMELINE_SNIPPET_WORDS ? "…" : ""}`;
+    const snippet = contentWords.slice(0, snippetWordsLimit).join(" ");
+    const line = `• ${label}: ${snippet}${contentWords.length > snippetWordsLimit ? "…" : ""}`;
     const lineWords = line.split(/\s+/).length;
-    if (words + lineWords > TIMELINE_MAX_WORDS) break;
+    if (words + lineWords > maxWords) break;
     words += lineWords;
     lines.push(line);
   }
@@ -375,7 +342,6 @@ export function buildTimelineSummary(records: TimelineRecord[], totalRecords: nu
 export function buildVectorMemoryString(params: {
   retrieved: StoredMemoryChunk[];
   timeline: string;
-  totalStoredChunks: number;
 }): string {
   const sections: string[] = [];
 
@@ -385,7 +351,7 @@ export function buildVectorMemoryString(params: {
       return `[${label}]\n${chunk.content}`;
     });
     sections.push(
-      `[RELEVANT CONTEXT] (${params.retrieved.length} of ${params.totalStoredChunks} stored memory chunks, selected for the current request)\n${chunkBlocks.join("\n\n")}`
+      `[RELEVANT CONTEXT] (${params.retrieved.length} memory chunks retrieved via Pinecone hybrid search)\n${chunkBlocks.join("\n\n")}`
     );
   }
 
@@ -402,27 +368,17 @@ export function buildVectorMemoryString(params: {
 
 /* ------------------------------ default deps ------------------------------- */
 
-function toVectorLiteral(vector: number[]): string {
-  if (!Array.isArray(vector) || !vector.every(Number.isFinite)) {
-    throw new Error("invalid vector: all components must be finite numbers");
-  }
-  return `[${vector.join(",")}]`;
-}
-
-async function countPendingChunks(scopeKey: string): Promise<number> {
-  const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`
-    SELECT count(*)::bigint AS count FROM "MemoryChunk"
-    WHERE "scopeKey" = ${scopeKey} AND "embedding" IS NULL
-  `;
-  return Number(rows[0]?.count ?? 0);
-}
-
 export const defaultSmartMemoryDeps: SmartMemoryDeps = {
   async storeCorpus(records) {
-    if (records.length === 0) return { newRecords: 0, newChunks: 0 };
-    const scopeKey = records[0].scopeKey;
+    if (!records || records.length === 0) return { newRecords: 0, newChunks: 0 };
+    const conversationScopeKey = buildConversationScopeKey(records[0].scope);
+    const scopeKeysToCheck = Array.from(new Set([conversationScopeKey, ...records.map((r) => r.scopeKey)]));
+
     const existing = await prisma.memoryRecord.findMany({
-      where: { scopeKey, contentHash: { in: records.map((r) => r.contentHash) } },
+      where: {
+        scopeKey: { in: scopeKeysToCheck },
+        contentHash: { in: records.map((r) => r.contentHash) }
+      },
       select: { contentHash: true }
     });
     const existingHashes = new Set(existing.map((row) => row.contentHash));
@@ -430,128 +386,75 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
 
     let newRecords = 0;
     let newChunks = 0;
+
+    const pineconeIndex = isPineconeConfigured() ? await getPineconeIndex() : null;
+
     for (const draft of fresh) {
       try {
-        // One transaction per record: a mid-write failure must never leave a
-        // record without its searchable chunks.
-        const chunkCount = await prisma.$transaction(async (tx) => {
-          const record = await tx.memoryRecord.create({
-            data: {
-              scopeKey: draft.scopeKey,
-              businessId: draft.scope.businessId ?? null,
-              installedAgentId: draft.scope.installedAgentId ?? null,
-              architectUserId: draft.scope.architectUserId ?? null,
-              workflowId: draft.scope.workflowId ?? null,
-              workflowRunId: draft.scope.workflowRunId ?? null,
-              threadId: draft.scope.threadId ?? null,
-              nodeId: draft.scope.nodeId ?? null,
-              testSessionId: draft.scope.testSessionId ?? null,
-              callerKey: draft.scope.callerKey ?? null,
-              sourceType: draft.sourceType,
-              sourceLabel: draft.sourceLabel,
-              content: draft.content,
-              tokenCount: draft.tokenCount,
-              contentHash: draft.contentHash
-            }
-          });
-          const result = await tx.memoryChunk.createMany({
-            data: draft.chunks.map((chunk) => ({
-              recordId: record.id,
-              scopeKey: draft.scopeKey,
-              workflowRunId: draft.scope.workflowRunId ?? null,
-              threadId: draft.scope.threadId ?? null,
-              workflowId: draft.scope.workflowId ?? null,
-              nodeId: draft.scope.nodeId ?? null,
-              sourceType: draft.sourceType,
-              sourceLabel:
-                draft.chunks.length > 1
-                  ? `${draft.sourceLabel} (part ${chunk.chunkIndex + 1}/${draft.chunks.length})`
-                  : draft.sourceLabel,
-              chunkIndex: chunk.chunkIndex,
-              content: chunk.content,
-              tokenCount: chunk.tokenCount,
-              contentHash: chunk.contentHash
-            })),
-            skipDuplicates: true
-          });
-          return result.count;
+        const record = await prisma.memoryRecord.create({
+          data: {
+            scopeKey: conversationScopeKey,
+            businessId: draft.scope.businessId ?? null,
+            installedAgentId: draft.scope.installedAgentId ?? null,
+            architectUserId: draft.scope.architectUserId ?? null,
+            workflowId: draft.scope.workflowId ?? null,
+            workflowRunId: draft.scope.workflowRunId ?? null,
+            threadId: draft.scope.threadId ?? null,
+            nodeId: draft.scope.nodeId ?? null,
+            testSessionId: draft.scope.testSessionId ?? null,
+            callerKey: draft.scope.callerKey ?? null,
+            sourceType: draft.sourceType,
+            sourceLabel: draft.sourceLabel,
+            content: draft.content,
+            tokenCount: draft.tokenCount,
+            contentHash: draft.contentHash,
+            embeddingStatus: pineconeIndex ? "complete" : "unavailable"
+          }
         });
         newRecords += 1;
-        newChunks += chunkCount;
+
+        if (pineconeIndex && draft.chunks.length > 0) {
+          const chunkTexts = draft.chunks.map((c) => c.content);
+          const denseEmbeddings = await embedTexts(chunkTexts);
+
+          if (denseEmbeddings && denseEmbeddings.length === draft.chunks.length) {
+            const vectorsToUpsert = draft.chunks.map((chunk, idx) => {
+              const vectorId = sha256(`${conversationScopeKey}:${chunk.contentHash}`);
+              const sparseVec = buildSparseVector(chunk.content);
+              const label =
+                draft.chunks.length > 1
+                  ? `${draft.sourceLabel} (part ${chunk.chunkIndex + 1}/${draft.chunks.length})`
+                  : draft.sourceLabel;
+
+              return {
+                id: vectorId,
+                values: denseEmbeddings[idx],
+                sparseValues: sparseVec.indices.length > 0 ? sparseVec : undefined,
+                metadata: {
+                  scopeKey: conversationScopeKey,
+                  conversationScopeKey,
+                  recordId: record.id,
+                  nodeId: draft.scope.nodeId ?? "",
+                  sourceType: draft.sourceType,
+                  sourceLabel: label,
+                  chunkIndex: chunk.chunkIndex,
+                  content: chunk.content,
+                  contentHash: chunk.contentHash,
+                  createdAt: record.createdAt.toISOString()
+                }
+              };
+            });
+
+            await pineconeIndex.upsert({ records: vectorsToUpsert });
+            newChunks += vectorsToUpsert.length;
+          }
+        }
       } catch (error) {
-        // Concurrent duplicate insert (unique scopeKey+contentHash) — already stored.
-        if ((error as { code?: string }).code === "P2002") continue;
-        throw error;
+        if ((error as { code?: string }).code === "P2002") continue; // Deduplication handling
+        console.warn("[smart-memory] Error storing record to vector index:", error instanceof Error ? error.message : error);
       }
     }
     return { newRecords, newChunks };
-  },
-
-  async sumStoredTokens(scopeKey) {
-    const aggregate = await prisma.memoryRecord.aggregate({
-      where: { scopeKey },
-      _sum: { tokenCount: true }
-    });
-    return aggregate._sum.tokenCount ?? 0;
-  },
-
-  async pruneScope(scopeKey, maxChunks) {
-    await prisma.$executeRaw`
-      DELETE FROM "MemoryChunk"
-      WHERE "id" IN (
-        SELECT "id" FROM "MemoryChunk"
-        WHERE "scopeKey" = ${scopeKey}
-        ORDER BY "createdAt" DESC, "chunkIndex" ASC
-        OFFSET ${maxChunks}
-      )
-    `;
-    await prisma.$executeRaw`
-      DELETE FROM "MemoryRecord"
-      WHERE "scopeKey" = ${scopeKey}
-        AND NOT EXISTS (
-          SELECT 1 FROM "MemoryChunk" c WHERE c."recordId" = "MemoryRecord"."id"
-        )
-    `;
-  },
-
-  async embedPendingChunks(scopeKey, limit) {
-    const pending = await prisma.$queryRaw<Array<{ id: string; content: string }>>`
-      SELECT "id", "content" FROM "MemoryChunk"
-      WHERE "scopeKey" = ${scopeKey} AND "embedding" IS NULL
-      ORDER BY "createdAt" ASC
-      LIMIT ${limit}
-    `;
-    if (pending.length === 0) return { embedded: 0, pending: 0 };
-
-    const vectors = await embedTexts(pending.map((row) => row.content));
-    if (!vectors) {
-      // No key / provider failure — chunks stay embeddable later.
-      return { embedded: 0, pending: await countPendingChunks(scopeKey) };
-    }
-
-    await Promise.all(
-      pending.map((row, i) =>
-        prisma.$executeRaw`
-          UPDATE "MemoryChunk"
-          SET "embedding" = ${toVectorLiteral(vectors[i])}::vector,
-              "embeddingModel" = ${env.MEMORY_EMBEDDING_MODEL},
-              "updatedAt" = CURRENT_TIMESTAMP
-          WHERE "id" = ${row.id}
-        `
-      )
-    );
-
-    // Mark records whose sections are all embedded.
-    await prisma.$executeRaw`
-      UPDATE "MemoryRecord" r
-      SET "embeddingStatus" = 'complete', "updatedAt" = CURRENT_TIMESTAMP
-      WHERE r."scopeKey" = ${scopeKey} AND r."embeddingStatus" = 'pending'
-        AND NOT EXISTS (
-          SELECT 1 FROM "MemoryChunk" c WHERE c."recordId" = r."id" AND c."embedding" IS NULL
-        )
-    `;
-
-    return { embedded: pending.length, pending: await countPendingChunks(scopeKey) };
   },
 
   async searchChunks(scopeKey, query, topK) {
@@ -560,34 +463,81 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
       throw new Error("similarity retrieval unavailable: no query text for this request");
     }
 
-    const queryVectors = await embedTexts([trimmedQuery.slice(0, 8000)]);
-    if (!queryVectors || queryVectors.length !== 1) {
-      throw new Error("similarity retrieval unavailable: embeddings not configured (set OPENAI_API_KEY)");
+    if (!isPineconeConfigured()) {
+      throw new Error("similarity retrieval unavailable: Pinecone API key not configured");
     }
 
-    const rows = await prisma.$queryRaw<StoredMemoryChunk[]>`
-      SELECT "id", "content", "sourceType", "sourceLabel", "chunkIndex", "createdAt"
-      FROM "MemoryChunk"
-      WHERE "scopeKey" = ${scopeKey} AND "embedding" IS NOT NULL
-      ORDER BY "embedding" <=> ${toVectorLiteral(queryVectors[0])}::vector
-      LIMIT ${topK}
-    `;
-    if (rows.length === 0) {
-      throw new Error("similarity retrieval unavailable: no embedded chunks in this scope yet");
+    if (!embeddingsConfigured()) {
+      throw new Error("similarity retrieval unavailable: OpenAI API key not configured for embeddings");
     }
-    return rows;
+
+    const denseVectors = await embedTexts([trimmedQuery.slice(0, 8000)]);
+    if (!denseVectors || denseVectors.length !== 1) {
+      throw new Error("similarity retrieval unavailable: OpenAI embedding request failed");
+    }
+
+    const sparseQueryVec = buildSparseVector(trimmedQuery);
+    const { denseQuery, sparseQuery } = prepareHybridQueryVectors(denseVectors[0], sparseQueryVec, 0.75);
+
+    const pineconeIndex = await getPineconeIndex();
+    if (!pineconeIndex) {
+      throw new Error("similarity retrieval unavailable: Pinecone index connection failed");
+    }
+
+    const conversationScopeKey = scopeKey.replace(/\|node:[^|]+/, "");
+
+    const queryResponse = await pineconeIndex.query({
+      vector: denseQuery,
+      sparseVector: sparseQuery.indices.length > 0 ? sparseQuery : undefined,
+      topK,
+      filter: {
+        $or: [
+          { conversationScopeKey: { $eq: conversationScopeKey } },
+          { scopeKey: { $eq: scopeKey } }
+        ]
+      },
+      includeMetadata: true
+    });
+
+    const matches = queryResponse.matches || [];
+    if (matches.length === 0) {
+      return [];
+    }
+
+    // Post-retrieval deduplication by contentHash to prevent duplicate chunks in output
+    const seenHashes = new Set<string>();
+    const deduplicatedChunks: StoredMemoryChunk[] = [];
+
+    for (const match of matches) {
+      const meta = match.metadata as Record<string, unknown> | undefined;
+      if (!meta || typeof meta.content !== "string") continue;
+
+      const hash = (meta.contentHash as string) || sha256(meta.content);
+      if (seenHashes.has(hash)) continue;
+      seenHashes.add(hash);
+
+      deduplicatedChunks.push({
+        id: match.id,
+        content: meta.content,
+        sourceType: (meta.sourceType as string) || "node_output",
+        sourceLabel: (meta.sourceLabel as string) || null,
+        chunkIndex: typeof meta.chunkIndex === "number" ? meta.chunkIndex : 0,
+        createdAt: meta.createdAt ? new Date(meta.createdAt as string) : new Date()
+      });
+    }
+
+    return deduplicatedChunks;
   },
 
   async sampleRecordsForTimeline(scopeKey, limit) {
-    // Even sampling across the whole time range so the timeline represents ALL
-    // remaining memory, not only the newest slice.
+    const conversationScopeKey = scopeKey.replace(/\|node:[^|]+/, "");
     return prisma.$queryRaw<TimelineRecord[]>`
       SELECT "sourceType", "sourceLabel", "content", "createdAt" FROM (
         SELECT "sourceType", "sourceLabel", "content", "createdAt",
                row_number() OVER (ORDER BY "createdAt" ASC, "id" ASC) AS rn,
                count(*) OVER () AS total
         FROM "MemoryRecord"
-        WHERE "scopeKey" = ${scopeKey}
+        WHERE "scopeKey" = ${conversationScopeKey} OR "scopeKey" = ${scopeKey}
       ) sampled
       WHERE (rn - 1) % GREATEST(1, CEIL(total::numeric / ${limit})::int) = 0
       ORDER BY "createdAt" ASC
@@ -595,77 +545,28 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
     `;
   },
 
-  async countChunks(scopeKey) {
-    return prisma.memoryChunk.count({ where: { scopeKey } });
-  },
-
   async countRecords(scopeKey) {
-    return prisma.memoryRecord.count({ where: { scopeKey } });
-  },
-
-  async enforceRetention(scope) {
-    const now = new Date();
-    const tenantWhere = scope.businessId
-      ? { businessId: scope.businessId }
-      : scope.architectUserId
-        ? { architectUserId: scope.architectUserId }
-        : null;
-    if (!tenantWhere) return;
-
-    // Age-based cleanup for this tenant.
-    if (env.MEMORY_RETENTION_DAYS > 0) {
-      const cutoff = new Date(now.getTime() - env.MEMORY_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-      await prisma.memoryRecord.deleteMany({ where: { ...tenantWhere, createdAt: { lt: cutoff } } });
-    }
-
-    // Shorter retention for test-session memory.
-    if (env.MEMORY_TEST_RETENTION_DAYS > 0) {
-      const testCutoff = new Date(now.getTime() - env.MEMORY_TEST_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-      await prisma.memoryRecord.deleteMany({
-        where: { ...tenantWhere, testSessionId: { not: null }, createdAt: { lt: testCutoff } }
-      });
-    }
-
-    // Per-tenant token cap: delete oldest records until the tenant is under it.
-    let aggregate = await prisma.memoryRecord.aggregate({ where: tenantWhere, _sum: { tokenCount: true } });
-    let excess = (aggregate._sum.tokenCount ?? 0) - env.MEMORY_MAX_TOKENS_PER_TENANT;
-    let maxIterations = 50;
-    while (excess > 0 && maxIterations > 0) {
-      maxIterations -= 1;
-      const oldest = await prisma.memoryRecord.findMany({
-        where: tenantWhere,
-        orderBy: { createdAt: "asc" },
-        take: 100,
-        select: { id: true, tokenCount: true }
-      });
-      if (oldest.length === 0) break;
-
-      const toDelete: string[] = [];
-      let freedTokens = 0;
-      for (const record of oldest) {
-        if (excess - freedTokens <= 0) break;
-        toDelete.push(record.id);
-        freedTokens += record.tokenCount;
+    const conversationScopeKey = scopeKey.replace(/\|node:[^|]+/, "");
+    return prisma.memoryRecord.count({
+      where: {
+        OR: [
+          { scopeKey: conversationScopeKey },
+          { scopeKey }
+        ]
       }
-      if (toDelete.length === 0) break;
-      await prisma.memoryRecord.deleteMany({ where: { id: { in: toDelete } } });
-
-      aggregate = await prisma.memoryRecord.aggregate({ where: tenantWhere, _sum: { tokenCount: true } });
-      excess = (aggregate._sum.tokenCount ?? 0) - env.MEMORY_MAX_TOKENS_PER_TENANT;
-    }
+    });
   }
 };
 
 /* -------------------------------- main entry ------------------------------- */
 
-/** Unit tests must never write to a real database through the default deps. */
+/** Unit tests must never write to a real database through default deps. */
 function vectorStoreDisabledForTests(): boolean {
   return Boolean(process.env.VITEST) && !process.env.MEMORY_VECTOR_TEST_DB;
 }
 
 export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
   async function store(input: SmartMemoryInput): Promise<SmartMemoryStoreResult> {
-    // The raw string is the contract: computed first so any failure below can return it untouched.
     const rawMemory = buildCompactMemoryString({
       executedNodes: input.executedNodes,
       variables: input.variables,
@@ -677,7 +578,6 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
     let corpusTokens = 0;
     let storedRecords = 0;
     let storedChunks = 0;
-    let storedTokens = 0;
 
     try {
       const pieces = await buildCorpusPieces(input);
@@ -687,13 +587,6 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
       const stored = await deps.storeCorpus(drafts);
       storedRecords = stored.newRecords;
       storedChunks = stored.newChunks;
-      if (storedChunks > 0) {
-        await deps.pruneScope(scopeKey, env.MEMORY_MAX_CHUNKS_PER_SCOPE);
-        // Prepare embeddings + apply retention in the background — never block the run.
-        void deps.embedPendingChunks(scopeKey, env.MEMORY_EMBED_MAX_PER_CALL).catch(() => undefined);
-        void deps.enforceRetention(input.scope).catch(() => undefined);
-      }
-      storedTokens = await deps.sumStoredTokens(scopeKey);
     } catch (error) {
       console.warn(
         "[smart-memory] vector store unavailable, memory continues with raw string:",
@@ -702,8 +595,7 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
       return { memory: rawMemory, scopeKey, overThreshold: false, corpusTokens, storedRecords: 0, storedChunks: 0 };
     }
 
-    const overThreshold = Math.max(corpusTokens, storedTokens) > env.MEMORY_VECTOR_THRESHOLD_TOKENS;
-    return { memory: rawMemory, scopeKey, overThreshold, corpusTokens, storedRecords, storedChunks };
+    return { memory: rawMemory, scopeKey, overThreshold: true, corpusTokens, storedRecords, storedChunks };
   }
 
   async function resolveForQuery(params: {
@@ -711,55 +603,27 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
     query: string;
     rawMemory: string;
   }): Promise<ResolvedSmartMemory> {
-    let storedTokens = 0;
     try {
-      storedTokens = await deps.sumStoredTokens(params.scopeKey);
-    } catch {
-      return { memory: params.rawMemory, mode: "raw", retrievedChunks: 0 };
-    }
+      const topK = env.MEMORY_SEARCH_TOP_K || 10;
+      const sampleLimit = env.MEMORY_TIMELINE_SAMPLE_LIMIT || 400;
 
-    if (storedTokens <= env.MEMORY_VECTOR_THRESHOLD_TOKENS) {
-      return { memory: params.rawMemory, mode: "raw", retrievedChunks: 0 };
-    }
-
-    try {
-      let rounds = 0;
-      let pending = Number.MAX_SAFE_INTEGER;
-      while (pending > 0 && rounds < EMBED_MAX_ROUNDS) {
-        rounds += 1;
-        const progress = await deps.embedPendingChunks(params.scopeKey, env.MEMORY_EMBED_MAX_PER_CALL);
-        pending = progress.pending;
-        if (pending > 0 && progress.embedded === 0) {
-          throw new Error(
-            "similarity retrieval unavailable: scope not fully embedded (embeddings not configured or failing)"
-          );
-        }
-      }
-      if (pending > 0) {
-        throw new Error("similarity retrieval unavailable: scope not fully embedded yet");
-      }
-
-      const [retrieved, timelineRecords, totalChunks, totalRecords] = await Promise.all([
-        deps.searchChunks(params.scopeKey, params.query, env.MEMORY_VECTOR_TOP_K),
-        deps.sampleRecordsForTimeline(params.scopeKey, TIMELINE_SAMPLE_LIMIT),
-        deps.countChunks(params.scopeKey).catch(() => 0),
+      const [retrieved, timelineRecords, totalRecords] = await Promise.all([
+        deps.searchChunks(params.scopeKey, params.query, topK),
+        deps.sampleRecordsForTimeline(params.scopeKey, sampleLimit),
         deps.countRecords(params.scopeKey).catch(() => 0)
       ]);
 
       const timeline = buildTimelineSummary(timelineRecords, totalRecords);
       return {
-        memory: buildVectorMemoryString({ retrieved, timeline, totalStoredChunks: totalChunks }),
+        memory: buildVectorMemoryString({ retrieved, timeline }),
         mode: "vector",
         retrievedChunks: retrieved.length
       };
     } catch (error) {
       console.warn(
-        "[smart-memory] similarity retrieval unavailable, using raw memory string:",
+        "[smart-memory] Pinecone hybrid retrieval unavailable, falling back to raw memory string:",
         error instanceof Error ? error.message : "unknown error"
       );
-      // Keep chipping at the embedding backlog off the request path so a cold
-      // scope (key added after storage) converges to vector mode over calls.
-      void deps.embedPendingChunks(params.scopeKey, env.MEMORY_EMBED_MAX_PER_CALL).catch(() => undefined);
       return { memory: params.rawMemory, mode: "raw_fallback", retrievedChunks: 0 };
     }
   }
@@ -769,7 +633,7 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
 
 const productionSmartMemory = createSmartMemoryBuilder(defaultSmartMemoryDeps);
 
-/** Memory Node execution: persist the corpus, return the classic raw string. */
+/** Memory Node execution: persist corpus and return raw compact memory string. */
 export async function buildSmartMemory(input: SmartMemoryInput): Promise<SmartMemoryStoreResult> {
   if (vectorStoreDisabledForTests()) {
     return {
