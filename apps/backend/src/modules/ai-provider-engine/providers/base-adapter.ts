@@ -1,6 +1,6 @@
 import type { AIExecuteRequest, AIContinueRequest, AIExecuteResponse, AITokenUsage, CostEstimate, ValidationResult, ProviderCapability } from "../types";
 import pRetry from "p-retry";
-import { errorMessage } from "../../lib/error-utils";
+import { errorMessage } from "../../../lib/error-utils";
 
 export type PricingTable = Record<string, { input: number; output: number }>; // rates per 1M tokens
 
