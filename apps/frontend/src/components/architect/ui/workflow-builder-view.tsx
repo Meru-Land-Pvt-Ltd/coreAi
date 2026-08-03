@@ -32,11 +32,14 @@ import {
   createArchitectWorkflow,
   deleteArchitectTestEvent,
   disconnectGmailConnector,
+  disconnectCalendlyConnector,
   getArchitectTestDeployment,
   getArchitectWorkflow,
   getGmailConnectorStatus,
+  getCalendlyConnectorStatus,
   getGmailOAuthUrl,
-  // listWhatsAppConnections, // WhatsApp feature paused
+  getCalendlyOAuthUrl,
+  listWhatsAppConnections,
   postGmailDisclosureConsent,
   getLatestArchitectTestEvent,
   getWorkflowConfigure,
@@ -68,8 +71,7 @@ function browserTimeZone(): string {
   }
 }
 import { getAuthUser } from "@/lib/auth";
-// Temporarily hidden — WhatsApp feature paused
-// import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
+import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
 import { BuilderHeader } from "./workflow-builder/builder-header";
 import { BuilderStatusBar } from "./workflow-builder/builder-status-bar";
 import { ComponentLibrary } from "./workflow-builder/component-library";
@@ -140,13 +142,23 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [chatting, setChatting] = useState(false);
   const [gmailConnected, setGmailConnected] = useState(false);
   const [gmailEmail, setGmailEmail] = useState<string | null>(null);
+  const [calendlyConnected, setCalendlyConnected] = useState(false);
+  const [calendlyEmail, setCalendlyEmail] = useState<string | null>(null);
+  const [connectingCalendly, setConnectingCalendly] = useState(false);
+  const [calendlyEventTypeUri, setCalendlyEventTypeUri] = useState("");
+  const [calendlyEventUuid, setCalendlyEventUuid] = useState("");
+  const [calendlyInviteeUuid, setCalendlyInviteeUuid] = useState("");
+  const [calendlyStartTime, setCalendlyStartTime] = useState("");
+  const [calendlyEndTime, setCalendlyEndTime] = useState("");
+  const [calendlyInviteeName, setCalendlyInviteeName] = useState("Jordan Lee");
+  const [calendlyInviteeEmail, setCalendlyInviteeEmail] = useState("jordan@example.com");
+  const [calendlyMeetingName, setCalendlyMeetingName] = useState("30 Minute Meeting");
+  const [calendlyTriggerEvent, setCalendlyTriggerEvent] = useState("meeting_booked");
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
-  // Temporarily paused — WhatsApp feature
-  const [whatsappConnected] = useState(false);
-  // const [connectingWhatsApp, setConnectingWhatsApp] = useState(false);
-  // const [whatsappConnectOpen, setWhatsAppConnectOpen] = useState(false);
-  const connectingWhatsApp = false;
+  const [whatsappConnected, setWhatsAppConnected] = useState(false);
+  const [connectingWhatsApp, setConnectingWhatsApp] = useState(false);
+  const [whatsappConnectOpen, setWhatsAppConnectOpen] = useState(false);
   const [googleDisclosureOpen, setGoogleDisclosureOpen] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgentName);
   const [tagline, setTagline] = useState(defaultAgentDescription);
@@ -259,10 +271,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const isVoiceWorkflow = capabilities.hasVoice;
   const isTelegramWorkflow = capabilities.hasTelegram;
   const needsCalendarConnection = capabilities.hasCalendar;
+  const needsCalendlyConnection = capabilities.hasCalendly;
   const isMissedCallWorkflow = capabilities.hasMissedCall;
   const isSmsWorkflow = capabilities.hasInboundSms;
   const isManualTriggerWorkflow = capabilities.hasManualTrigger;
   const hasEmailNode = capabilities.hasEmailSend;
+  const hasWhatsAppTrigger = capabilities.hasWhatsAppTrigger;
 
   const needsGoogleConnection = hasGmailFlow || needsCalendarConnection;
   // Twilio/Vapi cards are for live sandbox only — browser call test does not need them.
@@ -270,12 +284,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     testDeployment?.status === "READY" || Boolean(testDeployment?.assignedPhoneNumber);
   const needsTwilioConnection = liveSandboxActive && (isVoiceWorkflow || hasSmsFlow);
   const needsVapiConnection = liveSandboxActive && isVoiceWorkflow;
-  // Temporarily hide WhatsApp connection UI (capability still tracked for when re-enabled).
-  const needsWhatsAppConnection = false; // was: capabilities.hasWhatsApp
-  void capabilities.hasWhatsApp;
+  const needsWhatsAppConnection = capabilities.hasWhatsApp;
   const needsAnyTestConnection =
     needsGoogleConnection ||
     needsCalendarConnection ||
+    needsCalendlyConnection ||
     needsTwilioConnection ||
     needsVapiConnection ||
     needsWhatsAppConnection;
@@ -601,14 +614,21 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
   }
 
-  // Temporarily paused — WhatsApp feature
-  // async function loadWhatsAppStatus() {
-  //   const result = await listWhatsAppConnections();
-  //   if (!result.success) return;
-  //
-  //   const connections = result.data?.connections ?? [];
-  //   setWhatsAppConnected(connections.some((c) => c.status === "CONNECTED"));
-  // }
+  async function loadCalendlyStatus() {
+    const result = await getCalendlyConnectorStatus();
+    if (result.success && result.data) {
+      setCalendlyConnected(result.data.connected);
+      setCalendlyEmail(result.data.email);
+    }
+  }
+
+  async function loadWhatsAppStatus() {
+    const result = await listWhatsAppConnections();
+    if (!result.success) return;
+
+    const connections = result.data?.connections ?? [];
+    setWhatsAppConnected(connections.some((c) => c.status === "CONNECTED"));
+  }
 
   async function loadTestDeployment() {
     const id = currentWorkflowIdRef.current;
@@ -625,12 +645,42 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setGoogleDisclosureOpen(true);
   }
 
-  // Temporarily paused — WhatsApp feature
-  // function connectWhatsApp() {
-  //   setWhatsAppConnectOpen(true);
-  // }
   function connectWhatsApp() {
-    // no-op while WhatsApp is paused
+    setWhatsAppConnectOpen(true);
+  }
+
+  async function connectCalendly() {
+    setConnectingCalendly(true);
+    setMessage("Connecting Calendly...");
+    const returnTo = new URL(window.location.href);
+    returnTo.searchParams.delete("calendly");
+    returnTo.searchParams.set("tab", activeTab);
+    try {
+      window.sessionStorage.setItem(
+        testInputsStashKey(currentWorkflowIdRef.current),
+        JSON.stringify({
+          businessName,
+          businessType,
+          calendarId,
+          timeZone,
+          appointmentService,
+          testEmail,
+          callerNumber,
+          callerName,
+          triggerMessage
+        })
+      );
+    } catch {
+      // Storage unavailable/full — the connection itself must still proceed.
+    }
+
+    const result = await getCalendlyOAuthUrl(`${returnTo.pathname}${returnTo.search}`);
+    if (result.success && result.data) {
+      window.location.href = result.data.url;
+      return;
+    }
+    setConnectingCalendly(false);
+    setMessage(result.error ?? "Could not connect Calendly");
   }
 
   async function handleGoogleDisclosureAgreed() {
@@ -691,9 +741,15 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     await loadTestDeployment();
   }
 
+  async function disconnectCalendly() {
+    const result = await disconnectCalendlyConnector();
+    setMessage(result.success ? "Calendly disconnected" : result.error ?? "Could not disconnect Calendly");
+    await loadCalendlyStatus();
+  }
+
   async function refreshConnections() {
     setMessage("Refreshing connection status...");
-    await Promise.all([loadGmailStatus(), /* loadWhatsAppStatus(), */ loadTestDeployment()]);
+    await Promise.all([loadGmailStatus(), loadCalendlyStatus(), loadWhatsAppStatus(), loadTestDeployment()]);
     setMessage("Connection status refreshed");
   }
 
@@ -760,8 +816,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   useEffect(() => {
     void loadWorkflow();
     void loadGmailStatus();
-    // Temporarily paused — WhatsApp feature
-    // void loadWhatsAppStatus();
+    void loadCalendlyStatus();
+    void loadWhatsAppStatus();
     void loadTestDeployment();
   }, [workflowId]);
 
@@ -785,14 +841,19 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     const url = new URL(window.location.href);
     const tabParam = url.searchParams.get("tab");
     const gmailParam = url.searchParams.get("gmail");
+    const calendlyParam = url.searchParams.get("calendly");
 
     if (isBuilderTab(tabParam)) setActiveTab(tabParam);
     if (gmailParam === "connected") setMessage("Google connected");
     else if (gmailParam === "failed") setMessage("Google connection failed — please try again");
+    if (calendlyParam === "connected") setMessage("Calendly connected");
+    else if (calendlyParam === "failed") setMessage("Calendly connection failed — please try again");
+    else if (calendlyParam === "denied") setMessage("Calendly connection was cancelled");
 
-    if (tabParam !== null || gmailParam !== null) {
+    if (tabParam !== null || gmailParam !== null || calendlyParam !== null) {
       url.searchParams.delete("tab");
       url.searchParams.delete("gmail");
+      url.searchParams.delete("calendly");
       window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
     }
 
@@ -1318,6 +1379,50 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return;
     }
 
+    if (needsCalendlyConnection && !calendlyConnected) {
+      setActiveTab("test");
+      setMessage("Connect Calendly before running this agent");
+      return;
+    }
+
+    if (needsWhatsAppConnection && !whatsappConnected) {
+      setActiveTab("test");
+      setMessage("Connect WhatsApp before running this agent");
+      return;
+    }
+
+    const whatsappTriggerNode = nodes.find((node) => {
+      const type = String(node.data.type ?? "").toLowerCase();
+      return type === "trigger.whatsapp_message_received" || type.startsWith("trigger.whatsapp");
+    });
+    const whatsappSendNode = nodes.find((node) => {
+      const type = String(node.data.type ?? "").toLowerCase();
+      const connector = String(node.data.connector ?? "").toLowerCase();
+      return type.includes("whatsapp") || connector === "whatsapp";
+    });
+    const whatsappConnectionId = String(
+      whatsappTriggerNode?.data.connectionId ?? whatsappSendNode?.data.connectionId ?? ""
+    ).trim();
+
+    if (needsWhatsAppConnection && !whatsappConnectionId) {
+      setActiveTab("test");
+      setMessage("Select a WhatsApp connection on the WhatsApp node before testing");
+      return;
+    }
+
+    if (hasWhatsAppTrigger) {
+      if (!normalizedCallerNumber) {
+        setActiveTab("test");
+        setMessage("Enter a sender phone number first");
+        return;
+      }
+      if (!triggerMessage.trim()) {
+        setActiveTab("test");
+        setMessage("Enter a WhatsApp message to simulate first");
+        return;
+      }
+    }
+
     setRunning(true);
     setMessage("Running dry test...");
     setRunLogs([]);
@@ -1367,9 +1472,17 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         ],
         bookingUrl: "https://example.com/book",
         teamPhone: "",
-        callStatus: "no-answer",
-        callTimestamp: new Date().toISOString(),
-        missedCallReason: "No one picked up the customer call.",
+        ...(!needsCalendlyConnection ||
+        isMissedCallWorkflow ||
+        isVoiceWorkflow ||
+        isSmsWorkflow ||
+        hasWhatsAppTrigger
+          ? {
+              callStatus: "no-answer",
+              callTimestamp: new Date().toISOString(),
+              missedCallReason: "No one picked up the customer call."
+            }
+          : {}),
         appointmentService: appointmentService.trim() || "General Consultation",
         ...(testDate
           ? {
@@ -1391,6 +1504,45 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               telegramUpdateId: `dry-run-${Date.now()}`,
               telegramChatType: "private",
               telegramPhoneNumber: normalizedCallerNumber || "+15555550100"
+            }
+          : {}),
+        ...(hasWhatsAppTrigger && whatsappConnectionId
+          ? {
+              triggerType: "trigger.whatsapp_message_received",
+              whatsapp: {
+                type: "WHATSAPP_MESSAGE" as const,
+                connectionId: whatsappConnectionId,
+                contact: {
+                  name: callerName.trim() || null,
+                  phone: normalizedCallerNumber || "+15555550100"
+                },
+                customer: {
+                  name: callerName.trim() || null,
+                  phone: normalizedCallerNumber || "+15555550100"
+                },
+                message: {
+                  id: `dry-run-${Date.now()}`,
+                  type: "text",
+                  text: effectiveTriggerMessage || "Hello",
+                  mediaUrl: null
+                },
+                timestamp: new Date().toISOString()
+              }
+            }
+          : {}),
+        ...(needsCalendlyConnection
+          ? {
+              triggerType: "trigger.calendly",
+              calendlyTriggerEvent: calendlyTriggerEvent.trim() || "meeting_booked",
+              calendlyInviteeName: calendlyInviteeName.trim() || "Jordan Lee",
+              calendlyInviteeEmail: calendlyInviteeEmail.trim() || "jordan@example.com",
+              calendlyMeetingName: calendlyMeetingName.trim() || "30 Minute Meeting",
+              calendlyEventTypeUri: calendlyEventTypeUri.trim() || undefined,
+              calendlyEventUuid: calendlyEventUuid.trim() || undefined,
+              calendlyInviteeUuid: calendlyInviteeUuid.trim() || undefined,
+              calendlyStartTime: calendlyStartTime.trim() || undefined,
+              calendlyEndTime: calendlyEndTime.trim() || undefined,
+              calendlyTimezone: timeZone.trim() || undefined
             }
           : {}),
         attachments: effectiveAttachments
@@ -1530,7 +1682,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onCancel={() => setGoogleDisclosureOpen(false)}
       />
 
-      {/* Temporarily hidden — WhatsApp feature paused
       <WhatsAppConnectModal
         open={whatsappConnectOpen}
         onClose={() => {
@@ -1541,7 +1692,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           void loadWhatsAppStatus();
         }}
       />
-      */}
 
       <BuilderHeader
         agentName={agentName}
@@ -1779,10 +1929,26 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             needsTwilioConnection={needsTwilioConnection}
             needsVapiConnection={needsVapiConnection}
             needsWhatsAppConnection={needsWhatsAppConnection}
+            hasWhatsAppTrigger={hasWhatsAppTrigger}
+            needsCalendlyConnection={needsCalendlyConnection}
+            calendlyActions={capabilities.calendlyActions}
+            hasCalendlyTrigger={capabilities.hasCalendlyTrigger}
             gmailConnected={gmailConnected}
             gmailEmail={gmailEmail}
             calendarConnected={calendarConnected}
             connectingGmail={connectingGmail}
+            calendlyConnected={calendlyConnected}
+            calendlyEmail={calendlyEmail}
+            connectingCalendly={connectingCalendly}
+            calendlyEventTypeUri={calendlyEventTypeUri}
+            calendlyEventUuid={calendlyEventUuid}
+            calendlyInviteeUuid={calendlyInviteeUuid}
+            calendlyStartTime={calendlyStartTime}
+            calendlyEndTime={calendlyEndTime}
+            calendlyInviteeName={calendlyInviteeName}
+            calendlyInviteeEmail={calendlyInviteeEmail}
+            calendlyMeetingName={calendlyMeetingName}
+            calendlyTriggerEvent={calendlyTriggerEvent}
             whatsappConnected={whatsappConnected}
             connectingWhatsApp={connectingWhatsApp}
             running={running}
@@ -1818,6 +1984,17 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             isTelegramWorkflow={isTelegramWorkflow}
             onConnectGmail={connectGmail}
             onDisconnectGoogle={() => void disconnectGoogle()}
+            onConnectCalendly={() => void connectCalendly()}
+            onDisconnectCalendly={() => void disconnectCalendly()}
+            onCalendlyEventTypeUriChange={setCalendlyEventTypeUri}
+            onCalendlyEventUuidChange={setCalendlyEventUuid}
+            onCalendlyInviteeUuidChange={setCalendlyInviteeUuid}
+            onCalendlyStartTimeChange={setCalendlyStartTime}
+            onCalendlyEndTimeChange={setCalendlyEndTime}
+            onCalendlyInviteeNameChange={setCalendlyInviteeName}
+            onCalendlyInviteeEmailChange={setCalendlyInviteeEmail}
+            onCalendlyMeetingNameChange={setCalendlyMeetingName}
+            onCalendlyTriggerEventChange={setCalendlyTriggerEvent}
             onRefreshConnections={() => void refreshConnections()}
             onRunTest={() => void runAgent()}
             onStartLiveTest={() => void startLiveTest()}

@@ -16,9 +16,13 @@ export type WorkflowCapabilities = {
   hasGmail: boolean;
   hasSmsSendOrTwilioConnector: boolean;
   hasWhatsApp: boolean;
+  hasWhatsAppTrigger: boolean;
   hasVoice: boolean;
   hasTelegram: boolean;
   hasCalendar: boolean;
+  hasCalendly: boolean;
+  hasCalendlyTrigger: boolean;
+  calendlyActions: string[];
   hasEmailSend: boolean;
   hasMissedCall: boolean;
   hasInboundSms: boolean;
@@ -58,6 +62,11 @@ export function deriveWorkflowCapabilities(nodes: CapabilityNode[]): WorkflowCap
     return type.includes("whatsapp") || nodeConnector(node) === "whatsapp";
   });
 
+  const hasWhatsAppTrigger = nodes.some((node) => {
+    const type = nodeType(node);
+    return type === "trigger.whatsapp_message_received" || type.startsWith("trigger.whatsapp");
+  });
+
   const voiceTypes = new Set<string>([
     VOICE_NODE_TYPES.phoneCallTrigger,
     VOICE_NODE_TYPES.voiceConversation
@@ -71,14 +80,53 @@ export function deriveWorkflowCapabilities(nodes: CapabilityNode[]): WorkflowCap
       nodeConnector(node) === "telegram"
   );
 
+  const hasCalendly = nodes.some((node) => {
+    const type = nodeType(node);
+    const connector = nodeConnector(node);
+    return type.includes("calendly") || connector === "calendly";
+  });
+
+  const hasCalendlyTrigger = nodes.some((node) => {
+    const type = nodeType(node);
+    const kind = String(node.data?.nodeKind ?? "").toLowerCase();
+    const connector = nodeConnector(node);
+    return (
+      type === "trigger.calendly" ||
+      type.startsWith("trigger.calendly_") ||
+      (kind === "trigger" && connector === "calendly")
+    );
+  });
+
+  const calendlyActions = [
+    ...new Set(
+      nodes
+        .filter((node) => {
+          const type = nodeType(node);
+          const connector = nodeConnector(node);
+          const kind = String(node.data?.nodeKind ?? "").toLowerCase();
+          if (kind === "trigger") return false;
+          return (
+            type === "action.calendly" ||
+            type.startsWith("action.calendly_") ||
+            (connector === "calendly" && type.startsWith("action."))
+          );
+        })
+        .map((node) => String(node.data?.connectorAction ?? "").toLowerCase())
+        .filter(Boolean)
+    )
+  ];
+
   const hasCalendar = nodes.some((node) => {
     const type = nodeType(node);
     const connector = nodeConnector(node);
+    if (type.includes("calendly") || connector === "calendly") return false;
     return (
       type === VOICE_NODE_TYPES.calendarAvailability ||
       type === VOICE_NODE_TYPES.bookAppointment ||
+      type.includes("google_calendar") ||
       type.includes("calendar") ||
-      connector.includes("calendar")
+      connector.includes("google calendar") ||
+      connector === "calendar"
     );
   });
 
@@ -144,9 +192,13 @@ export function deriveWorkflowCapabilities(nodes: CapabilityNode[]): WorkflowCap
     hasGmail,
     hasSmsSendOrTwilioConnector,
     hasWhatsApp,
+    hasWhatsAppTrigger,
     hasVoice,
     hasTelegram,
     hasCalendar,
+    hasCalendly,
+    hasCalendlyTrigger,
+    calendlyActions,
     hasEmailSend,
     hasMissedCall,
     hasInboundSms,

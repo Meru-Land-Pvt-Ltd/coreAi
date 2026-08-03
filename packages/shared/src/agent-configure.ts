@@ -574,6 +574,14 @@ const INCLUDED_FEATURE_BY_NODE_TYPE: Record<string, string> = {
   "integration.gmail_create_draft": "Automated email confirmation and follow-up",
   "integration.gmail_read_emails": "Incoming email monitoring",
   "trigger.gmail_new_email": "Incoming email monitoring",
+  "trigger.calendly": "Calendly scheduling automation",
+  "action.calendly": "Calendly scheduling actions",
+  "trigger.calendly_meeting_booked": "Calendly meeting booked automation",
+  "trigger.calendly_meeting_cancelled": "Calendly cancellation handling",
+  "trigger.calendly_meeting_rescheduled": "Calendly reschedule handling",
+  "trigger.calendly_routing_form_submitted": "Calendly routing form intake",
+  "action.calendly_find_available_times": "Calendly availability lookup",
+  "action.calendly_create_scheduling_link": "Calendly scheduling link generation",
   "action.start_vapi_call": "Voice AI call handling",
   "action.save_lead": "Lead capture and CRM/webhook sync",
   "action.update_lead": "Lead capture and CRM/webhook sync",
@@ -1494,6 +1502,11 @@ export function deriveRequiredIntegrationsFromWorkflow(
     // Telegram
     if (type === "trigger.telegram_message" || combined.includes("telegram")) {
       integrations.telegram = true;
+    }
+
+    // Calendly (Architect scheduling connector — maps to calendar requirement for now)
+    if (combined.includes("calendly")) {
+      integrations.calendar = true;
     }
 
     // Webhook

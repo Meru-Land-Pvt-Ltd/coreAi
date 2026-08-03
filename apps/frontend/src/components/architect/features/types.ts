@@ -193,6 +193,15 @@ export type GmailConnectorStatus = {
   calendarConnected?: boolean;
 };
 
+export type CalendlyConnectorStatus = {
+  connected: boolean;
+  email: string | null;
+  name: string | null;
+  timezone: string | null;
+  userUri: string | null;
+  organizationUri: string | null;
+};
+
 /** Frontend-safe config for a Vapi-powered browser call test session. */
 export type ArchitectVapiBrowserTestSession = {
   publicKey: string;
