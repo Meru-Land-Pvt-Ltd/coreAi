@@ -10,11 +10,10 @@ import type {
 import type { AIAttachment } from "./types";
 import { BuilderIcon } from "./icons";
 import { logColor } from "./run-context";
-import { getCalendarAppointment, getCapturedLead, getDraftEmail, getGmailRead, getSentEmail, getSentSms, getVapiCall } from "./run-context";
+import { getCalendarAppointment, getCalendlyResult, getCapturedLead, getDraftEmail, getGmailRead, getSentEmail, getSentSms, getVapiCall } from "./run-context";
 import { BrowserVoiceCallTest } from "./browser-voice-call-test";
 import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
-// Temporarily hidden — WhatsApp feature paused
-// import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
+import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
 import { marked } from "marked";
 
 function Markdown({ content, className = "" }: { content: string; className?: string }) {
@@ -38,10 +37,26 @@ export function TestPanel({
   needsTwilioConnection = false,
   needsVapiConnection = false,
   needsWhatsAppConnection = false,
+  hasWhatsAppTrigger = false,
+  needsCalendlyConnection = false,
+  calendlyActions = [],
+  hasCalendlyTrigger = false,
   gmailConnected,
   gmailEmail,
   calendarConnected,
   connectingGmail,
+  calendlyConnected = false,
+  calendlyEmail = null,
+  connectingCalendly = false,
+  calendlyEventTypeUri = "",
+  calendlyEventUuid = "",
+  calendlyInviteeUuid = "",
+  calendlyStartTime = "",
+  calendlyEndTime = "",
+  calendlyInviteeName = "Jordan Lee",
+  calendlyInviteeEmail = "jordan@example.com",
+  calendlyMeetingName = "30 Minute Meeting",
+  calendlyTriggerEvent = "meeting_booked",
   whatsappConnected = false,
   connectingWhatsApp = false,
   running,
@@ -77,6 +92,17 @@ export function TestPanel({
   isTelegramWorkflow = false,
   onConnectGmail,
   onDisconnectGoogle,
+  onConnectCalendly,
+  onDisconnectCalendly,
+  onCalendlyEventTypeUriChange,
+  onCalendlyEventUuidChange,
+  onCalendlyInviteeUuidChange,
+  onCalendlyStartTimeChange,
+  onCalendlyEndTimeChange,
+  onCalendlyInviteeNameChange,
+  onCalendlyInviteeEmailChange,
+  onCalendlyMeetingNameChange,
+  onCalendlyTriggerEventChange,
   onRefreshConnections,
   onRunTest,
   onStartLiveTest,
@@ -112,10 +138,26 @@ export function TestPanel({
   needsTwilioConnection?: boolean;
   needsVapiConnection?: boolean;
   needsWhatsAppConnection?: boolean;
+  hasWhatsAppTrigger?: boolean;
+  needsCalendlyConnection?: boolean;
+  calendlyActions?: string[];
+  hasCalendlyTrigger?: boolean;
   gmailConnected: boolean;
   gmailEmail: string | null;
   calendarConnected: boolean;
   connectingGmail: boolean;
+  calendlyConnected?: boolean;
+  calendlyEmail?: string | null;
+  connectingCalendly?: boolean;
+  calendlyEventTypeUri?: string;
+  calendlyEventUuid?: string;
+  calendlyInviteeUuid?: string;
+  calendlyStartTime?: string;
+  calendlyEndTime?: string;
+  calendlyInviteeName?: string;
+  calendlyInviteeEmail?: string;
+  calendlyMeetingName?: string;
+  calendlyTriggerEvent?: string;
   whatsappConnected?: boolean;
   connectingWhatsApp?: boolean;
   running: boolean;
@@ -152,8 +194,18 @@ export function TestPanel({
   isTelegramWorkflow?: boolean;
   onConnectGmail: () => void;
   onDisconnectGoogle: () => void;
+  onConnectCalendly?: () => void;
+  onDisconnectCalendly?: () => void;
+  onCalendlyEventTypeUriChange?: (value: string) => void;
+  onCalendlyEventUuidChange?: (value: string) => void;
+  onCalendlyInviteeUuidChange?: (value: string) => void;
+  onCalendlyStartTimeChange?: (value: string) => void;
+  onCalendlyEndTimeChange?: (value: string) => void;
+  onCalendlyInviteeNameChange?: (value: string) => void;
+  onCalendlyInviteeEmailChange?: (value: string) => void;
+  onCalendlyMeetingNameChange?: (value: string) => void;
+  onCalendlyTriggerEventChange?: (value: string) => void;
   onRefreshConnections: () => void;
-  // Temporarily optional — WhatsApp feature paused
   onConnectWhatsApp?: () => void;
   onRunTest: () => void;
   onStartLiveTest: () => void;
@@ -186,6 +238,7 @@ export function TestPanel({
   const gmailRead = getGmailRead(runContext);
   const vapiCall = getVapiCall(runContext);
   const calendarAppointment = getCalendarAppointment(runContext);
+  const calendlyResult = getCalendlyResult(runContext);
 
   // Voice booking workflow results (set by the runner from node capabilities).
   const voiceConversation = runContext.voiceConversation as
@@ -207,7 +260,17 @@ export function TestPanel({
   );
 
   const hasResult = Boolean(
-    sentSms || draftEmail || sentEmail || gmailRead || vapiCall || calendarAppointment || hasVoiceResult || hasLlmPipeline || runLogs.length > 0
+    sentSms ||
+      draftEmail ||
+      sentEmail ||
+      gmailRead ||
+      vapiCall ||
+      calendarAppointment ||
+      hasVoiceResult ||
+      hasLlmPipeline ||
+      calendlyResult ||
+      (runLogs.length > 0 && !needsCalendlyConnection) ||
+      (runLogs.length > 0 && needsWhatsAppConnection)
   );
 
   const sandboxReady = testDeployment?.status === "READY";
@@ -235,7 +298,11 @@ export function TestPanel({
   })();
   const subtitle = isVoiceWorkflow
     ? null
-    : "Send a sample trigger through the workflow and watch each step run in real time.";
+    : needsWhatsAppConnection
+      ? "Connect WhatsApp, fill the sample message fields, then run a dry test."
+      : needsCalendlyConnection
+        ? "Connect Calendly, fill the request fields for your action, then run a dry test."
+        : "Send a sample trigger through the workflow and watch each step run in real time.";
   const heading = isDentalWorkflow
     ? "Dental AI Receptionist test"
     : isVoiceWorkflow
@@ -246,15 +313,47 @@ export function TestPanel({
           ? "Test SMS Agent"
           : isTelegramWorkflow
             ? "Test Telegram Agent"
-            : "Test console";
+            : needsWhatsAppConnection
+              ? "Test WhatsApp Agent"
+              : needsCalendlyConnection
+                ? "Test Calendly Agent"
+                : "Test console";
 
   // Field visibility driven by live canvas node capabilities (no theme changes).
   const showCallerFields =
-    !isManualTriggerWorkflow && (isVoiceWorkflow || isMissedCallWorkflow || isSmsWorkflow);
-  const showTriggerMessage = isManualTriggerWorkflow || isSmsWorkflow || isTelegramWorkflow;
+    !isManualTriggerWorkflow &&
+    (isVoiceWorkflow || isMissedCallWorkflow || isSmsWorkflow || hasWhatsAppTrigger);
+  const showTriggerMessage =
+    isManualTriggerWorkflow || isSmsWorkflow || isTelegramWorkflow || hasWhatsAppTrigger;
   const showBusinessContextFields =
     !isManualTriggerWorkflow &&
-    (isVoiceWorkflow || isMissedCallWorkflow || isSmsWorkflow || needsCalendarConnection || hasGmailFlow);
+    (isVoiceWorkflow ||
+      isMissedCallWorkflow ||
+      isSmsWorkflow ||
+      hasWhatsAppTrigger ||
+      needsCalendarConnection ||
+      hasGmailFlow);
+
+  const calendlyActionSet = new Set(calendlyActions.map((action) => action.toLowerCase()));
+  // Only fields the runner requires for the selected Calendly action(s).
+  const showCalendlyEventTypeUri =
+    needsCalendlyConnection &&
+    (calendlyActionSet.has("find_available_times") || calendlyActionSet.has("create_scheduling_link"));
+  const showCalendlyEventUuid =
+    needsCalendlyConnection &&
+    (calendlyActionSet.has("get_event") ||
+      calendlyActionSet.has("list_invitees") ||
+      calendlyActionSet.has("get_invitee"));
+  const showCalendlyInviteeUuid = needsCalendlyConnection && calendlyActionSet.has("get_invitee");
+  const showCalendlyTimeRange =
+    needsCalendlyConnection && calendlyActionSet.has("find_available_times");
+  const showCalendlyTriggerFields = needsCalendlyConnection && hasCalendlyTrigger;
+  const showCalendlyTestFields =
+    showCalendlyTriggerFields ||
+    showCalendlyEventTypeUri ||
+    showCalendlyEventUuid ||
+    showCalendlyInviteeUuid ||
+    showCalendlyTimeRange;
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
@@ -274,12 +373,19 @@ export function TestPanel({
                   : "Connect Google Calendar below before a live run."}
               </p>
             ) : null}
+            {needsWhatsAppConnection ? (
+              <p className="mt-2 text-[12.5px] font-medium text-slate-500" data-testid="builder-test-whatsapp-console-status">
+                {whatsappConnected
+                  ? "WhatsApp connected — ready for a dry test."
+                  : "Connect WhatsApp below before running a dry test."}
+              </p>
+            ) : null}
           </div>
           <div className="flex shrink-0 gap-2.5">
             <button
               type="button"
               onClick={onRunTest}
-              disabled={running}
+              disabled={running || (needsWhatsAppConnection && !whatsappConnected)}
               data-testid="test-run"
               className="btn-primary shadow-amber inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-2.5 text-[14px] font-bold text-white transition disabled:opacity-60"
             >
@@ -340,14 +446,22 @@ export function TestPanel({
                   ? "Simulate an inbound SMS"
                   : isTelegramWorkflow
                     ? "Simulate a Telegram message"
-                    : "Simulate a customer event"}
+                    : hasWhatsAppTrigger
+                      ? "Simulate a WhatsApp message"
+                      : needsCalendlyConnection
+                        ? "Calendly request data"
+                        : "Simulate a customer event"}
           </h3>
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             {showCallerFields && (
               <>
                 <label data-testid="architect-ui-workflow-builder-test-panel-caller-number-on-caller-number-change-event-label">
                   <span className="mb-1.5 block text-[13px] font-semibold text-slate-700" data-testid="architect-ui-workflow-builder-test-panel-caller-number-text">
-                    {isSmsWorkflow ? "Sender phone" : isVoiceWorkflow ? "Caller phone" : "Caller number"}
+                    {isSmsWorkflow || hasWhatsAppTrigger
+                      ? "Sender phone"
+                      : isVoiceWorkflow
+                        ? "Caller phone"
+                        : "Caller number"}
                   </span>
                   <input data-testid="builder-test-caller-number-input"
                     type="text"
@@ -359,13 +473,19 @@ export function TestPanel({
                 </label>
                 <label data-testid="architect-ui-workflow-builder-test-panel-caller-on-caller-change-event-placeholder-jordan-label">
                   <span className="mb-1.5 block text-[13px] font-semibold text-slate-700" data-testid="architect-ui-workflow-builder-test-panel-caller-text">
-                    {isSmsWorkflow ? "Sender name" : "Caller name"}
+                    {isSmsWorkflow || hasWhatsAppTrigger ? "Sender name" : "Caller name"}
                   </span>
                   <input data-testid="builder-test-caller-name-input"
                     type="text"
                     value={callerName}
                     onChange={(event) => onCallerNameChange(event.target.value)}
-                    placeholder={isSmsWorkflow ? "Jordan Lee" : isVoiceWorkflow ? "Test Customer" : "Jordan Lee"}
+                    placeholder={
+                      isSmsWorkflow || hasWhatsAppTrigger
+                        ? "Jordan Lee"
+                        : isVoiceWorkflow
+                          ? "Test Customer"
+                          : "Jordan Lee"
+                    }
                     className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
                   />
                 </label>
@@ -378,7 +498,9 @@ export function TestPanel({
                     ? "SMS Message / Text input"
                     : isTelegramWorkflow
                       ? "Telegram message / Text input"
-                      : "Trigger message / Text input"}
+                      : hasWhatsAppTrigger
+                        ? "WhatsApp message"
+                        : "Trigger message / Text input"}
                 </span>
                 <textarea
                   rows={2}
@@ -389,8 +511,11 @@ export function TestPanel({
                       ? "Type SMS message content to trigger the workflow..."
                       : isTelegramWorkflow
                         ? "Type a Telegram message to trigger the workflow..."
-                        : "Type or paste text content (e.g. resume content or SMS text) to trigger the workflow..."
+                        : hasWhatsAppTrigger
+                          ? "Type a WhatsApp message to trigger the workflow..."
+                          : "Type or paste text content (e.g. resume content or SMS text) to trigger the workflow..."
                   }
+                  data-testid="builder-test-trigger-message-input"
                   className="fld h-16 w-full resize-none rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
                 />
               </label>
@@ -440,6 +565,152 @@ export function TestPanel({
                 </label>
               </>
             )}
+
+            {showCalendlyTestFields ? (
+              <>
+                {showCalendlyTriggerFields ? (
+                  <>
+                    <label data-testid="builder-test-calendly-trigger-event-label">
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        Trigger event
+                      </span>
+                      <select
+                        data-testid="builder-test-calendly-trigger-event-select"
+                        value={calendlyTriggerEvent}
+                        onChange={(event) => onCalendlyTriggerEventChange?.(event.target.value)}
+                        className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                      >
+                        <option value="meeting_booked">Meeting booked</option>
+                        <option value="meeting_cancelled">Meeting cancelled</option>
+                        <option value="meeting_rescheduled">Meeting rescheduled</option>
+                        <option value="routing_form_submitted">Routing form submitted</option>
+                      </select>
+                    </label>
+                    <label data-testid="builder-test-calendly-meeting-name-label">
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        Meeting name
+                      </span>
+                      <input
+                        data-testid="builder-test-calendly-meeting-name-input"
+                        type="text"
+                        value={calendlyMeetingName}
+                        onChange={(event) => onCalendlyMeetingNameChange?.(event.target.value)}
+                        placeholder="30 Minute Meeting"
+                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                      />
+                    </label>
+                    <label data-testid="builder-test-calendly-invitee-name-label">
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        Invitee name
+                      </span>
+                      <input
+                        data-testid="builder-test-calendly-invitee-name-input"
+                        type="text"
+                        value={calendlyInviteeName}
+                        onChange={(event) => onCalendlyInviteeNameChange?.(event.target.value)}
+                        placeholder="Jordan Lee"
+                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                      />
+                    </label>
+                    <label data-testid="builder-test-calendly-invitee-email-label">
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        Invitee email
+                      </span>
+                      <input
+                        data-testid="builder-test-calendly-invitee-email-input"
+                        type="text"
+                        value={calendlyInviteeEmail}
+                        onChange={(event) => onCalendlyInviteeEmailChange?.(event.target.value)}
+                        placeholder="jordan@example.com"
+                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                      />
+                    </label>
+                  </>
+                ) : null}
+                {showCalendlyEventTypeUri ? (
+                  <label className="col-span-1 sm:col-span-2" data-testid="builder-test-calendly-event-type-uri-label">
+                    <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                      Event type URI
+                    </span>
+                    <input
+                      data-testid="builder-test-calendly-event-type-uri-input"
+                      type="text"
+                      value={calendlyEventTypeUri}
+                      onChange={(event) => onCalendlyEventTypeUriChange?.(event.target.value)}
+                      placeholder="https://api.calendly.com/event_types/AAAAAAAAAAAAAA"
+                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 font-mono text-[13px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                    />
+                  </label>
+                ) : null}
+                {showCalendlyEventUuid ? (
+                  <label data-testid="builder-test-calendly-event-uuid-label">
+                    <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                      Event UUID
+                    </span>
+                    <input
+                      data-testid="builder-test-calendly-event-uuid-input"
+                      type="text"
+                      value={calendlyEventUuid}
+                      onChange={(event) => onCalendlyEventUuidChange?.(event.target.value)}
+                      placeholder="AAAAAAAAAAAAAAAA"
+                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 font-mono text-[13px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                    />
+                  </label>
+                ) : null}
+                {showCalendlyInviteeUuid ? (
+                  <label data-testid="builder-test-calendly-invitee-uuid-label">
+                    <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                      Invitee UUID
+                    </span>
+                    <input
+                      data-testid="builder-test-calendly-invitee-uuid-input"
+                      type="text"
+                      value={calendlyInviteeUuid}
+                      onChange={(event) => onCalendlyInviteeUuidChange?.(event.target.value)}
+                      placeholder="BBBBBBBBBBBBBBBB"
+                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 font-mono text-[13px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                    />
+                  </label>
+                ) : null}
+                {showCalendlyTimeRange ? (
+                  <>
+                    <label data-testid="builder-test-calendly-start-time-label">
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        Start time (ISO)
+                      </span>
+                      <input
+                        data-testid="builder-test-calendly-start-time-input"
+                        type="text"
+                        value={calendlyStartTime}
+                        onChange={(event) => onCalendlyStartTimeChange?.(event.target.value)}
+                        placeholder="2026-08-04T09:00:00.000Z"
+                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 font-mono text-[13px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                      />
+                    </label>
+                    <label data-testid="builder-test-calendly-end-time-label">
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        End time (ISO)
+                      </span>
+                      <input
+                        data-testid="builder-test-calendly-end-time-input"
+                        type="text"
+                        value={calendlyEndTime}
+                        onChange={(event) => onCalendlyEndTimeChange?.(event.target.value)}
+                        placeholder="2026-08-11T17:00:00.000Z"
+                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 font-mono text-[13px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                      />
+                    </label>
+                  </>
+                ) : null}
+              </>
+            ) : needsCalendlyConnection ? (
+              <p
+                className="col-span-1 text-[13px] text-slate-500 sm:col-span-2"
+                data-testid="builder-test-calendly-no-request-fields"
+              >
+                This Calendly action does not need extra request fields. Connect Calendly and run the dry test.
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -521,6 +792,49 @@ export function TestPanel({
               </div>
             ) : null}
 
+            {needsCalendlyConnection ? (
+              <div
+                className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3.5"
+                data-testid="builder-test-calendly-card"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#006BFF]/10 text-[#006BFF]">
+                    <BuilderIcon name="calendar" className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800" data-testid="builder-test-calendly-status">
+                      {calendlyConnected ? "Calendly connected" : "Calendly"}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                      {calendlyConnected
+                        ? `Connected as ${calendlyEmail || "your account"}`
+                        : "Connect so meeting webhooks and Calendly actions can run."}
+                    </p>
+                  </div>
+                </div>
+                {calendlyConnected ? (
+                  <button
+                    type="button"
+                    onClick={onDisconnectCalendly}
+                    data-testid="builder-test-disconnect-calendly"
+                    className="shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition hover:border-gray-300"
+                  >
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onConnectCalendly}
+                    disabled={connectingCalendly}
+                    data-testid="builder-test-connect-calendly"
+                    className="shrink-0 rounded-xl bg-amber-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-60"
+                  >
+                    {connectingCalendly ? "Connecting…" : "Connect"}
+                  </button>
+                )}
+              </div>
+            ) : null}
+
             {needsTwilioConnection ? (
               <div
                 className="mt-3 flex items-start justify-between gap-4 rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3.5"
@@ -555,7 +869,6 @@ export function TestPanel({
               </div>
             ) : null}
 
-            {/* Temporarily hidden — WhatsApp feature paused
             {needsWhatsAppConnection ? (
               <div
                 className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3.5"
@@ -599,7 +912,6 @@ export function TestPanel({
                 )}
               </div>
             ) : null}
-            */}
           </div>
         ) : null}
 
@@ -740,11 +1052,19 @@ export function TestPanel({
         {hasResult ? (
           <div className="mt-5 pb-2">
             <h3 className="mb-3 text-[13px] font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-has-gmail-flow-email-result-message-the-heading">
-              {hasLlmPipeline ? "LLM Pipeline Results" : hasVoiceResult ? "Voice booking result" : hasGmailFlow ? "Email result" : "Message preview"}
+              {hasLlmPipeline
+                ? "LLM Pipeline Results"
+                : hasVoiceResult
+                  ? "Voice booking result"
+                  : hasGmailFlow
+                    ? "Email result"
+                    : calendlyResult
+                      ? "Calendly result"
+                      : "Message preview"}
             </h3>
             <div className="shadow-soft flex items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 min-w-0 max-w-full overflow-hidden">
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${hasLlmPipeline ? "bg-violet-50 text-violet-600" : "bg-green-50 text-green-600"}`}>
-                <BuilderIcon name={hasLlmPipeline ? "sparkles" : hasVoiceResult ? "phone-call" : hasGmailFlow ? "mail" : "message"} className="h-5 w-5" />
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${hasLlmPipeline ? "bg-violet-50 text-violet-600" : calendlyResult ? "bg-sky-50 text-[#006BFF]" : "bg-green-50 text-green-600"}`}>
+                <BuilderIcon name={hasLlmPipeline ? "sparkles" : hasVoiceResult ? "phone-call" : hasGmailFlow ? "mail" : calendlyResult ? "calendar" : "message"} className="h-5 w-5" />
               </div>
               <div className="flex-1 min-w-0 max-w-full">
                 {hasLlmPipeline ? (
@@ -841,6 +1161,49 @@ export function TestPanel({
                   </div>
                 ) : hasGmailFlow ? (
                   <EmailResult draftEmail={draftEmail} sentEmail={sentEmail} gmailRead={gmailRead} />
+                ) : calendlyResult ? (
+                  <div className="space-y-3 min-w-0 max-w-full" data-testid="test-panel-calendly-result">
+                    {(calendlyResult.calendlyEvent || calendlyResult.inviteeName || calendlyResult.meetingName) ? (
+                      <div className="rounded-xl border border-sky-100 bg-sky-50/30 p-4" data-testid="test-panel-calendly-trigger-preview">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#006BFF]">
+                          Trigger preview
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-slate-800">
+                          {calendlyResult.meetingName || "Calendly meeting"}
+                          {calendlyResult.calendlyEvent ? (
+                            <span className="ml-2 text-xs font-medium text-slate-500">
+                              ({calendlyResult.calendlyEvent.replace(/_/g, " ")})
+                            </span>
+                          ) : null}
+                        </p>
+                        {calendlyResult.inviteeName || calendlyResult.inviteeEmail ? (
+                          <p className="mt-1 text-[13px] text-slate-600">
+                            Invitee: {[calendlyResult.inviteeName, calendlyResult.inviteeEmail].filter(Boolean).join(" · ")}
+                          </p>
+                        ) : null}
+                        {calendlyResult.startTime ? (
+                          <p className="mt-1 font-mono text-[11px] text-slate-400">
+                            {calendlyResult.startTime}
+                            {calendlyResult.endTime ? ` → ${calendlyResult.endTime}` : ""}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {calendlyResult.action || calendlyResult.resultPreview ? (
+                      <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4" data-testid="test-panel-calendly-action-preview">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Action result{calendlyResult.action ? `: ${calendlyResult.action}` : ""}
+                        </p>
+                        {calendlyResult.resultPreview ? (
+                          <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-slate-700 [overflow-wrap:anywhere]">
+                            {calendlyResult.resultPreview}
+                          </pre>
+                        ) : (
+                          <p className="mt-1 text-sm text-slate-600">Calendly action completed.</p>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
                 ) : (
                   <>
                     <div className="inline-block max-w-md rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">

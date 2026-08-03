@@ -26,6 +26,7 @@ import {
   handleWhatsAppWebhookPost,
   verifyWhatsAppWebhookChallenge
 } from "./modules/whatsapp/webhook";
+import { handleCalendlyOAuthMisdirectGet, handleCalendlyWebhookPost } from "./modules/calendly/webhook";
 
 export const app = new Hono();
 
@@ -67,6 +68,15 @@ app.route("/chatbot", chatbotRoutes);
 // Meta dashboard Callback URL: https://triven.ai/api/webhook/meta/whatsapp
 app.get("/webhook/meta/whatsapp", verifyWhatsAppWebhookChallenge);
 app.post("/webhook/meta/whatsapp", handleWhatsAppWebhookPost);
+
+// Calendly — public webhook (signature verified with per-connection signing key).
+// OAuth redirect URI must be /architect/connectors/calendly/callback (NOT this path).
+// Production webhook: https://triven.ai/api/webhook/calendly
+app.get("/webhook/calendly", handleCalendlyOAuthMisdirectGet);
+app.post("/webhook/calendly", handleCalendlyWebhookPost);
+// Local/dev safety: same handlers if someone registered an /api-prefixed URL.
+app.get("/api/webhook/calendly", handleCalendlyOAuthMisdirectGet);
+app.post("/api/webhook/calendly", handleCalendlyWebhookPost);
 
 app.notFound((c) => {
   return errorResponse(c, "Route not found", 404, "ROUTE_NOT_FOUND");

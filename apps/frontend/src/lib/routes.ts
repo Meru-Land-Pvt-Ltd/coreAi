@@ -22,8 +22,7 @@ export const ARCHITECT_MY_AGENTS_PATH = "/architect/agents" as Route;
 export const ARCHITECT_PAYOUTS_PATH = "/architect/payouts" as Route;
 export const ARCHITECT_SETTINGS_PATH = "/architect/settings" as Route;
 export const ARCHITECT_ANALYTICS_PATH = "/architect/agents/analytics" as Route;
-// Temporarily hidden — WhatsApp feature paused
-// export const ARCHITECT_WHATSAPP_PATH = "/architect/integrations/whatsapp" as Route;
+export const ARCHITECT_WHATSAPP_PATH = "/architect/integrations/whatsapp" as Route;
 
 export const FOOTER_HASH_PATH = "#footer" as Route;
 export const ABOUT_HASH_PATH = "/#about" as Route;

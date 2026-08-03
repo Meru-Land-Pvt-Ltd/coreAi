@@ -738,6 +738,18 @@ export function runArchitectWorkflowTest(
       useTestCalendar?: boolean;
       /** Groups this test run's records (test calendar events). */
       testSessionId?: string;
+      calendlyEventTypeUri?: string;
+      calendlyEventUuid?: string;
+      calendlyInviteeUuid?: string;
+      calendlyStartTime?: string;
+      calendlyEndTime?: string;
+      calendlyStatus?: string;
+      calendlyTimezone?: string;
+      calendlyTriggerEvent?: string;
+      calendlyInviteeName?: string;
+      calendlyInviteeEmail?: string;
+      calendlyMeetingName?: string;
+      triggerType?: string;
     };
   } = {}
 ) {
@@ -937,6 +949,19 @@ export function postGmailDisclosureConsent(body: { disclosureVersion: string; ac
 
 export function disconnectGmailConnector() {
   return apiDelete<null>("/architect/connectors/gmail");
+}
+
+export function getCalendlyConnectorStatus() {
+  return apiGet<import("./types").CalendlyConnectorStatus>("/architect/connectors/calendly/status");
+}
+
+export function getCalendlyOAuthUrl(redirectPath?: string) {
+  const query = redirectPath ? `?redirect=${encodeURIComponent(redirectPath)}` : "";
+  return apiGet<{ url: string }>(`/architect/connectors/calendly/oauth-url${query}`);
+}
+
+export function disconnectCalendlyConnector() {
+  return apiDelete<null>("/architect/connectors/calendly");
 }
 
 export function createTwilioBusinessInstallation(body: {

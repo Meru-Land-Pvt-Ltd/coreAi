@@ -36,6 +36,11 @@ const envSchema = z.object({
   GOOGLE_CALENDAR_ID: z.string().optional(),
   GOOGLE_CALENDAR_DEFAULT_TIMEZONE: z.string().default("America/Los_Angeles"),
 
+  CALENDLY_CLIENT_ID: z.string().optional(),
+  CALENDLY_CLIENT_SECRET: z.string().optional(),
+  CALENDLY_OAUTH_REDIRECT_URI: z.string().url().optional(),
+  CALENDLY_WEBHOOK_URL: z.string().url().optional(),
+
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_API_KEY_SID: z.string().optional(),

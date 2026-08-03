@@ -108,3 +108,41 @@ export function getCalendarAppointment(context: Record<string, unknown>) {
     remediation: getRunTextFromRecord(calendarAppointment, "remediation")
   };
 }
+
+export function getCalendlyResult(context: Record<string, unknown>) {
+  const calendly = getRunRecord(context, "calendly");
+  if (!calendly) return null;
+
+  const invitee =
+    typeof calendly.invitee === "object" && calendly.invitee !== null
+      ? (calendly.invitee as Record<string, unknown>)
+      : null;
+  const scheduledEvent =
+    typeof calendly.scheduledEvent === "object" && calendly.scheduledEvent !== null
+      ? (calendly.scheduledEvent as Record<string, unknown>)
+      : null;
+  const actionResult = calendly.result;
+  let resultPreview = "";
+  if (typeof actionResult === "string") {
+    resultPreview = actionResult;
+  } else if (actionResult != null) {
+    try {
+      resultPreview = JSON.stringify(actionResult, null, 2);
+    } catch {
+      resultPreview = String(actionResult);
+    }
+  }
+
+  return {
+    event: getRunTextFromRecord(calendly, "event"),
+    calendlyEvent: getRunTextFromRecord(calendly, "calendlyEvent"),
+    action: getRunTextFromRecord(calendly, "action"),
+    inviteeName: invitee ? getRunTextFromRecord(invitee, "name") : "",
+    inviteeEmail: invitee ? getRunTextFromRecord(invitee, "email") : "",
+    meetingName: scheduledEvent ? getRunTextFromRecord(scheduledEvent, "name") : "",
+    startTime: scheduledEvent ? getRunTextFromRecord(scheduledEvent, "start_time") : "",
+    endTime: scheduledEvent ? getRunTextFromRecord(scheduledEvent, "end_time") : "",
+    eventUri: scheduledEvent ? getRunTextFromRecord(scheduledEvent, "uri") : "",
+    resultPreview
+  };
+}

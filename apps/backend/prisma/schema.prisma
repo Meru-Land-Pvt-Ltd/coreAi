@@ -210,6 +210,8 @@ model ConnectorCredential {
   scope                String?
   tokenType            String?
   expiresAt            DateTime?
+  /// Provider-specific JSON (e.g. Calendly userUri, organizationUri, webhookSigningKey).
+  metadata             Json?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1340,6 +1342,7 @@ enum ConnectorProvider {
   GOOGLE_CALENDAR
   VAPI
   WHATSAPP
+  CALENDLY
 }
 
 enum WhatsAppConnectionStatus {

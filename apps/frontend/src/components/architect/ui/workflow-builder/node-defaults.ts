@@ -160,8 +160,8 @@ export function defaultNodeData(
     if (connector === "WhatsApp") {
       return {
         ...base,
-        label: "Send WhatsApp Message",
-        title: "Send WhatsApp Message",
+        label: "Send WhatsApp",
+        title: "Send WhatsApp",
         kind: "WHATSAPP",
         icon: "whatsapp",
         accent: "green",

@@ -93,6 +93,64 @@ export const TELEGRAM_NODE_TYPES = {
   deleteMessage: "action.telegram_delete_message"
 } as const;
 
+/** Calendly connector — one trigger + one action; event/action chosen in node props. */
+export const CALENDLY_NODE_TYPES = {
+  trigger: "trigger.calendly",
+  action: "action.calendly"
+} as const;
+
+/** Webhook / trigger event options for `trigger.calendly` (`data.calendlyEvent`). */
+export const CALENDLY_TRIGGER_EVENTS = [
+  {
+    value: "meeting_booked",
+    label: "Meeting booked",
+    webhookEvent: "invitee.created",
+    description: "Starts when a Calendly meeting is booked."
+  },
+  {
+    value: "meeting_cancelled",
+    label: "Meeting cancelled",
+    webhookEvent: "invitee.canceled",
+    description: "Starts when a Calendly meeting is cancelled."
+  },
+  {
+    value: "meeting_rescheduled",
+    label: "Meeting rescheduled",
+    webhookEvent: "invitee.created",
+    description: "Starts when a Calendly meeting is rescheduled."
+  },
+  {
+    value: "routing_form_submitted",
+    label: "Routing form submitted",
+    webhookEvent: "routing_form_submission.created",
+    description: "Starts when a Calendly routing form is submitted."
+  }
+] as const;
+
+export type CalendlyTriggerEvent = (typeof CALENDLY_TRIGGER_EVENTS)[number]["value"];
+
+/** Action options for `action.calendly` (`data.connectorAction`). */
+export const CALENDLY_ACTION_OPTIONS = [
+  { value: "find_available_times", label: "Find available times" },
+  { value: "get_event", label: "Get event details" },
+  { value: "list_events", label: "List events" },
+  { value: "get_invitee", label: "Get invitee details" },
+  { value: "list_invitees", label: "List invitees" },
+  { value: "get_event_types", label: "Get event types" },
+  { value: "get_my_profile", label: "Get my profile" },
+  { value: "create_scheduling_link", label: "Create scheduling link" }
+] as const;
+
+export type CalendlyAction = (typeof CALENDLY_ACTION_OPTIONS)[number]["value"];
+
+/** Legacy multi-node Calendly types — still recognized for older canvases. */
+export const CALENDLY_LEGACY_TRIGGER_TYPES: Record<string, CalendlyTriggerEvent> = {
+  "trigger.calendly_meeting_booked": "meeting_booked",
+  "trigger.calendly_meeting_cancelled": "meeting_cancelled",
+  "trigger.calendly_meeting_rescheduled": "meeting_rescheduled",
+  "trigger.calendly_routing_form_submitted": "routing_form_submitted"
+};
+
 export const VOICE_TEMPLATE_NODE_ORDER: string[] = [
   VOICE_NODE_TYPES.phoneCallTrigger,
   VOICE_NODE_TYPES.voiceConversation,
@@ -337,7 +395,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: "trigger.whatsapp_message_received",
-    label: "WhatsApp Message Received",
+    label: "WhatsApp Trigger",
     category: "trigger",
     description: "Starts when a WhatsApp message arrives on a connected Meta Cloud API number.",
     requiredConfig: ["connectionId"],
@@ -655,7 +713,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: "action.send_whatsapp",
-    label: "Send WhatsApp Message",
+    label: "Send WhatsApp",
     category: "action",
     description: "Sends a WhatsApp text message via Meta Cloud API.",
     requiredConfig: ["connectionId", "recipient"],
@@ -681,7 +739,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: "communication.send_whatsapp",
-    label: "Send WhatsApp Message",
+    label: "Send WhatsApp",
     category: "action",
     description: "Sends a WhatsApp text message via Meta Cloud API (communication group).",
     requiredConfig: ["connectionId", "recipient"],
@@ -954,6 +1012,41 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     launchCritical: false,
     comingSoon: false,
     runtime: { nodeKind: "connector", connector: "Gmail", connectorAction: "draft_reply" }
+  }),
+
+  // ---- Calendly connector (one trigger + one action; options in node props) ----
+  def({
+    type: CALENDLY_NODE_TYPES.trigger,
+    label: "Calendly Trigger",
+    category: "trigger",
+    description: "Starts on a Calendly webhook event. Choose the event in node properties.",
+    requiredConfig: ["calendlyEvent"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "trigger", connector: "Calendly" },
+    defaultConfig: { calendlyEvent: "meeting_booked" },
+    producedVariables: ["calendly.invitee", "calendly.event"]
+  }),
+  def({
+    type: CALENDLY_NODE_TYPES.action,
+    label: "Calendly Action",
+    category: "integration",
+    description: "Run a Calendly API action. Choose the action in node properties.",
+    requiredConfig: ["connectorAction"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: {
+      nodeKind: "connector",
+      connector: "Calendly",
+      connectorAction: "get_my_profile"
+    },
+    defaultConfig: {
+      connectorAction: "get_my_profile",
+      calendlyTimezone: "America/New_York",
+      calendlyStatus: "active"
+    }
   }),
 
   // ---- D. Voice-booking capability nodes (generic; reusable by any use case) ----
@@ -1251,6 +1344,12 @@ const REQ = {
     ownedBy: "buyer",
     config: ["botDisplayName", "businessPhone", "calendarConnection", "ownerApproval"],
     note: "A separate managed bot is created for this business during install; Triven applies the commands and webhook automatically."
+  },
+  calendly: {
+    connector: "calendly",
+    label: "Calendly",
+    ownedBy: "buyer",
+    note: "Architect connects Calendly under the workflow builder; webhooks start meeting workflows."
   }
 } satisfies Record<string, ConnectorRequirement>;
 
@@ -1290,7 +1389,22 @@ export const REQUIRED_CONNECTORS_BY_TYPE: Record<string, ConnectorRequirement[]>
   [VOICE_NODE_TYPES.calendarAvailability]: [REQ.googleCalendarRead],
   [VOICE_NODE_TYPES.bookAppointment]: [REQ.googleCalendarWrite],
   [VOICE_NODE_TYPES.sendSms]: [REQ.twilioSms],
-  [VOICE_NODE_TYPES.sendEmail]: [REQ.trivenMail]
+  [VOICE_NODE_TYPES.sendEmail]: [REQ.trivenMail],
+  [CALENDLY_NODE_TYPES.trigger]: [REQ.calendly],
+  [CALENDLY_NODE_TYPES.action]: [REQ.calendly],
+  // Legacy Calendly node types (older canvases)
+  "trigger.calendly_meeting_booked": [REQ.calendly],
+  "trigger.calendly_meeting_cancelled": [REQ.calendly],
+  "trigger.calendly_meeting_rescheduled": [REQ.calendly],
+  "trigger.calendly_routing_form_submitted": [REQ.calendly],
+  "action.calendly_find_available_times": [REQ.calendly],
+  "action.calendly_get_event_details": [REQ.calendly],
+  "action.calendly_list_events": [REQ.calendly],
+  "action.calendly_get_invitee_details": [REQ.calendly],
+  "action.calendly_list_invitees": [REQ.calendly],
+  "action.calendly_get_event_types": [REQ.calendly],
+  "action.calendly_get_my_profile": [REQ.calendly],
+  "action.calendly_create_scheduling_link": [REQ.calendly]
 };
 
 /** Connector requirements declared by a single node type (empty when none). */

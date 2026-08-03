@@ -44,6 +44,24 @@ describe("deriveWorkflowCapabilities", () => {
     expect(caps.hasGmail).toBe(true);
     expect(caps.hasTelegram).toBe(true);
   });
+
+  it("detects Calendly without treating it as Google Calendar", () => {
+    const caps = deriveWorkflowCapabilities([
+      { data: { type: "trigger.calendly", connector: "Calendly", calendlyEvent: "meeting_booked" } }
+    ]);
+    expect(caps.hasCalendly).toBe(true);
+    expect(caps.hasCalendlyTrigger).toBe(true);
+    expect(caps.hasCalendar).toBe(false);
+  });
+
+  it("detects WhatsApp trigger and action", () => {
+    const caps = deriveWorkflowCapabilities([
+      { data: { type: "trigger.whatsapp_message_received", connector: "WhatsApp" } },
+      { data: { type: "action.send_whatsapp", connector: "WhatsApp" } }
+    ]);
+    expect(caps.hasWhatsApp).toBe(true);
+    expect(caps.hasWhatsAppTrigger).toBe(true);
+  });
 });
 
 describe("workflowHasTriggerNode", () => {
