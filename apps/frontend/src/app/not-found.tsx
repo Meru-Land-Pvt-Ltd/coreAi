@@ -17,7 +17,7 @@ const destinations = [
   {
     title: "Help Center",
     subtitle: "Get support",
-    href: "/help",
+    href: "/contact",
     icon: "help"
   },
   {
