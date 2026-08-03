@@ -643,6 +643,24 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     producedVariables: ["memory"]
   }),
   def({
+    type: "ai.image_generation",
+    label: "Image Generation",
+    category: "ai",
+    description: "Generates or improves images using AI (Gemini Imagen, DALL-E, Stability). Outputs binary image Buffer and metadata JSON.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "ai" },
+    defaultConfig: {
+      prompt: "",
+      reference_image: "",
+      model: "gemini-3.1-flash-image"
+    },
+    capability: "ai.image_generation",
+    producedVariables: ["image", "prompt", "model", "revised_prompt"]
+  }),
+  def({
     type: "action.send_sms",
     label: "Send SMS",
     category: "action",

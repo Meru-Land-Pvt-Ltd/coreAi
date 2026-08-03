@@ -56,6 +56,26 @@ class DalleAdapter implements AIProviderAdapter {
       );
 
       const imageUrl = response.data?.[0]?.url ?? "";
+      const revisedPrompt = response.data?.[0]?.revised_prompt ?? prompt;
+
+      let imageBuffer: Buffer | undefined;
+      let imageMimeType: string | undefined;
+
+      if (response.data?.[0]?.b64_json) {
+        imageBuffer = Buffer.from(response.data[0].b64_json, "base64");
+        imageMimeType = "image/png";
+      } else if (imageUrl) {
+        try {
+          const imgRes = await retryOnTransient(() => fetch(imageUrl));
+          if (imgRes.ok) {
+            const arrayBuffer = await imgRes.arrayBuffer();
+            imageBuffer = Buffer.from(arrayBuffer);
+            imageMimeType = imgRes.headers.get("content-type") ?? "image/png";
+          }
+        } catch {
+          // If fetch fails, keep imageUrl
+        }
+      }
 
       return {
         status: "success",
@@ -63,6 +83,9 @@ class DalleAdapter implements AIProviderAdapter {
         text: null,
         structuredOutput: null,
         imageUrl,
+        imageBuffer,
+        imageMimeType,
+        revisedPrompt,
         attachments: [],
         usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
         cost: {
@@ -72,7 +95,7 @@ class DalleAdapter implements AIProviderAdapter {
           model,
         },
         conversationId: null,
-        providerMetadata: { model, size },
+        providerMetadata: { model, size, revisedPrompt },
         providerId: this.providerId,
         modelName: model,
         durationMs: Date.now() - startMs,

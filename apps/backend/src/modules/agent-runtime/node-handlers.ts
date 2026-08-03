@@ -1,5 +1,6 @@
 import { type MemoryAttachment } from "../memory/memory-compression";
 import { buildSmartMemory } from "../memory/smart-memory";
+import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
 import {
   asString,
   extractTimeLabel,
@@ -441,6 +442,95 @@ const handleMemoryNode: NodeHandler = async (node, context) => {
   return { status: "executed" };
 };
 
+const handleImageGeneration: NodeHandler = async (node, context) => {
+  const promptRaw = asString(node.data?.prompt);
+  let prompt = resolveTemplate(promptRaw, context);
+
+  const model = asString(node.data?.model) || "imagen-3.0-generate-002";
+
+  // Resolve reference image for image-to-image workflows
+  let referenceImage: Buffer | string | undefined = undefined;
+  const refConfig = asString(node.data?.reference_image);
+
+  if (refConfig) {
+    const resolvedRefKey = resolveTemplate(refConfig, context);
+    const varValue = context.variables[resolvedRefKey] ?? context.variables[refConfig];
+    if (Buffer.isBuffer(varValue) || typeof varValue === "string") {
+      referenceImage = varValue;
+    }
+  }
+
+  if (!referenceImage) {
+    // Check default binary image in variables if available
+    const defaultImg = context.variables["image"];
+    if (Buffer.isBuffer(defaultImg) || typeof defaultImg === "string") {
+      referenceImage = defaultImg;
+    }
+  }
+
+  if (!prompt || !prompt.trim()) {
+    const prevOutput =
+      asString(context.variables.lastOutput) ||
+      asString(context.variables.latestMessage) ||
+      asString(context.variables.output) ||
+      asString(context.variables.text) ||
+      asString(context.variables.query) ||
+      asString(context.variables["ai.output"]) ||
+      asString(context.variables.llmOutput) ||
+      asString(context.variables.result) ||
+      asString(context.variables.message);
+
+    if (prevOutput && prevOutput.trim() && prevOutput !== "No custom message") {
+      prompt = prevOutput.trim();
+    } else {
+      prompt = referenceImage ? "Generate variation of reference image" : "Generate image";
+    }
+  }
+
+  const result = await executeImageGeneration({
+    prompt,
+    model,
+    referenceImage,
+    imageSize: asString(node.data?.imageSize) || undefined
+  });
+
+  if (result.status !== "success") {
+    log(context, node, "error", result.error || "Image generation failed.", { model, prompt });
+    return { status: "failed" };
+  }
+
+  const binaryOutput = result.imageBuffer ?? result.imageUrl ?? "";
+  const outputJson = {
+    prompt,
+    model: result.modelName || model,
+    revised_prompt: result.revisedPrompt || prompt
+  };
+
+  // Store binary and metadata JSON in context variables
+  setVariables(context, {
+    image: binaryOutput,
+    image_url: result.imageUrl ?? "",
+    prompt: outputJson.prompt,
+    model: outputJson.model,
+    revised_prompt: outputJson.revised_prompt,
+    [`node.${node.id}.image`]: binaryOutput
+  });
+
+  const nodeLabelSlug = (asString(node.data?.title ?? node.data?.label) || node.id)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
+  if (nodeLabelSlug) {
+    setVariables(context, { [`${nodeLabelSlug}.image`]: binaryOutput });
+  }
+
+  log(context, node, "success", `Generated image using ${result.modelName || model}.`, {
+    ...outputJson,
+    image: binaryOutput ? "[Binary Image Data]" : ""
+  });
+
+  return { status: "executed" };
+};
+
 const handleUnknown: NodeHandler = async (node, context) => {
   log(context, node, "waiting", "Not part of this conversation channel; skipped by the runtime.");
   return { status: "skipped" };
@@ -451,6 +541,7 @@ const HANDLERS: Record<string, NodeHandler> = {
   "trigger.sms": handleSmsTrigger,
   "ai.conversation": handleAiConversation,
   "ai.memory": handleMemoryNode,
+  "ai.image_generation": handleImageGeneration,
   "calendar.check_availability": handleCalendarAvailability,
   "calendar.book_appointment": handleBookAppointment,
   "sms.send": handleSendSms,

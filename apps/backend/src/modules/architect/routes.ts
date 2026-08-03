@@ -109,7 +109,13 @@ const voicePreviewSchema = z.object({
   text: z.string().trim().max(300).optional()
 });
 
+import { getAllModelStatuses } from "../ai-provider-engine/model-quota-manager";
+
 export const architectRoutes = new Hono();
+
+architectRoutes.get("/model-statuses", (c) => {
+  return successResponse(c, getAllModelStatuses());
+});
 
 architectRoutes.get("/connectors/gmail/callback", async (c) => {
   try {
