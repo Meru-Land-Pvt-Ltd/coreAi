@@ -71,6 +71,7 @@ export type AIExecuteRequest = {
   // Image generation
   imagePrompt?: string;
   imageSize?: string;
+  referenceImage?: Buffer | string;
 };
 
 export type AIContinueRequest = AIExecuteRequest & {
@@ -104,6 +105,9 @@ export type AIExecuteResponse = {
 
   // Image generation
   imageUrl?: string;
+  imageBuffer?: Buffer;
+  imageMimeType?: string;
+  revisedPrompt?: string;
 
   // Embeddings
   embeddings?: number[];

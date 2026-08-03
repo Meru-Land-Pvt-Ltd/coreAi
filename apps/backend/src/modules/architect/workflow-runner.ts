@@ -8,6 +8,7 @@ import {
   normalizeTimeZone,
   zonedWallClockToUtc
 } from "@coreai/shared";
+import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
 import { createTestCalendarEvent } from "./test-calendar-events";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -177,6 +178,8 @@ type RunnerNodeData = {
   kind?: unknown;
   description?: unknown;
   prompt?: unknown;
+  reference_image?: unknown;
+  imageSize?: unknown;
   connector?: unknown;
   connectorAction?: unknown;
   gmailQuery?: unknown;
@@ -509,6 +512,14 @@ type RunnerContext = {
     output: string;
     providerId: string;
     modelName: string;
+  }>;
+  /** Accumulated per-node outputs for Image Generation pipelines (ai.image_generation nodes). */
+  imagePipeline?: Record<string, {
+    label: string;
+    imageUrl: string;
+    prompt: string;
+    model: string;
+    revisedPrompt?: string;
   }>;
   [key: string]: unknown;
 };
@@ -847,6 +858,7 @@ function shouldUseProviderEngine(node: RunnerNode, mode: WorkflowRunMode): boole
   if (type === VOICE_NODE_TYPES.voiceConversation) return false;
   if (type === "ai.brain") return true;
   if (type === "ai.llm_call") return true;
+  if (type === "ai.image_generation") return true;
   if (type === "ai.context_reply") return mode === "test";
   if (Boolean(asString(node.data?.provider))) return true;
   return false;
@@ -1207,9 +1219,23 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
   }
 
   if (asString(node.data?.type) === "trigger.manual") {
+    const inputMsg =
+      asString(context.latestMessage) ||
+      asString((context.inboundSms as Record<string, unknown> | undefined)?.body) ||
+      asString(context.text) ||
+      asString(context.query) ||
+      asString(context.prompt) ||
+      "";
+
+    if (inputMsg && inputMsg !== "No custom message") {
+      context.lastOutput = inputMsg;
+      context.text = inputMsg;
+      context.output = inputMsg;
+    }
+
     logs.push(
       createLog(node, "success", "Input fired.", {
-        message: context.inboundSms?.body || context.latestMessage || "No custom message"
+        message: inputMsg || "No custom message"
       })
     );
     return;
@@ -3283,12 +3309,22 @@ function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowR
     typeof context.llmPipeline === "object" &&
     Object.keys(context.llmPipeline as Record<string, unknown>).length > 0;
 
+  const hasImagePipeline =
+    context.imagePipeline &&
+    typeof context.imagePipeline === "object" &&
+    Object.keys(context.imagePipeline as Record<string, unknown>).length > 0;
+
   context.output = {
     key: outputKey,
     value: hasLlmPipeline
       ? {
           finalOutput: context.ai?.output ?? "",
           pipeline: context.llmPipeline,
+        }
+      : hasImagePipeline
+      ? {
+          image: context.image_url ?? context.image ?? "",
+          pipeline: context.imagePipeline,
         }
       : (context.calendarAppointment ??
         context.calendarAvailability ??
@@ -3612,6 +3648,111 @@ export async function runWorkflowTest({
             continue;
           }
 
+          if (asString(node.data?.type) === "ai.image_generation") {
+            const promptRaw = asString(node.data?.prompt);
+            let prompt = renderTemplate(promptRaw, context);
+            const model = asString(node.data?.model) || "imagen-3.0-generate-002";
+            const refConfig = asString(node.data?.reference_image);
+            let referenceImage: Buffer | string | undefined = undefined;
+
+            if (refConfig) {
+              const resolvedRefKey = renderTemplate(refConfig, context);
+              const val = context[resolvedRefKey] ?? context[refConfig];
+              if (
+                Buffer.isBuffer(val) ||
+                typeof val === "string" ||
+                (typeof val === "object" && val !== null && (val as any).type === "Buffer")
+              ) {
+                referenceImage = val as any;
+              }
+            }
+            if (
+              !referenceImage &&
+              (Buffer.isBuffer(context.image) ||
+                typeof context.image === "string" ||
+                (typeof context.image === "object" && context.image !== null && (context.image as any).type === "Buffer"))
+            ) {
+              referenceImage = context.image as any;
+            }
+
+            if (!prompt || !prompt.trim()) {
+              const prevOutput =
+                asString(context.lastOutput) ||
+                asString((context.ai as Record<string, unknown> | undefined)?.output) ||
+                asString(context.latestMessage) ||
+                asString((context.inboundSms as Record<string, unknown> | undefined)?.body) ||
+                asString(context.text) ||
+                asString(context.query) ||
+                asString(context.llmOutput) ||
+                asString(context.output) ||
+                asString(context.result) ||
+                asString(context.message) ||
+                asString((context.input as Record<string, unknown> | undefined)?.message) ||
+                asString((context.input as Record<string, unknown> | undefined)?.text) ||
+                asString(context.userInput);
+
+              if (prevOutput && prevOutput.trim() && prevOutput !== "No custom message") {
+                prompt = prevOutput.trim();
+              } else {
+                prompt = referenceImage ? "Generate variation of reference image" : "Generate image";
+              }
+            }
+
+            const imgResult = await executeImageGeneration({ prompt, model, referenceImage });
+            const binaryOutput = imgResult.imageBuffer ?? imgResult.imageUrl ?? "";
+            const jsonOutput = {
+              prompt,
+              model: imgResult.modelName || model,
+              revised_prompt: imgResult.revisedPrompt || prompt
+            };
+
+            const dataUri =
+              imgResult.imageUrl ||
+              (Buffer.isBuffer(imgResult.imageBuffer)
+                ? `data:${imgResult.imageMimeType || "image/png"};base64,${imgResult.imageBuffer.toString("base64")}`
+                : String(binaryOutput));
+
+            context.image = binaryOutput;
+            context.image_url = dataUri;
+            context.prompt = jsonOutput.prompt;
+            context.model = jsonOutput.model;
+            context.revised_prompt = jsonOutput.revised_prompt;
+            context[`node.${node.id}.image`] = binaryOutput;
+
+            if (!context.imagePipeline || typeof context.imagePipeline !== "object") {
+              context.imagePipeline = {};
+            }
+            (context.imagePipeline as Record<string, unknown>)[node.id] = {
+              label: asString(node.data?.title ?? node.data?.label, node.id),
+              imageUrl: dataUri,
+              prompt,
+              model: imgResult.modelName || model,
+              revisedPrompt: imgResult.revisedPrompt || prompt,
+            };
+
+            const nodeLabelSlug = (asString(node.data?.title ?? node.data?.label) || node.id)
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "_");
+            if (nodeLabelSlug) {
+              context[`${nodeLabelSlug}.image`] = binaryOutput;
+            }
+
+            logs.push(
+              createLog(
+                node,
+                imgResult.status === "success" ? "success" : "error",
+                imgResult.status === "success"
+                  ? `Generated image using ${imgResult.modelName || model}.`
+                  : imgResult.error ?? "Image generation failed.",
+                {
+                  ...jsonOutput,
+                  image: binaryOutput ? "[Binary Image Data]" : ""
+                }
+              )
+            );
+            continue;
+          }
+
           if (shouldUseProviderEngine(node, mode)) {
             const aiConfig = toAiBrainNodeConfig(node, context);
             await deliverMemoryToAiConfig(aiConfig, context);
@@ -3632,8 +3773,9 @@ export async function runWorkflowTest({
 
             const outputText = simulatedReply ?? result.text ?? "";
 
-            // Always update context.ai so generic downstream nodes see it
+            // Always update context.ai & context.lastOutput so generic downstream nodes see it
             context.ai = { output: outputText };
+            context.lastOutput = outputText;
 
             if (isLlmCall) {
               const outputKey = asString(node.data?.llmOutputKey, "ai.output");

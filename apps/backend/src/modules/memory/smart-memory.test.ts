@@ -38,42 +38,23 @@ function makeTimelineRecord(overrides: Partial<TimelineRecord> = {}): TimelineRe
 }
 
 function makeFakeDeps(options: {
-  storedTokens?: number;
   searchResults?: StoredMemoryChunk[];
   timelineRecords?: TimelineRecord[];
-  totalChunks?: number;
   totalRecords?: number;
   storeError?: boolean;
   searchError?: boolean;
-  /** Sequence of {embedded, pending} returned by successive embed calls. */
-  embedSequence?: Array<{ embedded: number; pending: number }>;
 }) {
   const calls = {
     storedRecords: [] as MemoryRecordDraft[],
     searchQueries: [] as string[],
-    searchTopK: [] as number[],
-    embedCalls: 0,
-    pruneCalls: 0,
-    retentionCalls: 0
+    searchTopK: [] as number[]
   };
-  const embedSequence = options.embedSequence ? [...options.embedSequence] : null;
 
   const deps: SmartMemoryDeps = {
     async storeCorpus(records) {
       if (options.storeError) throw new Error("db down");
       calls.storedRecords.push(...records);
       return { newRecords: records.length, newChunks: records.reduce((sum, r) => sum + r.chunks.length, 0) };
-    },
-    async sumStoredTokens() {
-      return options.storedTokens ?? 0;
-    },
-    async pruneScope() {
-      calls.pruneCalls += 1;
-    },
-    async embedPendingChunks() {
-      calls.embedCalls += 1;
-      if (embedSequence && embedSequence.length > 0) return embedSequence.shift()!;
-      return { embedded: 0, pending: 0 };
     },
     async searchChunks(_scopeKey, query, topK) {
       if (options.searchError) throw new Error("similarity retrieval unavailable");
@@ -84,14 +65,8 @@ function makeFakeDeps(options: {
     async sampleRecordsForTimeline() {
       return options.timelineRecords ?? [];
     },
-    async countChunks() {
-      return options.totalChunks ?? (options.searchResults?.length ?? 1);
-    },
     async countRecords() {
       return options.totalRecords ?? 10;
-    },
-    async enforceRetention() {
-      calls.retentionCalls += 1;
     }
   };
 
@@ -113,8 +88,6 @@ const BASE_INPUT: SmartMemoryInput = {
   customNotes: "Always mention the free first consult.",
   scope: { businessId: "biz_1", installedAgentId: "agent_1", workflowId: "wf_1", nodeId: "node_memory", callerKey: "+15550100" }
 };
-
-const flushBackground = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("scope isolation", () => {
   test("two businesses using the same workflow never share a scope", () => {
@@ -227,11 +200,10 @@ describe("chunking and drafts", () => {
 
 describe("store path", () => {
   test("always returns the byte-for-byte raw compact string", async () => {
-    const { deps, calls } = makeFakeDeps({ storedTokens: 100 });
+    const { deps, calls } = makeFakeDeps({});
     const builder = createSmartMemoryBuilder(deps);
 
     const result = await builder.store(BASE_INPUT);
-    await flushBackground();
 
     const expected = buildCompactMemoryString({
       executedNodes: BASE_INPUT.executedNodes,
@@ -240,20 +212,24 @@ describe("store path", () => {
       customNotes: BASE_INPUT.customNotes
     });
     expect(result.memory).toBe(expected);
-    expect(result.overThreshold).toBe(false);
     expect(calls.storedRecords.length).toBeGreaterThan(0);
-    // Embedding + retention fire in the background at store time.
-    expect(calls.embedCalls).toBe(1);
-    expect(calls.retentionCalls).toBe(1);
   });
 
   test("duplicate content is deduped at the record level by hash", async () => {
-    const { calls } = makeFakeDeps({});
-    void calls;
     const pieces = await buildCorpusPieces(BASE_INPUT);
     const drafts = corpusToRecordDrafts(pieces, BASE_INPUT.scope, buildScopeKey(BASE_INPUT.scope));
     const again = corpusToRecordDrafts(pieces, BASE_INPUT.scope, buildScopeKey(BASE_INPUT.scope));
     expect(drafts.map((d) => d.contentHash)).toEqual(again.map((d) => d.contentHash));
+  });
+
+  test("empty or blank input returns zero stored records cleanly", async () => {
+    const { deps, calls } = makeFakeDeps({});
+    const builder = createSmartMemoryBuilder(deps);
+    const result = await builder.store({
+      scope: { businessId: "biz_1", workflowId: "wf_1", nodeId: "n1" }
+    });
+    expect(result.storedRecords).toBe(0);
+    expect(calls.storedRecords.length).toBe(0);
   });
 
   test("a broken database never breaks the node — raw string comes back", async () => {
@@ -269,23 +245,11 @@ describe("store path", () => {
 describe("resolve path (AI consumer)", () => {
   const RAW = "=== MEMORY ===\n\n[PREVIOUS STEPS]\n[Research]\nRaw memory body";
 
-  test("under the threshold returns the raw string untouched", async () => {
-    const { deps, calls } = makeFakeDeps({ storedTokens: 500 });
-    const builder = createSmartMemoryBuilder(deps);
-    const result = await builder.resolveForQuery({ scopeKey: "s", query: "anything", rawMemory: RAW });
-    expect(result).toEqual({ memory: RAW, mode: "raw", retrievedChunks: 0 });
-    expect(calls.searchQueries).toHaveLength(0);
-    expect(calls.embedCalls).toBe(0);
-  });
-
-  test("over the threshold uses the AI node's instruction as the search query, top-20", async () => {
+  test("uses the AI node's instruction as the search query", async () => {
     const { deps, calls } = makeFakeDeps({
-      storedTokens: 2_000_000,
       searchResults: [makeChunk({ id: "h1", content: "Implants start at $1,900 with financing." })],
       timelineRecords: [makeTimelineRecord()],
-      totalChunks: 3000,
-      totalRecords: 800,
-      embedSequence: [{ embedded: 0, pending: 0 }]
+      totalRecords: 800
     });
     const builder = createSmartMemoryBuilder(deps);
 
@@ -301,52 +265,13 @@ describe("resolve path (AI consumer)", () => {
     expect(result.memory).toContain("[TIMELINE SUMMARY]");
     expect(result.memory).toContain("Intake form");
     expect(calls.searchQueries).toEqual(["You are a dental receptionist. Answer pricing questions about implants."]);
-    expect(calls.searchTopK).toEqual([20]);
-  });
-
-  test("keeps embedding in rounds until a large backlog (>256 chunks) is fully embedded", async () => {
-    const { deps, calls } = makeFakeDeps({
-      storedTokens: 2_000_000,
-      embedSequence: [
-        { embedded: 256, pending: 400 },
-        { embedded: 256, pending: 144 },
-        { embedded: 144, pending: 0 }
-      ]
-    });
-    const builder = createSmartMemoryBuilder(deps);
-    const result = await builder.resolveForQuery({ scopeKey: "s", query: "q", rawMemory: RAW });
-    expect(result.mode).toBe("vector");
-    expect(calls.embedCalls).toBe(3);
-  });
-
-  test("never searches a partially-embedded scope — falls back to raw", async () => {
-    const { deps, calls } = makeFakeDeps({
-      storedTokens: 2_000_000,
-      embedSequence: [{ embedded: 0, pending: 950 }]
-    });
-    const builder = createSmartMemoryBuilder(deps);
-    const result = await builder.resolveForQuery({ scopeKey: "s", query: "q", rawMemory: RAW });
-    expect(result.mode).toBe("raw_fallback");
-    expect(result.memory).toBe(RAW);
-    expect(calls.searchQueries).toHaveLength(0);
   });
 
   test("similarity search failure falls back to the raw string", async () => {
-    const { deps } = makeFakeDeps({ storedTokens: 2_000_000, searchError: true });
+    const { deps } = makeFakeDeps({ searchError: true });
     const builder = createSmartMemoryBuilder(deps);
     const result = await builder.resolveForQuery({ scopeKey: "s", query: "q", rawMemory: RAW });
     expect(result.mode).toBe("raw_fallback");
-    expect(result.memory).toBe(RAW);
-  });
-
-  test("database failure falls back to the raw string", async () => {
-    const { deps } = makeFakeDeps({});
-    deps.sumStoredTokens = async () => {
-      throw new Error("db down");
-    };
-    const builder = createSmartMemoryBuilder(deps);
-    const result = await builder.resolveForQuery({ scopeKey: "s", query: "q", rawMemory: RAW });
-    expect(result.mode).toBe("raw");
     expect(result.memory).toBe(RAW);
   });
 });

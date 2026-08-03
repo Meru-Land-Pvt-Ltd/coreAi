@@ -45,6 +45,7 @@
     "@langchain/google-genai": "^2.2.0",
     "@langchain/langgraph": "^1.4.8",
     "@langchain/openai": "^1.5.5",
+    "@pinecone-database/pinecone": "^8.2.0",
     "@prisma/client": "6.19.0",
     "bullmq": "^5.80.2",
     "country-state-city": "^3.2.1",

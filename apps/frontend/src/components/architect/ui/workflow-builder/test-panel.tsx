@@ -259,6 +259,14 @@ export function TestPanel({
     Object.keys(runContext.llmPipeline).length > 0
   );
 
+  const hasImagePipeline = Boolean(
+    (runContext.imagePipeline &&
+      typeof runContext.imagePipeline === "object" &&
+      Object.keys(runContext.imagePipeline).length > 0) ||
+      (runContext.image && (typeof runContext.image === "string" || (typeof runContext.image === "object" && (runContext.image as any)?.type === "Buffer"))) ||
+      (runContext.image_url && typeof runContext.image_url === "string")
+  );
+
   const hasResult = Boolean(
     sentSms ||
       draftEmail ||
@@ -267,7 +275,7 @@ export function TestPanel({
       vapiCall ||
       calendarAppointment ||
       hasVoiceResult ||
-      hasLlmPipeline ||
+      hasLlmPipeline || hasImagePipeline ||
       calendlyResult ||
       (runLogs.length > 0 && !needsCalendlyConnection) ||
       (runLogs.length > 0 && needsWhatsAppConnection)
@@ -1052,7 +1060,7 @@ export function TestPanel({
         {hasResult ? (
           <div className="mt-5 pb-2">
             <h3 className="mb-3 text-[13px] font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-has-gmail-flow-email-result-message-the-heading">
-              {hasLlmPipeline
+              {hasImagePipeline ? "Generated Image Results" : hasLlmPipeline
                 ? "LLM Pipeline Results"
                 : hasVoiceResult
                   ? "Voice booking result"
@@ -1063,11 +1071,84 @@ export function TestPanel({
                       : "Message preview"}
             </h3>
             <div className="shadow-soft flex items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 min-w-0 max-w-full overflow-hidden">
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${hasLlmPipeline ? "bg-violet-50 text-violet-600" : calendlyResult ? "bg-sky-50 text-[#006BFF]" : "bg-green-50 text-green-600"}`}>
-                <BuilderIcon name={hasLlmPipeline ? "sparkles" : hasVoiceResult ? "phone-call" : hasGmailFlow ? "mail" : calendlyResult ? "calendar" : "message"} className="h-5 w-5" />
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${hasImagePipeline || hasLlmPipeline ? "bg-violet-50 text-violet-600" : calendlyResult ? "bg-sky-50 text-[#006BFF]" : "bg-green-50 text-green-600"}`}>
+                <BuilderIcon name={hasImagePipeline ? "image" : hasLlmPipeline ? "sparkles" : hasVoiceResult ? "phone-call" : hasGmailFlow ? "mail" : calendlyResult ? "calendar" : "message"} className="h-5 w-5" />
               </div>
               <div className="flex-1 min-w-0 max-w-full">
-                {hasLlmPipeline ? (
+                {hasImagePipeline ? (
+                  <div className="space-y-4 min-w-0 max-w-full" data-testid="test-panel-image-pipeline-results">
+                    <div className="min-w-0 max-w-full">
+                      {(() => {
+                        const rawPipeline = runContext.imagePipeline && typeof runContext.imagePipeline === "object"
+                          ? Object.values(runContext.imagePipeline as Record<string, any>)
+                          : [];
+
+                        const steps = rawPipeline.length > 0
+                          ? rawPipeline
+                          : [{
+                              label: "Image Generation",
+                              imageUrl: typeof runContext.image_url === "string"
+                                ? runContext.image_url
+                                : typeof runContext.image === "string"
+                                  ? runContext.image
+                                  : (runContext.image && (runContext.image as any)?.type === "Buffer" && Array.isArray((runContext.image as any)?.data))
+                                    ? `data:image/png;base64,${Buffer.from((runContext.image as any).data).toString("base64")}`
+                                    : "",
+                              prompt: typeof runContext.prompt === "string" ? runContext.prompt : "",
+                              model: typeof runContext.model === "string" ? runContext.model : ""
+                            }];
+
+                        return steps.map((step, idx) => {
+                          const imgSrc = step.imageUrl || (typeof step.image === "string" ? step.image : "");
+                          return (
+                            <div key={idx} className="mb-4 last:mb-0 rounded-2xl border border-violet-100 bg-violet-50/10 p-5 min-w-0 max-w-full overflow-hidden shadow-xs">
+                              <div className="flex items-center justify-between border-b border-violet-100 pb-3 gap-2 flex-wrap sm:flex-nowrap">
+                                <span className="text-xs font-bold text-violet-950 truncate min-w-0">{step.label || "Generated Image"}</span>
+                                {step.model ? (
+                                  <span className="font-mono text-[10px] font-semibold text-violet-700 bg-violet-100/80 px-2.5 py-1 rounded-full shrink-0">
+                                    {step.model}
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              {imgSrc ? (
+                                <div className="mt-4 space-y-3">
+                                  <div className="relative group max-w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-900/5 p-1 shadow-sm flex items-center justify-center">
+                                    <img
+                                      src={imgSrc}
+                                      alt={step.prompt || "Generated image preview"}
+                                      className="max-h-80 w-auto rounded-lg object-contain"
+                                    />
+                                  </div>
+
+                                  <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap pt-1">
+                                    {step.prompt ? (
+                                      <p className="text-xs text-slate-600 italic flex-1 min-w-0 break-words">&ldquo;{step.prompt}&rdquo;</p>
+                                    ) : <span className="flex-1" />}
+
+                                    <a
+                                      href={imgSrc}
+                                      download={`generated-image-${idx + 1}.png`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      data-testid="test-panel-download-image-btn"
+                                      className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-violet-700 shadow-sm shrink-0"
+                                    >
+                                      <BuilderIcon name="image" className="h-3.5 w-3.5" />
+                                      Download Image
+                                    </a>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="mt-3 text-xs text-slate-500">Image buffer generated successfully.</p>
+                              )}
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                ) : hasLlmPipeline ? (
                   <div className="space-y-4 min-w-0 max-w-full" data-testid="test-panel-llm-pipeline-results">
                     <div className="min-w-0 max-w-full">
                       {Object.values(runContext.llmPipeline as Record<string, any>).map((step, idx) => (

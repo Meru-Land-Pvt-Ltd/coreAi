@@ -22,6 +22,10 @@ export function getArchitectSummary() {
   return apiGet<ArchitectSummary>("/architect/summary");
 }
 
+export function getModelStatusesFromBackend() {
+  return apiGet<Record<string, { available: boolean; disabledReason?: string; hasKey: boolean; isQuotaExceeded: boolean }>>("/architect/model-statuses");
+}
+
 export type ArchitectAgentsStats = {
   totalAgents: number;
   agentsAddedThisMonth: number;
