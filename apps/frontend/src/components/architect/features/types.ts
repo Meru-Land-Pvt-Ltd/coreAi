@@ -202,6 +202,13 @@ export type CalendlyConnectorStatus = {
   organizationUri: string | null;
 };
 
+/** Option for Calendly event-type / event / invitee pickers. */
+export type CalendlyPickerOption = {
+  value: string;
+  label: string;
+  uri: string;
+};
+
 /** Frontend-safe config for a Vapi-powered browser call test session. */
 export type ArchitectVapiBrowserTestSession = {
   publicKey: string;

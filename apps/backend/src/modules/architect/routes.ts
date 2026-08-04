@@ -27,7 +27,11 @@ import {
   disconnectCalendly,
   getCalendlyConnectionStatus,
   getCalendlyOAuthRedirectPath,
-  handleCalendlyOAuthCallback
+  handleCalendlyOAuthCallback,
+  listCalendlyEventOptions,
+  listCalendlyEventTypeOptions,
+  listCalendlyAvailableTimeOptions,
+  listCalendlyInviteeOptions
 } from "../calendly/calendly-connector";
 import { GOOGLE_CALENDAR_INTEGRATION } from "@coreai/shared";
 import {
@@ -990,10 +994,24 @@ const workflowRunInputSchema = z.object({
   calendlyEndTime: z.string().trim().optional(),
   calendlyStatus: z.string().trim().optional(),
   calendlyTimezone: z.string().trim().optional(),
+  calendlyCancelReason: z.string().trim().optional(),
+  calendlyContactUuid: z.string().trim().optional(),
+  calendlyContactEmail: z.string().trim().optional(),
+  calendlyContactFirstName: z.string().trim().optional(),
+  calendlyContactLastName: z.string().trim().optional(),
+  calendlyContactName: z.string().trim().optional(),
+  calendlyDurationMinutes: z.string().trim().optional(),
+  calendlyOneOffStartDate: z.string().trim().optional(),
+  calendlyOneOffEndDate: z.string().trim().optional(),
+  calendlyMeetingRecapUuid: z.string().trim().optional(),
+  calendlyUserSearch: z.string().trim().optional(),
+  calendlyUserUuid: z.string().trim().optional(),
   calendlyTriggerEvent: z.string().trim().optional(),
   calendlyInviteeName: z.string().trim().optional(),
   calendlyInviteeEmail: z.string().trim().optional(),
   calendlyMeetingName: z.string().trim().optional(),
+  calendlyLocationKind: z.string().trim().optional(),
+  calendlyLocation: z.string().trim().optional(),
   triggerType: z.string().trim().optional(),
   calendly: z.record(z.string(), z.unknown()).optional(),
   whatsapp: z
@@ -1383,6 +1401,79 @@ architectRoutes.delete("/connectors/calendly", async (c) => {
   const authUser = c.get("authUser");
   await disconnectCalendly(authUser.id);
   return successResponse(c, null, "Calendly disconnected");
+});
+
+architectRoutes.get("/connectors/calendly/event-types", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const options = await listCalendlyEventTypeOptions(authUser.id);
+    return successResponse(c, { options });
+  } catch (error) {
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not load Calendly event types",
+      500,
+      "CALENDLY_EVENT_TYPES_FAILED"
+    );
+  }
+});
+
+architectRoutes.get("/connectors/calendly/available-times", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const eventTypeUri = c.req.query("eventTypeUri")?.trim();
+    if (!eventTypeUri) {
+      return errorResponse(c, "Event type URI is required", 400, "CALENDLY_EVENT_TYPE_REQUIRED");
+    }
+    const startTime = c.req.query("startTime")?.trim() || undefined;
+    const endTime = c.req.query("endTime")?.trim() || undefined;
+    const options = await listCalendlyAvailableTimeOptions(authUser.id, eventTypeUri, {
+      startTime,
+      endTime
+    });
+    return successResponse(c, { options });
+  } catch (error) {
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not load Calendly available times",
+      500,
+      "CALENDLY_AVAILABLE_TIMES_FAILED"
+    );
+  }
+});
+
+architectRoutes.get("/connectors/calendly/events", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const options = await listCalendlyEventOptions(authUser.id);
+    return successResponse(c, { options });
+  } catch (error) {
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not load Calendly events",
+      500,
+      "CALENDLY_EVENTS_FAILED"
+    );
+  }
+});
+
+architectRoutes.get("/connectors/calendly/events/:eventUuid/invitees", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const eventUuid = c.req.param("eventUuid")?.trim();
+    if (!eventUuid) {
+      return errorResponse(c, "Event UUID is required", 400, "CALENDLY_EVENT_UUID_REQUIRED");
+    }
+    const options = await listCalendlyInviteeOptions(authUser.id, eventUuid);
+    return successResponse(c, { options });
+  } catch (error) {
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not load Calendly invitees",
+      500,
+      "CALENDLY_INVITEES_FAILED"
+    );
+  }
 });
 
 architectRoutes.post("/connectors/twilio/business-installations", async (c) => {

@@ -13,6 +13,7 @@ export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
     callForwarding: false,
     answeringMode: false,
     calendar: false,
+    calendly: false,
     mail: false,
     telegram: false,
     smsNote: false,
@@ -102,6 +103,30 @@ export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
       hours: true,
       bookingRules: true,
       calendarTest: true
+    },
+    "trigger.calendly": {
+      calendly: true
+    },
+    "action.calendly": {
+      calendly: true
+    },
+    "trigger.calendly_meeting_booked": {
+      calendly: true
+    },
+    "trigger.calendly_meeting_cancelled": {
+      calendly: true
+    },
+    "trigger.calendly_meeting_rescheduled": {
+      calendly: true
+    },
+    "trigger.calendly_routing_form_submitted": {
+      calendly: true
+    },
+    "action.calendly_find_available_times": {
+      calendly: true
+    },
+    "action.calendly_create_scheduling_link": {
+      calendly: true
     },
     "integration.gmail_send_email": {
       mail: true

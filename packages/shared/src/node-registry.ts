@@ -131,17 +131,87 @@ export type CalendlyTriggerEvent = (typeof CALENDLY_TRIGGER_EVENTS)[number]["val
 
 /** Action options for `action.calendly` (`data.connectorAction`). */
 export const CALENDLY_ACTION_OPTIONS = [
-  { value: "find_available_times", label: "Find available times" },
-  { value: "get_event", label: "Get event details" },
-  { value: "list_events", label: "List events" },
-  { value: "get_invitee", label: "Get invitee details" },
-  { value: "list_invitees", label: "List invitees" },
-  { value: "get_event_types", label: "Get event types" },
-  { value: "get_my_profile", label: "Get my profile" },
-  { value: "create_scheduling_link", label: "Create scheduling link" }
+  // Existing / read helpers
+  { value: "find_available_times", label: "Find available times", requiresPaidPlan: false },
+  { value: "get_event", label: "Get event details", requiresPaidPlan: false },
+  { value: "list_events", label: "List events", requiresPaidPlan: false },
+  { value: "get_invitee", label: "Get invitee details", requiresPaidPlan: false },
+  { value: "list_invitees", label: "List invitees", requiresPaidPlan: false },
+  { value: "get_event_types", label: "Get event types", requiresPaidPlan: false },
+  { value: "get_my_profile", label: "Get my profile", requiresPaidPlan: false },
+  { value: "create_scheduling_link", label: "Create scheduling link", requiresPaidPlan: false },
+  // CREATE
+  {
+    value: "book_meeting_for_invitee",
+    label: "Book meeting for invitee",
+    requiresPaidPlan: true,
+    paidPlanNote: "Requires a paid Calendly plan (Scheduling API)."
+  },
+  { value: "cancel_event", label: "Cancel an event", requiresPaidPlan: false },
+  { value: "cancel_scheduled_event", label: "Cancel scheduled event", requiresPaidPlan: false },
+  {
+    value: "create_contact",
+    label: "Create contact",
+    requiresPaidPlan: true,
+    paidPlanNote: "Requires a paid Calendly plan with Contacts."
+  },
+  { value: "create_one_off_meeting_link", label: "Create one-off meeting link", requiresPaidPlan: false },
+  {
+    value: "delete_contact",
+    label: "Delete contact",
+    requiresPaidPlan: true,
+    paidPlanNote: "Requires a paid Calendly plan with Contacts."
+  },
+  { value: "mark_invitee_no_show", label: "Mark invitee as no show", requiresPaidPlan: false },
+  {
+    value: "update_contact",
+    label: "Update contact",
+    requiresPaidPlan: true,
+    paidPlanNote: "Requires a paid Calendly plan with Contacts."
+  },
+  // SEARCH
+  {
+    value: "find_contact",
+    label: "Find contact",
+    requiresPaidPlan: true,
+    paidPlanNote: "Requires a paid Calendly plan with Contacts."
+  },
+  { value: "find_event", label: "Find event", requiresPaidPlan: false },
+  { value: "find_invitee_by_email", label: "Find invitee by email", requiresPaidPlan: false },
+  {
+    value: "find_meeting_recap",
+    label: "Find meeting recap",
+    requiresPaidPlan: true,
+    paidPlanNote: "Requires a paid Calendly plan with Notetaker."
+  },
+  {
+    value: "find_meeting_recap_transcript",
+    label: "Find meeting recap transcript",
+    requiresPaidPlan: true,
+    paidPlanNote: "Requires a paid Calendly plan with Notetaker."
+  },
+  { value: "find_user", label: "Find user", requiresPaidPlan: false },
+  {
+    value: "list_contacts",
+    label: "List contacts",
+    requiresPaidPlan: true,
+    paidPlanNote: "Requires a paid Calendly plan with Contacts."
+  }
 ] as const;
 
 export type CalendlyAction = (typeof CALENDLY_ACTION_OPTIONS)[number]["value"];
+
+export function getCalendlyActionOption(action: string) {
+  return CALENDLY_ACTION_OPTIONS.find((option) => option.value === action);
+}
+
+export function calendlyActionPaidPlanNote(action: string): string | null {
+  const option = getCalendlyActionOption(action);
+  if (!option || !option.requiresPaidPlan) return null;
+  return "paidPlanNote" in option && typeof option.paidPlanNote === "string"
+    ? option.paidPlanNote
+    : "Requires a paid Calendly plan.";
+}
 
 /** Legacy multi-node Calendly types — still recognized for older canvases. */
 export const CALENDLY_LEGACY_TRIGGER_TYPES: Record<string, CalendlyTriggerEvent> = {
@@ -1376,7 +1446,7 @@ const REQ = {
     connector: "calendly",
     label: "Calendly",
     ownedBy: "buyer",
-    note: "Architect connects Calendly under the workflow builder; webhooks start meeting workflows."
+    note: "Business connects Calendly during agent setup; webhooks start meeting workflows for that account."
   }
 } satisfies Record<string, ConnectorRequirement>;
 

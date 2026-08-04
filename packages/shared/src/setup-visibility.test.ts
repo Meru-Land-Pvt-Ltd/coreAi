@@ -111,4 +111,16 @@ describe("setup-visibility engine", () => {
     expect(visibility.calendar).toBe(true);
     expect(visibility.phone).toBe(true);
   });
+
+  it("derives calendly setup visibility from connector and nodes", () => {
+    const fromConnector = deriveSetupVisibility({ nodes: [] }, ["calendly"]);
+    expect(fromConnector.calendly).toBe(true);
+    expect(fromConnector.calendar).toBe(false);
+    expect(getSetupValidationPlan(fromConnector).requireCalendly).toBe(true);
+
+    const fromNodes = deriveSetupVisibility({
+      nodes: [{ data: { type: "trigger.calendly" } }, { data: { type: "action.calendly" } }]
+    });
+    expect(fromNodes.calendly).toBe(true);
+  });
 });

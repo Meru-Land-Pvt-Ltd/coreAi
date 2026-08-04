@@ -749,10 +749,24 @@ export function runArchitectWorkflowTest(
       calendlyEndTime?: string;
       calendlyStatus?: string;
       calendlyTimezone?: string;
+      calendlyCancelReason?: string;
+      calendlyContactUuid?: string;
+      calendlyContactEmail?: string;
+      calendlyContactFirstName?: string;
+      calendlyContactLastName?: string;
+      calendlyContactName?: string;
+      calendlyDurationMinutes?: string;
+      calendlyOneOffStartDate?: string;
+      calendlyOneOffEndDate?: string;
+      calendlyMeetingRecapUuid?: string;
+      calendlyUserSearch?: string;
+      calendlyUserUuid?: string;
       calendlyTriggerEvent?: string;
       calendlyInviteeName?: string;
       calendlyInviteeEmail?: string;
       calendlyMeetingName?: string;
+      calendlyLocationKind?: string;
+      calendlyLocation?: string;
       triggerType?: string;
     };
   } = {}
@@ -966,6 +980,33 @@ export function getCalendlyOAuthUrl(redirectPath?: string) {
 
 export function disconnectCalendlyConnector() {
   return apiDelete<null>("/architect/connectors/calendly");
+}
+
+export function listCalendlyEventTypes() {
+  return apiGet<{ options: import("./types").CalendlyPickerOption[] }>(
+    "/architect/connectors/calendly/event-types"
+  );
+}
+
+export function listCalendlyEvents() {
+  return apiGet<{ options: import("./types").CalendlyPickerOption[] }>(
+    "/architect/connectors/calendly/events"
+  );
+}
+
+export function listCalendlyInvitees(eventUuid: string) {
+  return apiGet<{ options: import("./types").CalendlyPickerOption[] }>(
+    `/architect/connectors/calendly/events/${encodeURIComponent(eventUuid)}/invitees`
+  );
+}
+
+export function listCalendlyAvailableTimes(eventTypeUri: string, range?: { startTime?: string; endTime?: string }) {
+  const params = new URLSearchParams({ eventTypeUri });
+  if (range?.startTime) params.set("startTime", range.startTime);
+  if (range?.endTime) params.set("endTime", range.endTime);
+  return apiGet<{ options: import("./types").CalendlyPickerOption[] }>(
+    `/architect/connectors/calendly/available-times?${params.toString()}`
+  );
 }
 
 export function createTwilioBusinessInstallation(body: {

@@ -158,14 +158,36 @@ async function calendlyApiRequest<T>(
       ...(init?.headers ?? {})
     }
   });
-  const json = (await response.json().catch(() => ({}))) as T & {
+
+  if (response.status === 204 || response.status === 205) {
+    if (!response.ok) {
+      throw new Error(`Calendly API error (${response.status})`);
+    }
+    return {} as T;
+  }
+
+  const text = await response.text();
+  const json = (text ? JSON.parse(text) : {}) as T & {
     message?: string;
     title?: string;
+    details?: Array<{ parameter?: string; message?: string; code?: string }>;
   };
   if (!response.ok) {
+    const detailText = Array.isArray(json.details)
+      ? json.details
+          .map((detail) => {
+            const parameter = detail.parameter?.trim();
+            const detailMessage = detail.message?.trim();
+            if (parameter && detailMessage) return `${parameter}: ${detailMessage}`;
+            return detailMessage || parameter || "";
+          })
+          .filter(Boolean)
+          .join("; ")
+      : "";
     const message =
-      (json as { message?: string }).message ||
-      (json as { title?: string }).title ||
+      detailText ||
+      json.message ||
+      json.title ||
       `Calendly API error (${response.status})`;
     throw new Error(message);
   }
@@ -391,15 +413,27 @@ export async function calendlyListEventTypes(userId: string) {
 
 export async function calendlyListEvents(
   userId: string,
-  input: { minStartTime?: string; maxStartTime?: string; status?: string }
+  input: {
+    minStartTime?: string;
+    maxStartTime?: string;
+    status?: string;
+    inviteeEmail?: string;
+    eventTypeUri?: string;
+    count?: number;
+  }
 ) {
   const status = await getCalendlyConnectionStatus(userId);
   if (!status.userUri) throw new Error("Calendly user URI missing — reconnect Calendly");
   const token = await getValidAccessToken(userId);
-  const params = new URLSearchParams({ user: status.userUri, count: "100" });
+  const params = new URLSearchParams({
+    user: status.userUri,
+    count: String(input.count && input.count > 0 ? Math.min(input.count, 100) : 100)
+  });
   if (input.minStartTime) params.set("min_start_time", input.minStartTime);
   if (input.maxStartTime) params.set("max_start_time", input.maxStartTime);
   if (input.status) params.set("status", input.status);
+  if (input.inviteeEmail) params.set("invitee_email", input.inviteeEmail);
+  if (input.eventTypeUri) params.set("event_type", input.eventTypeUri);
   return calendlyApiRequest<{ collection: Array<Record<string, unknown>> }>(
     token,
     `/scheduled_events?${params.toString()}`
@@ -463,6 +497,414 @@ export async function calendlyCreateSchedulingLink(userId: string, eventTypeUri:
       owner_type: "EventType"
     })
   });
+}
+
+function inviteeUriFromIds(eventUuid: string, inviteeUuid: string) {
+  return `${CALENDLY_API_BASE}/scheduled_events/${encodeURIComponent(eventUuid)}/invitees/${encodeURIComponent(inviteeUuid)}`;
+}
+
+/** Book a meeting by creating an invitee (Scheduling API — paid plans). */
+export async function calendlyBookMeetingForInvitee(
+  userId: string,
+  input: {
+    eventTypeUri: string;
+    startTime: string;
+    inviteeName: string;
+    inviteeEmail: string;
+    timezone?: string;
+  }
+) {
+  const token = await getValidAccessToken(userId);
+  return calendlyApiRequest<{ resource: Record<string, unknown> }>(token, "/invitees", {
+    method: "POST",
+    body: JSON.stringify({
+      event_type: input.eventTypeUri,
+      start_time: input.startTime,
+      invitee: {
+        name: input.inviteeName,
+        email: input.inviteeEmail,
+        timezone: input.timezone || "UTC"
+      }
+    })
+  });
+}
+
+export async function calendlyCancelScheduledEvent(
+  userId: string,
+  eventUuid: string,
+  reason?: string
+) {
+  const token = await getValidAccessToken(userId);
+  const body =
+    reason && reason.trim()
+      ? JSON.stringify({ reason: reason.trim() })
+      : JSON.stringify({});
+  return calendlyApiRequest<{ resource: Record<string, unknown> }>(
+    token,
+    `/scheduled_events/${encodeURIComponent(eventUuid)}/cancellation`,
+    { method: "POST", body }
+  );
+}
+
+export async function calendlyCreateContact(
+  userId: string,
+  input: { email: string; firstName?: string; lastName?: string; name?: string }
+) {
+  const status = await getCalendlyConnectionStatus(userId);
+  if (!status.organizationUri) {
+    throw new Error("Calendly organization URI missing — reconnect Calendly");
+  }
+  const token = await getValidAccessToken(userId);
+  const payload: Record<string, unknown> = {
+    organization: status.organizationUri,
+    email: input.email
+  };
+  if (input.firstName) payload.first_name = input.firstName;
+  if (input.lastName) payload.last_name = input.lastName;
+  if (input.name) payload.name = input.name;
+  return calendlyApiRequest<{ resource: Record<string, unknown> }>(token, "/contacts", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function calendlyUpdateContact(
+  userId: string,
+  contactUuid: string,
+  input: { email?: string; firstName?: string; lastName?: string; name?: string }
+) {
+  const token = await getValidAccessToken(userId);
+  const payload: Record<string, unknown> = {};
+  if (input.email) payload.email = input.email;
+  if (input.firstName) payload.first_name = input.firstName;
+  if (input.lastName) payload.last_name = input.lastName;
+  if (input.name) payload.name = input.name;
+  return calendlyApiRequest<{ resource: Record<string, unknown> }>(
+    token,
+    `/contacts/${encodeURIComponent(contactUuid)}`,
+    { method: "PATCH", body: JSON.stringify(payload) }
+  );
+}
+
+export async function calendlyDeleteContact(userId: string, contactUuid: string) {
+  const token = await getValidAccessToken(userId);
+  return calendlyApiRequest<Record<string, unknown>>(
+    token,
+    `/contacts/${encodeURIComponent(contactUuid)}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function calendlyGetContact(userId: string, contactUuid: string) {
+  const token = await getValidAccessToken(userId);
+  return calendlyApiRequest<{ resource: Record<string, unknown> }>(
+    token,
+    `/contacts/${encodeURIComponent(contactUuid)}`
+  );
+}
+
+export async function calendlyListContacts(userId: string) {
+  const status = await getCalendlyConnectionStatus(userId);
+  if (!status.organizationUri) {
+    throw new Error("Calendly organization URI missing — reconnect Calendly");
+  }
+  const token = await getValidAccessToken(userId);
+  const params = new URLSearchParams({
+    organization: status.organizationUri,
+    count: "100"
+  });
+  return calendlyApiRequest<{ collection: Array<Record<string, unknown>> }>(
+    token,
+    `/contacts?${params.toString()}`
+  );
+}
+
+export async function calendlyCreateOneOffMeetingLink(
+  userId: string,
+  input: {
+    name: string;
+    durationMinutes: number;
+    startDate: string;
+    endDate: string;
+    timezone?: string;
+    locationKind?: string;
+    location?: string;
+  }
+) {
+  const status = await getCalendlyConnectionStatus(userId);
+  const token = await getValidAccessToken(userId);
+
+  // Prefer a live /users/me URI — stale metadata host values cause invalid-parameter errors.
+  const me = await calendlyApiRequest<{ resource?: { uri?: string; timezone?: string } }>(
+    token,
+    "/users/me"
+  );
+  const hostUri =
+    (typeof me.resource?.uri === "string" && me.resource.uri.trim()) || status.userUri || "";
+  if (!hostUri) throw new Error("Calendly user URI missing — reconnect Calendly");
+
+  const startDate = normalizeCalendlyDate(input.startDate);
+  const endDate = normalizeCalendlyDate(input.endDate);
+  if (!startDate || !endDate) {
+    throw new Error("Calendly One-Off Meeting Link needs valid start and end dates (YYYY-MM-DD)");
+  }
+  if (endDate < startDate) {
+    throw new Error("Calendly One-Off Meeting Link end date must be on or after the start date");
+  }
+
+  const duration = Math.round(Number(input.durationMinutes));
+  if (!Number.isFinite(duration) || duration < 1) {
+    throw new Error("Calendly One-Off Meeting Link needs a valid duration in minutes");
+  }
+
+  const locationKind = (input.locationKind || "google_conference").trim() || "google_conference";
+  const location: Record<string, unknown> = { kind: locationKind };
+  if (
+    (locationKind === "physical" || locationKind === "custom" || locationKind === "outbound_call") &&
+    input.location?.trim()
+  ) {
+    location.location = input.location.trim();
+  }
+
+  const body: Record<string, unknown> = {
+    name: input.name.trim(),
+    host: hostUri,
+    duration,
+    date_setting: {
+      type: "date_range",
+      start_date: startDate,
+      end_date: endDate
+    },
+    location
+  };
+
+  const timezone =
+    input.timezone?.trim() ||
+    status.timezone?.trim() ||
+    (typeof me.resource?.timezone === "string" ? me.resource.timezone.trim() : "") ||
+    "";
+  if (timezone) body.timezone = timezone;
+
+  return calendlyApiRequest<{ resource: Record<string, unknown> }>(token, "/one_off_event_types", {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+}
+
+function normalizeCalendlyDate(raw: string): string {
+  const trimmed = raw.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!match) return "";
+  const year = match[1] ?? "";
+  const month = String(Number(match[2])).padStart(2, "0");
+  const day = String(Number(match[3])).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export async function calendlyMarkInviteeNoShow(
+  userId: string,
+  eventUuid: string,
+  inviteeUuid: string
+) {
+  const token = await getValidAccessToken(userId);
+  return calendlyApiRequest<{ resource: Record<string, unknown> }>(token, "/invitee_no_shows", {
+    method: "POST",
+    body: JSON.stringify({
+      invitee: inviteeUriFromIds(eventUuid, inviteeUuid)
+    })
+  });
+}
+
+export async function calendlyFindInviteeByEmail(
+  userId: string,
+  input: { email: string; eventTypeUri?: string }
+) {
+  return calendlyListEvents(userId, {
+    inviteeEmail: input.email,
+    eventTypeUri: input.eventTypeUri,
+    count: 100
+  });
+}
+
+export async function calendlyGetMeetingRecap(userId: string, recapUuid: string) {
+  const token = await getValidAccessToken(userId);
+  return calendlyApiRequest<{ resource: Record<string, unknown> }>(
+    token,
+    `/meeting_recaps/${encodeURIComponent(recapUuid)}`
+  );
+}
+
+export async function calendlyGetMeetingRecapTranscript(userId: string, recapUuid: string) {
+  const token = await getValidAccessToken(userId);
+  return calendlyApiRequest<{ resource: Record<string, unknown> } | { transcript?: unknown }>(
+    token,
+    `/meeting_recaps/${encodeURIComponent(recapUuid)}/transcript`
+  );
+}
+
+export async function calendlyFindUser(
+  userId: string,
+  input: { email?: string; name?: string; userUuid?: string }
+) {
+  const token = await getValidAccessToken(userId);
+  if (input.userUuid) {
+    return calendlyApiRequest<{ resource: Record<string, unknown> }>(
+      token,
+      `/users/${encodeURIComponent(input.userUuid)}`
+    );
+  }
+
+  const status = await getCalendlyConnectionStatus(userId);
+  if (!status.organizationUri) {
+    throw new Error("Calendly organization URI missing — reconnect Calendly");
+  }
+
+  const params = new URLSearchParams({
+    organization: status.organizationUri,
+    count: "100"
+  });
+  if (input.email) params.set("email", input.email);
+
+  const memberships = await calendlyApiRequest<{
+    collection: Array<Record<string, unknown>>;
+  }>(token, `/organization_memberships?${params.toString()}`);
+
+  const needle = (input.name || "").trim().toLowerCase();
+  if (!needle) return memberships;
+
+  const filtered = (memberships.collection ?? []).filter((item) => {
+    const user = (item.user && typeof item.user === "object" ? item.user : {}) as Record<
+      string,
+      unknown
+    >;
+    const name = typeof user.name === "string" ? user.name.toLowerCase() : "";
+    const email = typeof user.email === "string" ? user.email.toLowerCase() : "";
+    return name.includes(needle) || email.includes(needle);
+  });
+  return { collection: filtered };
+}
+
+/** Dropdown option for Test console / node inspector Calendly pickers. */
+export type CalendlyPickerOption = {
+  /** Event type URI, or scheduled-event / invitee UUID. */
+  value: string;
+  label: string;
+  uri: string;
+};
+
+function calendlyUuidFromUri(uri: unknown): string {
+  if (typeof uri !== "string" || !uri.trim()) return "";
+  const parts = uri.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
+function formatCalendlyInstant(raw: unknown): string {
+  if (typeof raw !== "string" || !raw) return "";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+/** Event types for Find Available Times / Create Scheduling Link. Value = full URI. */
+export async function listCalendlyEventTypeOptions(userId: string): Promise<CalendlyPickerOption[]> {
+  const data = await calendlyListEventTypes(userId);
+  return (data.collection ?? [])
+    .map((item) => {
+      const uri = typeof item.uri === "string" ? item.uri : "";
+      const name = typeof item.name === "string" && item.name.trim() ? item.name : "Event type";
+      const duration =
+        typeof item.duration === "number" && Number.isFinite(item.duration)
+          ? `${item.duration} min`
+          : null;
+      const inactive = item.active === false ? "inactive" : null;
+      const label = [name, duration, inactive].filter(Boolean).join(" · ");
+      return { value: uri, label, uri };
+    })
+    .filter((option) => Boolean(option.uri));
+}
+
+/** Available start times for booking. Value = ISO start_time. */
+export async function listCalendlyAvailableTimeOptions(
+  userId: string,
+  eventTypeUri: string,
+  range?: { startTime?: string; endTime?: string }
+): Promise<CalendlyPickerOption[]> {
+  const now = Date.now();
+  const startTime = range?.startTime || new Date(now).toISOString();
+  const endTime = range?.endTime || new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const data = await calendlyGetAvailability(userId, {
+    eventTypeUri,
+    startTime,
+    endTime
+  });
+  const collection = Array.isArray(data.collection)
+    ? data.collection
+    : Array.isArray((data.resource as { available_times?: unknown } | undefined)?.available_times)
+      ? ((data.resource as { available_times: Array<Record<string, unknown>> }).available_times)
+      : [];
+
+  return collection
+    .map((item) => {
+      const start =
+        typeof item.start_time === "string"
+          ? item.start_time
+          : typeof item.start === "string"
+            ? item.start
+            : "";
+      if (!start) return null;
+      const status = typeof item.status === "string" ? item.status : null;
+      if (status && status.toLowerCase() !== "available") return null;
+      return {
+        value: start,
+        label: formatCalendlyInstant(start),
+        uri: start
+      } satisfies CalendlyPickerOption;
+    })
+    .filter((option): option is CalendlyPickerOption => Boolean(option));
+}
+
+/** Recent scheduled events for Get Event / List Invitees / Get Invitee. Value = event UUID. */
+export async function listCalendlyEventOptions(userId: string): Promise<CalendlyPickerOption[]> {
+  const now = Date.now();
+  const minStartTime = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const maxStartTime = new Date(now + 90 * 24 * 60 * 60 * 1000).toISOString();
+  const data = await calendlyListEvents(userId, { minStartTime, maxStartTime });
+  return (data.collection ?? [])
+    .map((item) => {
+      const uri = typeof item.uri === "string" ? item.uri : "";
+      const uuid = calendlyUuidFromUri(uri);
+      const name = typeof item.name === "string" && item.name.trim() ? item.name : "Meeting";
+      const when = formatCalendlyInstant(item.start_time);
+      const status = typeof item.status === "string" ? item.status : null;
+      const label = [name, when, status].filter(Boolean).join(" · ");
+      return { value: uuid, label, uri };
+    })
+    .filter((option) => Boolean(option.value));
+}
+
+/** Invitees for a scheduled event. Value = invitee UUID. */
+export async function listCalendlyInviteeOptions(
+  userId: string,
+  eventUuid: string
+): Promise<CalendlyPickerOption[]> {
+  const data = await calendlyListInvitees(userId, eventUuid);
+  return (data.collection ?? [])
+    .map((item) => {
+      const uri = typeof item.uri === "string" ? item.uri : "";
+      const uuid = calendlyUuidFromUri(uri);
+      const name = typeof item.name === "string" && item.name.trim() ? item.name : "Invitee";
+      const email = typeof item.email === "string" ? item.email : null;
+      const status = typeof item.status === "string" ? item.status : null;
+      const label = [name, email, status].filter(Boolean).join(" · ");
+      return { value: uuid, label, uri };
+    })
+    .filter((option) => Boolean(option.value));
 }
 
 export async function ensureCalendlyWebhookSubscription(userId: string) {

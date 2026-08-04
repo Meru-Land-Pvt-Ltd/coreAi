@@ -1,4 +1,4 @@
-import { COMMON_TIMEZONES, describeZonedTime, isValidTimeZone } from "@coreai/shared";
+import { COMMON_TIMEZONES, calendlyActionPaidPlanNote, describeZonedTime, isValidTimeZone } from "@coreai/shared";
 import type {
   ArchitectConversationMessage,
   ArchitectConversationToolCall,
@@ -9,12 +9,47 @@ import type {
 } from "@/components/architect/features/types";
 import type { AIAttachment } from "./types";
 import { BuilderIcon } from "./icons";
-import { logColor } from "./run-context";
+import { logColor, formatRunLogOutputFields } from "./run-context";
 import { getCalendarAppointment, getCalendlyResult, getCapturedLead, getDraftEmail, getGmailRead, getSentEmail, getSentSms, getVapiCall } from "./run-context";
 import { BrowserVoiceCallTest } from "./browser-voice-call-test";
 import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
 import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
+import {
+  useCalendlyAvailableTimeOptions,
+  useCalendlyEventOptions,
+  useCalendlyEventTypeOptions,
+  useCalendlyInviteeOptions
+} from "./use-calendly-pickers";
 import { marked } from "marked";
+import type { CalendlyPickerOption } from "@/components/architect/features/types";
+
+function calendlyPickerSelectOptions(
+  selected: string,
+  options: CalendlyPickerOption[]
+): CalendlyPickerOption[] {
+  if (!selected || options.some((option) => option.value === selected)) return options;
+  return [{ value: selected, label: selected, uri: selected }, ...options];
+}
+
+const CALENDLY_DURATION_OPTIONS = [
+  { value: "15", label: "15 minutes" },
+  { value: "30", label: "30 minutes" },
+  { value: "45", label: "45 minutes" },
+  { value: "60", label: "60 minutes" },
+  { value: "90", label: "90 minutes" },
+  { value: "120", label: "120 minutes" }
+] as const;
+
+const CALENDLY_LOCATION_OPTIONS = [
+  { value: "google_conference", label: "Google Meet" },
+  { value: "zoom_conference", label: "Zoom" },
+  { value: "microsoft_teams_conference", label: "Microsoft Teams" },
+  { value: "ask_invitee", label: "Ask invitee" },
+  { value: "outbound_call", label: "Phone call (outbound)" },
+  { value: "inbound_call", label: "Phone call (inbound)" },
+  { value: "physical", label: "In person" },
+  { value: "custom", label: "Custom" }
+] as const;
 
 function Markdown({ content, className = "" }: { content: string; className?: string }) {
   const html = typeof content === "string" ? (marked.parse(content, { breaks: true, gfm: true }) as string) : "";
@@ -47,16 +82,23 @@ export function TestPanel({
   connectingGmail,
   calendlyConnected = false,
   calendlyEmail = null,
+  calendlyName = null,
   connectingCalendly = false,
   calendlyEventTypeUri = "",
   calendlyEventUuid = "",
   calendlyInviteeUuid = "",
   calendlyStartTime = "",
   calendlyEndTime = "",
-  calendlyInviteeName = "Jordan Lee",
-  calendlyInviteeEmail = "jordan@example.com",
-  calendlyMeetingName = "30 Minute Meeting",
+  calendlyInviteeName = "",
+  calendlyInviteeEmail = "",
+  calendlyMeetingName = "",
   calendlyTriggerEvent = "meeting_booked",
+  calendlyDurationMinutes = "30",
+  calendlyOneOffStartDate = "",
+  calendlyOneOffEndDate = "",
+  calendlyTimezone = "America/New_York",
+  calendlyLocationKind = "google_conference",
+  calendlyLocation = "",
   whatsappConnected = false,
   connectingWhatsApp = false,
   running,
@@ -103,6 +145,12 @@ export function TestPanel({
   onCalendlyInviteeEmailChange,
   onCalendlyMeetingNameChange,
   onCalendlyTriggerEventChange,
+  onCalendlyDurationMinutesChange,
+  onCalendlyOneOffStartDateChange,
+  onCalendlyOneOffEndDateChange,
+  onCalendlyTimezoneChange,
+  onCalendlyLocationKindChange,
+  onCalendlyLocationChange,
   onRefreshConnections,
   onRunTest,
   onStartLiveTest,
@@ -148,6 +196,7 @@ export function TestPanel({
   connectingGmail: boolean;
   calendlyConnected?: boolean;
   calendlyEmail?: string | null;
+  calendlyName?: string | null;
   connectingCalendly?: boolean;
   calendlyEventTypeUri?: string;
   calendlyEventUuid?: string;
@@ -158,6 +207,12 @@ export function TestPanel({
   calendlyInviteeEmail?: string;
   calendlyMeetingName?: string;
   calendlyTriggerEvent?: string;
+  calendlyDurationMinutes?: string;
+  calendlyOneOffStartDate?: string;
+  calendlyOneOffEndDate?: string;
+  calendlyTimezone?: string;
+  calendlyLocationKind?: string;
+  calendlyLocation?: string;
   whatsappConnected?: boolean;
   connectingWhatsApp?: boolean;
   running: boolean;
@@ -205,6 +260,12 @@ export function TestPanel({
   onCalendlyInviteeEmailChange?: (value: string) => void;
   onCalendlyMeetingNameChange?: (value: string) => void;
   onCalendlyTriggerEventChange?: (value: string) => void;
+  onCalendlyDurationMinutesChange?: (value: string) => void;
+  onCalendlyOneOffStartDateChange?: (value: string) => void;
+  onCalendlyOneOffEndDateChange?: (value: string) => void;
+  onCalendlyTimezoneChange?: (value: string) => void;
+  onCalendlyLocationKindChange?: (value: string) => void;
+  onCalendlyLocationChange?: (value: string) => void;
   onRefreshConnections: () => void;
   onConnectWhatsApp?: () => void;
   onRunTest: () => void;
@@ -253,18 +314,18 @@ export function TestPanel({
   const hasVoiceResult = Boolean(voiceConversation || calendarAvailability || smsNotification);
   const googleReady = needsCalendarConnection ? calendarConnected : gmailConnected;
 
-  const hasLlmPipeline = Boolean(
-    runContext.llmPipeline &&
-    typeof runContext.llmPipeline === "object" &&
-    Object.keys(runContext.llmPipeline).length > 0
-  );
-
   const hasImagePipeline = Boolean(
     (runContext.imagePipeline &&
       typeof runContext.imagePipeline === "object" &&
       Object.keys(runContext.imagePipeline).length > 0) ||
       (runContext.image && (typeof runContext.image === "string" || (typeof runContext.image === "object" && (runContext.image as any)?.type === "Buffer"))) ||
       (runContext.image_url && typeof runContext.image_url === "string")
+  );
+
+  const hasLlmPipeline = Boolean(
+    runContext.llmPipeline &&
+      typeof runContext.llmPipeline === "object" &&
+      Object.keys(runContext.llmPipeline).length > 0
   );
 
   const hasResult = Boolean(
@@ -275,10 +336,8 @@ export function TestPanel({
       vapiCall ||
       calendarAppointment ||
       hasVoiceResult ||
-      hasLlmPipeline || hasImagePipeline ||
-      calendlyResult ||
-      (runLogs.length > 0 && !needsCalendlyConnection) ||
-      (runLogs.length > 0 && needsWhatsAppConnection)
+      hasImagePipeline ||
+      hasLlmPipeline
   );
 
   const sandboxReady = testDeployment?.status === "READY";
@@ -304,13 +363,11 @@ export function TestPanel({
       ? COMMON_TIMEZONES
       : [{ value: timeZone, label: timeZone }, ...COMMON_TIMEZONES];
   })();
-  const subtitle = isVoiceWorkflow
+  const subtitle = isVoiceWorkflow || needsCalendlyConnection
     ? null
     : needsWhatsAppConnection
       ? "Connect WhatsApp, fill the sample message fields, then run a dry test."
-      : needsCalendlyConnection
-        ? "Connect Calendly, fill the request fields for your action, then run a dry test."
-        : "Send a sample trigger through the workflow and watch each step run in real time.";
+      : "Send a sample trigger through the workflow and watch each step run in real time.";
   const heading = isDentalWorkflow
     ? "Dental AI Receptionist test"
     : isVoiceWorkflow
@@ -346,22 +403,60 @@ export function TestPanel({
   // Only fields the runner requires for the selected Calendly action(s).
   const showCalendlyEventTypeUri =
     needsCalendlyConnection &&
-    (calendlyActionSet.has("find_available_times") || calendlyActionSet.has("create_scheduling_link"));
+    (calendlyActionSet.has("find_available_times") ||
+      calendlyActionSet.has("create_scheduling_link") ||
+      calendlyActionSet.has("book_meeting_for_invitee") ||
+      calendlyActionSet.has("find_invitee_by_email"));
   const showCalendlyEventUuid =
     needsCalendlyConnection &&
     (calendlyActionSet.has("get_event") ||
+      calendlyActionSet.has("find_event") ||
       calendlyActionSet.has("list_invitees") ||
-      calendlyActionSet.has("get_invitee"));
-  const showCalendlyInviteeUuid = needsCalendlyConnection && calendlyActionSet.has("get_invitee");
+      calendlyActionSet.has("get_invitee") ||
+      calendlyActionSet.has("cancel_event") ||
+      calendlyActionSet.has("cancel_scheduled_event") ||
+      calendlyActionSet.has("mark_invitee_no_show"));
+  const showCalendlyInviteeUuid =
+    needsCalendlyConnection &&
+    (calendlyActionSet.has("get_invitee") || calendlyActionSet.has("mark_invitee_no_show"));
   const showCalendlyTimeRange =
     needsCalendlyConnection && calendlyActionSet.has("find_available_times");
+  const showCalendlyBookStartTime =
+    needsCalendlyConnection && calendlyActionSet.has("book_meeting_for_invitee");
+  const showCalendlyBookInviteeFields =
+    needsCalendlyConnection &&
+    (calendlyActionSet.has("book_meeting_for_invitee") ||
+      calendlyActionSet.has("find_invitee_by_email"));
+  const showCalendlyOneOffFields =
+    needsCalendlyConnection && calendlyActionSet.has("create_one_off_meeting_link");
   const showCalendlyTriggerFields = needsCalendlyConnection && hasCalendlyTrigger;
   const showCalendlyTestFields =
     showCalendlyTriggerFields ||
     showCalendlyEventTypeUri ||
     showCalendlyEventUuid ||
     showCalendlyInviteeUuid ||
-    showCalendlyTimeRange;
+    showCalendlyTimeRange ||
+    showCalendlyBookStartTime ||
+    showCalendlyBookInviteeFields ||
+    showCalendlyOneOffFields;
+
+  const eventTypePicker = useCalendlyEventTypeOptions(Boolean(calendlyConnected && showCalendlyEventTypeUri));
+  const eventPicker = useCalendlyEventOptions(Boolean(calendlyConnected && showCalendlyEventUuid));
+  const inviteePicker = useCalendlyInviteeOptions(
+    Boolean(calendlyConnected && showCalendlyInviteeUuid),
+    calendlyEventUuid
+  );
+  const availableTimePicker = useCalendlyAvailableTimeOptions(
+    Boolean(calendlyConnected && showCalendlyBookStartTime),
+    calendlyEventTypeUri
+  );
+  const calendlyPaidPlanNotes = Array.from(
+    new Set(
+      calendlyActions
+        .map((action) => calendlyActionPaidPlanNote(action))
+        .filter((note): note is string => Boolean(note))
+    )
+  );
 
   return (
     <section className="builder-view fade-enter overflow-y-auto bg-gray-50 scroll-thin">
@@ -387,6 +482,15 @@ export function TestPanel({
                   ? "WhatsApp connected — ready for a dry test."
                   : "Connect WhatsApp below before running a dry test."}
               </p>
+            ) : null}
+            {needsCalendlyConnection && calendlyPaidPlanNotes.length > 0 ? (
+              <div className="mt-2 space-y-1" data-testid="builder-test-calendly-paid-plan-notes">
+                {calendlyPaidPlanNotes.map((note) => (
+                  <p key={note} className="text-[12.5px] font-medium text-amber-700">
+                    {note}
+                  </p>
+                ))}
+              </div>
             ) : null}
           </div>
           <div className="flex shrink-0 gap-2.5">
@@ -487,13 +591,7 @@ export function TestPanel({
                     type="text"
                     value={callerName}
                     onChange={(event) => onCallerNameChange(event.target.value)}
-                    placeholder={
-                      isSmsWorkflow || hasWhatsAppTrigger
-                        ? "Jordan Lee"
-                        : isVoiceWorkflow
-                          ? "Test Customer"
-                          : "Jordan Lee"
-                    }
+                    placeholder={isVoiceWorkflow ? "Customer name" : "Name"}
                     className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
                   />
                 </label>
@@ -616,7 +714,7 @@ export function TestPanel({
                         type="text"
                         value={calendlyInviteeName}
                         onChange={(event) => onCalendlyInviteeNameChange?.(event.target.value)}
-                        placeholder="Jordan Lee"
+                        placeholder="Invitee name"
                         className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
                       />
                     </label>
@@ -629,7 +727,7 @@ export function TestPanel({
                         type="text"
                         value={calendlyInviteeEmail}
                         onChange={(event) => onCalendlyInviteeEmailChange?.(event.target.value)}
-                        placeholder="jordan@example.com"
+                        placeholder="invitee@email.com"
                         className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
                       />
                     </label>
@@ -638,46 +736,105 @@ export function TestPanel({
                 {showCalendlyEventTypeUri ? (
                   <label className="col-span-1 sm:col-span-2" data-testid="builder-test-calendly-event-type-uri-label">
                     <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
-                      Event type URI
+                      Event type
                     </span>
-                    <input
+                    <select
                       data-testid="builder-test-calendly-event-type-uri-input"
-                      type="text"
                       value={calendlyEventTypeUri}
-                      onChange={(event) => onCalendlyEventTypeUriChange?.(event.target.value)}
-                      placeholder="https://api.calendly.com/event_types/AAAAAAAAAAAAAA"
-                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 font-mono text-[13px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                    />
+                      onChange={(event) => {
+                        onCalendlyEventTypeUriChange?.(event.target.value);
+                        onCalendlyStartTimeChange?.("");
+                      }}
+                      disabled={!calendlyConnected || eventTypePicker.loading}
+                      className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                    >
+                      <option value="">
+                        {eventTypePicker.loading
+                          ? "Loading event types…"
+                          : eventTypePicker.options.length === 0
+                            ? "No event types found"
+                            : "Select an event type"}
+                      </option>
+                      {calendlyPickerSelectOptions(calendlyEventTypeUri, eventTypePicker.options).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {eventTypePicker.error ? (
+                      <p className="mt-1.5 text-[12px] text-rose-600" data-testid="builder-test-calendly-event-type-error">
+                        {eventTypePicker.error}
+                      </p>
+                    ) : null}
                   </label>
                 ) : null}
                 {showCalendlyEventUuid ? (
                   <label data-testid="builder-test-calendly-event-uuid-label">
                     <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
-                      Event UUID
+                      Event
                     </span>
-                    <input
+                    <select
                       data-testid="builder-test-calendly-event-uuid-input"
-                      type="text"
                       value={calendlyEventUuid}
-                      onChange={(event) => onCalendlyEventUuidChange?.(event.target.value)}
-                      placeholder="AAAAAAAAAAAAAAAA"
-                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 font-mono text-[13px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                    />
+                      onChange={(event) => {
+                        onCalendlyEventUuidChange?.(event.target.value);
+                        onCalendlyInviteeUuidChange?.("");
+                      }}
+                      disabled={!calendlyConnected || eventPicker.loading}
+                      className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                    >
+                      <option value="">
+                        {eventPicker.loading
+                          ? "Loading events…"
+                          : eventPicker.options.length === 0
+                            ? "No recent events found"
+                            : "Select an event"}
+                      </option>
+                      {calendlyPickerSelectOptions(calendlyEventUuid, eventPicker.options).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {eventPicker.error ? (
+                      <p className="mt-1.5 text-[12px] text-rose-600" data-testid="builder-test-calendly-event-error">
+                        {eventPicker.error}
+                      </p>
+                    ) : null}
                   </label>
                 ) : null}
                 {showCalendlyInviteeUuid ? (
                   <label data-testid="builder-test-calendly-invitee-uuid-label">
                     <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
-                      Invitee UUID
+                      Invitee
                     </span>
-                    <input
+                    <select
                       data-testid="builder-test-calendly-invitee-uuid-input"
-                      type="text"
                       value={calendlyInviteeUuid}
                       onChange={(event) => onCalendlyInviteeUuidChange?.(event.target.value)}
-                      placeholder="BBBBBBBBBBBBBBBB"
-                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 font-mono text-[13px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                    />
+                      disabled={!calendlyConnected || !calendlyEventUuid.trim() || inviteePicker.loading}
+                      className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                    >
+                      <option value="">
+                        {!calendlyEventUuid.trim()
+                          ? "Select an event first"
+                          : inviteePicker.loading
+                            ? "Loading invitees…"
+                            : inviteePicker.options.length === 0
+                              ? "No invitees found"
+                              : "Select an invitee"}
+                      </option>
+                      {calendlyPickerSelectOptions(calendlyInviteeUuid, inviteePicker.options).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {inviteePicker.error ? (
+                      <p className="mt-1.5 text-[12px] text-rose-600" data-testid="builder-test-calendly-invitee-error">
+                        {inviteePicker.error}
+                      </p>
+                    ) : null}
                   </label>
                 ) : null}
                 {showCalendlyTimeRange ? (
@@ -710,14 +867,241 @@ export function TestPanel({
                     </label>
                   </>
                 ) : null}
+                {showCalendlyBookStartTime ? (
+                  <label
+                    className="col-span-1 sm:col-span-2"
+                    data-testid="builder-test-calendly-book-start-time-label"
+                  >
+                    <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                      Start time
+                    </span>
+                    <select
+                      data-testid="builder-test-calendly-start-time-input"
+                      value={calendlyStartTime}
+                      onChange={(event) => onCalendlyStartTimeChange?.(event.target.value)}
+                      disabled={
+                        !calendlyConnected ||
+                        !calendlyEventTypeUri.trim() ||
+                        availableTimePicker.loading
+                      }
+                      className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                    >
+                      <option value="">
+                        {!calendlyEventTypeUri.trim()
+                          ? "Select an event type first"
+                          : availableTimePicker.loading
+                            ? "Loading available times…"
+                            : availableTimePicker.options.length === 0
+                              ? "No available times in the next 7 days"
+                              : "Select a start time"}
+                      </option>
+                      {calendlyPickerSelectOptions(calendlyStartTime, availableTimePicker.options).map(
+                        (option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        )
+                      )}
+                    </select>
+                    {availableTimePicker.error ? (
+                      <p
+                        className="mt-1.5 text-[12px] text-rose-600"
+                        data-testid="builder-test-calendly-available-time-error"
+                      >
+                        {availableTimePicker.error}
+                      </p>
+                    ) : null}
+                  </label>
+                ) : null}
+                {showCalendlyBookInviteeFields && !showCalendlyTriggerFields ? (
+                  <>
+                    {calendlyActionSet.has("book_meeting_for_invitee") ? (
+                      <label data-testid="builder-test-calendly-book-invitee-name-label">
+                        <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                          Invitee name
+                        </span>
+                        <input
+                          data-testid="builder-test-calendly-book-invitee-name-input"
+                          type="text"
+                          value={calendlyInviteeName}
+                          onChange={(event) => onCalendlyInviteeNameChange?.(event.target.value)}
+                          placeholder="Invitee name"
+                          className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                        />
+                      </label>
+                    ) : null}
+                    <label data-testid="builder-test-calendly-book-invitee-email-label">
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        Invitee email
+                      </span>
+                      <input
+                        data-testid="builder-test-calendly-book-invitee-email-input"
+                        type="text"
+                        value={calendlyInviteeEmail}
+                        onChange={(event) => onCalendlyInviteeEmailChange?.(event.target.value)}
+                        placeholder="invitee@email.com"
+                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                      />
+                    </label>
+                  </>
+                ) : null}
+                {showCalendlyOneOffFields ? (
+                  <>
+                    <div
+                      className="col-span-1 rounded-xl border border-amber-100 bg-amber-50/50 px-3.5 py-3 sm:col-span-2"
+                      data-testid="builder-test-calendly-one-off-host"
+                    >
+                      <p className="text-[12px] font-semibold uppercase tracking-wide text-amber-800/80">
+                        Host (from connected Calendly)
+                      </p>
+                      <p className="mt-1 text-[14px] font-medium text-slate-800">
+                        {calendlyConnected
+                          ? [calendlyName, calendlyEmail].filter(Boolean).join(" · ") ||
+                            "Connected Calendly account"
+                          : "Connect Calendly to use your account as host"}
+                      </p>
+                    </div>
+                    {!showCalendlyTriggerFields ? (
+                      <label
+                        className="col-span-1 sm:col-span-2"
+                        data-testid="builder-test-calendly-one-off-meeting-name-label"
+                      >
+                        <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                          Meeting name
+                        </span>
+                        <input
+                          data-testid="builder-test-calendly-one-off-meeting-name-input"
+                          type="text"
+                          value={calendlyMeetingName}
+                          onChange={(event) => onCalendlyMeetingNameChange?.(event.target.value)}
+                          placeholder="Meeting name"
+                          className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                        />
+                      </label>
+                    ) : null}
+                    <label data-testid="builder-test-calendly-one-off-duration-label">
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        Duration
+                      </span>
+                      <select
+                        data-testid="builder-test-calendly-one-off-duration-input"
+                        value={calendlyDurationMinutes}
+                        onChange={(event) => onCalendlyDurationMinutesChange?.(event.target.value)}
+                        disabled={!calendlyConnected}
+                        className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                      >
+                        {CALENDLY_DURATION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                        {!CALENDLY_DURATION_OPTIONS.some((option) => option.value === calendlyDurationMinutes) &&
+                        calendlyDurationMinutes ? (
+                          <option value={calendlyDurationMinutes}>{calendlyDurationMinutes} minutes</option>
+                        ) : null}
+                      </select>
+                    </label>
+                    <label data-testid="builder-test-calendly-one-off-timezone-label">
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        Timezone
+                      </span>
+                      <select
+                        data-testid="builder-test-calendly-one-off-timezone-input"
+                        value={calendlyTimezone}
+                        onChange={(event) => onCalendlyTimezoneChange?.(event.target.value)}
+                        disabled={!calendlyConnected}
+                        className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                      >
+                        {(COMMON_TIMEZONES.some((option) => option.value === calendlyTimezone) ||
+                        !calendlyTimezone
+                          ? COMMON_TIMEZONES
+                          : [{ value: calendlyTimezone, label: calendlyTimezone }, ...COMMON_TIMEZONES]
+                        ).map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1.5 text-[12px] text-slate-500">
+                        Prefills from your connected Calendly account when available.
+                      </p>
+                    </label>
+                    <label data-testid="builder-test-calendly-one-off-start-date-label">
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        Window start
+                      </span>
+                      <input
+                        data-testid="builder-test-calendly-one-off-start-date-input"
+                        type="datetime-local"
+                        value={calendlyOneOffStartDate}
+                        onChange={(event) => onCalendlyOneOffStartDateChange?.(event.target.value)}
+                        disabled={!calendlyConnected}
+                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                      />
+                    </label>
+                    <label data-testid="builder-test-calendly-one-off-end-date-label">
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        Window end
+                      </span>
+                      <input
+                        data-testid="builder-test-calendly-one-off-end-date-input"
+                        type="datetime-local"
+                        value={calendlyOneOffEndDate}
+                        min={calendlyOneOffStartDate || undefined}
+                        onChange={(event) => onCalendlyOneOffEndDateChange?.(event.target.value)}
+                        disabled={!calendlyConnected}
+                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                      />
+                    </label>
+                    <label data-testid="builder-test-calendly-one-off-location-kind-label">
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        Location
+                      </span>
+                      <select
+                        data-testid="builder-test-calendly-one-off-location-kind-input"
+                        value={calendlyLocationKind}
+                        onChange={(event) => onCalendlyLocationKindChange?.(event.target.value)}
+                        disabled={!calendlyConnected}
+                        className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                      >
+                        {CALENDLY_LOCATION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {calendlyLocationKind === "physical" ||
+                    calendlyLocationKind === "custom" ||
+                    calendlyLocationKind === "outbound_call" ? (
+                      <label data-testid="builder-test-calendly-one-off-location-label">
+                        <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                          Location details
+                        </span>
+                        <input
+                          data-testid="builder-test-calendly-one-off-location-input"
+                          type="text"
+                          value={calendlyLocation}
+                          onChange={(event) => onCalendlyLocationChange?.(event.target.value)}
+                          placeholder={
+                            calendlyLocationKind === "outbound_call"
+                              ? "+15551234567"
+                              : "Office address or custom link"
+                          }
+                          className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                        />
+                      </label>
+                    ) : null}
+                    <p
+                      className="col-span-1 text-[12px] text-slate-500 sm:col-span-2"
+                      data-testid="builder-test-calendly-one-off-hint"
+                    >
+                      Calendly uses the date part of your window. Invitees book times from your
+                      connected host availability inside that range.
+                    </p>
+                  </>
+                ) : null}
               </>
-            ) : needsCalendlyConnection ? (
-              <p
-                className="col-span-1 text-[13px] text-slate-500 sm:col-span-2"
-                data-testid="builder-test-calendly-no-request-fields"
-              >
-                This Calendly action does not need extra request fields. Connect Calendly and run the dry test.
-              </p>
             ) : null}
           </div>
         </div>
@@ -806,8 +1190,8 @@ export function TestPanel({
                 data-testid="builder-test-calendly-card"
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#006BFF]/10 text-[#006BFF]">
-                    <BuilderIcon name="calendar" className="h-5 w-5" />
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#006BFF]/10">
+                    <BuilderIcon name="calendly" className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-800" data-testid="builder-test-calendly-status">
@@ -1057,22 +1441,58 @@ export function TestPanel({
           </div>
         </div>
 
+        {runLogs.length > 0 ? (
+          <NodeResultsPanel
+            runLogs={runLogs}
+            llmPipeline={
+              hasLlmPipeline && runContext.llmPipeline && typeof runContext.llmPipeline === "object"
+                ? (runContext.llmPipeline as Record<string, LlmPipelineStep>)
+                : undefined
+            }
+          />
+        ) : null}
+
         {hasResult ? (
           <div className="mt-5 pb-2">
             <h3 className="mb-3 text-[13px] font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-has-gmail-flow-email-result-message-the-heading">
-              {hasImagePipeline ? "Generated Image Results" : hasLlmPipeline
-                ? "LLM Pipeline Results"
-                : hasVoiceResult
-                  ? "Voice booking result"
-                  : hasGmailFlow
-                    ? "Email result"
-                    : calendlyResult
-                      ? "Calendly result"
-                      : "Message preview"}
+              {hasImagePipeline
+                ? "Generated Image Results"
+                : hasLlmPipeline
+                  ? "LLM Pipeline Results"
+                  : hasVoiceResult
+                    ? "Voice booking result"
+                    : hasGmailFlow
+                      ? "Email result"
+                      : calendlyResult
+                        ? "Calendly result"
+                        : "Message preview"}
             </h3>
             <div className="shadow-soft flex items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 min-w-0 max-w-full overflow-hidden">
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${hasImagePipeline || hasLlmPipeline ? "bg-violet-50 text-violet-600" : calendlyResult ? "bg-sky-50 text-[#006BFF]" : "bg-green-50 text-green-600"}`}>
-                <BuilderIcon name={hasImagePipeline ? "image" : hasLlmPipeline ? "sparkles" : hasVoiceResult ? "phone-call" : hasGmailFlow ? "mail" : calendlyResult ? "calendar" : "message"} className="h-5 w-5" />
+              <div
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                  hasImagePipeline || hasLlmPipeline
+                    ? "bg-violet-50 text-violet-600"
+                    : calendlyResult
+                      ? "bg-sky-50 text-[#006BFF]"
+                      : "bg-green-50 text-green-600"
+                }`}
+              >
+                <BuilderIcon
+                  name={
+                    hasImagePipeline
+                      ? "image"
+                      : hasLlmPipeline
+                        ? "sparkles"
+                        : hasVoiceResult
+                          ? "phone-call"
+                          : hasGmailFlow
+                            ? "mail"
+                            : calendlyResult
+                              ? "calendly"
+                              : "message"
+                  }
+                  className="h-5 w-5"
+                />
               </div>
               <div className="flex-1 min-w-0 max-w-full">
                 {hasImagePipeline ? (
@@ -1150,22 +1570,31 @@ export function TestPanel({
                   </div>
                 ) : hasLlmPipeline ? (
                   <div className="space-y-4 min-w-0 max-w-full" data-testid="test-panel-llm-pipeline-results">
-                    <div className="min-w-0 max-w-full">
-                      {Object.values(runContext.llmPipeline as Record<string, any>).map((step, idx) => (
-                        <div key={idx} className="mb-3 last:mb-0 rounded-xl border border-violet-100 bg-violet-50/10 p-4 min-w-0 max-w-full overflow-hidden">
-                          <div className="flex items-center justify-between border-b border-violet-100 pb-2 gap-2 flex-wrap sm:flex-nowrap">
-                            <span className="text-xs font-bold text-violet-950 truncate min-w-0">{step.label || "LLM Step"}</span>
-                            <span className="font-mono text-[10px] text-violet-500 bg-violet-50 px-2 py-0.5 rounded shrink-0">
-                              {step.providerId} ({step.modelName})
+                    {Object.values(runContext.llmPipeline as Record<string, any>).map((step, idx) => (
+                      <div
+                        key={idx}
+                        className="mb-3 last:mb-0 overflow-hidden rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50/60 to-white p-4 shadow-xs min-w-0 max-w-full"
+                      >
+                        <div className="flex items-center justify-between gap-2 border-b border-violet-100 pb-3 flex-wrap sm:flex-nowrap">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
+                              <BuilderIcon name="sparkles" className="h-4 w-4" />
+                            </span>
+                            <span className="truncate text-sm font-bold text-violet-950">
+                              {step.label || "LLM Step"}
                             </span>
                           </div>
-                          <div className="mt-2 text-sm leading-relaxed text-slate-700 min-w-0 max-w-full overflow-x-auto break-words [overflow-wrap:anywhere]">
-                            <Markdown content={step.output} />
-                          </div>
-                          <p className="mt-2 font-mono text-[9px] text-slate-400 truncate">Variable: <code className="text-violet-600 font-bold">{step.outputKey}</code></p>
+                          {step.providerId || step.modelName ? (
+                            <span className="shrink-0 rounded-full bg-violet-100/80 px-2.5 py-1 font-mono text-[10px] font-semibold text-violet-700">
+                              {[step.providerId, step.modelName].filter(Boolean).join(" · ")}
+                            </span>
+                          ) : null}
                         </div>
-                      ))}
-                    </div>
+                        <div className="mt-3 rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-relaxed text-slate-700 shadow-sm ring-1 ring-violet-100/80 min-w-0 max-w-full overflow-x-auto break-words [overflow-wrap:anywhere]">
+                          <Markdown content={typeof step.output === "string" ? step.output : String(step.output ?? "")} />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : hasVoiceResult ? (
                   <div className="space-y-2" data-testid="test-panel-voice-result">
@@ -1247,7 +1676,7 @@ export function TestPanel({
                     {(calendlyResult.calendlyEvent || calendlyResult.inviteeName || calendlyResult.meetingName) ? (
                       <div className="rounded-xl border border-sky-100 bg-sky-50/30 p-4" data-testid="test-panel-calendly-trigger-preview">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#006BFF]">
-                          Trigger preview
+                          Trigger
                         </p>
                         <p className="mt-1 text-sm font-semibold text-slate-800">
                           {calendlyResult.meetingName || "Calendly meeting"}
@@ -1263,25 +1692,64 @@ export function TestPanel({
                           </p>
                         ) : null}
                         {calendlyResult.startTime ? (
-                          <p className="mt-1 font-mono text-[11px] text-slate-400">
-                            {calendlyResult.startTime}
-                            {calendlyResult.endTime ? ` → ${calendlyResult.endTime}` : ""}
+                          <p className="mt-1 text-[13px] text-slate-500">
+                            {formatCalendlyPreviewTime(calendlyResult.startTime)}
+                            {calendlyResult.endTime
+                              ? ` → ${formatCalendlyPreviewTime(calendlyResult.endTime)}`
+                              : ""}
                           </p>
                         ) : null}
                       </div>
                     ) : null}
-                    {calendlyResult.action || calendlyResult.resultPreview ? (
+                    {calendlyResult.action ||
+                    calendlyResult.fields.length > 0 ||
+                    calendlyResult.items.length > 0 ||
+                    calendlyResult.summary ? (
                       <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4" data-testid="test-panel-calendly-action-preview">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          Action result{calendlyResult.action ? `: ${calendlyResult.action}` : ""}
+                          {calendlyResult.actionLabel || "Action result"}
                         </p>
-                        {calendlyResult.resultPreview ? (
-                          <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-slate-700 [overflow-wrap:anywhere]">
-                            {calendlyResult.resultPreview}
-                          </pre>
-                        ) : (
-                          <p className="mt-1 text-sm text-slate-600">Calendly action completed.</p>
-                        )}
+                        <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="test-panel-calendly-action-summary">
+                          {calendlyResult.summary || "Calendly action completed."}
+                        </p>
+                        {calendlyResult.fields.length > 0 ? (
+                          <dl className="mt-3 space-y-2" data-testid="test-panel-calendly-action-fields">
+                            {calendlyResult.fields.map((field) => (
+                              <div key={`${field.label}-${field.value}`} className="flex gap-3 text-[13px]">
+                                <dt className="w-24 shrink-0 font-medium text-slate-500">{field.label}</dt>
+                                <dd className="min-w-0 break-words text-slate-800">
+                                  {looksLikeUrl(field.value) ? (
+                                    <a
+                                      href={field.value}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[#006BFF] underline-offset-2 hover:underline"
+                                    >
+                                      {field.value}
+                                    </a>
+                                  ) : (
+                                    field.value
+                                  )}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        ) : null}
+                        {calendlyResult.items.length > 0 ? (
+                          <ul className="mt-3 space-y-2" data-testid="test-panel-calendly-action-items">
+                            {calendlyResult.items.map((item, index) => (
+                              <li
+                                key={`${item.title}-${index}`}
+                                className="rounded-lg border border-gray-100 bg-white px-3 py-2"
+                              >
+                                <p className="text-[13px] font-medium text-slate-800">{item.title}</p>
+                                {item.detail ? (
+                                  <p className="mt-0.5 text-[12px] text-slate-500">{item.detail}</p>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -1307,6 +1775,237 @@ export function TestPanel({
         ) : null}
       </div>
     </section>
+  );
+}
+
+type LlmPipelineStep = {
+  label?: string;
+  output?: string;
+  providerId?: string;
+  modelName?: string;
+  outputKey?: string;
+};
+
+function getLlmMessageFromLog(
+  log: WorkflowRunLog,
+  llmPipeline?: Record<string, LlmPipelineStep>
+): { text: string; providerId?: string; modelName?: string } | null {
+  const fromPipeline = llmPipeline?.[log.nodeId];
+  if (fromPipeline && typeof fromPipeline.output === "string" && fromPipeline.output.trim()) {
+    return {
+      text: fromPipeline.output,
+      providerId: fromPipeline.providerId,
+      modelName: fromPipeline.modelName
+    };
+  }
+  const output = log.output;
+  if (typeof output === "object" && output !== null) {
+    const record = output as Record<string, unknown>;
+    if (typeof record.text === "string" && record.text.trim()) {
+      return {
+        text: record.text,
+        providerId: typeof record.providerId === "string" ? record.providerId : undefined,
+        modelName: typeof record.modelName === "string" ? record.modelName : undefined
+      };
+    }
+  }
+  return null;
+}
+
+function NodeResultsPanel({
+  runLogs,
+  llmPipeline
+}: {
+  runLogs: WorkflowRunLog[];
+  llmPipeline?: Record<string, LlmPipelineStep>;
+}) {
+  const successCount = runLogs.filter((log) => log.status === "success").length;
+  const errorCount = runLogs.filter((log) => log.status === "error").length;
+
+  return (
+    <div className="mt-5 pb-2" data-testid="test-panel-node-results">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h3
+            className="text-[13px] font-bold uppercase tracking-wider text-slate-400"
+            data-testid="test-panel-node-results-heading"
+          >
+            Node results
+          </h3>
+          <p className="mt-0.5 text-[12px] text-slate-500">
+            Output from each step in this dry test
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] font-semibold">
+          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700 ring-1 ring-emerald-100">
+            {successCount} passed
+          </span>
+          {errorCount > 0 ? (
+            <span className="rounded-full bg-red-50 px-2.5 py-1 text-red-700 ring-1 ring-red-100">
+              {errorCount} failed
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="relative space-y-0">
+        {runLogs.map((log, index) => {
+          const llmMessage = getLlmMessageFromLog(log, llmPipeline);
+          const fields = llmMessage
+            ? formatRunLogOutputFields(log.output).filter(
+                (field) =>
+                  field.label.toLowerCase() !== "text" &&
+                  field.label.toLowerCase() !== "result" &&
+                  field.label.toLowerCase() !== "provider id" &&
+                  field.label.toLowerCase() !== "model name" &&
+                  field.label.toLowerCase() !== "output key"
+              )
+            : formatRunLogOutputFields(log.output);
+          const isLast = index === runLogs.length - 1;
+          const isError = log.status === "error";
+          const isWaiting = log.status === "waiting";
+          const isLlm = Boolean(llmMessage);
+          const stepTone = isError
+            ? {
+                line: "bg-red-200",
+                ring: "bg-red-500 ring-red-100",
+                card: "border-red-100 bg-gradient-to-br from-red-50/80 to-white",
+                badge: "bg-red-100 text-red-700",
+                iconBg: "bg-red-50 text-red-600"
+              }
+            : isWaiting
+              ? {
+                  line: "bg-amber-200",
+                  ring: "bg-amber-500 ring-amber-100",
+                  card: "border-amber-100 bg-gradient-to-br from-amber-50/80 to-white",
+                  badge: "bg-amber-100 text-amber-800",
+                  iconBg: "bg-amber-50 text-amber-600"
+                }
+              : isLlm
+                ? {
+                    line: "bg-violet-200",
+                    ring: "bg-violet-500 ring-violet-100",
+                    card: "border-violet-100 bg-gradient-to-br from-violet-50/70 to-white",
+                    badge: "bg-violet-100 text-violet-700",
+                    iconBg: "bg-violet-50 text-violet-600"
+                  }
+                : {
+                    line: "bg-emerald-200",
+                    ring: "bg-emerald-500 ring-emerald-100",
+                    card: "border-gray-100 bg-white",
+                    badge: "bg-emerald-50 text-emerald-700",
+                    iconBg: "bg-emerald-50 text-emerald-600"
+                  };
+
+          return (
+            <div
+              key={`node-result-${log.nodeId}-${index}`}
+              className="relative flex gap-3 sm:gap-4"
+              data-testid={`test-panel-node-result-${log.nodeId}`}
+            >
+              <div className="flex w-8 shrink-0 flex-col items-center sm:w-9">
+                <span
+                  className={`relative z-[1] flex h-8 w-8 items-center justify-center rounded-full text-[12px] font-bold text-white shadow-sm ring-4 ${stepTone.ring}`}
+                  aria-hidden="true"
+                >
+                  {isError ? "!" : isWaiting ? "…" : index + 1}
+                </span>
+                {!isLast ? (
+                  <span className={`mt-1 w-0.5 flex-1 min-h-[1.25rem] rounded-full ${stepTone.line}`} aria-hidden="true" />
+                ) : null}
+              </div>
+
+              <div
+                className={`shadow-soft mb-3 min-w-0 flex-1 overflow-hidden rounded-2xl border p-4 sm:mb-4 sm:p-5 ${stepTone.card}`}
+              >
+                <div className="flex items-start gap-3">
+                  <span
+                    className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${stepTone.iconBg}`}
+                    aria-hidden="true"
+                  >
+                    {isError ? (
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" />
+                      </svg>
+                    ) : isWaiting ? (
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M12 7v5l3 2" strokeLinecap="round" />
+                      </svg>
+                    ) : isLlm ? (
+                      <BuilderIcon name="sparkles" className="h-4 w-4" />
+                    ) : (
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M20 6 9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-bold text-slate-900">{log.label}</p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${stepTone.badge}`}
+                      >
+                        {log.status}
+                      </span>
+                      {llmMessage?.providerId || llmMessage?.modelName ? (
+                        <span className="rounded-full bg-violet-100/80 px-2 py-0.5 font-mono text-[10px] font-semibold text-violet-700">
+                          {[llmMessage.providerId, llmMessage.modelName].filter(Boolean).join(" · ")}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 text-[13px] leading-relaxed text-slate-600">{log.message}</p>
+                  </div>
+                </div>
+
+                {llmMessage && !llmPipeline ? (
+                  <div
+                    className="mt-4 rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-relaxed text-slate-700 shadow-sm ring-1 ring-violet-100/80 min-w-0 max-w-full overflow-x-auto break-words [overflow-wrap:anywhere]"
+                    data-testid={`test-panel-node-result-llm-${log.nodeId}`}
+                  >
+                    <Markdown content={llmMessage.text} />
+                  </div>
+                ) : null}
+
+                {fields.length > 0 ? (
+                  <div
+                    className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2"
+                    data-testid={`test-panel-node-result-fields-${log.nodeId}`}
+                  >
+                    {fields.map((field) => (
+                      <div
+                        key={`${log.nodeId}-${field.label}-${field.value}`}
+                        className="rounded-xl border border-gray-100 bg-slate-50/80 px-3 py-2.5"
+                      >
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {field.label}
+                        </p>
+                        <p className="mt-1 text-[13px] font-medium leading-snug text-slate-800 break-words [overflow-wrap:anywhere]">
+                          {looksLikeUrl(field.value) ? (
+                            <a
+                              href={field.value}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[#006BFF] underline-offset-2 hover:underline"
+                            >
+                              {field.value}
+                            </a>
+                          ) : (
+                            field.value
+                          )}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : !llmMessage ? (
+                  <p className="mt-3 text-[12px] italic text-slate-400">No extra output fields for this step.</p>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -1353,4 +2052,22 @@ function EmailResult({
     );
   }
   return <p className="text-sm text-slate-500" data-testid="architect-ui-workflow-builder-test-panel-run-the-agent-to-see-the-email-text">Run the agent to see the email result.</p>;
+}
+
+function formatCalendlyPreviewTime(value: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short"
+    }).format(date);
+  } catch {
+    return value;
+  }
+}
+
+function looksLikeUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim());
 }

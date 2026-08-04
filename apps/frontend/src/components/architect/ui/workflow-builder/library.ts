@@ -51,7 +51,7 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem("trigger.twilio_inbound_sms", { icon: "message", accent: "amber" }),
       paletteItem("trigger.twilio_missed_call", { icon: "phone", accent: "amber" }),
       paletteItem("trigger.whatsapp_message_received", { icon: "whatsapp", accent: "green" }),
-      paletteItem(CALENDLY_NODE_TYPES.trigger, { icon: "calendar", accent: "blue", kind: "CALENDLY" }),
+      paletteItem(CALENDLY_NODE_TYPES.trigger, { icon: "calendly", accent: "blue", kind: "CALENDLY" }),
       paletteItem("trigger.manual", { icon: "play", accent: "amber" })
     ]
   },
@@ -84,7 +84,7 @@ export const libraryGroups: LibraryGroup[] = [
     items: [
       paletteItem(VOICE_NODE_TYPES.calendarAvailability, { icon: "calendar", accent: "blue" }),
       paletteItem(VOICE_NODE_TYPES.bookAppointment, { icon: "calendar", accent: "blue" }),
-      paletteItem(CALENDLY_NODE_TYPES.action, { icon: "calendar", accent: "blue", kind: "CALENDLY" })
+      paletteItem(CALENDLY_NODE_TYPES.action, { icon: "calendly", accent: "blue", kind: "CALENDLY" })
     ]
   },
   /* Telegram ACTION nodes are hidden — only the Telegram Bot Trigger is offered.

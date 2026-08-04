@@ -144,16 +144,35 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [gmailEmail, setGmailEmail] = useState<string | null>(null);
   const [calendlyConnected, setCalendlyConnected] = useState(false);
   const [calendlyEmail, setCalendlyEmail] = useState<string | null>(null);
+  const [calendlyName, setCalendlyName] = useState<string | null>(null);
   const [connectingCalendly, setConnectingCalendly] = useState(false);
   const [calendlyEventTypeUri, setCalendlyEventTypeUri] = useState("");
   const [calendlyEventUuid, setCalendlyEventUuid] = useState("");
   const [calendlyInviteeUuid, setCalendlyInviteeUuid] = useState("");
   const [calendlyStartTime, setCalendlyStartTime] = useState("");
   const [calendlyEndTime, setCalendlyEndTime] = useState("");
-  const [calendlyInviteeName, setCalendlyInviteeName] = useState("Jordan Lee");
-  const [calendlyInviteeEmail, setCalendlyInviteeEmail] = useState("jordan@example.com");
-  const [calendlyMeetingName, setCalendlyMeetingName] = useState("30 Minute Meeting");
+  const [calendlyInviteeName, setCalendlyInviteeName] = useState("");
+  const [calendlyInviteeEmail, setCalendlyInviteeEmail] = useState("");
+  const [calendlyMeetingName, setCalendlyMeetingName] = useState("");
   const [calendlyTriggerEvent, setCalendlyTriggerEvent] = useState("meeting_booked");
+  const [calendlyDurationMinutes, setCalendlyDurationMinutes] = useState("30");
+  const [calendlyOneOffStartDate, setCalendlyOneOffStartDate] = useState(() => {
+    const start = new Date();
+    start.setHours(9, 0, 0, 0);
+    const offset = start.getTimezoneOffset();
+    const local = new Date(start.getTime() - offset * 60_000);
+    return local.toISOString().slice(0, 16);
+  });
+  const [calendlyOneOffEndDate, setCalendlyOneOffEndDate] = useState(() => {
+    const end = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    end.setHours(17, 0, 0, 0);
+    const offset = end.getTimezoneOffset();
+    const local = new Date(end.getTime() - offset * 60_000);
+    return local.toISOString().slice(0, 16);
+  });
+  const [calendlyTimezone, setCalendlyTimezone] = useState("America/New_York");
+  const [calendlyLocationKind, setCalendlyLocationKind] = useState("google_conference");
+  const [calendlyLocation, setCalendlyLocation] = useState("");
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
   const [whatsappConnected, setWhatsAppConnected] = useState(false);
@@ -619,6 +638,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     if (result.success && result.data) {
       setCalendlyConnected(result.data.connected);
       setCalendlyEmail(result.data.email);
+      setCalendlyName(result.data.name);
+      if (result.data.timezone?.trim()) {
+        setCalendlyTimezone(result.data.timezone.trim());
+      }
     }
   }
 
@@ -1385,6 +1408,49 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return;
     }
 
+    if (capabilities.calendlyActions.some((action) => action.toLowerCase() === "book_meeting_for_invitee")) {
+      if (!calendlyEventTypeUri.trim()) {
+        setActiveTab("test");
+        setMessage("Select a Calendly event type before booking a meeting");
+        return;
+      }
+      if (!calendlyStartTime.trim()) {
+        setActiveTab("test");
+        setMessage("Select a Calendly start time before booking a meeting");
+        return;
+      }
+      if (!calendlyInviteeName.trim()) {
+        setActiveTab("test");
+        setMessage("Enter an invitee name before booking a meeting");
+        return;
+      }
+      if (!calendlyInviteeEmail.trim()) {
+        setActiveTab("test");
+        setMessage("Enter an invitee email before booking a meeting");
+        return;
+      }
+    }
+
+    if (
+      capabilities.calendlyActions.some((action) => action.toLowerCase() === "create_one_off_meeting_link")
+    ) {
+      if (!calendlyMeetingName.trim()) {
+        setActiveTab("test");
+        setMessage("Enter a meeting name for the one-off meeting link");
+        return;
+      }
+      if (!calendlyOneOffStartDate.trim() || !calendlyOneOffEndDate.trim()) {
+        setActiveTab("test");
+        setMessage("Select start and end dates for the one-off meeting link");
+        return;
+      }
+      if (!calendlyDurationMinutes.trim()) {
+        setActiveTab("test");
+        setMessage("Select a duration for the one-off meeting link");
+        return;
+      }
+    }
+
     if (needsWhatsAppConnection && !whatsappConnected) {
       setActiveTab("test");
       setMessage("Connect WhatsApp before running this agent");
@@ -1534,15 +1600,20 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           ? {
               triggerType: "trigger.calendly",
               calendlyTriggerEvent: calendlyTriggerEvent.trim() || "meeting_booked",
-              calendlyInviteeName: calendlyInviteeName.trim() || "Jordan Lee",
-              calendlyInviteeEmail: calendlyInviteeEmail.trim() || "jordan@example.com",
-              calendlyMeetingName: calendlyMeetingName.trim() || "30 Minute Meeting",
+              calendlyInviteeName: calendlyInviteeName.trim() || undefined,
+              calendlyInviteeEmail: calendlyInviteeEmail.trim() || undefined,
+              calendlyMeetingName: calendlyMeetingName.trim() || undefined,
               calendlyEventTypeUri: calendlyEventTypeUri.trim() || undefined,
               calendlyEventUuid: calendlyEventUuid.trim() || undefined,
               calendlyInviteeUuid: calendlyInviteeUuid.trim() || undefined,
               calendlyStartTime: calendlyStartTime.trim() || undefined,
               calendlyEndTime: calendlyEndTime.trim() || undefined,
-              calendlyTimezone: timeZone.trim() || undefined
+              calendlyDurationMinutes: calendlyDurationMinutes.trim() || undefined,
+              calendlyOneOffStartDate: calendlyOneOffStartDate.trim() || undefined,
+              calendlyOneOffEndDate: calendlyOneOffEndDate.trim() || undefined,
+              calendlyTimezone: calendlyTimezone.trim() || timeZone.trim() || undefined,
+              calendlyLocationKind: calendlyLocationKind.trim() || undefined,
+              calendlyLocation: calendlyLocation.trim() || undefined
             }
           : {}),
         attachments: effectiveAttachments
@@ -1939,6 +2010,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             connectingGmail={connectingGmail}
             calendlyConnected={calendlyConnected}
             calendlyEmail={calendlyEmail}
+            calendlyName={calendlyName}
             connectingCalendly={connectingCalendly}
             calendlyEventTypeUri={calendlyEventTypeUri}
             calendlyEventUuid={calendlyEventUuid}
@@ -1949,6 +2021,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             calendlyInviteeEmail={calendlyInviteeEmail}
             calendlyMeetingName={calendlyMeetingName}
             calendlyTriggerEvent={calendlyTriggerEvent}
+            calendlyDurationMinutes={calendlyDurationMinutes}
+            calendlyOneOffStartDate={calendlyOneOffStartDate}
+            calendlyOneOffEndDate={calendlyOneOffEndDate}
+            calendlyTimezone={calendlyTimezone}
+            calendlyLocationKind={calendlyLocationKind}
+            calendlyLocation={calendlyLocation}
             whatsappConnected={whatsappConnected}
             connectingWhatsApp={connectingWhatsApp}
             running={running}
@@ -1995,6 +2073,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onCalendlyInviteeEmailChange={setCalendlyInviteeEmail}
             onCalendlyMeetingNameChange={setCalendlyMeetingName}
             onCalendlyTriggerEventChange={setCalendlyTriggerEvent}
+            onCalendlyDurationMinutesChange={setCalendlyDurationMinutes}
+            onCalendlyOneOffStartDateChange={setCalendlyOneOffStartDate}
+            onCalendlyOneOffEndDateChange={setCalendlyOneOffEndDate}
+            onCalendlyTimezoneChange={setCalendlyTimezone}
+            onCalendlyLocationKindChange={setCalendlyLocationKind}
+            onCalendlyLocationChange={setCalendlyLocation}
             onRefreshConnections={() => void refreshConnections()}
             onRunTest={() => void runAgent()}
             onStartLiveTest={() => void startLiveTest()}

@@ -2,6 +2,7 @@ import {
   CALENDLY_ACTION_OPTIONS,
   CALENDLY_NODE_TYPES,
   CALENDLY_TRIGGER_EVENTS,
+  calendlyActionPaidPlanNote,
   EMAIL_TEMPLATE_VARIABLES,
   LLM_PROVIDERS,
   TELEGRAM_NODE_TYPES,
@@ -27,6 +28,13 @@ import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
 import { LlmNodeInspector } from "./llm-node-inspector";
 import { isProviderDisabled, useLlmAvailability } from "./use-llm-availability";
+import {
+  useCalendlyAvailableTimeOptions,
+  useCalendlyEventOptions,
+  useCalendlyEventTypeOptions,
+  useCalendlyInviteeOptions
+} from "./use-calendly-pickers";
+import type { CalendlyPickerOption } from "@/components/architect/features/types";
 
 export type ConnectorOwnership = "architect" | "buyer";
 
@@ -309,6 +317,21 @@ export function TextArea({
 }
 
 export type SelectBoxOption = string | { value: string; label: string; disabled?: boolean };
+
+function calendlySelectBoxOptions(
+  selected: string,
+  options: CalendlyPickerOption[],
+  emptyLabel: string
+): SelectBoxOption[] {
+  const mapped: SelectBoxOption[] = [
+    { value: "", label: emptyLabel },
+    ...options.map((option) => ({ value: option.value, label: option.label }))
+  ];
+  if (selected && !options.some((option) => option.value === selected)) {
+    mapped.splice(1, 0, { value: selected, label: selected });
+  }
+  return mapped;
+}
 
 export function SelectBox({ value, onChange, options, testId = "node-inspector-model-select" }: { value: string; onChange: (value: string) => void; options: SelectBoxOption[]; testId?: string }) {
   const normalized = options.map((option) =>
@@ -2637,6 +2660,31 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
   const coreAction = str("connectorAction", "save_lead");
   const whatsappMessageType = str("whatsappMessageType", "text");
   const calendlyAction = str("connectorAction", "get_my_profile");
+  const needsEventTypeUri =
+    isCalendly &&
+    (calendlyAction === "find_available_times" ||
+      calendlyAction === "create_scheduling_link" ||
+      calendlyAction === "book_meeting_for_invitee" ||
+      calendlyAction === "find_invitee_by_email");
+  const needsEventUuid =
+    isCalendly &&
+    (calendlyAction === "get_event" ||
+      calendlyAction === "find_event" ||
+      calendlyAction === "list_invitees" ||
+      calendlyAction === "get_invitee" ||
+      calendlyAction === "cancel_event" ||
+      calendlyAction === "cancel_scheduled_event" ||
+      calendlyAction === "mark_invitee_no_show");
+  const needsInviteeUuid =
+    isCalendly &&
+    (calendlyAction === "get_invitee" || calendlyAction === "mark_invitee_no_show");
+  const eventTypePicker = useCalendlyEventTypeOptions(needsEventTypeUri);
+  const eventPicker = useCalendlyEventOptions(needsEventUuid);
+  const inviteePicker = useCalendlyInviteeOptions(needsInviteeUuid, str("calendlyEventUuid"));
+  const availableTimePicker = useCalendlyAvailableTimeOptions(
+    isCalendly && calendlyAction === "book_meeting_for_invitee",
+    str("calendlyEventTypeUri")
+  );
 
   return (
     <>
@@ -2682,20 +2730,53 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
                 onChange={set("connectorAction")}
                 options={CALENDLY_ACTION_OPTIONS.map((option) => ({
                   value: option.value,
-                  label: option.label
+                  label: option.requiresPaidPlan ? `${option.label} (Paid plan)` : option.label
                 }))}
                 testId="node-inspector-calendly-action"
               />
+              {calendlyActionPaidPlanNote(calendlyAction) ? (
+                <p
+                  className="mt-2 text-[11px] text-amber-700"
+                  data-testid="node-inspector-calendly-paid-plan-note"
+                >
+                  {calendlyActionPaidPlanNote(calendlyAction)}
+                </p>
+              ) : null}
             </div>
-            {(calendlyAction === "find_available_times" || calendlyAction === "create_scheduling_link") && (
+            {(calendlyAction === "find_available_times" ||
+              calendlyAction === "create_scheduling_link" ||
+              calendlyAction === "book_meeting_for_invitee" ||
+              calendlyAction === "find_invitee_by_email") && (
               <div className="mt-4">
-                <Label>Event type URI</Label>
-                <TextInput
-                  mono
+                <Label>
+                  {calendlyAction === "find_invitee_by_email"
+                    ? "Event type (optional)"
+                    : "Event type"}
+                </Label>
+                <SelectBox
                   value={str("calendlyEventTypeUri")}
-                  onChange={set("calendlyEventTypeUri")}
-                  placeholder="https://api.calendly.com/event_types/…"
+                  onChange={(value) => {
+                    set("calendlyEventTypeUri")(value);
+                    if (calendlyAction === "book_meeting_for_invitee") {
+                      set("calendlyStartTime")("");
+                    }
+                  }}
+                  options={calendlySelectBoxOptions(
+                    str("calendlyEventTypeUri"),
+                    eventTypePicker.options,
+                    eventTypePicker.loading
+                      ? "Loading event types…"
+                      : eventTypePicker.options.length === 0
+                        ? "No event types found"
+                        : calendlyAction === "find_invitee_by_email"
+                          ? "Any event type"
+                          : "Select an event type"
+                  )}
+                  testId="node-inspector-calendly-event-type"
                 />
+                {eventTypePicker.error ? (
+                  <p className="mt-1.5 text-[11px] text-rose-600">{eventTypePicker.error}</p>
+                ) : null}
               </div>
             )}
             {calendlyAction === "find_available_times" && (
@@ -2710,23 +2791,295 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
                 </div>
                 <div className="mt-4">
                   <Label>Timezone</Label>
-                  <TextInput value={str("calendlyTimezone", "America/New_York")} onChange={set("calendlyTimezone")} />
+                  <TextInput
+                    value={str("calendlyTimezone", "America/New_York")}
+                    onChange={set("calendlyTimezone")}
+                  />
+                </div>
+              </>
+            )}
+            {calendlyAction === "book_meeting_for_invitee" && (
+              <>
+                <div className="mt-4">
+                  <Label>Start time</Label>
+                  <SelectBox
+                    value={str("calendlyStartTime")}
+                    onChange={set("calendlyStartTime")}
+                    options={calendlySelectBoxOptions(
+                      str("calendlyStartTime"),
+                      availableTimePicker.options,
+                      !str("calendlyEventTypeUri").trim()
+                        ? "Select an event type first"
+                        : availableTimePicker.loading
+                          ? "Loading available times…"
+                          : availableTimePicker.options.length === 0
+                            ? "No available times in the next 7 days"
+                            : "Select a start time"
+                    )}
+                    testId="node-inspector-calendly-start-time"
+                  />
+                  {availableTimePicker.error ? (
+                    <p className="mt-1.5 text-[11px] text-rose-600">{availableTimePicker.error}</p>
+                  ) : null}
+                </div>
+                <div className="mt-4">
+                  <Label>Timezone</Label>
+                  <TextInput
+                    value={str("calendlyTimezone", "America/New_York")}
+                    onChange={set("calendlyTimezone")}
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>Invitee name</Label>
+                  <TextInput
+                    value={str("calendlyInviteeName")}
+                    onChange={set("calendlyInviteeName")}
+                    placeholder="Jordan Lee"
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>Invitee email</Label>
+                  <TextInput
+                    value={str("calendlyInviteeEmail")}
+                    onChange={set("calendlyInviteeEmail")}
+                    placeholder="jordan@example.com"
+                  />
                 </div>
               </>
             )}
             {(calendlyAction === "get_event" ||
+              calendlyAction === "find_event" ||
               calendlyAction === "list_invitees" ||
-              calendlyAction === "get_invitee") && (
+              calendlyAction === "get_invitee" ||
+              calendlyAction === "cancel_event" ||
+              calendlyAction === "cancel_scheduled_event" ||
+              calendlyAction === "mark_invitee_no_show") && (
               <div className="mt-4">
-                <Label>Event UUID</Label>
-                <TextInput mono value={str("calendlyEventUuid")} onChange={set("calendlyEventUuid")} />
+                <Label>Event</Label>
+                <SelectBox
+                  value={str("calendlyEventUuid")}
+                  onChange={(value) => {
+                    set("calendlyEventUuid")(value);
+                    set("calendlyInviteeUuid")("");
+                  }}
+                  options={calendlySelectBoxOptions(
+                    str("calendlyEventUuid"),
+                    eventPicker.options,
+                    eventPicker.loading
+                      ? "Loading events…"
+                      : eventPicker.options.length === 0
+                        ? "No recent events found"
+                        : "Select an event"
+                  )}
+                  testId="node-inspector-calendly-scheduled-event"
+                />
+                {eventPicker.error ? (
+                  <p className="mt-1.5 text-[11px] text-rose-600">{eventPicker.error}</p>
+                ) : null}
               </div>
             )}
-            {calendlyAction === "get_invitee" && (
+            {(calendlyAction === "cancel_event" || calendlyAction === "cancel_scheduled_event") && (
               <div className="mt-4">
-                <Label>Invitee UUID</Label>
-                <TextInput mono value={str("calendlyInviteeUuid")} onChange={set("calendlyInviteeUuid")} />
+                <Label>Cancellation reason (optional)</Label>
+                <TextInput
+                  value={str("calendlyCancelReason")}
+                  onChange={set("calendlyCancelReason")}
+                  placeholder="Customer requested cancellation"
+                />
               </div>
+            )}
+            {(calendlyAction === "get_invitee" || calendlyAction === "mark_invitee_no_show") && (
+              <div className="mt-4">
+                <Label>Invitee</Label>
+                <SelectBox
+                  value={str("calendlyInviteeUuid")}
+                  onChange={set("calendlyInviteeUuid")}
+                  options={calendlySelectBoxOptions(
+                    str("calendlyInviteeUuid"),
+                    inviteePicker.options,
+                    !str("calendlyEventUuid").trim()
+                      ? "Select an event first"
+                      : inviteePicker.loading
+                        ? "Loading invitees…"
+                        : inviteePicker.options.length === 0
+                          ? "No invitees found"
+                          : "Select an invitee"
+                  )}
+                  testId="node-inspector-calendly-invitee"
+                />
+                {inviteePicker.error ? (
+                  <p className="mt-1.5 text-[11px] text-rose-600">{inviteePicker.error}</p>
+                ) : null}
+              </div>
+            )}
+            {calendlyAction === "find_invitee_by_email" && (
+              <div className="mt-4">
+                <Label>Invitee email</Label>
+                <TextInput
+                  value={str("calendlyInviteeEmail")}
+                  onChange={set("calendlyInviteeEmail")}
+                  placeholder="jordan@example.com"
+                />
+              </div>
+            )}
+            {(calendlyAction === "create_contact" || calendlyAction === "update_contact") && (
+              <>
+                {calendlyAction === "update_contact" ? (
+                  <div className="mt-4">
+                    <Label>Contact UUID</Label>
+                    <TextInput mono value={str("calendlyContactUuid")} onChange={set("calendlyContactUuid")} />
+                  </div>
+                ) : null}
+                <div className="mt-4">
+                  <Label>Email{calendlyAction === "create_contact" ? "" : " (optional)"}</Label>
+                  <TextInput
+                    value={str("calendlyContactEmail")}
+                    onChange={set("calendlyContactEmail")}
+                    placeholder="jordan@example.com"
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>First name (optional)</Label>
+                  <TextInput
+                    value={str("calendlyContactFirstName")}
+                    onChange={set("calendlyContactFirstName")}
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>Last name (optional)</Label>
+                  <TextInput
+                    value={str("calendlyContactLastName")}
+                    onChange={set("calendlyContactLastName")}
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>Full name (optional)</Label>
+                  <TextInput value={str("calendlyContactName")} onChange={set("calendlyContactName")} />
+                </div>
+              </>
+            )}
+            {(calendlyAction === "delete_contact" || calendlyAction === "find_contact") && (
+              <>
+                <div className="mt-4">
+                  <Label>Contact UUID</Label>
+                  <TextInput mono value={str("calendlyContactUuid")} onChange={set("calendlyContactUuid")} />
+                </div>
+              </>
+            )}
+            {calendlyAction === "create_one_off_meeting_link" && (
+              <>
+                <div className="mt-4">
+                  <Label>Meeting name</Label>
+                  <TextInput
+                    value={str("calendlyMeetingName", "One-off meeting")}
+                    onChange={set("calendlyMeetingName")}
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>Duration</Label>
+                  <SelectBox
+                    value={str("calendlyDurationMinutes", "30")}
+                    onChange={set("calendlyDurationMinutes")}
+                    options={[
+                      { value: "15", label: "15 minutes" },
+                      { value: "30", label: "30 minutes" },
+                      { value: "45", label: "45 minutes" },
+                      { value: "60", label: "60 minutes" },
+                      { value: "90", label: "90 minutes" },
+                      { value: "120", label: "120 minutes" }
+                    ]}
+                    testId="node-inspector-calendly-duration"
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>Start date/time</Label>
+                  <TextInput
+                    mono
+                    value={str("calendlyOneOffStartDate")}
+                    onChange={set("calendlyOneOffStartDate")}
+                    placeholder="2026-08-04T09:00"
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>End date/time</Label>
+                  <TextInput
+                    mono
+                    value={str("calendlyOneOffEndDate")}
+                    onChange={set("calendlyOneOffEndDate")}
+                    placeholder="2026-08-11T17:00"
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>Location</Label>
+                  <SelectBox
+                    value={str("calendlyLocationKind", "google_conference")}
+                    onChange={set("calendlyLocationKind")}
+                    options={[
+                      { value: "google_conference", label: "Google Meet" },
+                      { value: "zoom_conference", label: "Zoom" },
+                      { value: "microsoft_teams_conference", label: "Microsoft Teams" },
+                      { value: "ask_invitee", label: "Ask invitee" },
+                      { value: "outbound_call", label: "Phone call (outbound)" },
+                      { value: "inbound_call", label: "Phone call (inbound)" },
+                      { value: "physical", label: "In person" },
+                      { value: "custom", label: "Custom" }
+                    ]}
+                    testId="node-inspector-calendly-location-kind"
+                  />
+                </div>
+                {(str("calendlyLocationKind", "google_conference") === "physical" ||
+                  str("calendlyLocationKind", "google_conference") === "custom" ||
+                  str("calendlyLocationKind", "google_conference") === "outbound_call") && (
+                  <div className="mt-4">
+                    <Label>Location details</Label>
+                    <TextInput
+                      value={str("calendlyLocation")}
+                      onChange={set("calendlyLocation")}
+                      placeholder="Address, phone, or custom link"
+                    />
+                  </div>
+                )}
+                <div className="mt-4">
+                  <Label>Timezone</Label>
+                  <TextInput
+                    value={str("calendlyTimezone", "America/New_York")}
+                    onChange={set("calendlyTimezone")}
+                  />
+                  <p className="mt-1.5 text-[11px] text-slate-400">
+                    Host is taken from your connected Calendly account. Calendly uses the date part of
+                    the window; booking slots follow host availability.
+                  </p>
+                </div>
+              </>
+            )}
+            {(calendlyAction === "find_meeting_recap" ||
+              calendlyAction === "find_meeting_recap_transcript") && (
+              <>
+                <div className="mt-4">
+                  <Label>Meeting recap UUID</Label>
+                  <TextInput
+                    mono
+                    value={str("calendlyMeetingRecapUuid")}
+                    onChange={set("calendlyMeetingRecapUuid")}
+                  />
+                </div>
+              </>
+            )}
+            {calendlyAction === "find_user" && (
+              <>
+                <div className="mt-4">
+                  <Label>Name or email</Label>
+                  <TextInput
+                    value={str("calendlyUserSearch")}
+                    onChange={set("calendlyUserSearch")}
+                    placeholder="jordan@example.com"
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>User UUID (optional)</Label>
+                  <TextInput mono value={str("calendlyUserUuid")} onChange={set("calendlyUserUuid")} />
+                </div>
+              </>
             )}
             {calendlyAction === "list_events" && (
               <>
