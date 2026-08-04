@@ -98,6 +98,7 @@ export type SimilarAgentItem = {
 
 export type AgentDescriptionViewProps = {
   header?: ReactNode;
+  showFooter?: boolean;
 
   listing: PreviewListing & {
     id: string;
@@ -505,6 +506,7 @@ export function AgentDescriptionView(
 ) {
   const {
     header,
+    showFooter = true,
     listing,
     listingId,
     listingName,
@@ -1064,7 +1066,7 @@ export function AgentDescriptionView(
           </section>
         </main>
 
-        <CoreFooter />
+        {showFooter ? <CoreFooter /> : null}
       </div>
     </>
   );

@@ -520,6 +520,7 @@ export default function BusinessAgentDescriptionPage() {
 
   return (
     <AgentDescriptionView
+      showFooter={false}
       listing={listing}
       listingId={listing.id}
       listingName={listing.name}
