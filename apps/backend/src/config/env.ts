@@ -158,9 +158,8 @@ const envSchema = z.object({
   PINECONE_API_KEY: z.string().optional(),
   PINECONE_INDEX_NAME: z.string().default("memory"),
 
-  /** Dynamic Embedding provider selection: auto (default), openai, or gemini */
-  EMBEDDING_PROVIDER: z.enum(["openai", "gemini", "auto"]).default("auto"),
-  EMBEDDING_MODEL: z.string().optional(),
+  /** Local ONNX Embedding model selection */
+  LOCAL_EMBEDDING_MODEL: z.string().default("Xenova/bge-small-en-v1.5"),
 
   /** Smart Memory Node settings */
   MEMORY_SEARCH_TOP_K: z.coerce.number().int().positive().default(10),
