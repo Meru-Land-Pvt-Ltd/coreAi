@@ -6,7 +6,8 @@ COPY apps/backend/package.json ./apps/backend/package.json
 COPY apps/frontend/package.json ./apps/frontend/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
 
-RUN npm ci --ignore-scripts
+RUN npm ci --ignore-scripts \
+  && npm rebuild sharp --foreground-scripts
 
 COPY . .
 
