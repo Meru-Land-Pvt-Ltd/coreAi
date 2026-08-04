@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { prisma } from "../../lib/prisma";
 import { env } from "../../config/env";
 import { embedTexts, embeddingsConfigured } from "../ai-provider-engine/embeddings";
-import { isPineconeConfigured, getPineconeIndex } from "../../lib/pinecone-client";
+import { isPineconeConfigured, getPineconeIndex, formatTenantNamespace } from "../../lib/pinecone-client";
 import { buildSparseVector, prepareHybridQueryVectors } from "./sparse-encoder";
 import {
   extractDocumentText,
@@ -13,9 +13,16 @@ import {
   buildCompactMemoryString,
   extractExecutedNodeText,
   extractMemoryVariableLines,
+  flattenStructuredData,
+  stripMarkdownSyntax,
   type ExecutedNodeSummary,
   type MemoryAttachment
 } from "./memory-compression";
+
+/* --------------------------------- constants ------------------------------ */
+
+/** Minimum character threshold to create vector embeddings in Pinecone (~100 tokens). */
+export const MIN_EMBEDDING_CHARS = 400;
 
 /* --------------------------------- types ---------------------------------- */
 
@@ -102,32 +109,65 @@ export type SmartMemoryDeps = {
 
 /* ------------------------------- pure helpers ------------------------------ */
 
+/**
+ * Normalizes and cleans memory content to remove noise:
+ * - Strips zero-width characters and BOMs
+ * - Removes decorative line dividers (e.g. ---, ===, ***, ___)
+ * - Collapses excessive blank lines to maximum of 2 newlines
+ * - Trims outer whitespace
+ */
+export function cleanMemoryContent(text: string): string {
+  if (!text) return "";
+
+  let cleaned = text.trim();
+  if ((cleaned.startsWith("{") && cleaned.endsWith("}")) || (cleaned.startsWith("[") && cleaned.endsWith("]"))) {
+    cleaned = flattenStructuredData(cleaned);
+  }
+
+  cleaned = stripMarkdownSyntax(cleaned);
+
+  return cleaned
+    .replace(/[\u200B-\u200D\uFEFF]/g, "") // Zero-width characters & BOM
+    .replace(/^[\s\t]*[-=*_]{3,}[\s\t]*$/gm, "") // Line dividers like ---, ===, ***, ___
+    .replace(/\\n/g, "\n") // Convert escaped \n strings to real newlines
+    .replace(/^[\s\t]*[\{\}\[\]]+[\s\t]*$/gm, "") // Remove lines with only brackets/braces
+    .replace(/\n{3,}/g, "\n\n") // Collapse 3+ blank lines
+    .trim();
+}
+
 /** Same chars/4 heuristic the provider engine uses for pre-flight cost estimates. */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+function sanitizeScopeParam(str?: string): string {
+  if (!str) return "";
+  return encodeURIComponent(str.replace(/\|/g, "_"));
+}
+
 export function buildConversationScopeKey(scope: SmartMemoryScope): string {
   const tenant = scope.businessId
-    ? `biz:${scope.businessId}`
+    ? `biz:${sanitizeScopeParam(scope.businessId)}`
     : scope.architectUserId
-      ? `arch:${scope.architectUserId}`
+      ? `arch:${sanitizeScopeParam(scope.architectUserId)}`
       : "anon";
-  const agent = scope.installedAgentId ? `agent:${scope.installedAgentId}` : `wf:${scope.workflowId || "none"}`;
+  const agent = scope.installedAgentId
+    ? `agent:${sanitizeScopeParam(scope.installedAgentId)}`
+    : `wf:${sanitizeScopeParam(scope.workflowId) || "none"}`;
   const conversation = scope.threadId
-    ? `thread:${scope.threadId}`
+    ? `thread:${sanitizeScopeParam(scope.threadId)}`
     : scope.testSessionId
-      ? `session:${scope.testSessionId}`
+      ? `session:${sanitizeScopeParam(scope.testSessionId)}`
       : scope.callerKey
-        ? `caller:${scope.callerKey}`
+        ? `caller:${sanitizeScopeParam(scope.callerKey)}`
         : scope.workflowRunId
-          ? `run:${scope.workflowRunId}`
+          ? `run:${sanitizeScopeParam(scope.workflowRunId)}`
           : "solo";
   return `${tenant}|${agent}|${conversation}`;
 }
 
 export function buildScopeKey(scope: SmartMemoryScope): string {
-  return `${buildConversationScopeKey(scope)}|node:${scope.nodeId || "none"}`;
+  return `${buildConversationScopeKey(scope)}|node:${sanitizeScopeParam(scope.nodeId) || "none"}`;
 }
 
 function sha256(text: string): string {
@@ -139,7 +179,7 @@ export function chunkText(text: string): string[] {
   const targetChars = env.MEMORY_CHUNK_TARGET_CHARS || 2000;
   const maxChars = env.MEMORY_CHUNK_MAX_CHARS || 2500;
 
-  const trimmed = text.trim();
+  const trimmed = cleanMemoryContent(text);
   if (!trimmed) return [];
   if (trimmed.length <= maxChars) return [trimmed];
 
@@ -216,7 +256,7 @@ function decodeAttachment(att: MemoryAttachment): DecodedAttachment {
 
 export async function extractAttachmentText(att: MemoryAttachment): Promise<string> {
   const decoded = decodeAttachment(att);
-  if (decoded.inlineText !== null) return decoded.inlineText.trim();
+  if (decoded.inlineText !== null) return cleanMemoryContent(decoded.inlineText);
   if (!decoded.bytes || decoded.bytes.length === 0) {
     return att.data ? `[unreadable attachment: ${decoded.name}]` : "";
   }
@@ -232,10 +272,10 @@ export async function extractAttachmentText(att: MemoryAttachment): Promise<stri
   try {
     if (kind === "pdf" || kind === "docx") {
       const result = await extractDocumentText(kind, decoded.bytes);
-      return normalizeExtractedText(result.text);
+      return cleanMemoryContent(normalizeExtractedText(result.text));
     }
     if (kind === "txt" || textualMime) {
-      return normalizeExtractedText(decoded.bytes.toString("utf8").replace(/^\uFEFF/, ""));
+      return cleanMemoryContent(normalizeExtractedText(decoded.bytes.toString("utf8").replace(/^\uFEFF/, "")));
     }
   } catch {
     return `[unreadable attachment: ${decoded.name} (${decoded.mime || "unknown type"}) — extraction failed]`;
@@ -254,27 +294,33 @@ export async function buildCorpusPieces(input: SmartMemoryInput): Promise<Corpus
   const pieces: CorpusPiece[] = [];
 
   if (input.customNotes?.trim()) {
-    pieces.push({ sourceType: "notes", sourceLabel: "Notes", text: input.customNotes.trim() });
+    const cleaned = cleanMemoryContent(input.customNotes);
+    if (cleaned) {
+      pieces.push({ sourceType: "notes", sourceLabel: "Notes", text: cleaned });
+    }
   }
 
   for (const att of input.attachments ?? []) {
     const text = await extractAttachmentText(att);
-    if (text.trim()) {
-      pieces.push({ sourceType: "attachment", sourceLabel: att.name || "Attachment", text: text.trim() });
+    const cleaned = cleanMemoryContent(text);
+    if (cleaned) {
+      pieces.push({ sourceType: "attachment", sourceLabel: att.name || "Attachment", text: cleaned });
     }
   }
 
   for (const node of input.executedNodes ?? []) {
     const text = extractExecutedNodeText(node);
-    if (text) {
-      pieces.push({ sourceType: "node_output", sourceLabel: node.label || node.nodeId, text });
+    const cleaned = cleanMemoryContent(text);
+    if (cleaned) {
+      pieces.push({ sourceType: "node_output", sourceLabel: node.label || node.nodeId, text: cleaned });
     }
   }
 
   if (input.variables && Object.keys(input.variables).length > 0) {
     const varLines = extractMemoryVariableLines(input.variables, 0);
-    if (varLines.length > 0) {
-      pieces.push({ sourceType: "variables", sourceLabel: "Key variables", text: varLines.join("\n") });
+    const cleaned = cleanMemoryContent(varLines.join("\n"));
+    if (cleaned) {
+      pieces.push({ sourceType: "variables", sourceLabel: "Key variables", text: cleaned });
     }
   }
 
@@ -287,18 +333,19 @@ export function corpusToRecordDrafts(
   scopeKey: string
 ): MemoryRecordDraft[] {
   return pieces.map((piece) => {
-    const chunks = chunkText(piece.text);
+    const cleanedText = cleanMemoryContent(piece.text);
+    const chunks = chunkText(cleanedText);
     return {
       scopeKey,
       scope,
       sourceType: piece.sourceType,
       sourceLabel: piece.sourceLabel,
-      content: piece.text,
-      tokenCount: estimateTokens(piece.text),
-      contentHash: sha256(piece.text),
+      content: cleanedText,
+      tokenCount: estimateTokens(cleanedText),
+      contentHash: sha256(cleanedText),
       chunks: chunks.map((content, index) => ({
         chunkIndex: index,
-        content,
+        content: cleanMemoryContent(content),
         tokenCount: estimateTokens(content),
         contentHash: sha256(content)
       }))
@@ -366,6 +413,30 @@ export function buildVectorMemoryString(params: {
   return `=== MEMORY ===\n\n${sections.join("\n\n")}`;
 }
 
+/* -------------------------- Query Embedding Cache -------------------------- */
+
+const QUERY_EMBEDDING_CACHE = new Map<string, { vector: number[]; expiresAt: number }>();
+const QUERY_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes TTL
+
+async function getCachedOrEmbedQuery(queryText: string): Promise<number[] | null> {
+  const hash = sha256(queryText);
+  const cached = QUERY_EMBEDDING_CACHE.get(hash);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.vector;
+  }
+
+  const vectors = await embedTexts([queryText.slice(0, 8000)]);
+  if (vectors && vectors.length === 1) {
+    if (QUERY_EMBEDDING_CACHE.size > 500) {
+      const firstKey = QUERY_EMBEDDING_CACHE.keys().next().value;
+      if (firstKey) QUERY_EMBEDDING_CACHE.delete(firstKey);
+    }
+    QUERY_EMBEDDING_CACHE.set(hash, { vector: vectors[0], expiresAt: Date.now() + QUERY_CACHE_TTL_MS });
+    return vectors[0];
+  }
+  return null;
+}
+
 /* ------------------------------ default deps ------------------------------- */
 
 export const defaultSmartMemoryDeps: SmartMemoryDeps = {
@@ -391,6 +462,11 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
 
     for (const draft of fresh) {
       try {
+        // Filter chunks that meet the minimum character threshold for vector embedding
+        const eligibleChunks = draft.chunks.filter(
+          (c) => cleanMemoryContent(c.content).length >= MIN_EMBEDDING_CHARS
+        );
+
         const record = await prisma.memoryRecord.create({
           data: {
             scopeKey: conversationScopeKey,
@@ -408,17 +484,30 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
             content: draft.content,
             tokenCount: draft.tokenCount,
             contentHash: draft.contentHash,
-            embeddingStatus: pineconeIndex ? "complete" : "unavailable"
+            embeddingStatus:
+              eligibleChunks.length === 0
+                ? "bypassed_short"
+                : pineconeIndex
+                  ? "complete"
+                  : "unavailable"
           }
         });
         newRecords += 1;
 
-        if (pineconeIndex && draft.chunks.length > 0) {
-          const chunkTexts = draft.chunks.map((c) => c.content);
+        if (pineconeIndex && eligibleChunks.length > 0) {
+          const chunkTexts = eligibleChunks.map((c) => cleanMemoryContent(c.content));
           const denseEmbeddings = await embedTexts(chunkTexts);
 
-          if (denseEmbeddings && denseEmbeddings.length === draft.chunks.length) {
-            const vectorsToUpsert = draft.chunks.map((chunk, idx) => {
+          if (denseEmbeddings && denseEmbeddings.length === eligibleChunks.length) {
+            const tenantId = draft.scope.businessId
+              ? `biz_${draft.scope.businessId}`
+              : draft.scope.architectUserId
+                ? `arch_${draft.scope.architectUserId}`
+                : "default";
+            const targetNs = formatTenantNamespace(tenantId);
+            const targetIndex = targetNs ? pineconeIndex.namespace(targetNs) : pineconeIndex;
+
+            const vectorsToUpsert = eligibleChunks.map((chunk, idx) => {
               const vectorId = sha256(`${conversationScopeKey}:${chunk.contentHash}`);
               const sparseVec = buildSparseVector(chunk.content);
               const label =
@@ -445,7 +534,7 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
               };
             });
 
-            await pineconeIndex.upsert({ records: vectorsToUpsert });
+            await targetIndex.upsert({ records: vectorsToUpsert });
             newChunks += vectorsToUpsert.length;
           }
         }
@@ -458,7 +547,7 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
   },
 
   async searchChunks(scopeKey, query, topK) {
-    const trimmedQuery = query.trim();
+    const trimmedQuery = cleanMemoryContent(query);
     if (!trimmedQuery) {
       throw new Error("similarity retrieval unavailable: no query text for this request");
     }
@@ -471,13 +560,13 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
       throw new Error("similarity retrieval unavailable: OpenAI API key not configured for embeddings");
     }
 
-    const denseVectors = await embedTexts([trimmedQuery.slice(0, 8000)]);
-    if (!denseVectors || denseVectors.length !== 1) {
+    const denseVector = await getCachedOrEmbedQuery(trimmedQuery);
+    if (!denseVector) {
       throw new Error("similarity retrieval unavailable: OpenAI embedding request failed");
     }
 
     const sparseQueryVec = buildSparseVector(trimmedQuery);
-    const { denseQuery, sparseQuery } = prepareHybridQueryVectors(denseVectors[0], sparseQueryVec, 0.75);
+    const { denseQuery, sparseQuery } = prepareHybridQueryVectors(denseVector, sparseQueryVec, 0.75);
 
     const pineconeIndex = await getPineconeIndex();
     if (!pineconeIndex) {
@@ -486,7 +575,14 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
 
     const conversationScopeKey = scopeKey.replace(/\|node:[^|]+/, "");
 
-    const queryResponse = await pineconeIndex.query({
+    // Extract tenant ID from scopeKey for namespace routing
+    const bizMatch = scopeKey.match(/biz:([^|]+)/);
+    const archMatch = scopeKey.match(/arch:([^|]+)/);
+    const tenantId = bizMatch ? `biz_${bizMatch[1]}` : archMatch ? `arch_${archMatch[1]}` : "default";
+    const tenantNs = formatTenantNamespace(tenantId);
+    const targetIndex = tenantNs ? pineconeIndex.namespace(tenantNs) : pineconeIndex;
+
+    let queryResponse = await targetIndex.query({
       vector: denseQuery,
       sparseVector: sparseQuery.indices.length > 0 ? sparseQuery : undefined,
       topK,
@@ -498,6 +594,22 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
       },
       includeMetadata: true
     });
+
+    // Fallback to default namespace search if namespaced query returned 0 matches
+    if ((!queryResponse.matches || queryResponse.matches.length === 0) && tenantNs !== "default") {
+      queryResponse = await pineconeIndex.query({
+        vector: denseQuery,
+        sparseVector: sparseQuery.indices.length > 0 ? sparseQuery : undefined,
+        topK,
+        filter: {
+          $or: [
+            { conversationScopeKey: { $eq: conversationScopeKey } },
+            { scopeKey: { $eq: scopeKey } }
+          ]
+        },
+        includeMetadata: true
+      });
+    }
 
     const matches = queryResponse.matches || [];
     if (matches.length === 0) {
@@ -567,6 +679,7 @@ function vectorStoreDisabledForTests(): boolean {
 
 export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
   async function store(input: SmartMemoryInput): Promise<SmartMemoryStoreResult> {
+    const storeStart = Date.now();
     const rawMemory = buildCompactMemoryString({
       executedNodes: input.executedNodes,
       variables: input.variables,
@@ -580,13 +693,22 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
     let storedChunks = 0;
 
     try {
+      const piecesStart = Date.now();
       const pieces = await buildCorpusPieces(input);
       const drafts = corpusToRecordDrafts(pieces, input.scope, scopeKey);
+      const piecesMs = Date.now() - piecesStart;
       corpusTokens = drafts.reduce((sum, draft) => sum + draft.tokenCount, 0);
 
+      const dbStoreStart = Date.now();
       const stored = await deps.storeCorpus(drafts);
+      const dbStoreMs = Date.now() - dbStoreStart;
+
       storedRecords = stored.newRecords;
       storedChunks = stored.newChunks;
+
+      console.log(
+        `[WORKFLOW_PERF] [SmartMemory Store] total=${Date.now() - storeStart}ms (corpusPieces=${piecesMs}ms, storeCorpus=${dbStoreMs}ms, records=${storedRecords}, chunks=${storedChunks})`
+      );
     } catch (error) {
       console.warn(
         "[smart-memory] vector store unavailable, memory continues with raw string:",
@@ -603,6 +725,7 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
     query: string;
     rawMemory: string;
   }): Promise<ResolvedSmartMemory> {
+    const resolveStart = Date.now();
     try {
       const topK = env.MEMORY_SEARCH_TOP_K || 10;
       const sampleLimit = env.MEMORY_TIMELINE_SAMPLE_LIMIT || 400;
@@ -614,16 +737,17 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
       ]);
 
       const timeline = buildTimelineSummary(timelineRecords, totalRecords);
+      const resolveMs = Date.now() - resolveStart;
+      console.log(`[WORKFLOW_PERF] [SmartMemory Query] duration=${resolveMs}ms retrievedChunks=${retrieved.length}`);
+
       return {
         memory: buildVectorMemoryString({ retrieved, timeline }),
         mode: "vector",
         retrievedChunks: retrieved.length
       };
     } catch (error) {
-      console.warn(
-        "[smart-memory] Pinecone hybrid retrieval unavailable, falling back to raw memory string:",
-        error instanceof Error ? error.message : "unknown error"
-      );
+      const resolveMs = Date.now() - resolveStart;
+      console.log(`[WORKFLOW_PERF] [SmartMemory Query Fallback] duration=${resolveMs}ms reason="${error instanceof Error ? error.message : "unknown"}"`);
       return { memory: params.rawMemory, mode: "raw_fallback", retrievedChunks: 0 };
     }
   }

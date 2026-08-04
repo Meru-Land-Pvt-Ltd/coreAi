@@ -10,6 +10,8 @@ import {
   estimateTokens,
   extractAttachmentText,
   mergeMemoryIntoPrompt,
+  cleanMemoryContent,
+  MIN_EMBEDDING_CHARS,
   type MemoryRecordDraft,
   type SmartMemoryDeps,
   type SmartMemoryInput,
@@ -150,7 +152,7 @@ describe("attachments", () => {
     expect(await extractAttachmentText({ name: "p.csv", data: `data:text/csv;base64,${csv}` })).toContain("implant,1900");
     const json = Buffer.from('{"service":"implant"}', "utf8").toString("base64");
     expect(await extractAttachmentText({ name: "p.json", data: `data:application/json;base64,${json}` })).toContain(
-      '"service"'
+      "Service: implant"
     );
   });
 
@@ -168,6 +170,49 @@ describe("attachments", () => {
       data: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${fakeZip}`
     });
     expect(result).toContain("[unreadable attachment: notes.docx");
+  });
+});
+
+describe("noise cleaning & embedding threshold", () => {
+  test("cleanMemoryContent strips dividers like ---, ===, *** and zero-width chars", () => {
+    const raw = "--- \n\uFEFFHello World\n===\n\n\nSome detail\n***";
+    const cleaned = cleanMemoryContent(raw);
+    expect(cleaned).not.toContain("---");
+    expect(cleaned).not.toContain("===");
+    expect(cleaned).not.toContain("***");
+    expect(cleaned).toContain("Hello World");
+    expect(cleaned).toContain("Some detail");
+  });
+
+  test("cleanMemoryContent flattens JSON structures and removes bracket noise", () => {
+    const rawJson = JSON.stringify({
+      Non_Functional_Requirements: [
+        { requirement: "Security", description: "HIPAA compliance and encryption." },
+        { requirement: "Performance", description: "10k+ concurrent users." }
+      ]
+    });
+    const cleaned = cleanMemoryContent(rawJson);
+    expect(cleaned).not.toContain("{");
+    expect(cleaned).not.toContain("}");
+    expect(cleaned).not.toContain("[");
+    expect(cleaned).not.toContain("]");
+    expect(cleaned).toContain("Non Functional Requirements:");
+    expect(cleaned).toContain("Requirement: Security");
+    expect(cleaned).toContain("Description: HIPAA compliance and encryption.");
+  });
+
+  test("cleanMemoryContent strips markdown syntax noise like headers, bolding, bullets", () => {
+    const rawMarkdown = `#### **5. Monitoring, Logging & Observability**\n* **Metrics & Monitoring:** Prometheus for scraping cluster metrics.\n* **Centralized Logging:** Fluentbit / CloudWatch.`;
+    const cleaned = cleanMemoryContent(rawMarkdown);
+    expect(cleaned).not.toContain("####");
+    expect(cleaned).not.toContain("**");
+    expect(cleaned).not.toContain("* ");
+    expect(cleaned).toContain("Monitoring, Logging & Observability");
+    expect(cleaned).toContain("Metrics & Monitoring: Prometheus for scraping cluster metrics.");
+  });
+
+  test("MIN_EMBEDDING_CHARS threshold is set to 400", () => {
+    expect(MIN_EMBEDDING_CHARS).toBe(400);
   });
 });
 

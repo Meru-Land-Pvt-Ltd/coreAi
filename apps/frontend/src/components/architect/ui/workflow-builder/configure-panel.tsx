@@ -899,16 +899,31 @@ export function ConfigurePanel({
     }
   }, [workflowDerivedIntegrations, isLocked, loading, updateTemplate]);
 
-  // If "What's included" is still blank, fill from the live graph when nodes change.
+  // Dynamically sync "What's included" features whenever workflow canvas nodes or edges change.
+  const nodesSerialized = useMemo(
+    () => JSON.stringify(workflowFlow?.nodes ?? []),
+    [workflowFlow?.nodes]
+  );
+  const edgesSerialized = useMemo(
+    () => JSON.stringify(workflowFlow?.edges ?? []),
+    [workflowFlow?.edges]
+  );
+
   useEffect(() => {
     if (isLocked || loading) return;
-    const features = configureRef.current.media.includedFeatures;
-    if (features.some((feature) => feature.trim())) return;
-    const generated = generateIncludedFeaturesFromWorkflow(workflowFlowRef.current);
+    const generated = generateIncludedFeaturesFromWorkflow(workflowFlowRef.current ?? workflowFlow);
     if (generated.length === 0) return;
     while (generated.length < 4) generated.push("");
-    updateMedia({ includedFeatures: generated });
-  }, [workflowDerivedIntegrations, isLocked, loading, updateMedia]);
+
+    const currentFeatures = configureRef.current.media.includedFeatures;
+    const hasChanged =
+      generated.length !== currentFeatures.length ||
+      generated.some((feat, i) => feat.trim() !== (currentFeatures[i] ?? "").trim());
+
+    if (hasChanged) {
+      updateMedia({ includedFeatures: generated });
+    }
+  }, [nodesSerialized, edgesSerialized, isLocked, loading, updateMedia, workflowFlow]);
 
   const toggleIntegration = useCallback(
     (key: RequiredIntegrationKey) => {

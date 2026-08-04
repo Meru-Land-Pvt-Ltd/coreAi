@@ -475,11 +475,12 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
-    await user.click(screen.getByTestId("business-setup-dot-4"));
+    expect((screen.getByTestId("business-setup-dot-4") as HTMLButtonElement).disabled).toBe(true);
 
-    const wizard = await screen.findByTestId("business-setup-wizard");
-    expect(wizard.textContent).not.toContain("Redeploy");
-    expect(wizard.textContent).toContain("Go live");
+    await user.click(screen.getByTestId("business-setup-dot-3"));
+    const submitBtn = screen.getByTestId("business-setup-submit");
+    expect(submitBtn.textContent).not.toContain("Redeploy");
+    expect(submitBtn.textContent).toContain("Go live");
   });
 
   /**
@@ -500,10 +501,11 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
-    await user.click(screen.getByTestId("business-setup-dot-4"));
+    expect((screen.getByTestId("business-setup-dot-4") as HTMLButtonElement).disabled).toBe(true);
 
-    const wizard = await screen.findByTestId("business-setup-wizard");
-    expect(wizard.textContent).not.toContain("Redeploy");
+    await user.click(screen.getByTestId("business-setup-dot-3"));
+    const submitBtn = screen.getByTestId("business-setup-submit");
+    expect(submitBtn.textContent).not.toContain("Redeploy");
   });
 
   it("the Test step shows the call preview, never an editable hours grid", async () => {
@@ -560,6 +562,8 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
 
     // Verify it returns to Step 1 (Connect)
     expect(screen.getByTestId("business-setup-dot-1").getAttribute("aria-current")).toBe("step");
+    // Even after return, step 4 dot remains disabled in top header
+    expect((screen.getByTestId("business-setup-dot-4") as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("marks the Test step complete after a successful Go live", async () => {

@@ -114,11 +114,14 @@ export class AIProviderEngine {
     const startMs = Date.now();
     try {
       const response = await fn(adapter);
+      const durationMs = response.durationMs > 0 ? response.durationMs : Date.now() - startMs;
+      console.log(`[WORKFLOW_PERF] [LLM Provider Call] provider=${adapter.providerId} model=${response.modelName} status=${response.status} duration=${durationMs}ms`);
       return {
         ...response,
-        durationMs: response.durationMs > 0 ? response.durationMs : Date.now() - startMs,
+        durationMs,
       };
     } catch (err) {
+      console.log(`[WORKFLOW_PERF] [LLM Provider Call FAILED] provider=${adapter.providerId} duration=${Date.now() - startMs}ms error=${err instanceof Error ? err.message : String(err)}`);
       throw new ProviderExecutionError(
         adapter.providerId,
         err instanceof Error ? err.message : String(err),

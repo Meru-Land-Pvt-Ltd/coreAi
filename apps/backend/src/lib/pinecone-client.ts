@@ -1,5 +1,6 @@
 import { Pinecone, type Index } from "@pinecone-database/pinecone";
 import { env } from "../config/env";
+import { EMBEDDING_DIMENSIONS } from "../modules/ai-provider-engine/embeddings";
 
 let pineconeInstance: Pinecone | null = null;
 let indexInitialized = false;
@@ -19,15 +20,20 @@ export function getPineconeClient(): Pinecone | null {
   return pineconeInstance;
 }
 
+export function getPineconeTargetIndexName(): string {
+  return env.PINECONE_INDEX_NAME || process.env.PINECONE_INDEX_NAME || "memory";
+}
+
 /**
  * Get or initialize the Pinecone index for hybrid vector search.
- * Ensures the index exists (creates serverless index if absent).
+ * Ensures the index exists with matching dimension (creates serverless index if absent).
  */
 export async function getPineconeIndex(): Promise<Index | null> {
   const client = getPineconeClient();
   if (!client) return null;
 
-  const indexName = env.PINECONE_INDEX_NAME || "memory";
+  const indexName = getPineconeTargetIndexName();
+  const targetDimension = EMBEDDING_DIMENSIONS; // 384 dimensions for local BGE model
 
   if (!indexInitialized) {
     try {
@@ -35,10 +41,10 @@ export async function getPineconeIndex(): Promise<Index | null> {
       const existingInfo = existingIndexes.indexes?.find((idx) => idx.name === indexName);
 
       if (!existingInfo) {
-        console.log(`[pinecone] Index '${indexName}' not found. Creating serverless index...`);
+        console.log(`[pinecone] Index '${indexName}' not found. Creating serverless index (dim=${targetDimension})...`);
         await client.createIndex({
           name: indexName,
-          dimension: 1536, // Standard 1536 default dimension
+          dimension: targetDimension,
           metric: "dotproduct", // Dotproduct metric required for Pinecone hybrid search (dense + sparse)
           spec: {
             serverless: {
@@ -48,7 +54,7 @@ export async function getPineconeIndex(): Promise<Index | null> {
           }
         });
         console.log(`[pinecone] Index '${indexName}' created successfully.`);
-        detectedDimension = 1536;
+        detectedDimension = targetDimension;
       } else {
         if (typeof existingInfo.dimension === "number") {
           detectedDimension = existingInfo.dimension;
@@ -64,15 +70,15 @@ export async function getPineconeIndex(): Promise<Index | null> {
 }
 
 /**
- * Dynamically get the vector dimension of the target Pinecone index (e.g., 1536, 3072, 768).
+ * Dynamically get the vector dimension of the target Pinecone index.
  */
 export async function getPineconeIndexDimension(): Promise<number> {
   if (detectedDimension) return detectedDimension;
 
   const client = getPineconeClient();
-  if (!client) return 1536;
+  if (!client) return EMBEDDING_DIMENSIONS;
 
-  const indexName = env.PINECONE_INDEX_NAME || "memory";
+  const indexName = getPineconeTargetIndexName();
   try {
     const desc = await client.describeIndex(indexName);
     if (typeof desc.dimension === "number") {
@@ -83,5 +89,15 @@ export async function getPineconeIndexDimension(): Promise<number> {
     // Default fallback if index check fails
   }
 
-  return 1536;
+  return EMBEDDING_DIMENSIONS;
 }
+
+/**
+ * Safely format and return a tenant-isolated Pinecone namespace handle.
+ */
+export function formatTenantNamespace(tenantId: string): string {
+  if (!tenantId) return "default";
+  const clean = tenantId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return clean.startsWith("biz_") || clean.startsWith("arch_") ? clean : `tenant_${clean}`;
+}
+

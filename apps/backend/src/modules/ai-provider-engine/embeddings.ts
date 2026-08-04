@@ -1,143 +1,68 @@
+import { pipeline, type FeatureExtractionPipeline } from "@xenova/transformers";
 import { env } from "../../config/env";
 
-export const EMBEDDING_DIMENSIONS = 1536;
-const EMBEDDING_TIMEOUT_MS = 15000;
+export const EMBEDDING_DIMENSIONS = 384;
 const BATCH_SIZE = 96;
 
-export type EmbeddingProviderName = "openai" | "gemini";
+export type EmbeddingProviderName = "local";
 
-export function getActiveEmbeddingProvider(): EmbeddingProviderName | null {
-  const openAiKey = env.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-  const googleKey = env.GOOGLE_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_AI_API_KEY;
+let localExtractor: FeatureExtractionPipeline | null = null;
 
-  if (env.EMBEDDING_PROVIDER === "gemini") return googleKey ? "gemini" : null;
-  if (env.EMBEDDING_PROVIDER === "openai") return openAiKey ? "openai" : null;
+/**
+ * Lazy loads the 100% local ONNX embedding pipeline (Xenova/bge-small-en-v1.5).
+ */
+async function getLocalExtractor(): Promise<FeatureExtractionPipeline> {
+  if (!localExtractor) {
+    const modelName = env.LOCAL_EMBEDDING_MODEL || "Xenova/bge-small-en-v1.5";
+    localExtractor = await pipeline("feature-extraction", modelName, {
+      quantized: true
+    });
+  }
+  return localExtractor;
+}
 
-  if (openAiKey) return "openai";
-  if (googleKey) return "gemini";
-  return null;
+export function getActiveEmbeddingProvider(): EmbeddingProviderName {
+  return "local";
 }
 
 export function getActiveEmbeddingModel(): string {
-  if (env.EMBEDDING_MODEL && env.EMBEDDING_MODEL.trim()) {
-    return env.EMBEDDING_MODEL.trim();
-  }
-  const provider = getActiveEmbeddingProvider();
-  if (provider === "gemini") {
-    return "text-embedding-004";
-  }
-  return "text-embedding-3-small";
+  return env.LOCAL_EMBEDDING_MODEL || "Xenova/bge-small-en-v1.5";
 }
 
 export function embeddingsConfigured(): boolean {
-  return getActiveEmbeddingProvider() !== null;
+  return true; // Local ONNX embedding engine is always ready
 }
 
 /**
- * Fetch embeddings from OpenAI API (always requesting 1536 dimensions).
- */
-async function embedBatchOpenAI(texts: string[], apiKey: string, model: string): Promise<number[][] | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), EMBEDDING_TIMEOUT_MS);
-
-  try {
-    const response = await fetch("https://api.openai.com/v1/embeddings", {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model,
-        input: texts,
-        dimensions: EMBEDDING_DIMENSIONS
-      })
-    });
-
-    const json = (await response.json().catch(() => ({}))) as {
-      data?: Array<{ index?: number; embedding?: number[] }>;
-      error?: { message?: string };
-    };
-
-    if (!response.ok) throw new Error(json.error?.message || `OpenAI returned ${response.status}`);
-
-    const rows = Array.isArray(json.data) ? json.data : [];
-    if (rows.length !== texts.length) return null;
-
-    return rows.map((r) => r.embedding as number[]);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-/**
- * Fetch embeddings from Google Gemini API (always requesting 1536 dimensions via outputDimensionality).
- */
-async function embedBatchGemini(texts: string[], apiKey: string, model: string): Promise<number[][] | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), EMBEDDING_TIMEOUT_MS);
-  const cleanModel = model.startsWith("models/") ? model.slice(7) : model;
-
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:batchEmbedContents?key=${apiKey}`;
-    const requests = texts.map((text) => ({
-      model: `models/${cleanModel}`,
-      content: { parts: [{ text }] },
-      outputDimensionality: EMBEDDING_DIMENSIONS
-    }));
-
-    const response = await fetch(url, {
-      method: "POST",
-      signal: controller.signal,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requests })
-    });
-
-    const json = (await response.json().catch(() => ({}))) as {
-      embeddings?: Array<{ values?: number[] }>;
-      error?: { message?: string };
-    };
-
-    if (!response.ok) throw new Error(json.error?.message || `Gemini returned ${response.status}`);
-
-    const rows = Array.isArray(json.embeddings) ? json.embeddings : [];
-    if (rows.length !== texts.length) return null;
-
-    return rows.map((r) => r.values as number[]);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-/**
- * Unified embedding generator for OpenAI and Gemini.
- * Both providers are configured at the API level to return exact 1536-dimension vectors.
+ * Generates 384-dimensional normalized vectors 100% locally on CPU via ONNX Runtime.
  */
 export async function embedTexts(texts: string[]): Promise<number[][] | null> {
   if (texts.length === 0) return [];
 
-  const provider = getActiveEmbeddingProvider();
-  if (!provider) return null;
-
-  const openAiKey = env.OPENAI_API_KEY || process.env.OPENAI_API_KEY || "";
-  const googleKey = env.GOOGLE_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_AI_API_KEY || "";
-  const model = env.EMBEDDING_MODEL || (provider === "gemini" ? "text-embedding-004" : "text-embedding-3-small");
-
   try {
+    const extractor = await getLocalExtractor();
     const vectors: number[][] = [];
+
     for (let i = 0; i < texts.length; i += BATCH_SIZE) {
       const batch = texts.slice(i, i + BATCH_SIZE);
-      const batchResult = provider === "gemini"
-        ? await embedBatchGemini(batch, googleKey, model)
-        : await embedBatchOpenAI(batch, openAiKey, model);
-
-      if (!batchResult) return null;
-      vectors.push(...batchResult);
+      if (batch.length === 1) {
+        const output = await extractor(batch[0], { pooling: "mean", normalize: true });
+        vectors.push(Array.from(output.data as Float32Array));
+      } else {
+        const output = await extractor(batch, { pooling: "mean", normalize: true });
+        const data = output.data as Float32Array;
+        const dims = output.dims;
+        const vectorDim = dims ? dims[dims.length - 1] : EMBEDDING_DIMENSIONS;
+        for (let b = 0; b < batch.length; b++) {
+          const vec = Array.from(data.subarray(b * vectorDim, (b + 1) * vectorDim));
+          vectors.push(vec);
+        }
+      }
     }
     return vectors;
   } catch (error) {
-    console.warn(`[embeddings] Embedding request failed (${provider}):`, error instanceof Error ? error.message : error);
+    console.warn("[embeddings] Local ONNX embedding failed:", error instanceof Error ? error.message : error);
     return null;
   }
 }
+

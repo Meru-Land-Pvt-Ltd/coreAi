@@ -641,6 +641,81 @@ function sortNodesForRun(nodes: RunnerNode[], edges: RunnerEdge[]) {
   return [...executionOrder, ...disconnected];
 }
 
+export function groupNodesIntoExecutionWaves(
+  nodes: RunnerNode[],
+  edges: RunnerEdge[]
+): RunnerNode[][] {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const outgoing = new Map<string, string[]>();
+  const inDegree = new Map<string, number>();
+
+  for (const node of nodes) {
+    inDegree.set(node.id, 0);
+  }
+
+  for (const edge of edges) {
+    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) continue;
+    outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge.target]);
+    inDegree.set(edge.target, (inDegree.get(edge.target) ?? 0) + 1);
+  }
+
+  const processed = new Set<string>();
+  const waves: RunnerNode[][] = [];
+
+  let currentWaveIds = nodes
+    .filter((n) => (inDegree.get(n.id) ?? 0) === 0)
+    .sort((a, b) => (a.position?.x ?? 0) - (b.position?.x ?? 0))
+    .map((n) => n.id);
+
+  while (currentWaveIds.length > 0) {
+    const currentWaveNodes: RunnerNode[] = [];
+    const nextWaveCandidates = new Set<string>();
+
+    for (const id of currentWaveIds) {
+      if (processed.has(id)) continue;
+      processed.add(id);
+      const node = nodeById.get(id);
+      if (node) currentWaveNodes.push(node);
+
+      for (const targetId of outgoing.get(id) ?? []) {
+        const currentDeg = inDegree.get(targetId) ?? 1;
+        const nextDeg = Math.max(0, currentDeg - 1);
+        inDegree.set(targetId, nextDeg);
+        if (nextDeg === 0 && !processed.has(targetId)) {
+          nextWaveCandidates.add(targetId);
+        }
+      }
+    }
+
+    if (currentWaveNodes.length > 0) {
+      waves.push(currentWaveNodes);
+    }
+
+    currentWaveIds = Array.from(nextWaveCandidates)
+      .filter((id) => !processed.has(id))
+      .sort((a, b) => {
+        const aNode = nodeById.get(a);
+        const bNode = nodeById.get(b);
+        return (aNode?.position?.x ?? 0) - (bNode?.position?.x ?? 0);
+      });
+  }
+
+  const disconnected = nodes.filter((node) => !processed.has(node.id));
+  if (disconnected.length > 0) {
+    disconnected.sort((a, b) => {
+      const ax = a.position?.x ?? 0;
+      const bx = b.position?.x ?? 0;
+      if (ax !== bx) return ax - bx;
+      return (a.position?.y ?? 0) - (b.position?.y ?? 0);
+    });
+    for (const node of disconnected) {
+      waves.push([node]);
+    }
+  }
+
+  return waves;
+}
+
 function telegramRouteCandidates(context: RunnerContext): Set<string> {
   const event = context.telegramEvent && typeof context.telegramEvent === "object"
     ? (context.telegramEvent as Record<string, unknown>)
@@ -3570,300 +3645,55 @@ export async function runWorkflowTest({
 
   let executionOrder = 0;
   let runFailed = false;
+  const workflowStart = Date.now();
 
   try {
-    const nodesToRun = isTelegramWorkflow
-      ? sortTelegramNodesForRun(parsedWorkflow.nodes, parsedWorkflow.edges, context)
-      : sortNodesForRun(parsedWorkflow.nodes, parsedWorkflow.edges);
-    for (const node of nodesToRun) {
-      if (runFailed) {
-        break;
-      }
+    const waves: RunnerNode[][] = isTelegramWorkflow
+      ? sortTelegramNodesForRun(parsedWorkflow.nodes, parsedWorkflow.edges, context).map((n) => [n])
+      : groupNodesIntoExecutionWaves(parsedWorkflow.nodes, parsedWorkflow.edges);
 
-      const nodeKind = asString(node.data?.nodeKind);
+    console.log(`[WORKFLOW_PERF] [Workflow Test START] workflowId=${workflowId} totalNodes=${parsedWorkflow.nodes.length} waves=${waves.length}`);
 
-      try {
-        if (nodeKind === "trigger") {
-          runTriggerNode(node, context, logs);
-          const triggerFiles = Array.isArray(input?.attachments)
-            ? input.attachments.map((att: any) => ({
-                name: att.name,
-                url: att.data,
-                mimeType: att.mimeType,
-              }))
-            : undefined;
+    for (let waveIdx = 0; waveIdx < waves.length; waveIdx++) {
+      const wave = waves[waveIdx];
+      if (runFailed) break;
 
-          const triggerOutput: Record<string, unknown> = {};
-          if (context.caller_number) triggerOutput.callerNumber = context.caller_number;
-          if (context.inboundSms) triggerOutput.inboundSms = context.inboundSms;
-          if (context.missedCall) triggerOutput.missedCall = context.missedCall;
-          if (context.business) triggerOutput.business = context.business;
-          if (context.calendly) triggerOutput.calendly = context.calendly;
-          if (input?.latestMessage) triggerOutput.message = input.latestMessage;
+      const waveStart = Date.now();
+      console.log(`[WORKFLOW_PERF] [Wave ${waveIdx + 1}/${waves.length} START] nodes (${wave.length}): [${wave.map(n => `"${asString(n.data?.title ?? n.data?.label, n.id)}"`).join(", ")}]`);
 
-          await memoryBroker.saveNodeMemory({
-            workflowRunId,
-            nodeId: node.id,
-            nodeType: asString(node.data?.type, "trigger"),
-            nodeLabel: asString(node.data?.title ?? node.data?.label),
-            status: "success",
-            executionOrder: executionOrder++,
-            threadId,
-            input: input as Record<string, unknown> | undefined,
-            output: triggerOutput,
-            files: triggerFiles,
-            summary: "Trigger fired",
-            startedAt: new Date().toISOString(),
-            finishedAt: new Date().toISOString(),
-          });
-          continue;
-        }
-
-        if (nodeKind === "connector") {
-          await runConnectorNode({
-            userId,
+      const waveResults = await Promise.all(
+        wave.map((node) => {
+          const currentExecutionOrder = executionOrder++;
+          return executeSingleNodeInRunner({
             node,
             context,
-            logs,
+            userId,
+            input,
             mode,
-            chain
+            chain,
+            workflowRunId,
+            workflowId,
+            threadId,
+            executionOrder: currentExecutionOrder
           });
-          continue;
+        })
+      );
+
+      const waveMs = Date.now() - waveStart;
+      console.log(`[WORKFLOW_PERF] [Wave ${waveIdx + 1}/${waves.length} END] duration=${waveMs}ms`);
+
+      for (const res of waveResults) {
+        logs.push(...res.logs);
+        if (res.runFailed) {
+          runFailed = true;
         }
-
-        if (nodeKind === "ai") {
-          if (asString(node.data?.type) === "ai.memory") {
-            await runMemoryNodeInRunner({
-              workflowRunId,
-              workflowId,
-              businessId: input?.businessId,
-              installedAgentId: input?.installedAgentId,
-              triggeredByUserId: userId,
-              threadId,
-              executionOrder: executionOrder++,
-              node,
-              context,
-              logs
-            });
-            continue;
-          }
-
-          if (asString(node.data?.type) === "ai.image_generation") {
-            const promptRaw = asString(node.data?.prompt);
-            let prompt = renderTemplate(promptRaw, context);
-            const model = asString(node.data?.model) || "imagen-3.0-generate-002";
-            const refConfig = asString(node.data?.reference_image);
-            let referenceImage: Buffer | string | undefined = undefined;
-
-            if (refConfig) {
-              const resolvedRefKey = renderTemplate(refConfig, context);
-              const val = context[resolvedRefKey] ?? context[refConfig];
-              if (
-                Buffer.isBuffer(val) ||
-                typeof val === "string" ||
-                (typeof val === "object" && val !== null && (val as any).type === "Buffer")
-              ) {
-                referenceImage = val as any;
-              }
-            }
-            if (
-              !referenceImage &&
-              (Buffer.isBuffer(context.image) ||
-                typeof context.image === "string" ||
-                (typeof context.image === "object" && context.image !== null && (context.image as any).type === "Buffer"))
-            ) {
-              referenceImage = context.image as any;
-            }
-
-            if (!prompt || !prompt.trim()) {
-              const prevOutput =
-                asString(context.lastOutput) ||
-                asString((context.ai as Record<string, unknown> | undefined)?.output) ||
-                asString(context.latestMessage) ||
-                asString((context.inboundSms as Record<string, unknown> | undefined)?.body) ||
-                asString(context.text) ||
-                asString(context.query) ||
-                asString(context.llmOutput) ||
-                asString(context.output) ||
-                asString(context.result) ||
-                asString(context.message) ||
-                asString((context.input as Record<string, unknown> | undefined)?.message) ||
-                asString((context.input as Record<string, unknown> | undefined)?.text) ||
-                asString(context.userInput);
-
-              if (prevOutput && prevOutput.trim() && prevOutput !== "No custom message") {
-                prompt = prevOutput.trim();
-              } else {
-                prompt = referenceImage ? "Generate variation of reference image" : "Generate image";
-              }
-            }
-
-            const imgResult = await executeImageGeneration({ prompt, model, referenceImage });
-            const binaryOutput = imgResult.imageBuffer ?? imgResult.imageUrl ?? "";
-            const jsonOutput = {
-              prompt,
-              model: imgResult.modelName || model,
-              revised_prompt: imgResult.revisedPrompt || prompt
-            };
-
-            const dataUri =
-              imgResult.imageUrl ||
-              (Buffer.isBuffer(imgResult.imageBuffer)
-                ? `data:${imgResult.imageMimeType || "image/png"};base64,${imgResult.imageBuffer.toString("base64")}`
-                : String(binaryOutput));
-
-            context.image = binaryOutput;
-            context.image_url = dataUri;
-            context.prompt = jsonOutput.prompt;
-            context.model = jsonOutput.model;
-            context.revised_prompt = jsonOutput.revised_prompt;
-            context[`node.${node.id}.image`] = binaryOutput;
-
-            if (!context.imagePipeline || typeof context.imagePipeline !== "object") {
-              context.imagePipeline = {};
-            }
-            (context.imagePipeline as Record<string, unknown>)[node.id] = {
-              label: asString(node.data?.title ?? node.data?.label, node.id),
-              imageUrl: dataUri,
-              prompt,
-              model: imgResult.modelName || model,
-              revisedPrompt: imgResult.revisedPrompt || prompt,
-            };
-
-            const nodeLabelSlug = (asString(node.data?.title ?? node.data?.label) || node.id)
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, "_");
-            if (nodeLabelSlug) {
-              context[`${nodeLabelSlug}.image`] = binaryOutput;
-            }
-
-            logs.push(
-              createLog(
-                node,
-                imgResult.status === "success" ? "success" : "error",
-                imgResult.status === "success"
-                  ? `Generated image using ${imgResult.modelName || model}.`
-                  : imgResult.error ?? "Image generation failed.",
-                {
-                  ...jsonOutput,
-                  image: binaryOutput ? "[Binary Image Data]" : ""
-                }
-              )
-            );
-            continue;
-          }
-
-          if (shouldUseProviderEngine(node, mode)) {
-            const aiConfig = toAiBrainNodeConfig(node, context);
-            await deliverMemoryToAiConfig(aiConfig, context);
-
-            const result = await runAiBrainNode({
-              workflowRunId,
-              threadId,
-              executionOrder: executionOrder++,
-              node: aiConfig,
-            });
-
-            const isLlmCall = asString(node.data?.type) === "ai.llm_call";
-
-            const simulatedReply =
-              result.missingCredentials && mode === "test"
-                ? scriptedAiFallback(node, context, isLlmCall)
-                : null;
-
-            const outputText = simulatedReply ?? result.text ?? "";
-
-            // Always update context.ai & context.lastOutput so generic downstream nodes see it
-            context.ai = { output: outputText };
-            context.lastOutput = outputText;
-
-            if (isLlmCall) {
-              const outputKey = asString(node.data?.llmOutputKey, "ai.output");
-              context[outputKey] = outputText;
-              const nodeLabel = asString(node.data?.title ?? node.data?.label, node.id)
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, ".")
-                .replace(/(^\.|\.$)/g, "");
-              context[`node.${node.id}.output`] = outputText;
-              context[`node.${nodeLabel}.output`] = outputText;
-
-              if (!context.llmPipeline || typeof context.llmPipeline !== "object") {
-                context.llmPipeline = {};
-              }
-              (context.llmPipeline as Record<string, unknown>)[node.id] = {
-                label: asString(node.data?.title ?? node.data?.label, node.id),
-                outputKey,
-                output: outputText,
-                providerId: result.providerId,
-                modelName: result.modelName,
-              };
-            }
-
-            const completedMessage = isLlmCall
-              ? `LLM Call completed via ${result.providerId} (${result.modelName}).`
-              : "AI Brain node completed.";
-
-            logs.push(
-              createLog(
-                node,
-                simulatedReply !== null || result.status === "success" ? "success" : "error",
-                simulatedReply !== null
-                  ? `Simulated reply - ${MISSING_LLM_CREDENTIALS_MESSAGE}`
-                  : result.fallbackFromProviderId
-                    ? `${completedMessage} ${result.fallbackFromProviderId} has no API key configured, so ${result.providerId} ran instead.`
-                    : result.error ?? completedMessage,
-                {
-                  text: outputText,
-                  providerId: result.providerId,
-                  modelName: result.modelName,
-                  nodeRunId: result.nodeRunId,
-                  ...(simulatedReply !== null
-                    ? { simulated: true, reason: "missing-llm-credentials" }
-                    : {}),
-                  ...(result.fallbackFromProviderId
-                    ? { fallbackFromProviderId: result.fallbackFromProviderId }
-                    : {}),
-                  ...(isLlmCall ? { outputKey: asString(node.data?.llmOutputKey, "ai.output") } : {}),
-                }
-              )
-            );
-
-            if (simulatedReply === null && result.status === "error") runFailed = true;
-          } else {
-            runAiNode(node, context, logs);
-          }
-          continue;
-        }
-
-        if (nodeKind === "condition") {
-          runConditionNode(node, context, logs);
-          continue;
-        }
-
-        if (nodeKind === "output") {
-          runOutputNode(node, context, logs);
-          continue;
-        }
-
-        logs.push(createLog(node, "error", `Unknown node kind: ${nodeKind}`));
-      } catch (error) {
-        runFailed = true;
-        logs.push(
-          createLog(
-            node,
-            "error",
-            error instanceof Error ? error.message : "Node execution failed"
-          )
-        );
       }
 
-      // Check if this node execution produced an error log
-      const hasErrorLog = logs.some(l => l.nodeId === node.id && l.status === "error");
-      if (hasErrorLog || runFailed) {
-        runFailed = true;
-        break;
-      }
+      if (runFailed) break;
     }
+
+    const totalWorkflowMs = Date.now() - workflowStart;
+    console.log(`[WORKFLOW_PERF] [Workflow Test COMPLETE] workflowId=${workflowId} totalTime=${totalWorkflowMs}ms status=${runFailed ? "FAILED" : "SUCCESS"}`);
   } catch (error) {
     await failWorkflowRun(
       workflowRunId,
@@ -3884,4 +3714,303 @@ export async function runWorkflowTest({
     logs,
     context
   };
+}
+
+async function executeSingleNodeInRunner(params: {
+  node: RunnerNode;
+  context: RunnerContext;
+  userId: string;
+  input?: WorkflowRunInput;
+  mode: WorkflowRunMode;
+  chain: WorkflowChain;
+  workflowRunId: string;
+  workflowId: string;
+  threadId?: string;
+  executionOrder: number;
+}): Promise<{ logs: WorkflowRunLog[]; runFailed: boolean }> {
+  const nodeStart = Date.now();
+  const { node, context, userId, input, mode, chain, workflowRunId, workflowId, threadId, executionOrder } = params;
+  const nodeLogs: WorkflowRunLog[] = [];
+  let runFailed = false;
+  const nodeKind = asString(node.data?.nodeKind);
+
+  try {
+    if (nodeKind === "trigger") {
+      runTriggerNode(node, context, nodeLogs);
+      const triggerFiles = Array.isArray(input?.attachments)
+        ? input.attachments.map((att: any) => ({
+            name: att.name,
+            url: att.data,
+            mimeType: att.mimeType,
+          }))
+        : undefined;
+
+      const triggerOutput: Record<string, unknown> = {};
+      if (context.caller_number) triggerOutput.callerNumber = context.caller_number;
+      if (context.inboundSms) triggerOutput.inboundSms = context.inboundSms;
+      if (context.missedCall) triggerOutput.missedCall = context.missedCall;
+      if (context.business) triggerOutput.business = context.business;
+      if (context.calendly) triggerOutput.calendly = context.calendly;
+      if (input?.latestMessage) triggerOutput.message = input.latestMessage;
+
+      await memoryBroker.saveNodeMemory({
+        workflowRunId,
+        nodeId: node.id,
+        nodeType: asString(node.data?.type, "trigger"),
+        nodeLabel: asString(node.data?.title ?? node.data?.label),
+        status: "success",
+        executionOrder,
+        threadId,
+        input: input as Record<string, unknown> | undefined,
+        output: triggerOutput,
+        files: triggerFiles,
+        summary: "Trigger fired",
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      });
+      return { logs: nodeLogs, runFailed: false };
+    }
+
+    if (nodeKind === "connector") {
+      await runConnectorNode({
+        userId,
+        node,
+        context,
+        logs: nodeLogs,
+        mode,
+        chain
+      });
+      const hasErr = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
+      return { logs: nodeLogs, runFailed: hasErr };
+    }
+
+    if (nodeKind === "ai") {
+      if (asString(node.data?.type) === "ai.memory") {
+        await runMemoryNodeInRunner({
+          workflowRunId,
+          workflowId,
+          businessId: input?.businessId,
+          installedAgentId: input?.installedAgentId,
+          triggeredByUserId: userId,
+          threadId,
+          executionOrder,
+          node,
+          context,
+          logs: nodeLogs
+        });
+        const hasErr = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
+        return { logs: nodeLogs, runFailed: hasErr };
+      }
+
+      if (asString(node.data?.type) === "ai.image_generation") {
+        const promptRaw = asString(node.data?.prompt);
+        let prompt = renderTemplate(promptRaw, context);
+        const model = asString(node.data?.model) || "imagen-3.0-generate-002";
+        const refConfig = asString(node.data?.reference_image);
+        let referenceImage: Buffer | string | undefined = undefined;
+
+        if (refConfig) {
+          const resolvedRefKey = renderTemplate(refConfig, context);
+          const val = context[resolvedRefKey] ?? context[refConfig];
+          if (
+            Buffer.isBuffer(val) ||
+            typeof val === "string" ||
+            (typeof val === "object" && val !== null && (val as any).type === "Buffer")
+          ) {
+            referenceImage = val as any;
+          }
+        }
+        if (
+          !referenceImage &&
+          (Buffer.isBuffer(context.image) ||
+            typeof context.image === "string" ||
+            (typeof context.image === "object" && context.image !== null && (context.image as any).type === "Buffer"))
+        ) {
+          referenceImage = context.image as any;
+        }
+
+        if (!prompt || !prompt.trim()) {
+          const prevOutput =
+            asString(context.lastOutput) ||
+            asString((context.ai as Record<string, unknown> | undefined)?.output) ||
+            asString(context.latestMessage) ||
+            asString((context.inboundSms as Record<string, unknown> | undefined)?.body) ||
+            asString(context.text) ||
+            asString(context.query) ||
+            asString(context.llmOutput) ||
+            asString(context.output) ||
+            asString(context.result) ||
+            asString(context.message) ||
+            asString((context.input as Record<string, unknown> | undefined)?.message) ||
+            asString((context.input as Record<string, unknown> | undefined)?.text) ||
+            asString(context.userInput);
+
+          if (prevOutput && prevOutput.trim() && prevOutput !== "No custom message") {
+            prompt = prevOutput.trim();
+          } else {
+            prompt = referenceImage ? "Generate variation of reference image" : "Generate image";
+          }
+        }
+
+        const imgResult = await executeImageGeneration({ prompt, model, referenceImage });
+        const binaryOutput = imgResult.imageBuffer ?? imgResult.imageUrl ?? "";
+        const jsonOutput = {
+          prompt,
+          model: imgResult.modelName || model,
+          revised_prompt: imgResult.revisedPrompt || prompt
+        };
+
+        const dataUri =
+          imgResult.imageUrl ||
+          (Buffer.isBuffer(imgResult.imageBuffer)
+            ? `data:${imgResult.imageMimeType || "image/png"};base64,${imgResult.imageBuffer.toString("base64")}`
+            : String(binaryOutput));
+
+        context.image = binaryOutput;
+        context.image_url = dataUri;
+        context.prompt = jsonOutput.prompt;
+        context.model = jsonOutput.model;
+        context.revised_prompt = jsonOutput.revised_prompt;
+        context[`node.${node.id}.image`] = binaryOutput;
+
+        if (!context.imagePipeline || typeof context.imagePipeline !== "object") {
+          context.imagePipeline = {};
+        }
+        (context.imagePipeline as Record<string, unknown>)[node.id] = {
+          label: asString(node.data?.title ?? node.data?.label, node.id),
+          imageUrl: dataUri,
+          prompt,
+          model: imgResult.modelName || model,
+          revisedPrompt: imgResult.revisedPrompt || prompt,
+        };
+
+        const nodeLabelSlug = (asString(node.data?.title ?? node.data?.label) || node.id)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "_");
+        if (nodeLabelSlug) {
+          context[`${nodeLabelSlug}.image`] = binaryOutput;
+        }
+
+        nodeLogs.push(
+          createLog(
+            node,
+            imgResult.status === "success" ? "success" : "error",
+            imgResult.status === "success"
+              ? `Generated image using ${imgResult.modelName || model}.`
+              : imgResult.error ?? "Image generation failed.",
+            {
+              ...jsonOutput,
+              image: binaryOutput ? "[Binary Image Data]" : ""
+            }
+          )
+        );
+        return { logs: nodeLogs, runFailed: imgResult.status !== "success" };
+      }
+
+      if (shouldUseProviderEngine(node, mode)) {
+        const aiConfig = toAiBrainNodeConfig(node, context);
+        await deliverMemoryToAiConfig(aiConfig, context);
+
+        const result = await runAiBrainNode({
+          workflowRunId,
+          threadId,
+          executionOrder,
+          node: aiConfig,
+        });
+
+        const isLlmCall = asString(node.data?.type) === "ai.llm_call";
+
+        const simulatedReply =
+          result.missingCredentials && mode === "test"
+            ? scriptedAiFallback(node, context, isLlmCall)
+            : null;
+
+        const outputText = simulatedReply ?? result.text ?? "";
+
+        context.ai = { output: outputText };
+        context.lastOutput = outputText;
+
+        if (isLlmCall) {
+          const outputKey = asString(node.data?.llmOutputKey, "ai.output");
+          context[outputKey] = outputText;
+          const nodeLabel = asString(node.data?.title ?? node.data?.label, node.id)
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ".")
+            .replace(/(^\.|\.$)/g, "");
+          context[`node.${node.id}.output`] = outputText;
+          context[`node.${nodeLabel}.output`] = outputText;
+
+          if (!context.llmPipeline || typeof context.llmPipeline !== "object") {
+            context.llmPipeline = {};
+          }
+          (context.llmPipeline as Record<string, unknown>)[node.id] = {
+            label: asString(node.data?.title ?? node.data?.label, node.id),
+            outputKey,
+            output: outputText,
+            providerId: result.providerId,
+            modelName: result.modelName,
+          };
+        }
+
+        const completedMessage = isLlmCall
+          ? `LLM Call completed via ${result.providerId} (${result.modelName}).`
+          : "AI Brain node completed.";
+
+        nodeLogs.push(
+          createLog(
+            node,
+            simulatedReply !== null || result.status === "success" ? "success" : "error",
+            simulatedReply !== null
+              ? `Simulated reply - ${MISSING_LLM_CREDENTIALS_MESSAGE}`
+              : result.fallbackFromProviderId
+                ? `${completedMessage} ${result.fallbackFromProviderId} has no API key configured, so ${result.providerId} ran instead.`
+                : result.error ?? completedMessage,
+            {
+              text: outputText,
+              providerId: result.providerId,
+              modelName: result.modelName,
+              nodeRunId: result.nodeRunId,
+              ...(simulatedReply !== null
+                ? { simulated: true, reason: "missing-llm-credentials" }
+                : {}),
+              ...(result.fallbackFromProviderId
+                ? { fallbackFromProviderId: result.fallbackFromProviderId }
+                : {}),
+              ...(isLlmCall ? { outputKey: asString(node.data?.llmOutputKey, "ai.output") } : {}),
+            }
+          )
+        );
+
+        if (simulatedReply === null && result.status === "error") runFailed = true;
+      } else {
+        runAiNode(node, context, nodeLogs);
+      }
+      const hasErr = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
+      return { logs: nodeLogs, runFailed: hasErr || runFailed };
+    }
+
+    if (nodeKind === "condition") {
+      runConditionNode(node, context, nodeLogs);
+      const hasErr = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
+      return { logs: nodeLogs, runFailed: hasErr };
+    }
+
+    if (nodeKind === "output") {
+      runOutputNode(node, context, nodeLogs);
+      const hasErr = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
+      return { logs: nodeLogs, runFailed: hasErr };
+    }
+
+    nodeLogs.push(createLog(node, "error", `Unknown node kind: ${nodeKind}`));
+    return { logs: nodeLogs, runFailed: true };
+  } catch (error) {
+    nodeLogs.push(
+      createLog(
+        node,
+        "error",
+        error instanceof Error ? error.message : "Node execution failed"
+      )
+    );
+    return { logs: nodeLogs, runFailed: true };
+  }
 }
