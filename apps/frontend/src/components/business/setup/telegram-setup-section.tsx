@@ -32,8 +32,12 @@ export function TelegramSetupSection({
 }) {
   const [status, setStatus] = useState<TelegramSetupStatus | null>(null);
   const [mode, setMode] = useState<"managed" | "manual">("managed");
+  /* Once the buyer picks a tab themselves we stop auto-selecting, so the
+     availability check can never yank them off the tab they chose. */
+  const [modeChosen, setModeChosen] = useState(false);
+  // The agent is not necessarily a booking agent — name it after the business.
   const [botDisplayName, setBotDisplayName] = useState(
-    `${businessName.trim() || "Business"} Booking Assistant`
+    `${businessName.trim() || "Business"} Assistant`
   );
   const [botToken, setBotToken] = useState("");
   const [rotatingToken, setRotatingToken] = useState(false);
@@ -49,6 +53,13 @@ export function TelegramSetupSection({
       return;
     }
     setStatus(response.data);
+    /* Managed provisioning needs Bot Management Mode on the platform manager
+       bot plus a registered manager webhook. When either is missing, landing the
+       buyer on a tab whose only button is disabled reads as "Telegram is
+       broken" — start them on the BotFather flow, which always works. */
+    if (!modeChosen && !response.data.managedProvisioningAvailable) {
+      setMode("manual");
+    }
     const connected =
       response.data.connection?.status === "ACTIVE" &&
       response.data.connection.webhookStatus === "HEALTHY";
@@ -209,7 +220,10 @@ export function TelegramSetupSection({
               <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1" role="tablist">
                 <button
                   type="button"
-                  onClick={() => setMode("managed")}
+                  onClick={() => {
+                    setModeChosen(true);
+                    setMode("managed");
+                  }}
                   className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
                     mode === "managed" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
                   }`}
@@ -218,7 +232,10 @@ export function TelegramSetupSection({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMode("manual")}
+                  onClick={() => {
+                    setModeChosen(true);
+                    setMode("manual");
+                  }}
                   className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
                     mode === "manual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
                   }`}

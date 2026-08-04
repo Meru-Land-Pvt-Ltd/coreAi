@@ -88,11 +88,16 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
         </>
       ) : isTelegramTrigger ? (
         <>
+          {/* Only two ports, because the architect must not presume a business's
+              commands. "*" is always in telegramRouteCandidates so it catches
+              every update — that is the port a general-purpose bot uses, and the
+              AI node answers "/pricing" or "book me in" as ordinary text.
+              "/start" is separate purely because Telegram always sends it as the
+              first message, so a welcome branch is usually wanted.
+              Business-specific commands belong to the BUYER's setup, not here. */}
           {[
-            { id: "/start", label: "Start command", left: "14%" },
-            { id: "/book", label: "Book command", left: "38%" },
-            { id: "/media-demo", label: "Media demo command", left: "62%" },
-            { id: "/message-demo", label: "Message demo command", left: "86%" }
+            { id: "*", label: "Any message (all events)", left: "33%" },
+            { id: "/start", label: "Start command", left: "67%" }
           ].map((route) => (
             <Handle
               key={route.id}

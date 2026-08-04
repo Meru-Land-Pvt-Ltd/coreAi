@@ -39,6 +39,7 @@ import {
   type TelegramTriggerConfig
 } from "./telegram-update";
 import { parseRunnerWorkflowJson, runWorkflowTest } from "./workflow-runner";
+import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/agent-knowledge";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -1431,6 +1432,28 @@ async function workflowFallback(
 ) {
   const text = event.message.text || event.message.caption || `[${event.eventType}]`;
   const profile = connection.business.profile;
+
+  /* The runner only ever reads knowledge from its input — it never loads from
+     the database itself. Without this, a Telegram bot answers from the prompt
+     and the services list alone and cannot see anything the buyer uploaded,
+     while the voice path answers the same question correctly via
+     lookup_knowledge. Retrieval is query-aware, so only the sections relevant
+     to THIS message are sent. */
+  const knowledge = await retrieveRelevantKnowledge({
+    businessId: connection.businessId,
+    installedAgentId: connection.installedAgentId,
+    query: text
+  })
+    .then((sections) => formatKnowledgeEntries(sections))
+    .catch((error) => {
+      // Knowledge is an enhancement — never fail the reply because of it.
+      console.warn("[telegram] knowledge retrieval failed", {
+        businessId: connection.businessId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return [] as string[];
+    });
+
   const run = await runWorkflowTest({
     userId: connection.business.ownerId,
     workflowId: connection.installedAgent.workflowId,
@@ -1449,6 +1472,7 @@ async function workflowFallback(
       calendarId: profile?.calendarId || "primary",
       timeZone: profile?.timeZone || "UTC",
       services: profile?.services ?? [],
+      knowledge,
       latestMessage: text,
       inboundSmsBody: text,
       telegramConnectionId: connection.id,

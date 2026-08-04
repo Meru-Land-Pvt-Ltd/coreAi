@@ -248,3 +248,64 @@ describe("Telegram workflow trigger", () => {
     expect(result.context.telegramAction?.chatId).toBe(expectedChatId);
   });
 });
+
+/**
+ * Source-handle routing. The Telegram trigger exposes one port per command plus
+ * a catch-all "*". When ANY edge carries a sourceHandle, only edges whose handle
+ * matches the incoming event are followed — so a general-purpose bot wired to a
+ * command port answers nothing and the caller silently gets the fallback text
+ * instead of the workflow's reply.
+ */
+describe("Telegram trigger source-handle routing", () => {
+  const graph = (sourceHandle: string) => ({
+    nodes: [
+      {
+        id: "telegram-trigger",
+        data: { type: "trigger.telegram_message", nodeKind: "trigger", title: "Telegram Bot Trigger" }
+      },
+      { id: "end", data: { type: "flow.end", nodeKind: "output", title: "End Flow" } }
+    ],
+    edges: [{ id: "e1", source: "telegram-trigger", target: "end", sourceHandle }]
+  });
+
+  const runWith = (sourceHandle: string, latestMessage: string) =>
+    runWorkflowTest({
+      userId: testUserId,
+      workflowId: testWorkflowId,
+      workflowJson: graph(sourceHandle),
+      input: {
+        businessName: "Test Business",
+        latestMessage,
+        telegramChatId: "10001",
+        telegramUserId: "20002",
+        telegramMessageId: "3",
+        telegramUpdateId: "4",
+        telegramChatType: "private"
+      }
+    });
+
+  const reachedEnd = (result: Awaited<ReturnType<typeof runWorkflowTest>>) =>
+    result.logs.some((log) => /End Flow|workflow run completed/i.test(log.message));
+
+  it('"*" runs the workflow for an ordinary message', async () => {
+    if (!(await databaseIsAvailable())) return;
+    expect(reachedEnd(await runWith("*", "what are your timings?"))).toBe(true);
+  });
+
+  it('"*" also runs for a command', async () => {
+    if (!(await databaseIsAvailable())) return;
+    expect(reachedEnd(await runWith("*", "/start"))).toBe(true);
+  });
+
+  it("a command port does NOT run for an unrelated message", async () => {
+    if (!(await databaseIsAvailable())) return;
+    // The exact defect: wiring AI Brain to /book means plain questions go unanswered.
+    const result = await runWith("/book", "what are your timings?");
+    expect(result.logs.some((log) => /End Flow/i.test(log.message))).toBe(false);
+  });
+
+  it("a command port DOES run for its own command", async () => {
+    if (!(await databaseIsAvailable())) return;
+    expect(reachedEnd(await runWith("/book", "/book"))).toBe(true);
+  });
+});

@@ -2,7 +2,7 @@ import {
   comingSoonNodes,
   getNodeDefinition,
   CALENDLY_NODE_TYPES,
-  TELEGRAM_NODE_TYPES,
+  // TELEGRAM_NODE_TYPES,
   VOICE_NODE_PRESENTATION,
   VOICE_NODE_TYPES
 } from "@coreai/shared";
@@ -47,7 +47,6 @@ export const libraryGroups: LibraryGroup[] = [
     title: "Triggers",
     items: [
       paletteItem(VOICE_NODE_TYPES.phoneCallTrigger, { icon: "phone", accent: "amber" }),
-      // Temporarily hidden — Telegram feature paused
       // paletteItem(TELEGRAM_NODE_TYPES.trigger, { icon: "telegram", accent: "amber", kind: "TELEGRAM BOT" }),
       paletteItem("trigger.twilio_inbound_sms", { icon: "message", accent: "amber" }),
       paletteItem("trigger.twilio_missed_call", { icon: "phone", accent: "amber" }),
@@ -88,7 +87,7 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(CALENDLY_NODE_TYPES.action, { icon: "calendar", accent: "blue", kind: "CALENDLY" })
     ]
   },
-  // Temporarily hidden — Telegram feature paused
+  /* Telegram trigger and action nodes are hidden from the Architect palette. */
   // {
   //   title: "Telegram Bot",
   //   items: [
