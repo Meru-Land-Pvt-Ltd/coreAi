@@ -51,7 +51,7 @@ export class MemoryBroker {
         where: { id: payload.workflowRunId },
         data: { currentNodeId: payload.nodeId },
       });
-      await this.refreshWorkflowRunTotals(payload.workflowRunId);
+      this.refreshWorkflowRunTotals(payload.workflowRunId).catch(() => {});
       return { nodeRunId: nodeRun.id };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {

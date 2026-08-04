@@ -679,6 +679,7 @@ function vectorStoreDisabledForTests(): boolean {
 
 export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
   async function store(input: SmartMemoryInput): Promise<SmartMemoryStoreResult> {
+    const storeStart = Date.now();
     const rawMemory = buildCompactMemoryString({
       executedNodes: input.executedNodes,
       variables: input.variables,
@@ -692,13 +693,22 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
     let storedChunks = 0;
 
     try {
+      const piecesStart = Date.now();
       const pieces = await buildCorpusPieces(input);
       const drafts = corpusToRecordDrafts(pieces, input.scope, scopeKey);
+      const piecesMs = Date.now() - piecesStart;
       corpusTokens = drafts.reduce((sum, draft) => sum + draft.tokenCount, 0);
 
+      const dbStoreStart = Date.now();
       const stored = await deps.storeCorpus(drafts);
+      const dbStoreMs = Date.now() - dbStoreStart;
+
       storedRecords = stored.newRecords;
       storedChunks = stored.newChunks;
+
+      console.log(
+        `[WORKFLOW_PERF] [SmartMemory Store] total=${Date.now() - storeStart}ms (corpusPieces=${piecesMs}ms, storeCorpus=${dbStoreMs}ms, records=${storedRecords}, chunks=${storedChunks})`
+      );
     } catch (error) {
       console.warn(
         "[smart-memory] vector store unavailable, memory continues with raw string:",
@@ -715,6 +725,7 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
     query: string;
     rawMemory: string;
   }): Promise<ResolvedSmartMemory> {
+    const resolveStart = Date.now();
     try {
       const topK = env.MEMORY_SEARCH_TOP_K || 10;
       const sampleLimit = env.MEMORY_TIMELINE_SAMPLE_LIMIT || 400;
@@ -726,16 +737,17 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
       ]);
 
       const timeline = buildTimelineSummary(timelineRecords, totalRecords);
+      const resolveMs = Date.now() - resolveStart;
+      console.log(`[WORKFLOW_PERF] [SmartMemory Query] duration=${resolveMs}ms retrievedChunks=${retrieved.length}`);
+
       return {
         memory: buildVectorMemoryString({ retrieved, timeline }),
         mode: "vector",
         retrievedChunks: retrieved.length
       };
     } catch (error) {
-      console.warn(
-        "[smart-memory] Pinecone hybrid retrieval unavailable, falling back to raw memory string:",
-        error instanceof Error ? error.message : "unknown error"
-      );
+      const resolveMs = Date.now() - resolveStart;
+      console.log(`[WORKFLOW_PERF] [SmartMemory Query Fallback] duration=${resolveMs}ms reason="${error instanceof Error ? error.message : "unknown"}"`);
       return { memory: params.rawMemory, mode: "raw_fallback", retrievedChunks: 0 };
     }
   }

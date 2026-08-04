@@ -45,9 +45,18 @@ export async function embedTexts(texts: string[]): Promise<number[][] | null> {
 
     for (let i = 0; i < texts.length; i += BATCH_SIZE) {
       const batch = texts.slice(i, i + BATCH_SIZE);
-      for (const text of batch) {
-        const output = await extractor(text, { pooling: "mean", normalize: true });
+      if (batch.length === 1) {
+        const output = await extractor(batch[0], { pooling: "mean", normalize: true });
         vectors.push(Array.from(output.data as Float32Array));
+      } else {
+        const output = await extractor(batch, { pooling: "mean", normalize: true });
+        const data = output.data as Float32Array;
+        const dims = output.dims;
+        const vectorDim = dims ? dims[dims.length - 1] : EMBEDDING_DIMENSIONS;
+        for (let b = 0; b < batch.length; b++) {
+          const vec = Array.from(data.subarray(b * vectorDim, (b + 1) * vectorDim));
+          vectors.push(vec);
+        }
       }
     }
     return vectors;

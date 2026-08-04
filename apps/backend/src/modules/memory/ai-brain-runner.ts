@@ -46,6 +46,9 @@ export function isAiBrainProviderNode(node: AiBrainNodeConfig): boolean {
 
 export async function runAiBrainNode(input: RunAiBrainNodeInput): Promise<RunAiBrainNodeResult> {
   const { workflowRunId, threadId, executionOrder, node } = input;
+  const nodeStart = Date.now();
+
+  const bundleStart = Date.now();
   const bundle = await memoryBroker.buildContextBundle({
     workflowRunId,
     nodeId: node.id,
@@ -56,6 +59,7 @@ export async function runAiBrainNode(input: RunAiBrainNodeInput): Promise<RunAiB
       ? node.data.backlinkNodeIds.map(String)
       : undefined,
   });
+  const bundleMs = Date.now() - bundleStart;
 
   const request = await contextBundleToExecuteRequest(bundle, node);
 
@@ -102,7 +106,9 @@ export async function runAiBrainNode(input: RunAiBrainNodeInput): Promise<RunAiB
     request.model = undefined;
   }
 
+  const llmStart = Date.now();
   const response = await getProviderEngine().executeWithProvider(resolved.providerId, request);
+  const llmMs = Date.now() - llmStart;
   const finishedAt = new Date().toISOString();
 
   if (response.status === "error") {
@@ -111,6 +117,7 @@ export async function runAiBrainNode(input: RunAiBrainNodeInput): Promise<RunAiB
     recordLlmProviderSuccess(resolved.providerId);
   }
 
+  const saveStart = Date.now();
   const { nodeRunId } = await memoryBroker.saveNodeMemory(
     providerResponseToNodeMemory({
       bundle,
@@ -120,6 +127,12 @@ export async function runAiBrainNode(input: RunAiBrainNodeInput): Promise<RunAiB
       startedAt,
       finishedAt,
     })
+  );
+  const saveMs = Date.now() - saveStart;
+  const totalMs = Date.now() - nodeStart;
+
+  console.log(
+    `[WORKFLOW_PERF] [AI Node Executed] label="${node.nodeLabel || node.id}" id="${node.id}" provider="${response.providerId}" model="${response.modelName}" total=${totalMs}ms (llmApi=${llmMs}ms, bundleContext=${bundleMs}ms, saveMemory=${saveMs}ms)`
   );
 
   return {
