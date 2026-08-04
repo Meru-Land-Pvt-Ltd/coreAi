@@ -7,6 +7,7 @@ import { BusinessPageHeader } from "@/components/business/business-page-header";
 import {
   deleteArchitectAccount,
   downloadArchitectDataExport,
+  getCountryCallingCodes,
   getArchitectSettings,
   makeArchitectBackupPayoutMethodPrimary,
   payArchitectRefundObligations,
@@ -31,11 +32,15 @@ import {
 } from "@/components/architect/features/api";
 import { ArchitectPayoutMethodModal } from "@/components/architect/features/payout-method-modal";
 import { ProfileAvatar } from "@/components/architect/ui/profile-avatar";
+import {
+  CountryCallingCodeSelect,
+  type CountryCallingCode
+} from "@/components/common/country-calling-code-select";
 import { ARCHITECT_PAYOUTS_PATH } from "@/lib/routes";
 import { getAuthUser, logout, saveAuthSession, updateAuthUser, type AuthUser } from "@/lib/auth";
 import { readProfilePhotoFile } from "@/lib/profile-photo";
 import { requestSignedDpa } from "@/lib/dpa";
-import { COUNTRY_CODES, joinPhoneNumber, splitPhoneNumber } from "@/lib/phone-country-codes";
+import { joinPhoneNumber, splitPhoneNumber } from "@/lib/phone-country-codes";
 
 type SettingsTab =
   | "profile"
@@ -381,7 +386,11 @@ export default function ArchitectSettingsPage() {
   const [emailOtpVisible, setEmailOtpVisible] = useState(false);
   const [emailChangeSending, setEmailChangeSending] = useState(false);
   const [emailChangeVerifying, setEmailChangeVerifying] = useState(false);
-  const [phoneCountryCode, setPhoneCountryCode] = useState(COUNTRY_CODES[0]!.code);
+  const [phoneCountries, setPhoneCountries] = useState<CountryCallingCode[]>([]);
+  const [phoneCountriesLoading, setPhoneCountriesLoading] = useState(true);
+  const [phoneCountriesError, setPhoneCountriesError] = useState("");
+  const [phoneCountryIso, setPhoneCountryIso] = useState("US");
+  const [phoneCountryCode, setPhoneCountryCode] = useState("+1");
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [pauseModalOpen, setPauseModalOpen] = useState(false);
@@ -495,6 +504,47 @@ export default function ArchitectSettingsPage() {
       active = false;
     };
   }, [loadSettings]);
+
+  useEffect(() => {
+    let active = true;
+
+    void (async () => {
+      setPhoneCountriesLoading(true);
+      const result = await getCountryCallingCodes();
+      if (!active) return;
+
+      if (result.success && result.data?.countries.length) {
+        setPhoneCountries(result.data.countries);
+        setPhoneCountriesError("");
+      } else {
+        setPhoneCountries([]);
+        setPhoneCountriesError(result.error ?? "Could not load countries");
+      }
+      setPhoneCountriesLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!phoneCountries.length) return;
+
+    setPhoneCountryIso((currentIso) => {
+      const currentCountry = phoneCountries.find((country) => country.countryCode === currentIso);
+      if (currentCountry?.callingCode === phoneCountryCode) return currentIso;
+
+      const matchingCountries = phoneCountries.filter(
+        (country) => country.callingCode === phoneCountryCode
+      );
+      return (
+        matchingCountries.find((country) => country.countryCode === "US")?.countryCode ??
+        matchingCountries[0]?.countryCode ??
+        currentIso
+      );
+    });
+  }, [phoneCountries, phoneCountryCode]);
 
   const initials = useMemo(
     () => getInitials(profileForm.fullName || accountEmail || authUser?.email || "A"),
@@ -979,18 +1029,18 @@ export default function ArchitectSettingsPage() {
                     <div>
                       <label htmlFor="phone" className="mb-1.5 block text-sm font-medium text-slate-700">Phone number</label>
                       <div className="flex">
-                        <select
-                          aria-label="Country code"
-                          value={phoneCountryCode}
-                          onChange={(event) => setPhoneCountryCode(event.target.value)}
-                          className="w-32 rounded-l-xl border border-r-0 border-gray-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-600"
-                          data-testid="architect-settings-phone-country-code"
-                        >
-                          {COUNTRY_CODES.map((country) => (
-                            <option key={country.code} value={country.code}>{country.code} {country.label}</option>
-                          ))}
-                        </select>
-                        <input id="phone" data-testid="architect-settings-phone" value={profileForm.phone} onChange={(e) => setProfileForm((c) => ({ ...c, phone: e.target.value }))} className="w-full rounded-r-xl border border-gray-200 px-4 py-3 text-sm" />
+                        <CountryCallingCodeSelect
+                          countries={phoneCountries}
+                          value={phoneCountryIso}
+                          fallbackCallingCode={phoneCountryCode}
+                          loading={phoneCountriesLoading}
+                          error={phoneCountriesError}
+                          onChange={(country) => {
+                            setPhoneCountryIso(country.countryCode);
+                            setPhoneCountryCode(country.callingCode);
+                          }}
+                        />
+                        <input id="phone" data-testid="architect-settings-phone" value={profileForm.phone} onChange={(e) => setProfileForm((c) => ({ ...c, phone: e.target.value }))} className="min-w-0 flex-1 rounded-r-xl border border-gray-200 px-4 py-3 text-sm" />
                       </div>
                     </div>
                     <div>

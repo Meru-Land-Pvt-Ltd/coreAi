@@ -160,6 +160,13 @@ function formatChartUsd(cents: number) {
   return `$${Math.round(dollars).toLocaleString("en-US")}`;
 }
 
+function formatChartTooltipUsd(cents: number) {
+  return `$${(cents / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  })}`;
+}
+
 function formatRelativeTime(value: string) {
   const elapsedSeconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
   const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
@@ -343,7 +350,6 @@ function RevenueChart({
     ? Math.min(89, Math.max(11, (activePoint.x / width) * 100))
     : 50;
   const activeTooltipAbove = Boolean(activePoint && activePoint.y > 112);
-  const visibleLabelStep = Math.max(1, Math.ceil(points.length / 7));
 
   return (
     <div
@@ -438,23 +444,18 @@ function RevenueChart({
             index === coordinates.length - 1
               ? width - padding.right
               : (point.x + nextX) / 2;
-          const showLabel =
-            index % visibleLabelStep === 0 || index === coordinates.length - 1;
-
           return (
             <g key={`${point.label}-${index}`}>
-              {showLabel ? (
-                <text
-                  x={point.x}
-                  y={height - 8}
-                  textAnchor="middle"
-                  fill="#8ba0bd"
-                  fontSize="11"
-                  data-testid="architect-dashboard-revenue-x-axis"
-                >
-                  {point.label}
-                </text>
-              ) : null}
+              <text
+                x={point.x}
+                y={height - 8}
+                textAnchor="middle"
+                fill="#8ba0bd"
+                fontSize="11"
+                data-testid="architect-dashboard-revenue-x-axis"
+              >
+                {point.label}
+              </text>
               <rect
                 x={left}
                 y={padding.top}
@@ -475,7 +476,7 @@ function RevenueChart({
 
       {activePoint ? (
         <div
-          className="pointer-events-none absolute z-20 min-w-40 rounded-[10px] bg-slate-900 px-3 py-2 text-xs text-white shadow-xl"
+          className="pointer-events-none absolute z-20 whitespace-nowrap rounded-[10px] bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-xl"
           style={{
             left: `${activeTooltipLeft}%`,
             top: `${(activePoint.y / height) * 100}%`,
@@ -485,21 +486,7 @@ function RevenueChart({
           }}
           role="status"
         >
-          <p className="mb-1.5 font-semibold">{activePoint.label}</p>
-          <div className="space-y-1 text-slate-300">
-            <p className="flex justify-between gap-5">
-              <span>Total</span>
-              <strong className="font-semibold text-white">{formatUsd(activePoint.value)}</strong>
-            </p>
-            <p className="flex justify-between gap-5">
-              <span>Confirmed</span>
-              <strong className="font-semibold text-white">{formatUsd(activePoint.confirmedCents)}</strong>
-            </p>
-            <p className="flex justify-between gap-5">
-              <span>Pending</span>
-              <strong className="font-semibold text-white">{formatUsd(activePoint.pendingCents)}</strong>
-            </p>
-          </div>
+          {activePoint.label} {formatChartTooltipUsd(activePoint.value)}
         </div>
       ) : null}
 

@@ -965,6 +965,7 @@ model Country {
   id          String   @id @default(cuid())
   name        String
   countryCode String   @unique
+  callingCode String
   flag        String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

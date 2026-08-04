@@ -19,14 +19,22 @@ export function splitPhoneNumber(value: string): { countryCode: string; phone: s
     (entry) => phone.startsWith(`${entry.code} `) || phone === entry.code
   );
 
-  if (!country) {
-    return { countryCode: COUNTRY_CODES[0]!.code, phone };
+  if (country) {
+    return {
+      countryCode: country.code,
+      phone: phone.replace(country.code, "").trim()
+    };
   }
 
-  return {
-    countryCode: country.code,
-    phone: phone.replace(country.code, "").trim()
-  };
+  // Profile numbers are stored as "<calling code> <national number>". Accept
+  // every international code here so newly seeded countries do not depend on
+  // the small legacy fallback list above.
+  const internationalParts = phone.match(/^(\+\d+)\s+(.+)$/);
+  if (internationalParts) {
+    return { countryCode: internationalParts[1]!, phone: internationalParts[2]!.trim() };
+  }
+
+  return { countryCode: COUNTRY_CODES[0]!.code, phone };
 }
 
 export function joinPhoneNumber(countryCode: string, phone: string): string {

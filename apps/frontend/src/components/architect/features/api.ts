@@ -1049,6 +1049,14 @@ export type ArchitectRefundAgent = {
   totalRefundCents: number;
 };
 
+export type CountryCallingCodeOption = {
+  id: string;
+  name: string;
+  countryCode: string;
+  callingCode: string;
+  flag: string;
+};
+
 export type ArchitectSettingsPayload = {
   profile: ArchitectSettingsProfile;
   storefront: ArchitectSettingsStorefront;
@@ -1099,6 +1107,10 @@ export type ArchitectSettingsPayload = {
 
 export function getArchitectSettings() {
   return apiGet<ArchitectSettingsPayload>("/architect/settings");
+}
+
+export function getCountryCallingCodes() {
+  return apiGet<{ countries: CountryCallingCodeOption[] }>("/countries");
 }
 
 export function saveArchitectSettingsProfile(body: Partial<ArchitectSettingsProfile>) {
