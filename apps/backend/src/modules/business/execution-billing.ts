@@ -393,6 +393,8 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
           businessId: agent.businessId,
           installedAgentId: agent.id,
           billingMonth: usageBillingMonth,
+          periodStart: usagePeriod.start,
+          periodEnd: usagePeriod.end,
           status: { in: ["PENDING", "OPEN", "OVERDUE"] },
           paidAt: null,
           closedAt: null

@@ -116,6 +116,8 @@ export async function addPhoneNumberFeeToPendingInvoiceTx(
       businessId: input.businessId,
       installedAgentId: input.installedAgentId,
       billingMonth,
+      periodStart: billingPeriod.start,
+      periodEnd: billingPeriod.end,
       status: { in: ["PENDING", "OPEN"] },
       paidAt: null,
       closedAt: null,

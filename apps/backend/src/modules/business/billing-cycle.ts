@@ -18,7 +18,7 @@ import {
 } from "./phone-provisioning";
 import { ensureMonthlyAssignedNumberFees } from "./phone-number-invoice";
 import {
-  addUtcCalendarMonth,
+  addAgentInvoiceCycle,
   agentBillingAnchorAt,
   initialAgentPurchasePeriod,
   nextSubscriptionInvoicePeriod,
@@ -392,7 +392,7 @@ async function completeExpiredTrials(now: Date) {
     const totalCents = lineItems.reduce((sum, item) => sum + item.amountCents, 0);
     const invoicePeriodEnd =
       listing.pricingModel === "SUBSCRIPTION"
-        ? addUtcCalendarMonth(endsAt)
+        ? addAgentInvoiceCycle(endsAt)
         : null;
 
     const outcome = await prisma.$transaction(async (tx) => {
@@ -812,7 +812,14 @@ async function createDueSubscriptionInvoices(now: Date) {
     const legacyInvoiceKey =
       `subscription:${agent.businessId}:${agent.listingId}:${billingMonthFor(periodStart)}`;
     const exists = await prisma.payment.findFirst({
-      where: { invoiceKey: { in: [invoiceKey, legacyInvoiceKey] } },
+      where: {
+        OR: [
+          { invoiceKey },
+          // A legacy monthly key may cover one accelerated period, but must
+          // not suppress every later two-day renewal in the same month.
+          { invoiceKey: legacyInvoiceKey, periodStart }
+        ]
+      },
       select: { id: true }
     });
     if (exists) continue;
