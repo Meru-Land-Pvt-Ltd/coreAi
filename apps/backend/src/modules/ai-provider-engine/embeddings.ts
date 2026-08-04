@@ -1,4 +1,4 @@
-import { pipeline, type FeatureExtractionPipeline } from "@xenova/transformers";
+import type { FeatureExtractionPipeline } from "@xenova/transformers" with { "resolution-mode": "import" };
 import { env } from "../../config/env";
 
 export const EMBEDDING_DIMENSIONS = 384;
@@ -14,6 +14,7 @@ let localExtractor: FeatureExtractionPipeline | null = null;
 async function getLocalExtractor(): Promise<FeatureExtractionPipeline> {
   if (!localExtractor) {
     const modelName = env.LOCAL_EMBEDDING_MODEL || "Xenova/bge-small-en-v1.5";
+    const { pipeline } = await import("@xenova/transformers");
     localExtractor = await pipeline("feature-extraction", modelName, {
       quantized: true
     });
@@ -65,4 +66,3 @@ export async function embedTexts(texts: string[]): Promise<number[][] | null> {
     return null;
   }
 }
-
