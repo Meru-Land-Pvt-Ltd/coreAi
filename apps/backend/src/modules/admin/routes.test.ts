@@ -4,17 +4,26 @@ const {
   listingFindUniqueMock,
   listingUpdateMock,
   workflowUpdateMock,
-  transactionMock
+  transactionMock,
+  userFindUniqueMock,
+  pseudonymizeDisclosureConsentsMock,
+  logAdminActionMock,
+  deleteUserWorkspaceMock
 } = vi.hoisted(() => ({
   listingFindUniqueMock: vi.fn(),
   listingUpdateMock: vi.fn(),
   workflowUpdateMock: vi.fn(),
-  transactionMock: vi.fn()
+  transactionMock: vi.fn(),
+  userFindUniqueMock: vi.fn(),
+  pseudonymizeDisclosureConsentsMock: vi.fn(),
+  logAdminActionMock: vi.fn(),
+  deleteUserWorkspaceMock: vi.fn()
 }));
 
 vi.mock("../../lib/prisma", () => ({
   prisma: {
     agentListing: { findUnique: listingFindUniqueMock },
+    user: { findUnique: userFindUniqueMock },
     $transaction: transactionMock
   }
 }));
@@ -47,6 +56,11 @@ vi.mock("./pricing-routes", async () => {
 vi.mock("../email/ses-mail-service", () => ({ sendBusinessEmail: vi.fn() }));
 vi.mock("./registered-business-accounts", () => ({ listRegisteredBusinessAccounts: vi.fn() }));
 vi.mock("./admin-summary", () => ({ getAdminLiveSummaryData: vi.fn() }));
+vi.mock("../compliance/disclosure-consent", () => ({
+  pseudonymizeDisclosureConsentsForUser: pseudonymizeDisclosureConsentsMock
+}));
+vi.mock("../auth/workspace-deletion", () => ({ deleteUserWorkspace: deleteUserWorkspaceMock }));
+vi.mock("./audit", () => ({ logAdminAction: logAdminActionMock }));
 
 import { adminRoutes } from "./routes";
 
@@ -62,6 +76,16 @@ beforeEach(() => {
     rejectionReason: null
   });
   workflowUpdateMock.mockResolvedValue({ id: "workflow-1" });
+  userFindUniqueMock.mockResolvedValue({
+    id: "architect-1",
+    email: "architect@example.com",
+    role: "ARCHITECT",
+    roleMemberships: [{ role: "ARCHITECT" }],
+    _count: { businesses: 0 }
+  });
+  pseudonymizeDisclosureConsentsMock.mockResolvedValue(1);
+  deleteUserWorkspaceMock.mockResolvedValue({ accountRemoved: true, remainingRoles: [] });
+  logAdminActionMock.mockResolvedValue(undefined);
   listingUpdateMock.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: "listing-1",
     name: "Reception Agent",
@@ -163,5 +187,72 @@ describe("admin agent moderation decisions", () => {
       reviewStatus: "REJECTED",
       rejectionReason: "The listing does not pass the safety review."
     });
+  });
+});
+
+describe("admin architect deletion", () => {
+  it("permanently deletes the architect workspace after verifying the target", async () => {
+    const response = await adminRoutes.request("/architects/architect-1", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmation: "DELETE" })
+    });
+    const body = await response.json() as {
+      data: { deleted: boolean; userId: string; accountRemoved: boolean; remainingRoles: string[] };
+    };
+
+    expect(response.status).toBe(200);
+    expect(pseudonymizeDisclosureConsentsMock).toHaveBeenCalledWith("architect-1");
+    expect(deleteUserWorkspaceMock).toHaveBeenCalledWith("architect-1", "ARCHITECT");
+    expect(logAdminActionMock).toHaveBeenCalledWith(expect.objectContaining({
+      adminUserId: "admin-user",
+      action: "ARCHITECT_ACCOUNT_DELETED",
+      targetId: "architect-1"
+    }));
+    expect(body.data).toEqual({
+      deleted: true,
+      userId: "architect-1",
+      accountRemoved: true,
+      remainingRoles: []
+    });
+  });
+
+  it("requires the destructive confirmation before looking up or deleting an architect", async () => {
+    const response = await adminRoutes.request("/architects/architect-1", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmation: "delete" })
+    });
+
+    expect(response.status).toBe(422);
+    expect(userFindUniqueMock).not.toHaveBeenCalled();
+    expect(deleteUserWorkspaceMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a separate business workspace and its identifiable business consent", async () => {
+    userFindUniqueMock.mockResolvedValue({
+      id: "architect-1",
+      role: "ARCHITECT",
+      roleMemberships: [{ role: "ARCHITECT" }, { role: "BUSINESS" }],
+      _count: { businesses: 1 }
+    });
+    deleteUserWorkspaceMock.mockResolvedValue({ accountRemoved: false, remainingRoles: ["BUSINESS"] });
+
+    const response = await adminRoutes.request("/architects/architect-1", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmation: "DELETE" })
+    });
+    const body = await response.json() as {
+      data: { accountRemoved: boolean; remainingRoles: string[] };
+    };
+
+    expect(response.status).toBe(200);
+    expect(pseudonymizeDisclosureConsentsMock).not.toHaveBeenCalled();
+    expect(deleteUserWorkspaceMock).toHaveBeenCalledWith("architect-1", "ARCHITECT");
+    expect(logAdminActionMock).toHaveBeenCalledWith(expect.objectContaining({
+      action: "ARCHITECT_WORKSPACE_DELETED"
+    }));
+    expect(body.data).toMatchObject({ accountRemoved: false, remainingRoles: ["BUSINESS"] });
   });
 });

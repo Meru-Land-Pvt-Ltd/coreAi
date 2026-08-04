@@ -181,6 +181,15 @@ export function updateAdminArchitectStatus(userId: string, approvalStatus: Archi
   return apiPatch<{ architectProfile: unknown }>(`/admin/architects/${userId}/status`, { approvalStatus });
 }
 
+export function deleteAdminArchitect(userId: string, confirmation: "DELETE") {
+  return apiDelete<{
+    deleted: true;
+    userId: string;
+    accountRemoved: boolean;
+    remainingRoles: string[];
+  }>(`/admin/architects/${userId}`, { confirmation });
+}
+
 export function updateAdminUserSuspension(userId: string, isSuspended: boolean) {
   return apiPatch<{ user: unknown }>(`/admin/users/${userId}/suspension`, { isSuspended });
 }

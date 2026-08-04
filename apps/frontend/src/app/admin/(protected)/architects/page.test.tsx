@@ -7,19 +7,22 @@ const {
   getAdminArchitectsMock,
   getAdminSummaryMock,
   updateAdminArchitectStatusMock,
-  updateAdminUserSuspensionMock
+  updateAdminUserSuspensionMock,
+  deleteAdminArchitectMock
 } = vi.hoisted(() => ({
   getAdminArchitectsMock: vi.fn(),
   getAdminSummaryMock: vi.fn(),
   updateAdminArchitectStatusMock: vi.fn(),
-  updateAdminUserSuspensionMock: vi.fn()
+  updateAdminUserSuspensionMock: vi.fn(),
+  deleteAdminArchitectMock: vi.fn()
 }));
 
 vi.mock("@/components/admin/features/api", () => ({
   getAdminArchitects: getAdminArchitectsMock,
   getAdminSummary: getAdminSummaryMock,
   updateAdminArchitectStatus: updateAdminArchitectStatusMock,
-  updateAdminUserSuspension: updateAdminUserSuspensionMock
+  updateAdminUserSuspension: updateAdminUserSuspensionMock,
+  deleteAdminArchitect: deleteAdminArchitectMock
 }));
 
 function architect(overrides: Record<string, unknown> = {}) {
@@ -62,6 +65,10 @@ beforeEach(() => {
   updateAdminUserSuspensionMock.mockReset().mockResolvedValue({
     success: true,
     data: { user: { isSuspended: true } }
+  });
+  deleteAdminArchitectMock.mockReset().mockResolvedValue({
+    success: true,
+    data: { deleted: true, userId: "architect-1", accountRemoved: true, remainingRoles: [] }
   });
 });
 
@@ -175,5 +182,27 @@ describe("Admin architect management", () => {
 
     expect(await screen.findByTestId("admin-architects-error")).toBeTruthy();
     expect(screen.getByText("Could not load architects.")).toBeTruthy();
+  });
+
+  it("requires confirmation and removes the architect after permanent deletion", async () => {
+    render(<AdminArchitectsPage />);
+    await screen.findByText("Ada Builder");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Delete ada@example.com" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Permanently delete architect?" });
+    const confirmButton = within(dialog).getByRole("button", { name: "Permanently delete" });
+    expect((confirmButton as HTMLButtonElement).disabled).toBe(true);
+
+    await user.type(within(dialog).getByTestId("admin-architect-delete-confirmation"), "DELETE");
+    await user.click(confirmButton);
+
+    await waitFor(() => {
+      expect(deleteAdminArchitectMock).toHaveBeenCalledWith("architect-1", "DELETE");
+    });
+    expect(await screen.findByText("ada@example.com and all associated account data were permanently deleted.")).toBeTruthy();
+    expect(screen.getByText("0 total")).toBeTruthy();
+    expect(screen.queryByTestId("admin-architects-table")).toBeNull();
   });
 });

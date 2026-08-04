@@ -38,6 +38,7 @@ async function createDualRoleUser(suffix: string): Promise<string> {
 }
 
 async function cleanup(userId: string): Promise<void> {
+  await prisma.architectRefundSettlement.deleteMany({ where: { architectUserId: userId } });
   await prisma.workflowDefinition.deleteMany({ where: { architectUserId: userId } });
   await prisma.business.deleteMany({ where: { ownerId: userId } });
   await prisma.user.deleteMany({ where: { id: userId } });
@@ -75,6 +76,24 @@ describe("deleteUserWorkspace — one workspace at a time", () => {
   it("deleting ARCHITECT keeps the business account and its businesses", async () => {
     if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently.");
     const userId = await createDualRoleUser("arch");
+    await prisma.architectProfile.create({ data: { userId } });
+    await prisma.templateRequest.create({
+      data: { architectUserId: userId, industry: "test", description: "delete me" }
+    });
+    await prisma.architectRefundSettlement.create({
+      data: {
+        architectUserId: userId,
+        action: "DELETE_ACCOUNT",
+        amountCents: 0,
+        breakdown: {}
+      }
+    });
+    await prisma.connectorCredential.createMany({
+      data: [
+        { userId, provider: "GMAIL" },
+        { userId, provider: "GOOGLE_CALENDAR" }
+      ]
+    });
 
     const result = await deleteUserWorkspace(userId, "ARCHITECT");
 
@@ -82,6 +101,12 @@ describe("deleteUserWorkspace — one workspace at a time", () => {
     expect(result.remainingRoles).toEqual(["BUSINESS"]);
     expect(await prisma.user.count({ where: { id: userId } })).toBe(1);
     expect(await prisma.workflowDefinition.count({ where: { architectUserId: userId } })).toBe(0);
+    expect(await prisma.architectProfile.count({ where: { userId } })).toBe(0);
+    expect(await prisma.templateRequest.count({ where: { architectUserId: userId } })).toBe(0);
+    expect(await prisma.architectRefundSettlement.count({ where: { architectUserId: userId } })).toBe(0);
+    expect(await prisma.connectorCredential.count({ where: { userId, provider: "GMAIL" } })).toBe(0);
+    // Business-owned Google Calendar credentials survive with the business workspace.
+    expect(await prisma.connectorCredential.count({ where: { userId, provider: "GOOGLE_CALENDAR" } })).toBe(1);
     // The buyer side is untouched.
     expect(await prisma.business.count({ where: { ownerId: userId } })).toBe(1);
 

@@ -6,9 +6,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
-  Search
+  Search,
+  Trash2
 } from "lucide-react";
 import {
+  deleteAdminArchitect,
   getAdminArchitects,
   getAdminSummary,
   type AdminArchitect,
@@ -110,6 +112,10 @@ export default function AdminArchitectsPage() {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState("");
   const [pendingAgentCount, setPendingAgentCount] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminArchitect | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const loadSequence = useRef(0);
 
   async function load(searchValue: string) {
@@ -229,6 +235,46 @@ export default function AdminArchitectsPage() {
     setMessage(`Exported ${filteredRows.length} architect account${filteredRows.length === 1 ? "" : "s"}.`);
   }
 
+  function openDeleteDialog(architect: AdminArchitect) {
+    setDeleteTarget(architect);
+    setDeleteConfirmation("");
+    setDeleteError("");
+    setMessage("");
+  }
+
+  function closeDeleteDialog() {
+    if (deleting) return;
+    setDeleteTarget(null);
+    setDeleteConfirmation("");
+    setDeleteError("");
+  }
+
+  async function permanentlyDeleteArchitect() {
+    if (!deleteTarget || deleteConfirmation !== "DELETE" || deleting) return;
+
+    const target = deleteTarget;
+    setDeleting(true);
+    const result = await deleteAdminArchitect(target.id, "DELETE");
+
+    if (!result.success) {
+      setDeleteError(result.error ?? "Could not delete architect account.");
+      setDeleting(false);
+      return;
+    }
+
+    setRows((current) => current.filter((architect) => architect.id !== target.id));
+    setTotal((current) => (typeof current === "number" ? Math.max(0, current - 1) : current));
+    setMessage(
+      result.data?.accountRemoved === false
+        ? `${target.email}'s architect workspace and all associated architect data were permanently deleted. The separate business workspace was kept.`
+        : `${target.email} and all associated account data were permanently deleted.`
+    );
+    setDeleteTarget(null);
+    setDeleteConfirmation("");
+    setDeleteError("");
+    setDeleting(false);
+  }
+
 
   return (
     <div className="w-full max-w-full">
@@ -315,11 +361,12 @@ export default function AdminArchitectsPage() {
                       </button>
                     </th>
                   ))}
+                  <th className="px-5 py-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {paginatedRows.length === 0 ? (
-                  <tr><td colSpan={5} className="px-5 py-12 text-center font-semibold text-slate-400">No architects found.</td></tr>
+                  <tr><td colSpan={6} className="px-5 py-12 text-center font-semibold text-slate-400">No architects found.</td></tr>
                 ) : paginatedRows.map((architect) => (
                     <tr key={architect.id} className="transition hover:bg-gray-50/70">
                       <td className="px-5 py-3.5">
@@ -334,6 +381,18 @@ export default function AdminArchitectsPage() {
                       <td className="px-5 py-3.5"><span className="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700 ring-1 ring-violet-600/10">Architect</span></td>
                       <td className="px-5 py-3.5 font-semibold text-slate-700 tabular-nums">{formatCount(architect.listingCount)}</td>
                       <td className="whitespace-nowrap px-5 py-3.5 text-slate-500 tabular-nums">{formatDate(architect.createdAt)}</td>
+                      <td className="px-5 py-3.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => openDeleteDialog(architect)}
+                          aria-label={`Delete ${architect.email}`}
+                          data-testid={`admin-architect-delete-${architect.id}`}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-red-200 px-2.5 text-xs font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          Delete
+                        </button>
+                      </td>
                     </tr>
                 ))}
               </tbody>
@@ -358,6 +417,47 @@ export default function AdminArchitectsPage() {
           </div>
         </section>
       )}
+
+      {deleteTarget ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 p-4" role="presentation">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-architect-title"
+            data-testid="admin-architect-delete-dialog"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+          >
+            <h2 id="delete-architect-title" className="text-lg font-extrabold text-slate-900">Permanently delete architect?</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              This permanently deletes <span className="font-semibold text-slate-900">{deleteTarget.email}</span>&apos;s architect profile, listings, workflows, payout data, integrations, and related records. If this user also has a Business workspace, that separate workspace is kept. This cannot be undone.
+            </p>
+            <label className="mt-5 block text-sm font-semibold text-slate-700">
+              Type <span className="font-mono text-red-600">DELETE</span> to confirm
+              <input
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                autoFocus
+                disabled={deleting}
+                data-testid="admin-architect-delete-confirmation"
+                className="mt-2 h-11 w-full rounded-xl border border-gray-200 px-3 font-mono text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 disabled:bg-gray-50"
+              />
+            </label>
+            {deleteError ? <p role="alert" className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{deleteError}</p> : null}
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" onClick={closeDeleteDialog} disabled={deleting} className="h-10 rounded-xl border border-gray-200 px-4 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button>
+              <button
+                type="button"
+                onClick={() => void permanentlyDeleteArchitect()}
+                disabled={deleteConfirmation !== "DELETE" || deleting}
+                data-testid="admin-architect-confirm-delete"
+                className="h-10 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {deleting ? "Deleting…" : "Permanently delete"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
     </div>
   );
