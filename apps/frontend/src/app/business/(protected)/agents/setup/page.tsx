@@ -1339,6 +1339,10 @@ function SetupWizard() {
       const saved = await persistSetup(false);
       setSaving(false);
 
+      if (!saved.ok) {
+        return;
+      }
+
       if (saved.ok && !saved.mainSaveSkipped) {
         setStatusMsg("Progress saved");
       }
@@ -1617,7 +1621,7 @@ function SetupWizard() {
     if (targetStep <= 1) return true;
     if (targetStep === 2) return connectReady;
     if (targetStep === 3) return connectReady && configureComplete;
-    if (targetStep === 4) return isEditMode ? redeploySuccess : connectReady && configureComplete;
+    if (targetStep === 4) return false;
     return false;
   };
 
@@ -1797,7 +1801,7 @@ function SetupWizard() {
                 const done = stepDone[entry.id];
                 const completed = done && !active;
                 const upcoming = step < entry.id && !done;
-                const locked = entry.id > step && !canAccessStep(entry.id);
+                const locked = entry.id === 4 || (entry.id > step && !canAccessStep(entry.id));
                 const clickable = !locked;
                 const stepDisplayNum = index + 1;
 
@@ -5168,6 +5172,79 @@ function Markdown({ content, className = "" }: { content: string; className?: st
   );
 }
 
+function formatUserFriendlyWorkflowError(err: unknown): string {
+  if (!err) return "";
+  const text = typeof err === "string" ? err : err instanceof Error ? err.message : JSON.stringify(err);
+  
+  if (/402|insufficient|balance|credit/i.test(text)) {
+    return "The AI service balance is currently low or depleted. Please check your provider account credits or try again shortly.";
+  }
+  if (/401|invalid.*key|unauthorized|api_key/i.test(text)) {
+    return "The AI provider API key is missing or invalid. Please check your provider configuration in settings.";
+  }
+  if (/429|rate.*limit|too many requests/i.test(text)) {
+    return "The AI service is currently busy. Please wait a few seconds and try running the test again.";
+  }
+  if (/500|502|503|504|timeout|network/i.test(text)) {
+    return "The AI provider took too long to respond. Please try running the test again.";
+  }
+  if (/PURCHASE_REQUIRED|Purchase an agent/i.test(text)) {
+    return "Please complete purchasing this agent before testing its workflow.";
+  }
+  if (/BUSINESS_NOT_FOUND/i.test(text)) {
+    return "Please complete the business setup in Configure first.";
+  }
+
+  try {
+    const parsed = typeof err === "object" ? err : JSON.parse(text);
+    if (parsed && typeof parsed === "object" && parsed !== null) {
+      const msg = (parsed as any).message || (parsed as any).error || (parsed as any).detail;
+      if (typeof msg === "string" && msg.trim()) {
+        return formatUserFriendlyWorkflowError(msg);
+      }
+    }
+  } catch {
+    /* fallback to cleaned text */
+  }
+
+  const cleaned = text.replace(/^[{"\s]*error[":\s]*/i, "").replace(/[}"\s]*$/g, "").trim();
+  return cleaned || "An unexpected error occurred while executing the workflow test. Please try again.";
+}
+
+function cleanWorkflowAgentOutput(rawOutput: unknown): string {
+  if (rawOutput === null || rawOutput === undefined) return "";
+  
+  let content = rawOutput;
+
+  if (typeof content === "object" && content !== null) {
+    const obj = content as Record<string, unknown>;
+    content = obj.text || obj.reply || obj.body || obj.message || obj.result || obj.content || obj.output || "";
+  }
+
+  if (typeof content === "string") {
+    const trimmed = content.trim();
+    if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === "string") {
+          return parsed.trim();
+        }
+        if (parsed && typeof parsed === "object" && parsed !== null) {
+          const extracted = parsed.text || parsed.reply || parsed.body || parsed.message || parsed.result || parsed.content || parsed.output;
+          if (typeof extracted === "string" && extracted.trim()) {
+            return extracted.trim();
+          }
+        }
+      } catch {
+        /* keep original if parse fails */
+      }
+    }
+    return trimmed;
+  }
+
+  return String(content ?? "").trim();
+}
+
 /** Processing step — dynamic log execution timeline and output display */
 function WorkflowProcessingStepPanel({
   listing,
@@ -5225,26 +5302,29 @@ function WorkflowProcessingStepPanel({
           const run = res.data.run;
           const logs = run.logs || [];
           const lastLog = logs[logs.length - 1];
-          let lastNodeOutput = "";
-          if (lastLog && lastLog.output) {
-            const out = lastLog.output as any;
-            if (typeof out === "string") {
-              lastNodeOutput = out;
-            } else if (typeof out === "object" && out !== null) {
-              lastNodeOutput = out.text || out.reply || out.body || out.message || out.result || JSON.stringify(out);
-            }
+
+          // Check if any node log produced an error
+          const errorLog = logs.find((l: any) => l.status === "error");
+          if (errorLog && (errorLog as any).error) {
+            setError(formatUserFriendlyWorkflowError((errorLog as any).error));
           }
-          const reply = lastNodeOutput || (run.context?.reply as string) || "";
+
+          let rawNodeOutput = "";
+          if (lastLog && lastLog.output) {
+            rawNodeOutput = typeof lastLog.output === "string" ? lastLog.output : JSON.stringify(lastLog.output);
+          }
+
+          const reply = cleanWorkflowAgentOutput(rawNodeOutput) || cleanWorkflowAgentOutput(run.context?.reply) || "";
           
           setApiResult({ logs, reply });
           setIsSimulating(true);
         } else {
-          setError(res.error || "Failed to execute workflow test.");
+          setError(formatUserFriendlyWorkflowError(res.error || "Failed to execute workflow test."));
         }
       })
       .catch((err) => {
         if (!active) return;
-        setError(err instanceof Error ? err.message : "Failed to execute workflow test.");
+        setError(formatUserFriendlyWorkflowError(err));
       })
       .finally(() => {
         if (active) setFetching(false);
@@ -5306,8 +5386,14 @@ function WorkflowProcessingStepPanel({
       )}
 
       {error && (
-        <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-xl p-3 animate-in fade-in duration-200">
-          {error}
+        <div className="space-y-2 text-xs text-rose-700 bg-rose-50/80 border border-rose-200/80 rounded-xl p-3.5 animate-in fade-in duration-200 shadow-sm">
+          <div className="flex items-center gap-2 font-bold text-rose-800">
+            <svg className="h-4 w-4 shrink-0 text-rose-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>Workflow Execution Note</span>
+          </div>
+          <p className="leading-relaxed text-slate-700">{error}</p>
         </div>
       )}
 
