@@ -13,6 +13,7 @@ import Link from "next/link";
 import { AgentDemoCall } from "@/components/common/agent-demo-call";
 import { AgentWorkflowPreview } from "@/components/business/agent-workflow-preview";
 import { CoreFooter } from "@/components/common/footer";
+import { hasCallNode, getHowItWorksSubtitle } from "@coreai/shared";
 
 export const AGENT_DESCRIPTION_STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -535,6 +536,9 @@ export function AgentDescriptionView(
     demoVideoUrl
   } = props;
 
+  const isCallAgent = hasCallNode(listing.workflow?.workflowJson);
+  const howItWorksSubtitle = getHowItWorksSubtitle(listing.requiredConnectors, listing.workflow?.workflowJson);
+
   const [showFullDescription, setShowFullDescription] =
     useState(false);
 
@@ -804,6 +808,7 @@ export function AgentDescriptionView(
                   ) : null}
 
                   {showDemo &&
+                  isCallAgent &&
                   !hasActiveAccess ? (
                     <div className="mt-5 border-t border-slate-100 pt-5">
                       <AgentDemoCall
@@ -870,7 +875,7 @@ export function AgentDescriptionView(
             <div className="mx-auto max-w-6xl">
               <SectionHeader
                 title="How It Works"
-                description="Connect your business information and tools, then activate the agent from your account."
+                description={howItWorksSubtitle}
               />
 
               <div className="relative mt-10 sm:mt-12">

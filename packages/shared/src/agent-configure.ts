@@ -1,3 +1,5 @@
+import { getNodeDefinition } from "./node-registry";
+
 export type AgentPricingModel = "free" | "one_time" | "subscription";
 
 export type AgentReviewStatus =
@@ -556,68 +558,82 @@ export const TRIVEN_PLATFORM_COMMISSION_PERCENT = 30;
  * Generic business language only — never industry-specific.
  */
 const INCLUDED_FEATURE_BY_NODE_TYPE: Record<string, string> = {
-  "trigger.phone_call": "Inbound phone call handling",
-  "trigger.twilio_missed_call": "Missed call detection and automatic follow-up",
-  "trigger.twilio_inbound_sms": "Two-way SMS conversation handling",
-  "trigger.telegram_message": "Telegram customer service and appointment booking",
-  "trigger.vapi_tool_call": "Voice AI call handling",
+  "trigger.phone_call": "Inbound phone call answering",
+  "trigger.twilio_missed_call": "Automatic missed call text-back",
+  "trigger.twilio_inbound_sms": "Two-way SMS text messaging",
+  "trigger.telegram_message": "Telegram messaging & service automation",
+  "trigger.vapi_tool_call": "Voice AI assistant handling",
+  "trigger.whatsapp_message_received": "WhatsApp customer messaging",
+  "trigger.manual": "Web chat & event trigger",
   "ai.voice_conversation": "Natural AI voice conversation",
-  "ai.context_reply": "AI replies based on your business context",
-  "calendar.availability": "Real-time calendar availability checking",
-  "action.google_calendar_availability": "Real-time calendar availability checking",
-  "calendar.book_appointment": "Appointment booking into connected calendar",
+  "ai.context_reply": "AI replies trained on business context",
+  "ai.llm_call": "Custom AI text generation & reasoning",
+  "ai.memory": "Long-term conversation memory",
+  "ai.image_generation": "AI image generation",
+  "calendar.availability": "Real-time calendar availability check",
+  "action.google_calendar_availability": "Real-time Google Calendar slot checking",
+  "calendar.book_appointment": "Automated appointment booking",
   "action.google_calendar_create_appointment": "Google Calendar appointment scheduling",
-  "communication.send_sms": "Automated SMS confirmation and follow-up",
-  "action.send_sms": "Automated SMS confirmation and follow-up",
-  "communication.send_email": "Automated email confirmation and follow-up",
-  "integration.gmail_send_email": "Automated email confirmation and follow-up",
-  "integration.gmail_create_draft": "Automated email confirmation and follow-up",
-  "integration.gmail_read_emails": "Incoming email monitoring",
-  "trigger.gmail_new_email": "Incoming email monitoring",
+  "communication.send_sms": "Automated SMS confirmations",
+  "action.send_sms": "Automated SMS confirmation & alerts",
+  "action.send_whatsapp": "Automated WhatsApp notifications & replies",
+  "communication.send_email": "Automated email confirmations",
+  "integration.gmail_send_email": "Automated Gmail email sending",
+  "integration.gmail_create_draft": "Automated email draft creation",
+  "integration.gmail_read_emails": "Automated email reading & extraction",
+  "trigger.gmail_new_email": "Automated Gmail inbox monitoring",
   "trigger.calendly": "Calendly scheduling automation",
   "action.calendly": "Calendly scheduling actions",
-  "trigger.calendly_meeting_booked": "Calendly meeting booked automation",
+  "trigger.calendly_meeting_booked": "Calendly meeting confirmation",
   "trigger.calendly_meeting_cancelled": "Calendly cancellation handling",
   "trigger.calendly_meeting_rescheduled": "Calendly reschedule handling",
-  "trigger.calendly_routing_form_submitted": "Calendly routing form intake",
-  "action.calendly_find_available_times": "Calendly availability lookup",
+  "trigger.calendly_routing_form_submitted": "Calendly form submission handling",
+  "action.calendly_find_available_times": "Calendly available slot lookup",
   "action.calendly_create_scheduling_link": "Calendly scheduling link generation",
-  "action.start_vapi_call": "Voice AI call handling",
-  "action.save_lead": "Lead capture and CRM/webhook sync",
-  "action.update_lead": "Lead capture and CRM/webhook sync",
-  "trigger.webhook": "Lead capture and CRM/webhook sync",
-  "action.http_request": "Lead capture and CRM/webhook sync",
-  "action.save_conversation_message": "Full conversation history logging",
-  "action.human_handoff": "Smart escalation to your team",
-  "flow.end": "Complete call flow with proper ending"
+  "action.start_vapi_call": "Voice AI call initiation",
+  "action.save_lead": "Lead capture & CRM sync",
+  "action.update_lead": "CRM lead updates",
+  "trigger.webhook": "Custom API & webhook integration",
+  "action.http_request": "Custom API request integration",
+  "action.save_conversation_message": "Full chat history logging",
+  "action.human_handoff": "Smart live agent escalation",
+  "logic.condition": "Smart conditional routing rules",
+  "flow.end": "Complete flow automation"
 };
 
 /** Keyword fallback for node types/connectors without an exact mapping. */
-function includedFeatureFallback(nodeType: string, connector: string): string | null {
-  const haystack = `${nodeType} ${connector}`.toLowerCase();
-  // SMS is only claimed when the node itself is SMS — telephony alone is calls.
-  if (haystack.includes("sms")) return "Automated SMS confirmation and follow-up";
-  if (haystack.includes("twilio")) return "Phone call handling and telephony support";
-  if (haystack.includes("vapi") || haystack.includes("voice")) return "Voice AI call handling";
+function includedFeatureFallback(nodeType: string, connector: string, title?: string, label?: string): string | null {
+  const haystack = `${nodeType} ${connector} ${title ?? ""} ${label ?? ""}`.toLowerCase();
+  if (haystack.includes("whatsapp")) return "Automated WhatsApp messaging & engagement";
+  if (haystack.includes("sms")) return "Automated SMS confirmation & updates";
+  if (haystack.includes("telegram")) return "Telegram customer service & messaging";
+  if (haystack.includes("twilio")) return "Telephony & SMS messaging support";
+  if (haystack.includes("vapi") || haystack.includes("voice_conversation")) return "Voice AI call handling";
   if (haystack.includes("calendar")) return "Google Calendar appointment scheduling";
-  if (haystack.includes("gmail") || haystack.includes("email")) return "Automated email confirmation and follow-up";
+  if (haystack.includes("gmail") || haystack.includes("email")) return "Automated email confirmation & updates";
   if (haystack.includes("crm") || haystack.includes("lead") || haystack.includes("webhook")) {
-    return "Lead capture and CRM/webhook sync";
+    return "Lead capture & CRM integration";
   }
-  if (haystack.includes("phone") || haystack.includes("call")) return "Inbound phone call handling";
+  if (
+    haystack.includes("phone_call") ||
+    haystack.includes("inbound_call") ||
+    (haystack.includes("phone") && !haystack.includes("api") && !haystack.includes("llm"))
+  ) {
+    return "Inbound phone call answering";
+  }
+  if (label && label.trim() && label !== "Node" && label !== "Incoming Event") return label.trim();
+  if (title && title.trim() && title !== "Node" && title !== "Incoming Event") return title.trim();
   return null;
 }
 
 const MAX_GENERATED_FEATURES = 5;
 
-type FlowNode = { id: string; type: string; connector: string };
+type FlowNode = { id: string; type: string; connector: string; title: string; label: string; nodeKind: string };
 
 /**
  * Generate buyer-facing "What's included" bullets from workflowJson.
  *
- * Only CONNECTED nodes count: with a trigger present, nodes reachable from a
- * trigger by following edges (in traversal order); without one, nodes that
- * participate in at least one edge. Isolated nodes are ignored. Bullets are
+ * Connected nodes count first, in traversal order from triggers. Bullets are
  * deduped and capped at 5.
  */
 export function generateIncludedFeaturesFromWorkflow(workflowJson: unknown): string[] {
@@ -628,10 +644,23 @@ export function generateIncludedFeaturesFromWorkflow(workflowJson: unknown): str
 
   const nodes: FlowNode[] = rawNodes.filter(isRecord).map((node) => {
     const data = isRecord(node.data) ? node.data : {};
+    const type =
+      typeof data.type === "string" && data.type
+        ? data.type
+        : typeof node.type === "string" && node.type !== "coreNode"
+          ? node.type
+          : typeof data.kind === "string"
+            ? data.kind
+            : typeof data.nodeKind === "string"
+              ? data.nodeKind
+              : "";
     return {
       id: typeof node.id === "string" ? node.id : "",
-      type: typeof data.type === "string" ? data.type : typeof data.kind === "string" ? data.kind : "",
-      connector: typeof data.connector === "string" ? data.connector : ""
+      type,
+      connector: typeof data.connector === "string" ? data.connector : "",
+      title: typeof data.title === "string" ? data.title : "",
+      label: typeof data.label === "string" ? data.label : "",
+      nodeKind: typeof data.nodeKind === "string" ? data.nodeKind : ""
     };
   });
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
@@ -644,7 +673,7 @@ export function generateIncludedFeaturesFromWorkflow(workflowJson: unknown): str
     }))
     .filter((edge) => edge.source && edge.target);
 
-  if (edges.length === 0) return [];
+  if (edges.length === 0 && nodes.length === 0) return [];
 
   const connectedIds = new Set<string>();
   for (const edge of edges) {
@@ -659,10 +688,14 @@ export function generateIncludedFeaturesFromWorkflow(workflowJson: unknown): str
     outgoing.set(edge.source, targets);
   }
 
-  const triggers = nodes.filter((node) => node.type.startsWith("trigger.") && connectedIds.has(node.id));
+  const triggers = nodes.filter(
+    (node) =>
+      (node.type.startsWith("trigger.") || node.nodeKind === "trigger") &&
+      (edges.length === 0 || connectedIds.has(node.id))
+  );
 
   // With a trigger: walk the graph from it so bullets follow the flow order.
-  // Without one: use every edge-connected node in canvas order.
+  // Without edges or without trigger: use every connected node in canvas order.
   const orderedIds: string[] = [];
   const visited = new Set<string>();
 
@@ -677,9 +710,12 @@ export function generateIncludedFeaturesFromWorkflow(workflowJson: unknown): str
         if (!visited.has(next)) queue.push(next);
       }
     }
-  } else {
-    for (const node of nodes) {
-      if (connectedIds.has(node.id)) orderedIds.push(node.id);
+  }
+
+  for (const node of nodes) {
+    if (!visited.has(node.id) && (edges.length === 0 || connectedIds.has(node.id))) {
+      visited.add(node.id);
+      orderedIds.push(node.id);
     }
   }
 
@@ -688,7 +724,8 @@ export function generateIncludedFeaturesFromWorkflow(workflowJson: unknown): str
     const node = nodeById.get(id);
     if (!node) continue;
     const feature =
-      INCLUDED_FEATURE_BY_NODE_TYPE[node.type] ?? includedFeatureFallback(node.type, node.connector);
+      INCLUDED_FEATURE_BY_NODE_TYPE[node.type] ??
+      includedFeatureFallback(node.type, node.connector, node.title, node.label);
     if (feature && !features.includes(feature)) features.push(feature);
     if (features.length >= MAX_GENERATED_FEATURES) break;
   }
@@ -1217,6 +1254,48 @@ export type HowItWorksStep = {
 };
 
 /**
+ * Helper function to clean node text values
+ */
+function cleanText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/\{\{[^}]+\}\}/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Checks if a workflowJson contains any call/voice-related nodes.
+ */
+export function hasCallNode(workflowJson?: any): boolean {
+  if (!workflowJson || !Array.isArray(workflowJson.nodes)) return false;
+  return workflowJson.nodes.some((node: any) => {
+    const data = node?.data ?? {};
+    const type = String(data.type || data.kind || node?.type || "").toLowerCase();
+    const connector = String(data.connector || "").toLowerCase();
+    const label = String(data.label || data.title || "").toLowerCase();
+    const haystack = `${type} ${connector} ${label}`;
+
+    return (
+      type === "trigger.phone_call" ||
+      type === "trigger.twilio_missed_call" ||
+      type === "ai.voice_conversation" ||
+      type === "action.vapi_call" ||
+      type === "trigger.vapi_tool_call" ||
+      type === "action.start_vapi_call" ||
+      haystack.includes("phone_call") ||
+      haystack.includes("voice_conversation") ||
+      haystack.includes("missed_call") ||
+      haystack.includes("missed call") ||
+      haystack.includes("vapi") ||
+      haystack.includes("voice call") ||
+      haystack.includes("phone call") ||
+      haystack.includes("call node")
+    );
+  });
+}
+
+/**
  * Helper to determine the channel type from workflow nodes and connectors.
  * Logic matches inferChannel in the frontend.
  */
@@ -1251,6 +1330,22 @@ function determineAgentChannel(requiredConnectors?: string[] | null, workflowJso
   return "general";
 }
 
+function isEndFlowNode(node: any): boolean {
+  if (!node) return false;
+  const data = node?.data ?? {};
+  const type = String(data.type || data.kind || node?.type || "").toLowerCase();
+  const label = String(data.label || data.title || "").toLowerCase();
+  return (
+    type === "flow.end" ||
+    type === "endflow" ||
+    type === "end_flow" ||
+    type.endsWith(".end") ||
+    label === "end flow" ||
+    label === "end" ||
+    label === "end_flow"
+  );
+}
+
 /**
  * Generates dynamic "How It Works" steps based on listing connectors and workflow capabilities.
  */
@@ -1258,6 +1353,220 @@ export function getHowItWorksSteps(
   requiredConnectors?: string[] | null,
   workflowJson?: any
 ): HowItWorksStep[] {
+  const rawNodes = workflowJson && Array.isArray(workflowJson.nodes) ? workflowJson.nodes : [];
+
+  if (rawNodes.length > 0) {
+    const triggerNodes: any[] = [];
+    const aiLogicNodes: any[] = [];
+    const actionNodes: any[] = [];
+
+    for (const node of rawNodes) {
+      const data = node?.data ?? {};
+      const type = String(data.type || data.kind || node?.type || "").toLowerCase();
+      const def = getNodeDefinition(data.type || data.kind || node?.type);
+      const category = String(data.category || def?.category || "").toLowerCase();
+      const nodeKind = String(data.nodeKind || def?.runtime?.nodeKind || "").toLowerCase();
+
+      if (category === "trigger" || nodeKind === "trigger" || type.startsWith("trigger.")) {
+        triggerNodes.push(node);
+      } else if (
+        category === "ai" ||
+        category === "logic" ||
+        nodeKind === "ai" ||
+        data.prompt ||
+        data.llmPrompt ||
+        data.llmSystemPrompt ||
+        data.firstMessage ||
+        type.includes("voice_conversation") ||
+        type.includes("ai.")
+      ) {
+        aiLogicNodes.push(node);
+      } else if (!isEndFlowNode(node)) {
+        actionNodes.push(node);
+      }
+    }
+
+    // Step 1: Trigger Node Analysis
+    let step1Title = "Trigger Event";
+    let step1Desc = "The workflow starts automatically when a trigger event occurs.";
+    if (triggerNodes.length > 0) {
+      const tNode = triggerNodes[0];
+      const tData = tNode?.data ?? {};
+      const tType = String(tData.type || tData.kind || tNode?.type || "").toLowerCase();
+      const tDef = getNodeDefinition(tData.type || tData.kind || tNode?.type);
+      const tLabel = cleanText(tData.label || tData.title || tDef?.label || tData.subtitle) || "Workflow Trigger";
+
+      step1Title = tLabel;
+
+      if (tType.includes("missed_call")) {
+        step1Title = "Customer Calls & Missed";
+        step1Desc = "When someone calls your business and no one picks up, the agent detects the missed call instantly.";
+      } else if (tType.includes("phone_call")) {
+        step1Title = "Customer Calls";
+        step1Desc = "When a customer dials your business number, the AI agent answers instantly without keeping them waiting.";
+      } else if (tType.includes("inbound_sms") || tType.includes("sms")) {
+        step1Title = "SMS Received";
+        step1Desc = "When a customer sends a text message, the workflow detects it immediately and initiates the response.";
+      } else if (tType.includes("whatsapp")) {
+        step1Title = "WhatsApp Message Received";
+        step1Desc = "When a customer reaches out via WhatsApp, the workflow triggers automatically.";
+      } else if (tType.includes("email") || tType.includes("gmail")) {
+        step1Title = "Email Received";
+        step1Desc = "The agent monitors incoming emails and triggers on new customer inquiries or requests.";
+      } else if (tType.includes("calendly")) {
+        step1Title = "Calendly Event";
+        step1Desc = "When a meeting or booking event occurs on Calendly, the workflow starts automatically.";
+      } else if (tType.includes("telegram")) {
+        step1Title = "Telegram Message";
+        step1Desc = "When a message is received in your Telegram chat or bot, the workflow is triggered.";
+      } else if (tType.includes("webhook")) {
+        step1Title = "Webhook Trigger";
+        step1Desc = "The workflow triggers automatically upon receiving an inbound HTTP webhook event.";
+      } else if (tType.includes("schedule")) {
+        step1Title = "Schedule Trigger";
+        step1Desc = "The workflow executes automatically according to your configured schedule.";
+      } else if (tDef?.description) {
+        step1Desc = `The workflow starts automatically when ${tLabel.toLowerCase()} occurs (${tDef.description.toLowerCase()}).`;
+      } else {
+        step1Desc = `The workflow starts automatically whenever ${tLabel} occurs in your business tools.`;
+      }
+    }
+
+    // Step 2: AI & Logic Processing Analysis
+    let step2Title = "AI Reasoning & Logic";
+    let step2Desc = "The AI agent analyzes the request, references your custom business guidelines, and executes actions.";
+    if (aiLogicNodes.length > 0) {
+      const aiNode = aiLogicNodes[0];
+      const aiData = aiNode?.data ?? {};
+      const aiType = String(aiData.type || aiData.kind || aiNode?.type || "").toLowerCase();
+      const aiDef = getNodeDefinition(aiData.type || aiData.kind || aiNode?.type);
+      const aiLabel = cleanText(aiData.label || aiData.title || aiDef?.label || aiData.subtitle) || "AI Agent Processing";
+
+      step2Title = aiLabel;
+
+      if (aiType.includes("voice_conversation")) {
+        step2Title = "Natural Voice Conversation";
+        step2Desc = "The AI speaks in a natural voice, answers customer questions, checks calendar availability, and processes requests.";
+      } else if (aiType.includes("condition") || aiType.includes("logic")) {
+        step2Title = aiLabel;
+        step2Desc = `Evaluates incoming data using ${aiLabel} logic to guide downstream workflow actions.`;
+      } else if (aiData.prompt || aiData.llmPrompt || aiData.llmSystemPrompt) {
+        step2Desc = `The AI analyzes the request using configured instructions (${aiLabel}) and generates tailored responses.`;
+      } else if (aiDef?.description) {
+        step2Desc = `The AI agent processes the request using ${aiLabel} (${aiDef.description.toLowerCase()}).`;
+      } else {
+        step2Desc = `The AI evaluates incoming data using ${aiLabel} logic to guide downstream workflow actions.`;
+      }
+    }
+
+    // Step 3: Action & Outcome Analysis
+    let step3Title = "Task Completed";
+    let step3Desc = "The workflow run completes successfully and output is delivered.";
+
+    if (actionNodes.length > 0) {
+      const actionLabels = actionNodes
+        .map((n) => {
+          const data = n?.data ?? {};
+          const def = getNodeDefinition(data.type || data.kind || n?.type);
+          return cleanText(data.label || data.title || def?.label || data.connectorAction);
+        })
+        .filter(Boolean);
+
+      if (actionLabels.length === 1) {
+        step3Title = actionLabels[0];
+      } else if (actionLabels.length === 2) {
+        step3Title = `${actionLabels[0]} & ${actionLabels[1]}`;
+      } else if (actionLabels.length > 2) {
+        step3Title = `${actionLabels[0]} & More Actions`;
+      } else {
+        step3Title = "Actions Executed";
+      }
+
+      const actionsDescParts: string[] = [];
+
+      for (const n of actionNodes) {
+        const data = n?.data ?? {};
+        const def = getNodeDefinition(data.type || data.kind || n?.type);
+        const text = String(data.type || data.label || data.connector || def?.type || "").toLowerCase();
+
+        if (text.includes("book") || text.includes("calendar") || text.includes("appointment")) {
+          if (!actionsDescParts.includes("appointments are scheduled directly in your calendar")) {
+            actionsDescParts.push("appointments are scheduled directly in your calendar");
+          }
+        } else if (text.includes("sms") || text.includes("text")) {
+          if (!actionsDescParts.includes("SMS notifications are sent")) {
+            actionsDescParts.push("SMS notifications are sent");
+          }
+        } else if (text.includes("email") || text.includes("gmail") || text.includes("mail")) {
+          if (!actionsDescParts.includes("email updates are delivered")) {
+            actionsDescParts.push("email updates are delivered");
+          }
+        } else if (text.includes("lead") || text.includes("save") || text.includes("capture")) {
+          if (!actionsDescParts.includes("lead details are recorded into your account")) {
+            actionsDescParts.push("lead details are recorded into your account");
+          }
+        } else if (text.includes("telegram")) {
+          if (!actionsDescParts.includes("Telegram messages are sent")) {
+            actionsDescParts.push("Telegram messages are sent");
+          }
+        } else if (text.includes("slack")) {
+          if (!actionsDescParts.includes("Slack notifications are posted")) {
+            actionsDescParts.push("Slack notifications are posted");
+          }
+        } else if (text.includes("webhook") || text.includes("http") || text.includes("api")) {
+          if (!actionsDescParts.includes("data is delivered to your endpoint")) {
+            actionsDescParts.push("data is delivered to your endpoint");
+          }
+        } else if (def?.description) {
+          const formattedDefDesc = def.description.toLowerCase().replace(/\.$/, "");
+          if (!actionsDescParts.includes(formattedDefDesc)) {
+            actionsDescParts.push(formattedDefDesc);
+          }
+        }
+      }
+
+      if (actionsDescParts.length > 0) {
+        step3Desc = `As the flow completes, ${actionsDescParts.join(", ")}.`;
+      } else if (actionLabels.length > 0) {
+        step3Desc = `Executes ${actionLabels.join(", ")} and completes the workflow.`;
+      } else {
+        step3Desc = "Executes configured workflow actions and completes the run.";
+      }
+    } else {
+      // If last node was End Flow, inspect the second-to-last node
+      const lastNode = rawNodes[rawNodes.length - 1];
+      const secondLastNode = isEndFlowNode(lastNode) && rawNodes.length >= 2 ? rawNodes[rawNodes.length - 2] : null;
+
+      if (secondLastNode) {
+        const slData = secondLastNode.data ?? {};
+        const slType = String(slData.type || slData.kind || secondLastNode.type || "").toLowerCase();
+        const slDef = getNodeDefinition(slData.type || slData.kind || secondLastNode.type);
+        const slLabel = cleanText(slData.label || slData.title || slDef?.label || slData.subtitle);
+
+        if (slType.includes("voice_conversation")) {
+          step3Title = "Action Completed";
+          step3Desc = "The AI handles customer requests, checks availability, and completes the interaction.";
+        } else if (slLabel) {
+          step3Title = slLabel;
+          step3Desc = `Executes ${slLabel} and completes the workflow run.`;
+        } else {
+          step3Title = "Response & Completion";
+          step3Desc = "The generated response or result is delivered and the workflow run completes.";
+        }
+      } else {
+        step3Title = "Response & Completion";
+        step3Desc = "The generated response or result is delivered and the workflow run completes.";
+      }
+    }
+
+    return [
+      { step: 1, title: step1Title, description: step1Desc },
+      { step: 2, title: step2Title, description: step2Desc },
+      { step: 3, title: step3Title, description: step3Desc }
+    ];
+  }
+
+  // Fallback to channel-based steps if workflowJson has no nodes
   const channel = determineAgentChannel(requiredConnectors, workflowJson);
 
   if (channel === "missed-call") {
@@ -1354,7 +1663,7 @@ export function getHowItWorksSteps(
     {
       step: 3,
       title: "Task Completed",
-      description: "Leads are captured, calendar events are created, notifications are sent, and databases are synced."
+      description: "The workflow run completes successfully and output is delivered to your system."
     }
   ];
 }
@@ -1366,6 +1675,20 @@ export function getHowItWorksSubtitle(
   requiredConnectors?: string[] | null,
   workflowJson?: any
 ): string {
+  const rawNodes = workflowJson && Array.isArray(workflowJson.nodes) ? workflowJson.nodes : [];
+  if (rawNodes.length > 0) {
+    const triggerNode = rawNodes.find((n: any) => {
+      const data = n?.data ?? {};
+      const type = String(data.type || data.kind || n?.type || "").toLowerCase();
+      const category = String(data.category || "").toLowerCase();
+      return category === "trigger" || type.startsWith("trigger.");
+    });
+    if (triggerNode) {
+      const tLabel = cleanText(triggerNode.data?.label || triggerNode.data?.title) || "trigger event";
+      return `From ${tLabel.toLowerCase()} to completed task in three automatic steps.`;
+    }
+  }
+
   const channel = determineAgentChannel(requiredConnectors, workflowJson);
 
   if (channel === "missed-call") {
