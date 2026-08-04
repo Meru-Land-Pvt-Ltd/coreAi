@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { prisma } from "../../lib/prisma";
 import { env } from "../../config/env";
-import { embedTexts, embeddingsConfigured } from "../ai-provider-engine/embeddings";
+import { embedTexts, getLastEmbeddingError } from "../ai-provider-engine/embeddings";
 import { isPineconeConfigured, getPineconeIndex, formatTenantNamespace } from "../../lib/pinecone-client";
 import { buildSparseVector, prepareHybridQueryVectors } from "./sparse-encoder";
 import {
@@ -556,13 +556,12 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
       throw new Error("similarity retrieval unavailable: Pinecone API key not configured");
     }
 
-    if (!embeddingsConfigured()) {
-      throw new Error("similarity retrieval unavailable: OpenAI API key not configured for embeddings");
-    }
-
     const denseVector = await getCachedOrEmbedQuery(trimmedQuery);
     if (!denseVector) {
-      throw new Error("similarity retrieval unavailable: OpenAI embedding request failed");
+      const detail = getLastEmbeddingError();
+      throw new Error(
+        `similarity retrieval unavailable: embedding generation failed${detail ? ` (${detail})` : ""}`
+      );
     }
 
     const sparseQueryVec = buildSparseVector(trimmedQuery);

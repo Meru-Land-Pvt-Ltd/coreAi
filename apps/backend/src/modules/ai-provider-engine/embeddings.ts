@@ -1,36 +1,27 @@
-import { pipeline, type FeatureExtractionPipeline } from "@xenova/transformers";
 import { env } from "../../config/env";
 
 export const EMBEDDING_DIMENSIONS = 384;
 const BATCH_SIZE = 96;
 
-export type EmbeddingProviderName = "local";
+let localExtractor: any = null;
+let lastEmbeddingError: string | null = null;
 
-let localExtractor: FeatureExtractionPipeline | null = null;
+export function getLastEmbeddingError(): string | null {
+  return lastEmbeddingError;
+}
 
 /**
  * Lazy loads the 100% local ONNX embedding pipeline (Xenova/bge-small-en-v1.5).
  */
-async function getLocalExtractor(): Promise<FeatureExtractionPipeline> {
+async function getLocalExtractor(): Promise<any> {
   if (!localExtractor) {
     const modelName = env.LOCAL_EMBEDDING_MODEL || "Xenova/bge-small-en-v1.5";
+    const { pipeline } = await import("@xenova/transformers");
     localExtractor = await pipeline("feature-extraction", modelName, {
       quantized: true
     });
   }
   return localExtractor;
-}
-
-export function getActiveEmbeddingProvider(): EmbeddingProviderName {
-  return "local";
-}
-
-export function getActiveEmbeddingModel(): string {
-  return env.LOCAL_EMBEDDING_MODEL || "Xenova/bge-small-en-v1.5";
-}
-
-export function embeddingsConfigured(): boolean {
-  return true; // Local ONNX embedding engine is always ready
 }
 
 /**
@@ -59,9 +50,12 @@ export async function embedTexts(texts: string[]): Promise<number[][] | null> {
         }
       }
     }
+    lastEmbeddingError = null;
     return vectors;
   } catch (error) {
-    console.warn("[embeddings] Local ONNX embedding failed:", error instanceof Error ? error.message : error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    lastEmbeddingError = errorMsg;
+    console.warn("[embeddings] Local ONNX embedding failed:", errorMsg);
     return null;
   }
 }

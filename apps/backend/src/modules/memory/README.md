@@ -154,7 +154,7 @@ Node call sites (`agent-runtime/node-handlers.ts` and
 `architect/workflow-runner.ts`). Every execution stores the full corpus (node
 outputs, decoded attachments, notes, variables) as content-hash-deduped chunks
 in the pgvector-indexed `MemoryChunk` table (embeddings:
-OpenAI `text-embedding-3-small`, 1536 dims, NULL until a key is configured).
+local ONNX `Xenova/bge-small-en-v1.5`, 384 dims).
 
 The string handed to `{{memory}}` depends on corpus size:
 
@@ -164,7 +164,7 @@ The string handed to `{{memory}}` depends on corpus size:
   similarity to the current request + a deterministic ≤500-word timeline
   summary (no LLM call).
 
-Every failure path (no `OPENAI_API_KEY`, DB down, extension missing, nothing
+Every failure path (embedding generation failure, DB down, extension missing, nothing
 embedded yet) degrades to the raw string; a Memory Node never fails because of
 this layer. Scope keys carry tenant identity (`thread:` / `run:` /
 `agent:<workflowId>:<nodeId>:<tenant>:<caller>`) — never scope by workflowId
