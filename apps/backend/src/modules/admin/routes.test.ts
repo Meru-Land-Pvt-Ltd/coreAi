@@ -2,12 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   listingFindUniqueMock,
-  listingFindFirstMock,
   listingUpdateMock,
-  listingDeleteMock,
-  installedAgentFindFirstMock,
   workflowUpdateMock,
-  workflowDeleteManyMock,
   transactionMock,
   userFindUniqueMock,
   pseudonymizeDisclosureConsentsMock,
@@ -15,12 +11,8 @@ const {
   deleteUserWorkspaceMock
 } = vi.hoisted(() => ({
   listingFindUniqueMock: vi.fn(),
-  listingFindFirstMock: vi.fn(),
   listingUpdateMock: vi.fn(),
-  listingDeleteMock: vi.fn(),
-  installedAgentFindFirstMock: vi.fn(),
   workflowUpdateMock: vi.fn(),
-  workflowDeleteManyMock: vi.fn(),
   transactionMock: vi.fn(),
   userFindUniqueMock: vi.fn(),
   pseudonymizeDisclosureConsentsMock: vi.fn(),
@@ -30,7 +22,7 @@ const {
 
 vi.mock("../../lib/prisma", () => ({
   prisma: {
-    agentListing: { findUnique: listingFindUniqueMock, update: listingUpdateMock },
+    agentListing: { findUnique: listingFindUniqueMock },
     user: { findUnique: userFindUniqueMock },
     $transaction: transactionMock
   }
@@ -84,10 +76,6 @@ beforeEach(() => {
     rejectionReason: null
   });
   workflowUpdateMock.mockResolvedValue({ id: "workflow-1" });
-  listingFindFirstMock.mockResolvedValue(null);
-  listingDeleteMock.mockResolvedValue({ id: "listing-1" });
-  installedAgentFindFirstMock.mockResolvedValue(null);
-  workflowDeleteManyMock.mockResolvedValue({ count: 1 });
   userFindUniqueMock.mockResolvedValue({
     id: "architect-1",
     email: "architect@example.com",
@@ -112,13 +100,8 @@ beforeEach(() => {
   }));
   transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) =>
     callback({
-      agentListing: {
-        update: listingUpdateMock,
-        delete: listingDeleteMock,
-        findFirst: listingFindFirstMock
-      },
-      installedAgent: { findFirst: installedAgentFindFirstMock },
-      workflowDefinition: { update: workflowUpdateMock, deleteMany: workflowDeleteManyMock }
+      agentListing: { update: listingUpdateMock },
+      workflowDefinition: { update: workflowUpdateMock }
     })
   );
 });
@@ -204,68 +187,6 @@ describe("admin agent moderation decisions", () => {
       reviewStatus: "REJECTED",
       rejectionReason: "The listing does not pass the safety review."
     });
-  });
-});
-
-describe("admin agent deletion", () => {
-  it("hard-deletes an unsold listing and its unused exclusive workflow", async () => {
-    listingFindUniqueMock.mockResolvedValueOnce({
-      id: "listing-1",
-      name: "Reception Agent",
-      status: "PENDING_REVIEW",
-      workflowId: "workflow-1",
-      architectUserId: "architect-1",
-      _count: { installedAgents: 0, payments: 0 }
-    });
-
-    const response = await adminRoutes.request("/agents/listing-1", {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ confirmation: "DELETE" })
-    });
-    const body = await response.json() as { data: { deleted: boolean; softDeleted: boolean } };
-
-    expect(response.status).toBe(200);
-    expect(listingDeleteMock).toHaveBeenCalledWith({ where: { id: "listing-1" } });
-    expect(workflowDeleteManyMock).toHaveBeenCalledWith({
-      where: { id: "workflow-1", architectUserId: "architect-1" }
-    });
-    expect(logAdminActionMock).toHaveBeenCalledWith(expect.objectContaining({
-      action: "AGENT_DELETED",
-      targetId: "listing-1"
-    }));
-    expect(body.data).toMatchObject({ deleted: true, softDeleted: false });
-  });
-
-  it("unpublishes sold agents while preserving buyer installs and payments", async () => {
-    listingFindUniqueMock.mockResolvedValueOnce({
-      id: "listing-live",
-      name: "Live Agent",
-      status: "APPROVED",
-      workflowId: "workflow-live",
-      architectUserId: "architect-1",
-      _count: { installedAgents: 2, payments: 3 }
-    });
-
-    const response = await adminRoutes.request("/agents/listing-live", {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ confirmation: "DELETE" })
-    });
-    const body = await response.json() as { data: { softDeleted: boolean } };
-
-    expect(response.status).toBe(200);
-    expect(listingUpdateMock).toHaveBeenCalledWith({
-      where: { id: "listing-live" },
-      data: {
-        status: "SUSPENDED",
-        publishStatus: "UNPUBLISHED",
-        rejectionReason: "[deleted by admin] Permanently removed from platform views"
-      }
-    });
-    expect(transactionMock).not.toHaveBeenCalled();
-    expect(logAdminActionMock).toHaveBeenCalledWith(expect.objectContaining({ action: "AGENT_REMOVED" }));
-    expect(body.data.softDeleted).toBe(true);
   });
 });
 

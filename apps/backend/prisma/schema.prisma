@@ -1853,7 +1853,7 @@ model AgentUsageExecution {
   updatedAt                DateTime         @updatedAt
 
   business       Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  installedAgent InstalledAgent        @relation(fields: [installedAgentId], references: [id], onDelete: Restrict)
+  installedAgent InstalledAgent        @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
   workflowRun    WorkflowRun?          @relation(fields: [workflowRunId], references: [id], onDelete: SetNull)
   usageInvoice   BusinessUsageInvoice? @relation(fields: [usageInvoiceId], references: [id], onDelete: SetNull)
 

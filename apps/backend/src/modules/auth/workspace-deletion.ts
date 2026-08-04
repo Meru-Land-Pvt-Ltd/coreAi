@@ -29,6 +29,19 @@ async function deleteArchitectOwnedRecords(
     where: { userId, provider: { in: ["GMAIL", "CALENDLY"] } }
   });
   await tx.emailVerificationCode.deleteMany({ where: { email, role: "ARCHITECT" } });
+
+  // Workflows cascade through every buyer installation. Usage executions are
+  // the one installed-agent child that older databases restrict instead of
+  // cascading, so remove them explicitly before deleting any workflow. This
+  // deliberately applies to ACTIVE, PAUSED, and historical installations.
+  await tx.agentUsageExecution.deleteMany({
+    where: {
+      installedAgent: {
+        workflow: { architectUserId: userId }
+      }
+    }
+  });
+
   await tx.agentListing.deleteMany({ where: { architectUserId: userId } });
   await tx.workflowDefinition.deleteMany({ where: { architectUserId: userId } });
   await tx.architectProfile.deleteMany({ where: { userId } });
@@ -57,8 +70,11 @@ export async function deleteUserWorkspace(
   if (remainingRoles.length === 0) {
     await prisma.$transaction(async (tx) => {
       if (workspace === "ARCHITECT") {
-        // This model intentionally has no User relation and cannot cascade.
-        await tx.architectRefundSettlement.deleteMany({ where: { architectUserId: userId } });
+        if (!user?.email) throw new Error("User not found");
+        // Run the same explicit cleanup used for dual-role accounts. Relying
+        // only on User cascades would otherwise leave AgentUsageExecution's
+        // restrictive FK blocking deletion of an installed/live agent.
+        await deleteArchitectOwnedRecords(tx, userId, user.email);
       }
       if (user?.email) {
         await tx.emailVerificationCode.deleteMany({

@@ -2461,17 +2461,7 @@ architectRoutes.get("/listings", async (c) => {
           architectUserId: authUser.id,
           // Soft-deleted live listings stay in the DB (earnings history) but
           // disappear from My Agents.
-          NOT: {
-            AND: [
-              { status: "SUSPENDED" },
-              {
-                OR: [
-                  { rejectionReason: { startsWith: "[deleted by architect]" } },
-                  { rejectionReason: { startsWith: "[deleted by admin]" } }
-                ]
-              }
-            ]
-          }
+          NOT: { AND: [{ status: "SUSPENDED" }, { rejectionReason: { startsWith: "[deleted by architect]" } }] }
         },
         include: {
           workflow: {
