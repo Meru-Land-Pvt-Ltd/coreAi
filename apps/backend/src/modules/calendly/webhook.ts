@@ -59,6 +59,51 @@ function isReschedulePayload(payload: Record<string, unknown>): boolean {
   return Boolean(body?.old_invitee || body?.rescheduled);
 }
 
+function calendlyTriggerInput(args: {
+  event: string;
+  calendlyEvent: CalendlyTriggerEvent;
+  invitee: Record<string, unknown>;
+  scheduledEvent: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  businessId?: string;
+  installedAgentId?: string;
+  businessOwnerId?: string;
+  businessName?: string;
+  businessType?: string;
+  businessPhoneNumber?: string;
+  calendarId?: string;
+  timeZone?: string;
+  services?: string[];
+}) {
+  return {
+    triggerType: CALENDLY_NODE_TYPES.trigger,
+    ...(args.businessId ? { businessId: args.businessId } : {}),
+    ...(args.installedAgentId ? { installedAgentId: args.installedAgentId } : {}),
+    ...(args.businessOwnerId ? { businessOwnerId: args.businessOwnerId } : {}),
+    ...(args.businessName ? { businessName: args.businessName } : {}),
+    ...(args.businessType ? { businessType: args.businessType } : {}),
+    ...(args.businessPhoneNumber ? { businessPhoneNumber: args.businessPhoneNumber } : {}),
+    ...(args.calendarId ? { calendarId: args.calendarId } : {}),
+    ...(args.timeZone ? { timeZone: args.timeZone } : {}),
+    ...(args.services && args.services.length > 0 ? { services: args.services } : {}),
+    calendly: {
+      event: args.event,
+      calendlyEvent: args.calendlyEvent,
+      invitee: args.invitee,
+      scheduledEvent: args.scheduledEvent,
+      raw: args.payload
+    },
+    message:
+      args.calendlyEvent === "meeting_cancelled"
+        ? "Calendly meeting cancelled"
+        : args.calendlyEvent === "routing_form_submitted"
+          ? "Calendly routing form submitted"
+          : args.calendlyEvent === "meeting_rescheduled"
+            ? "Calendly meeting rescheduled"
+            : "Calendly meeting booked"
+  };
+}
+
 /**
  * If Calendly OAuth was misconfigured to use the webhook URL as the redirect
  * URI, the browser lands here with ?code=&state=. Complete token exchange using
@@ -172,42 +217,37 @@ export async function handleCalendlyWebhookPost(c: Context) {
     return c.json({ ok: true, ignored: true, reason: "unsupported_event" });
   }
 
+  const invitee = asRecord(body) ?? {};
+  const results: Array<{
+    workflowId: string;
+    installedAgentId?: string;
+    ok: boolean;
+    error?: string;
+  }> = [];
+
+  // Architect dry-run / published workflow definitions owned by the connector user.
   const workflows = await prisma.workflowDefinition.findMany({
     where: { architectUserId: credential.userId },
     select: { id: true, name: true, workflowJson: true }
   });
 
-  const matching = workflows.filter((workflow) =>
+  const matchingWorkflows = workflows.filter((workflow) =>
     workflowMatchesCalendlyEvent(workflow.workflowJson, calendlyEvent)
   );
 
-  const invitee = asRecord(body) ?? {};
-  const results: Array<{ workflowId: string; ok: boolean; error?: string }> = [];
-
-  for (const workflow of matching) {
+  for (const workflow of matchingWorkflows) {
     try {
       await runWorkflowTest({
         userId: credential.userId,
         workflowId: workflow.id,
         workflowJson: workflow.workflowJson,
-        input: {
-          triggerType: CALENDLY_NODE_TYPES.trigger,
-          calendly: {
-            event,
-            calendlyEvent,
-            invitee,
-            scheduledEvent,
-            raw: payload
-          },
-          message:
-            calendlyEvent === "meeting_cancelled"
-              ? "Calendly meeting cancelled"
-              : calendlyEvent === "routing_form_submitted"
-                ? "Calendly routing form submitted"
-                : calendlyEvent === "meeting_rescheduled"
-                  ? "Calendly meeting rescheduled"
-                  : "Calendly meeting booked"
-        }
+        input: calendlyTriggerInput({
+          event,
+          calendlyEvent,
+          invitee,
+          scheduledEvent,
+          payload
+        })
       });
       results.push({ workflowId: workflow.id, ok: true });
       console.info("[calendly] trigger executed", {
@@ -226,5 +266,99 @@ export async function handleCalendlyWebhookPost(c: Context) {
     }
   }
 
-  return c.json({ ok: true, event, calendlyEvent, matched: matching.length, results });
+  // Buyer-installed agents: credential belongs to the business owner who connected Calendly.
+  const installedAgents = await prisma.installedAgent.findMany({
+    where: {
+      status: "ACTIVE",
+      business: { ownerId: credential.userId }
+    },
+    select: {
+      id: true,
+      businessId: true,
+      workflowId: true,
+      workflow: { select: { workflowJson: true } },
+      business: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          ownerId: true,
+          profile: {
+            select: {
+              calendarId: true,
+              timeZone: true,
+              services: true
+            }
+          },
+          phoneNumbers: {
+            take: 1,
+            orderBy: { createdAt: "asc" },
+            select: { phoneNumber: true }
+          }
+        }
+      }
+    }
+  });
+
+  const matchingInstalled = installedAgents.filter((agent) =>
+    workflowMatchesCalendlyEvent(agent.workflow.workflowJson, calendlyEvent)
+  );
+
+  for (const agent of matchingInstalled) {
+    const profile = agent.business.profile;
+    try {
+      await runWorkflowTest({
+        userId: credential.userId,
+        workflowId: agent.workflowId,
+        workflowJson: agent.workflow.workflowJson,
+        mode: "live",
+        executionMode: "LIVE",
+        input: calendlyTriggerInput({
+          event,
+          calendlyEvent,
+          invitee,
+          scheduledEvent,
+          payload,
+          businessId: agent.businessId,
+          installedAgentId: agent.id,
+          businessOwnerId: agent.business.ownerId,
+          businessName: agent.business.name,
+          businessType: agent.business.type,
+          businessPhoneNumber: agent.business.phoneNumbers[0]?.phoneNumber,
+          calendarId: profile?.calendarId || undefined,
+          timeZone: profile?.timeZone || undefined,
+          services: profile?.services ?? []
+        })
+      });
+      results.push({ workflowId: agent.workflowId, installedAgentId: agent.id, ok: true });
+      console.info("[calendly] installed agent trigger executed", {
+        workflowId: agent.workflowId,
+        installedAgentId: agent.id,
+        businessId: agent.businessId,
+        calendlyEvent
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      results.push({
+        workflowId: agent.workflowId,
+        installedAgentId: agent.id,
+        ok: false,
+        error: message
+      });
+      console.error("[calendly] installed agent trigger failed", {
+        workflowId: agent.workflowId,
+        installedAgentId: agent.id,
+        calendlyEvent,
+        error: message
+      });
+    }
+  }
+
+  return c.json({
+    ok: true,
+    event,
+    calendlyEvent,
+    matched: matchingWorkflows.length + matchingInstalled.length,
+    results
+  });
 }

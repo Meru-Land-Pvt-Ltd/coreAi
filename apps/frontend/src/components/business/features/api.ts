@@ -247,6 +247,7 @@ export type BusinessSetupData = {
   assistantName?: string | null;
   knowledge: BusinessKnowledgeItem[];
   calendar: { connected: boolean; email: string | null };
+  calendly?: { connected: boolean; email: string | null };
   webhooks: {
     voice: string;
     voiceAction: string;
@@ -335,6 +336,15 @@ export type BusinessCalendarStatus = {
   provider?: string;
   expiresAt?: string | null;
   scopes?: string[];
+};
+
+export type BusinessCalendlyStatus = {
+  connected: boolean;
+  email: string | null;
+  name?: string | null;
+  timezone?: string | null;
+  userUri?: string | null;
+  organizationUri?: string | null;
 };
 
 export function getBusinessSetup(listingId?: string | null) {
@@ -966,6 +976,19 @@ export function resumeInstalledAgent(installedAgentId: string) {
 
 export function getBusinessCalendarStatus() {
   return apiGet<BusinessCalendarStatus>("/business/connectors/google-calendar/status");
+}
+
+export function getBusinessCalendlyStatus() {
+  return apiGet<BusinessCalendlyStatus>("/business/connectors/calendly/status");
+}
+
+export function getBusinessCalendlyOAuthUrl(redirect?: string) {
+  const query = redirect ? `?redirect=${encodeURIComponent(redirect)}` : "";
+  return apiGet<{ url: string }>(`/business/connectors/calendly/oauth-url${query}`);
+}
+
+export function disconnectBusinessCalendly() {
+  return apiDelete<null>("/business/connectors/calendly");
 }
 
 export type BusinessWhatsAppStatus = {

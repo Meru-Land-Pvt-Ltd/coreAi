@@ -6,6 +6,7 @@ export type SetupFieldKey =
   | "callForwarding"
   | "answeringMode"
   | "calendar"
+  | "calendly"
   | "mail"
   | "telegram"
   | "smsNote"
@@ -29,6 +30,7 @@ export type SetupValidationPlan = {
   requirePhoneSelection: boolean;
   requireCallForwarding: boolean;
   requireCalendar: boolean;
+  requireCalendly: boolean;
   requireMail: boolean;
   requireTelegram: boolean;
   requireVoiceIdentity: boolean;
@@ -114,6 +116,9 @@ export function deriveSetupVisibility(
     if (lower === "google_calendar" || lower === "calendar") {
       flags.calendar = true;
     }
+    if (lower === "calendly") {
+      flags.calendly = true;
+    }
     if (lower === "gmail" || lower === "triven_mail" || lower === "email" || lower === "mail") {
       flags.mail = true;
     }
@@ -141,6 +146,7 @@ export function getSetupValidationPlan(visibility: SetupVisibility): SetupValida
     requirePhoneSelection: Boolean(visibility.phone),
     requireCallForwarding: Boolean(visibility.callForwarding),
     requireCalendar: Boolean(visibility.calendar),
+    requireCalendly: Boolean(visibility.calendly),
     requireMail: Boolean(visibility.mail),
     requireTelegram: Boolean(visibility.telegram),
     requireVoiceIdentity: Boolean(visibility.voiceIdentity),

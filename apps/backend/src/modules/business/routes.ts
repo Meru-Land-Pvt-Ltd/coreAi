@@ -46,6 +46,11 @@ import {
   disconnectGmail,
   getGmailConnectionStatus
 } from "../architect/gmail-connector";
+import {
+  createCalendlyOAuthUrl,
+  disconnectCalendly,
+  getCalendlyConnectionStatus
+} from "../calendly/calendly-connector";
 import { WhatsAppService } from "../whatsapp/service";
 import { WhatsAppServiceError } from "../whatsapp/types";
 import {
@@ -2241,7 +2246,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
   const backendPublic = isPublicHttpsUrl(backendUrl);
   const backendIsTunnel = /\.ngrok(-free)?\./i.test(backendUrl);
 
-  const [business, calendar] = await Promise.all([
+  const [business, calendar, calendly] = await Promise.all([
     prisma.business.findFirst({
       where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
       include: {
@@ -2254,7 +2259,8 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
         }
       }
     }),
-    getGmailConnectionStatus(authUser.id)
+    getGmailConnectionStatus(authUser.id),
+    getCalendlyConnectionStatus(authUser.id)
   ]);
 
   const testWorkflowJson = business?.installedAgents?.[0]?.workflow?.workflowJson ?? null;
@@ -2263,6 +2269,7 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
   );
   const calendarRequired =
     testConnectorKeys.size === 0 || testConnectorKeys.has("google_calendar") || testConnectorKeys.has("gmail");
+  const calendlyRequired = testConnectorKeys.has("calendly");
 
   const environmentChecks = [
     {
@@ -2280,6 +2287,18 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
           message: calendar.connected
             ? undefined
             : "Connect Google Calendar in the Connect step so the agent can book appointments."
+        }
+      ]
+      : []),
+    ...(calendlyRequired
+      ? [
+        {
+          key: "calendly_connected",
+          label: "Calendly connected",
+          ok: calendly.connected,
+          message: calendly.connected
+            ? undefined
+            : "Connect Calendly in the Connect step so meeting workflows can run."
         }
       ]
       : []),
@@ -2530,7 +2549,8 @@ type SetupChecklistItem = {
 function buildSetupReadiness(
   business: LoadedBusiness | null,
   calendarConnected: boolean,
-  listingId?: string | null
+  listingId?: string | null,
+  calendlyConnected = false
 ) {
   const profile = business?.profile ?? null;
   const installedAgent = listingId
@@ -2562,6 +2582,7 @@ function buildSetupReadiness(
 
   const profileComplete = Boolean(business && profile && business.name && business.type);
   const calendarComplete = calendarConnected;
+  const calendlyComplete = calendlyConnected;
   const phoneComplete = Boolean(phone) && (answeringMode === "AI_FIRST" || Boolean(phone?.forwardToPhone));
   const smsComplete = Boolean(phone);
   const voiceComplete = Boolean(profile?.vapiAssistantId);
@@ -2604,6 +2625,16 @@ function buildSetupReadiness(
       blocker:
         needs.has("google_calendar") && !calendarComplete
           ? "Google Calendar is required before live booking."
+          : undefined
+    },
+    {
+      key: "calendly",
+      label: "Calendly",
+      required: needs.has("calendly"),
+      complete: calendlyComplete,
+      blocker:
+        needs.has("calendly") && !calendlyComplete
+          ? "Connect Calendly before going live."
           : undefined
     },
     {
@@ -2659,7 +2690,8 @@ function buildSetupReadiness(
 function serializeSetup(
   business: LoadedBusiness | null,
   calendar: { connected: boolean; email: string | null },
-  listingId?: string | null
+  listingId?: string | null,
+  calendly: { connected: boolean; email: string | null } = { connected: false, email: null }
 ) {
   const profile = business?.profile ?? null;
   const installedAgent = listingId
@@ -2673,7 +2705,7 @@ function serializeSetup(
   const phone = installedAgent
     ? business?.phoneNumbers?.find((row) => row.installedAgentId === installedAgent.id) ?? null
     : business?.phoneNumbers?.find((row) => !row.installedAgentId) ?? null;
-  const readiness = buildSetupReadiness(business, calendar.connected, listingId);
+  const readiness = buildSetupReadiness(business, calendar.connected, listingId, calendly.connected);
 
   const config = (installedAgent?.configJson ?? null) as Record<string, unknown> | null;
 
@@ -2735,6 +2767,7 @@ function serializeSetup(
           content: item.content
         })) ?? [],
     calendar: { connected: calendar.connected, email: calendar.email },
+    calendly: { connected: calendly.connected, email: calendly.email },
     webhooks: phone ? buildWebhookUrls() : null,
     requiredConnectors: readiness.requiredConnectors,
     checklist: readiness.checklist,
@@ -2929,9 +2962,10 @@ businessRoutes.get("/setup", async (c) => {
   const authUser = c.get("authUser");
   const listingId = c.req.query("listingId")?.trim() || null;
 
-  const [business, calendar] = await Promise.all([
+  const [business, calendar, calendly] = await Promise.all([
     loadBusinessForOwner(authUser.id),
-    getGmailConnectionStatus(authUser.id)
+    getGmailConnectionStatus(authUser.id),
+    getCalendlyConnectionStatus(authUser.id)
   ]);
 
   // Scope the number picker to THIS agent, so a second agent is never shown the
@@ -2952,7 +2986,10 @@ businessRoutes.get("/setup", async (c) => {
   }
 
   return successResponse(c, {
-    ...serializeSetup(business, calendar, listingId),
+    ...serializeSetup(business, calendar, listingId, {
+      connected: calendly.connected,
+      email: calendly.email
+    }),
     ...phoneOptions,
     setupVisibility
   });
@@ -3639,9 +3676,10 @@ businessRoutes.post("/setup", async (c) => {
       ? null
       : await refreshLiveAssistantKnowledge(business.id);
 
-    const [refreshed, calendar] = await Promise.all([
+    const [refreshed, calendar, calendly] = await Promise.all([
       loadBusinessForOwner(authUser.id),
-      getGmailConnectionStatus(authUser.id)
+      getGmailConnectionStatus(authUser.id),
+      getCalendlyConnectionStatus(authUser.id)
     ]);
 
     const refreshedAgent = input.listingId
@@ -3662,7 +3700,10 @@ businessRoutes.post("/setup", async (c) => {
     return successResponse(
       c,
       {
-        ...serializeSetup(refreshed, calendar, input.listingId),
+        ...serializeSetup(refreshed, calendar, input.listingId, {
+          connected: calendly.connected,
+          email: calendly.email
+        }),
         installedAgentId: refreshedAgent?.id ?? installedAgent.id,
         assignedPhoneNumber: businessPhone?.phoneNumber ?? null,
         vapiAssistantId: responseVapiAssistantId,
@@ -3769,6 +3810,48 @@ businessRoutes.delete("/connectors/google-calendar", async (c) => {
   const authUser = c.get("authUser");
   await disconnectGmail(authUser.id);
   return successResponse(c, null, "Google Calendar disconnected");
+});
+
+function sanitizeCalendlyReturnPath(raw: string | undefined): string {
+  const value = raw?.trim() ?? "";
+
+  if (
+    (value.startsWith("/business/") || value.startsWith("/architect/")) &&
+    !value.includes("\\") &&
+    !value.includes("//") &&
+    value.length <= 512
+  ) {
+    return value;
+  }
+
+  return BUSINESS_SETTINGS_INTEGRATIONS_PATH;
+}
+
+businessRoutes.get("/connectors/calendly/status", async (c) => {
+  const authUser = c.get("authUser");
+  const status = await getCalendlyConnectionStatus(authUser.id);
+  return successResponse(c, status);
+});
+
+businessRoutes.get("/connectors/calendly/oauth-url", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const url = createCalendlyOAuthUrl(authUser.id, sanitizeCalendlyReturnPath(c.req.query("redirect")));
+    return successResponse(c, { url });
+  } catch (error) {
+    return errorResponse(
+      c,
+      errorMessage(error, "Could not create Calendly OAuth URL"),
+      500,
+      "CALENDLY_OAUTH_URL_FAILED"
+    );
+  }
+});
+
+businessRoutes.delete("/connectors/calendly", async (c) => {
+  const authUser = c.get("authUser");
+  await disconnectCalendly(authUser.id);
+  return successResponse(c, null, "Calendly disconnected");
 });
 
 businessRoutes.get("/connectors/whatsapp/status", async (c) => {

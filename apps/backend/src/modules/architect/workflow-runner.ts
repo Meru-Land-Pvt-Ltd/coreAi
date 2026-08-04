@@ -33,14 +33,27 @@ import {
 } from "./google-calendar-connector";
 import { startVapiOutboundCall } from "./vapi-connector";
 import {
+  calendlyBookMeetingForInvitee,
+  calendlyCancelScheduledEvent,
+  calendlyCreateContact,
+  calendlyCreateOneOffMeetingLink,
   calendlyCreateSchedulingLink,
+  calendlyDeleteContact,
+  calendlyFindInviteeByEmail,
+  calendlyFindUser,
   calendlyGetAvailability,
+  calendlyGetContact,
   calendlyGetEvent,
   calendlyGetInvitee,
+  calendlyGetMeetingRecap,
+  calendlyGetMeetingRecapTranscript,
   calendlyGetUser,
+  calendlyListContacts,
   calendlyListEventTypes,
   calendlyListEvents,
-  calendlyListInvitees
+  calendlyListInvitees,
+  calendlyMarkInviteeNoShow,
+  calendlyUpdateContact
 } from "../calendly/calendly-connector";
 import { MISSING_LLM_CREDENTIALS_MESSAGE } from "../ai-provider-engine/llm-credentials";
 import { smsAttributionPrefix } from "../notifications/sms-format";
@@ -164,11 +177,25 @@ export type WorkflowRunInput = {
   calendlyEndTime?: string;
   calendlyStatus?: string;
   calendlyTimezone?: string;
+  calendlyCancelReason?: string;
+  calendlyContactUuid?: string;
+  calendlyContactEmail?: string;
+  calendlyContactFirstName?: string;
+  calendlyContactLastName?: string;
+  calendlyContactName?: string;
+  calendlyDurationMinutes?: string;
+  calendlyOneOffStartDate?: string;
+  calendlyOneOffEndDate?: string;
+  calendlyMeetingRecapUuid?: string;
+  calendlyUserSearch?: string;
+  calendlyUserUuid?: string;
   /** Architect Test console sample fields for Calendly trigger simulation. */
   calendlyTriggerEvent?: string;
   calendlyInviteeName?: string;
   calendlyInviteeEmail?: string;
   calendlyMeetingName?: string;
+  calendlyLocationKind?: string;
+  calendlyLocation?: string;
 };
 
 type RunnerNodeData = {
@@ -194,6 +221,23 @@ type RunnerNodeData = {
   calendlyTimezone?: unknown;
   calendlyStatus?: unknown;
   calendlyEvent?: unknown;
+  calendlyCancelReason?: unknown;
+  calendlyContactUuid?: unknown;
+  calendlyContactEmail?: unknown;
+  calendlyContactFirstName?: unknown;
+  calendlyContactLastName?: unknown;
+  calendlyContactName?: unknown;
+  calendlyDurationMinutes?: unknown;
+  calendlyOneOffStartDate?: unknown;
+  calendlyOneOffEndDate?: unknown;
+  calendlyMeetingRecapUuid?: unknown;
+  calendlyUserSearch?: unknown;
+  calendlyUserUuid?: unknown;
+  calendlyInviteeName?: unknown;
+  calendlyInviteeEmail?: unknown;
+  calendlyMeetingName?: unknown;
+  calendlyLocationKind?: unknown;
+  calendlyLocation?: unknown;
   smsTo?: unknown;
   smsBody?: unknown;
   connectionId?: unknown;
@@ -414,12 +458,46 @@ type RunnerContext = {
   calendlyEndTime?: string;
   calendlyStatus?: string;
   calendlyTimezone?: string;
+  calendlyCancelReason?: string;
+  calendlyContactUuid?: string;
+  calendlyContactEmail?: string;
+  calendlyContactFirstName?: string;
+  calendlyContactLastName?: string;
+  calendlyContactName?: string;
+  calendlyDurationMinutes?: string;
+  calendlyOneOffStartDate?: string;
+  calendlyOneOffEndDate?: string;
+  calendlyMeetingRecapUuid?: string;
+  calendlyUserSearch?: string;
+  calendlyUserUuid?: string;
+  calendlyInviteeName?: string;
+  calendlyInviteeEmail?: string;
+  calendlyMeetingName?: string;
+  calendlyLocationKind?: string;
+  calendlyLocation?: string;
   calendly_event_type_uri?: string;
   calendly_event_uuid?: string;
   calendly_invitee_uuid?: string;
   calendly_start_time?: string;
   calendly_end_time?: string;
   calendly_status?: string;
+  calendly_cancel_reason?: string;
+  calendly_contact_uuid?: string;
+  calendly_contact_email?: string;
+  calendly_contact_first_name?: string;
+  calendly_contact_last_name?: string;
+  calendly_contact_name?: string;
+  calendly_duration_minutes?: string;
+  calendly_one_off_start_date?: string;
+  calendly_one_off_end_date?: string;
+  calendly_meeting_recap_uuid?: string;
+  calendly_user_search?: string;
+  calendly_user_uuid?: string;
+  calendly_invitee_name?: string;
+  calendly_invitee_email?: string;
+  calendly_meeting_name?: string;
+  calendly_location_kind?: string;
+  calendly_location?: string;
   triggerType?: string;
   ai?: {
     output?: string;
@@ -526,6 +604,21 @@ type RunnerContext = {
 
 function asString(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
+}
+
+/** Prefer the first non-empty trimmed string (empty node fields must not block test overrides). */
+function firstNonEmptyString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+/** Accepts YYYY-MM-DD or datetime-local values and returns YYYY-MM-DD. */
+function toCalendlyDateOnly(raw: string): string {
+  const match = raw.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!match) return "";
+  return `${match[1]}-${String(Number(match[2])).padStart(2, "0")}-${String(Number(match[3])).padStart(2, "0")}`;
 }
 
 function optionalString(value: string | undefined) {
@@ -1178,6 +1271,74 @@ function seedMissedCallContext(
   if (optionalString(input?.calendlyTimezone)) {
     context.calendlyTimezone = optionalString(input?.calendlyTimezone);
   }
+  if (optionalString(input?.calendlyCancelReason)) {
+    context.calendlyCancelReason = optionalString(input?.calendlyCancelReason);
+    context.calendly_cancel_reason = context.calendlyCancelReason;
+  }
+  if (optionalString(input?.calendlyContactUuid)) {
+    context.calendlyContactUuid = optionalString(input?.calendlyContactUuid);
+    context.calendly_contact_uuid = context.calendlyContactUuid;
+  }
+  if (optionalString(input?.calendlyContactEmail)) {
+    context.calendlyContactEmail = optionalString(input?.calendlyContactEmail);
+    context.calendly_contact_email = context.calendlyContactEmail;
+  }
+  if (optionalString(input?.calendlyContactFirstName)) {
+    context.calendlyContactFirstName = optionalString(input?.calendlyContactFirstName);
+    context.calendly_contact_first_name = context.calendlyContactFirstName;
+  }
+  if (optionalString(input?.calendlyContactLastName)) {
+    context.calendlyContactLastName = optionalString(input?.calendlyContactLastName);
+    context.calendly_contact_last_name = context.calendlyContactLastName;
+  }
+  if (optionalString(input?.calendlyContactName)) {
+    context.calendlyContactName = optionalString(input?.calendlyContactName);
+    context.calendly_contact_name = context.calendlyContactName;
+  }
+  if (optionalString(input?.calendlyDurationMinutes)) {
+    context.calendlyDurationMinutes = optionalString(input?.calendlyDurationMinutes);
+    context.calendly_duration_minutes = context.calendlyDurationMinutes;
+  }
+  if (optionalString(input?.calendlyOneOffStartDate)) {
+    context.calendlyOneOffStartDate = optionalString(input?.calendlyOneOffStartDate);
+    context.calendly_one_off_start_date = context.calendlyOneOffStartDate;
+  }
+  if (optionalString(input?.calendlyOneOffEndDate)) {
+    context.calendlyOneOffEndDate = optionalString(input?.calendlyOneOffEndDate);
+    context.calendly_one_off_end_date = context.calendlyOneOffEndDate;
+  }
+  if (optionalString(input?.calendlyMeetingRecapUuid)) {
+    context.calendlyMeetingRecapUuid = optionalString(input?.calendlyMeetingRecapUuid);
+    context.calendly_meeting_recap_uuid = context.calendlyMeetingRecapUuid;
+  }
+  if (optionalString(input?.calendlyUserSearch)) {
+    context.calendlyUserSearch = optionalString(input?.calendlyUserSearch);
+    context.calendly_user_search = context.calendlyUserSearch;
+  }
+  if (optionalString(input?.calendlyUserUuid)) {
+    context.calendlyUserUuid = optionalString(input?.calendlyUserUuid);
+    context.calendly_user_uuid = context.calendlyUserUuid;
+  }
+  if (optionalString(input?.calendlyInviteeName)) {
+    context.calendlyInviteeName = optionalString(input?.calendlyInviteeName);
+    context.calendly_invitee_name = context.calendlyInviteeName;
+  }
+  if (optionalString(input?.calendlyInviteeEmail)) {
+    context.calendlyInviteeEmail = optionalString(input?.calendlyInviteeEmail);
+    context.calendly_invitee_email = context.calendlyInviteeEmail;
+  }
+  if (optionalString(input?.calendlyMeetingName)) {
+    context.calendlyMeetingName = optionalString(input?.calendlyMeetingName);
+    context.calendly_meeting_name = context.calendlyMeetingName;
+  }
+  if (optionalString(input?.calendlyLocationKind)) {
+    context.calendlyLocationKind = optionalString(input?.calendlyLocationKind);
+    context.calendly_location_kind = context.calendlyLocationKind;
+  }
+  if (optionalString(input?.calendlyLocation)) {
+    context.calendlyLocation = optionalString(input?.calendlyLocation);
+    context.calendly_location = context.calendlyLocation;
+  }
 
   const inviteeName = optionalString(input?.calendlyInviteeName);
   const inviteeEmail = optionalString(input?.calendlyInviteeEmail);
@@ -1371,10 +1532,12 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
       asString(node.data?.connector).toLowerCase() === "calendly");
 
   if (isCalendlyTrigger) {
+    // Prefer the Test console override (context.calendly) so dry-runs reflect the
+    // selected trigger event, not only the node’s saved calendlyEvent.
     const nodeEvent =
+      asString(context.calendly?.calendlyEvent) ||
       asString(node.data?.calendlyEvent) ||
       CALENDLY_LEGACY_TRIGGER_TYPES[triggerType] ||
-      asString(context.calendly?.calendlyEvent) ||
       "meeting_booked";
     const invitee =
       context.calendly && typeof context.calendly.invitee === "object"
@@ -1385,8 +1548,17 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
         ? (context.calendly.scheduledEvent as Record<string, unknown>)
         : undefined;
 
+    const eventMessage =
+      nodeEvent === "meeting_cancelled"
+        ? "Calendly meeting cancelled."
+        : nodeEvent === "meeting_rescheduled"
+          ? "Calendly meeting rescheduled."
+          : nodeEvent === "routing_form_submitted"
+            ? "Calendly routing form submitted."
+            : "Calendly event received.";
+
     logs.push(
-      createLog(node, "success", "Calendly event received.", {
+      createLog(node, "success", eventMessage, {
         calendlyEvent: nodeEvent,
         inviteeName: invitee?.name ?? null,
         inviteeEmail: invitee?.email ?? null,
@@ -2101,26 +2273,126 @@ async function runCalendlyConnectorNode({
   logs: WorkflowRunLog[];
 }) {
   const action = asString(node.data?.connectorAction, "get_my_profile");
-  const eventTypeUri = asString(
-    node.data?.calendlyEventTypeUri || context.calendlyEventTypeUri || context.calendly_event_type_uri
+  const eventTypeUri = firstNonEmptyString(
+    node.data?.calendlyEventTypeUri,
+    context.calendlyEventTypeUri,
+    context.calendly_event_type_uri
   );
-  const eventUuid = asString(
-    node.data?.calendlyEventUuid || context.calendlyEventUuid || context.calendly_event_uuid
+  const eventUuid = firstNonEmptyString(
+    node.data?.calendlyEventUuid,
+    context.calendlyEventUuid,
+    context.calendly_event_uuid
   );
-  const inviteeUuid = asString(
-    node.data?.calendlyInviteeUuid || context.calendlyInviteeUuid || context.calendly_invitee_uuid
+  const inviteeUuid = firstNonEmptyString(
+    node.data?.calendlyInviteeUuid,
+    context.calendlyInviteeUuid,
+    context.calendly_invitee_uuid
   );
-  const startTime = asString(
-    node.data?.calendlyStartTime || context.calendlyStartTime || context.calendly_start_time
+  const startTime = firstNonEmptyString(
+    node.data?.calendlyStartTime,
+    context.calendlyStartTime,
+    context.calendly_start_time
   );
-  const endTime = asString(
-    node.data?.calendlyEndTime || context.calendlyEndTime || context.calendly_end_time
+  const endTime = firstNonEmptyString(
+    node.data?.calendlyEndTime,
+    context.calendlyEndTime,
+    context.calendly_end_time
   );
-  const timezone = asString(
-    node.data?.calendlyTimezone || context.calendlyTimezone || context.timeZone,
-    "UTC"
+  const timezone =
+    firstNonEmptyString(node.data?.calendlyTimezone, context.calendlyTimezone, context.timeZone) ||
+    "UTC";
+  const status = firstNonEmptyString(
+    node.data?.calendlyStatus,
+    context.calendlyStatus,
+    context.calendly_status
   );
-  const status = asString(node.data?.calendlyStatus || context.calendlyStatus || context.calendly_status);
+  const inviteeName = firstNonEmptyString(
+    node.data?.calendlyInviteeName,
+    context.calendlyInviteeName,
+    context.calendly_invitee_name
+  );
+  const inviteeEmail = firstNonEmptyString(
+    node.data?.calendlyInviteeEmail,
+    context.calendlyInviteeEmail,
+    context.calendly_invitee_email
+  );
+  const cancelReason = firstNonEmptyString(
+    node.data?.calendlyCancelReason,
+    context.calendlyCancelReason,
+    context.calendly_cancel_reason
+  );
+  const contactUuid = firstNonEmptyString(
+    node.data?.calendlyContactUuid,
+    context.calendlyContactUuid,
+    context.calendly_contact_uuid
+  );
+  const contactEmail = firstNonEmptyString(
+    node.data?.calendlyContactEmail,
+    context.calendlyContactEmail,
+    context.calendly_contact_email
+  );
+  const contactFirstName = firstNonEmptyString(
+    node.data?.calendlyContactFirstName,
+    context.calendlyContactFirstName,
+    context.calendly_contact_first_name
+  );
+  const contactLastName = firstNonEmptyString(
+    node.data?.calendlyContactLastName,
+    context.calendlyContactLastName,
+    context.calendly_contact_last_name
+  );
+  const contactName = firstNonEmptyString(
+    node.data?.calendlyContactName,
+    context.calendlyContactName,
+    context.calendly_contact_name
+  );
+  const meetingName = firstNonEmptyString(
+    node.data?.calendlyMeetingName,
+    context.calendlyMeetingName,
+    context.calendly_meeting_name
+  );
+  const durationRaw =
+    firstNonEmptyString(
+      node.data?.calendlyDurationMinutes,
+      context.calendlyDurationMinutes,
+      context.calendly_duration_minutes
+    ) || "30";
+  const durationMinutes = Number(durationRaw);
+  const oneOffStartDate = firstNonEmptyString(
+    node.data?.calendlyOneOffStartDate,
+    context.calendlyOneOffStartDate,
+    context.calendly_one_off_start_date
+  );
+  const oneOffEndDate = firstNonEmptyString(
+    node.data?.calendlyOneOffEndDate,
+    context.calendlyOneOffEndDate,
+    context.calendly_one_off_end_date
+  );
+  const meetingRecapUuid = firstNonEmptyString(
+    node.data?.calendlyMeetingRecapUuid,
+    context.calendlyMeetingRecapUuid,
+    context.calendly_meeting_recap_uuid
+  );
+  const locationKind = firstNonEmptyString(
+    node.data?.calendlyLocationKind,
+    context.calendlyLocationKind,
+    context.calendly_location_kind
+  );
+  const locationText = firstNonEmptyString(
+    node.data?.calendlyLocation,
+    context.calendlyLocation,
+    context.calendly_location
+  );
+  const userSearch = firstNonEmptyString(
+    node.data?.calendlyUserSearch,
+    context.calendlyUserSearch,
+    context.calendly_user_search
+  );
+  const userUuid = firstNonEmptyString(
+    node.data?.calendlyUserUuid,
+    context.calendlyUserUuid,
+    context.calendly_user_uuid
+  );
 
   try {
     let result: unknown;
@@ -2137,7 +2409,8 @@ async function runCalendlyConnectorNode({
         });
         break;
       case "get_event":
-        if (!eventUuid) throw new Error("Calendly Get Event Details needs an event UUID");
+      case "find_event":
+        if (!eventUuid) throw new Error("Calendly Find Event needs an event UUID");
         result = await calendlyGetEvent(userId, eventUuid);
         break;
       case "list_events":
@@ -2164,6 +2437,114 @@ async function runCalendlyConnectorNode({
         if (!eventTypeUri) throw new Error("Calendly Create Scheduling Link needs an event type URI");
         result = await calendlyCreateSchedulingLink(userId, eventTypeUri);
         break;
+      case "book_meeting_for_invitee":
+        if (!eventTypeUri || !startTime || !inviteeName || !inviteeEmail) {
+          throw new Error(
+            "Calendly Book Meeting needs event type, start time, invitee name, and invitee email"
+          );
+        }
+        result = await calendlyBookMeetingForInvitee(userId, {
+          eventTypeUri,
+          startTime,
+          inviteeName,
+          inviteeEmail,
+          timezone
+        });
+        break;
+      case "cancel_event":
+      case "cancel_scheduled_event":
+        if (!eventUuid) throw new Error("Calendly Cancel Event needs an event UUID");
+        result = await calendlyCancelScheduledEvent(userId, eventUuid, cancelReason || undefined);
+        break;
+      case "create_contact":
+        if (!contactEmail && !inviteeEmail) {
+          throw new Error("Calendly Create Contact needs an email");
+        }
+        result = await calendlyCreateContact(userId, {
+          email: contactEmail || inviteeEmail,
+          firstName: contactFirstName || undefined,
+          lastName: contactLastName || undefined,
+          name: contactName || inviteeName || undefined
+        });
+        break;
+      case "update_contact":
+        if (!contactUuid) throw new Error("Calendly Update Contact needs a contact UUID");
+        result = await calendlyUpdateContact(userId, contactUuid, {
+          email: contactEmail || undefined,
+          firstName: contactFirstName || undefined,
+          lastName: contactLastName || undefined,
+          name: contactName || undefined
+        });
+        break;
+      case "delete_contact":
+        if (!contactUuid) throw new Error("Calendly Delete Contact needs a contact UUID");
+        result = await calendlyDeleteContact(userId, contactUuid);
+        break;
+      case "find_contact":
+        if (!contactUuid) throw new Error("Calendly Find Contact needs a contact UUID");
+        result = await calendlyGetContact(userId, contactUuid);
+        break;
+      case "list_contacts":
+        result = await calendlyListContacts(userId);
+        break;
+      case "create_one_off_meeting_link": {
+        const startDate = toCalendlyDateOnly(oneOffStartDate);
+        const endDate = toCalendlyDateOnly(oneOffEndDate);
+        if (!meetingName || !startDate || !endDate) {
+          throw new Error(
+            "Calendly One-Off Meeting Link needs meeting name, start date/time, and end date/time"
+          );
+        }
+        if (!Number.isFinite(durationMinutes) || durationMinutes < 1) {
+          throw new Error("Calendly One-Off Meeting Link needs a valid duration in minutes");
+        }
+        result = await calendlyCreateOneOffMeetingLink(userId, {
+          name: meetingName,
+          durationMinutes,
+          startDate,
+          endDate,
+          timezone,
+          locationKind: locationKind || "google_conference",
+          location: locationText || undefined
+        });
+        break;
+      }
+      case "mark_invitee_no_show":
+        if (!eventUuid || !inviteeUuid) {
+          throw new Error("Calendly Mark No Show needs event UUID and invitee UUID");
+        }
+        result = await calendlyMarkInviteeNoShow(userId, eventUuid, inviteeUuid);
+        break;
+      case "find_invitee_by_email":
+        if (!inviteeEmail) throw new Error("Calendly Find Invitee by Email needs an email");
+        result = await calendlyFindInviteeByEmail(userId, {
+          email: inviteeEmail,
+          eventTypeUri: eventTypeUri || undefined
+        });
+        break;
+      case "find_meeting_recap":
+        if (!meetingRecapUuid) throw new Error("Calendly Find Meeting Recap needs a recap UUID");
+        result = await calendlyGetMeetingRecap(userId, meetingRecapUuid);
+        break;
+      case "find_meeting_recap_transcript":
+        if (!meetingRecapUuid) {
+          throw new Error("Calendly Find Meeting Recap Transcript needs a recap UUID");
+        }
+        result = await calendlyGetMeetingRecapTranscript(userId, meetingRecapUuid);
+        break;
+      case "find_user": {
+        const emailGuess = userSearch.includes("@") ? userSearch : contactEmail || inviteeEmail;
+        const nameGuess = userSearch && !userSearch.includes("@") ? userSearch : contactName || inviteeName;
+        if (!userUuid && !emailGuess && !nameGuess) {
+          throw new Error("Calendly Find User needs an email, name, or user UUID");
+        }
+        result = await calendlyFindUser(userId, {
+          userUuid: userUuid || undefined,
+          email: emailGuess || undefined,
+          name: nameGuess || undefined
+        });
+        break;
+      }
       case "get_my_profile":
       default:
         result = await calendlyGetUser(userId);

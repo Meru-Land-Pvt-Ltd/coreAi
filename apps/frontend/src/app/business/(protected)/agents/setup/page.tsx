@@ -48,8 +48,10 @@ import {
   checkMailAliasAvailability,
   deleteBusinessTestEvent,
   disconnectBusinessCalendar,
+  disconnectBusinessCalendly,
   getAppointmentSchedule,
   getBusinessCalendarOAuthUrl,
+  getBusinessCalendlyOAuthUrl,
   getBusinessFacts,
   postBusinessCalendarDisclosureConsent,
   getBusinessHours,
@@ -624,6 +626,11 @@ function SetupWizard() {
   });
   const [calendarBusy, setCalendarBusy] = useState(false);
   const [calendarDisclosureOpen, setCalendarDisclosureOpen] = useState(false);
+  const [calendly, setCalendly] = useState<{ connected: boolean; email: string | null }>({
+    connected: false,
+    email: null
+  });
+  const [calendlyBusy, setCalendlyBusy] = useState(false);
   const [calendarId, setCalendarId] = useState("primary");
   const [timeZone, setTimeZone] = useState(defaultTimeZone);
 
@@ -696,14 +703,24 @@ function SetupWizard() {
 
   useEffect(() => {
     const gmailResult = searchParams.get("gmail");
-    if (!gmailResult) return;
+    const calendlyResult = searchParams.get("calendly");
+    if (!gmailResult && !calendlyResult) return;
 
     if (gmailResult === "connected") {
       setStatusMsg("Google Calendar connected");
     } else if (gmailResult === "denied") {
       setError("Google connection was cancelled — permission was not granted. You can retry anytime.");
-    } else {
+    } else if (gmailResult) {
       setError("Google connection failed. Please try connecting again.");
+    }
+
+    if (calendlyResult === "connected") {
+      setStatusMsg("Calendly connected");
+      setCalendly((current) => ({ ...current, connected: true }));
+    } else if (calendlyResult === "denied") {
+      setError("Calendly connection was cancelled. You can retry anytime.");
+    } else if (calendlyResult) {
+      setError("Calendly connection failed. Please try connecting again.");
     }
 
     router.replace(businessSetupPath(listingId || undefined));
@@ -817,6 +834,7 @@ function SetupWizard() {
       setPhoneNumbers(data.availablePhoneNumbers ?? []);
       setSelectedPhoneId(data.selectedPlatformPhoneNumberId ?? "");
       setCalendar(data.calendar ?? { connected: false, email: null });
+      setCalendly(data.calendly ?? { connected: false, email: null });
       // Legacy CUSTOM_HOURS answering mode is now expressed as coverage
       // "custom" — the Connect routing choice falls back to its default.
       setAnsweringMode(
@@ -1238,6 +1256,7 @@ function SetupWizard() {
     }
 
     setCalendar(data.calendar ?? calendar);
+    setCalendly(data.calendly ?? calendly);
 
     if (sectionFailures.length > 0) {
       setError(sectionFailures.join(" "));
@@ -1310,6 +1329,40 @@ function SetupWizard() {
     await disconnectBusinessCalendar();
     setCalendar({ connected: false, email: null });
     setCalendarBusy(false);
+  }
+
+  async function handleConnectCalendly() {
+    setError("");
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(STEP_STORAGE_KEY, String(step));
+    }
+    setCalendlyBusy(true);
+    try {
+      if (canPersist) {
+        const saved = await persistSetup(false);
+        if (!saved.ok) {
+          throw new Error("Could not save your setup before connecting.");
+        }
+      }
+      const res = await getBusinessCalendlyOAuthUrl(String(businessSetupPath(listingId || undefined)));
+      if (res.success && res.data?.url) {
+        window.location.href = res.data.url;
+        return;
+      }
+      throw new Error(res.error ?? "Could not start Calendly connection.");
+    } catch (connectError) {
+      setCalendlyBusy(false);
+      setError(
+        connectError instanceof Error ? connectError.message : "Could not start Calendly connection."
+      );
+    }
+  }
+
+  async function handleDisconnectCalendly() {
+    setCalendlyBusy(true);
+    await disconnectBusinessCalendly();
+    setCalendly({ connected: false, email: null });
+    setCalendlyBusy(false);
   }
 
   async function goNext() {
@@ -1524,12 +1577,14 @@ function SetupWizard() {
   const showCallForwarding = setupVisibility.callForwarding;
   const showAnsweringMode = setupVisibility.answeringMode;
   const showCalendar = setupVisibility.calendar;
+  const showCalendly = setupVisibility.calendly;
   const showSmsNote = setupVisibility.smsNote;
   const showMail = setupVisibility.mail;
   const showVoice = setupVisibility.voiceIdentity;
   const showTelegram = setupVisibility.telegram;
 
   const needsCalendar = setupVisibility.calendar;
+  const needsCalendly = setupVisibility.calendly;
   const needsGmail = setupVisibility.calendar;
   const needsPhone = setupVisibility.phone;
   const needsSms = setupVisibility.smsNote;
@@ -1545,24 +1600,33 @@ function SetupWizard() {
     setupVisibility.businessProfile ||
     setupVisibility.hours ||
     setupVisibility.calendar ||
+    setupVisibility.calendly ||
     setupVisibility.bookingRules;
 
   const hasConnectStep =
     showPhone ||
     showCalendar ||
+    showCalendly ||
     showMail ||
     showTelegram ||
     showSmsNote ||
     showTimeZone;
 
   const connectTitle =
-    showPhone && showCalendar ? "Connect your phone & calendar" : showPhone ? "Connect your phone" : "Connect your services";
+    showPhone && showCalendar
+      ? "Connect your phone & calendar"
+      : showPhone
+        ? "Connect your phone"
+        : showCalendly && !showCalendar && !showPhone
+          ? "Connect Calendly"
+          : "Connect your services";
 
   const connectComplete =
     !hasConnectStep ||
     ((!showPhone || phoneSelected) &&
       (!showCallForwarding || forwardToPhone.trim().length >= 5 || answeringMode === "AI_FIRST") &&
       (!showCalendar || calendar.connected) &&
+      (!showCalendly || calendly.connected) &&
       (!showMail || mailComplete) &&
       (!showTelegram || telegramConnected));
   const connectReady = connectComplete;
@@ -1679,6 +1743,17 @@ function SetupWizard() {
           required: true,
           complete: calendar.connected,
           blocker: calendar.connected ? undefined : "Google Calendar is required before live booking."
+        }
+      ]
+      : []),
+    ...(needsCalendly
+      ? [
+        {
+          key: "calendly",
+          label: "Calendly",
+          required: true,
+          complete: calendly.connected,
+          blocker: calendly.connected ? undefined : "Connect Calendly before going live."
         }
       ]
       : []),
@@ -1891,6 +1966,7 @@ function SetupWizard() {
               showCallForwarding={showCallForwarding}
               showAnsweringMode={showAnsweringMode}
               showCalendar={showCalendar}
+              showCalendly={showCalendly}
               showSmsNote={showSmsNote}
               showMail={showMail}
               showTelegram={showTelegram}
@@ -1906,6 +1982,8 @@ function SetupWizard() {
               answeringMode={answeringMode}
               calendar={calendar}
               calendarBusy={calendarBusy}
+              calendly={calendly}
+              calendlyBusy={calendlyBusy}
               calendarId={calendarId}
               timeZone={timeZone}
               onTimeZone={(value) => {
@@ -1919,6 +1997,8 @@ function SetupWizard() {
               onAnsweringMode={setAnsweringMode}
               onConnectCalendar={handleConnectCalendar}
               onDisconnectCalendar={handleDisconnectCalendar}
+              onConnectCalendly={handleConnectCalendly}
+              onDisconnectCalendly={handleDisconnectCalendly}
               onCalendarId={setCalendarId}
               existingPhoneNumber={existingPhoneNumber}
               onExistingPhoneNumberChange={setExistingPhoneNumber}
@@ -2143,11 +2223,22 @@ function SetupWizard() {
               testResult={testResult}
               browserOutcome={browserTestOutcome}
               onBrowserOutcome={setBrowserTestOutcome}
+              onTestFlowComplete={() => {
+                // Calendly-only agents: Continue on the last test step should advance
+                // straight to go-live (deploy). Phone/voice agents still use the footer Go live.
+                if (showCalendly && !showCallTest && !showCalendarTest && !showVoicePreview) {
+                  void handleDeploy();
+                }
+              }}
               onTestCallRouting={handleTestCallRouting}
               answeringMode={answeringMode}
               listing={listing}
               showCalendarTest={showCalendarTest}
+              showCalendly={showCalendly}
+              showSmsTest={showSmsNote}
               calendarConnected={calendar.connected}
+              calendlyConnected={calendly.connected}
+              calendlyEmail={calendly.email}
               timeZone={timeZone}
               lastTestEvent={lastTestEvent}
               agentName={(typeof listing?.name === "string" ? listing.name : "") || assistantName}
@@ -2350,6 +2441,7 @@ function StepConnect({
   showCallForwarding,
   showAnsweringMode,
   showCalendar,
+  showCalendly,
   showSmsNote,
   showMail,
   showTelegram,
@@ -2363,6 +2455,8 @@ function StepConnect({
   answeringMode,
   calendar,
   calendarBusy,
+  calendly,
+  calendlyBusy,
   calendarId,
   timeZone,
   onTimeZone,
@@ -2372,6 +2466,8 @@ function StepConnect({
   onAnsweringMode,
   onConnectCalendar,
   onDisconnectCalendar,
+  onConnectCalendly,
+  onDisconnectCalendly,
   onCalendarId,
   businessName,
   onMailAliasChange,
@@ -2390,6 +2486,7 @@ function StepConnect({
   /** Show the answering-mode dropdown. True only for voice workflows. */
   showAnsweringMode: boolean;
   showCalendar: boolean;
+  showCalendly: boolean;
   showSmsNote: boolean;
   showMail: boolean;
   showTelegram: boolean;
@@ -2405,6 +2502,8 @@ function StepConnect({
   answeringMode: string;
   calendar: { connected: boolean; email: string | null };
   calendarBusy: boolean;
+  calendly: { connected: boolean; email: string | null };
+  calendlyBusy: boolean;
   calendarId: string;
   timeZone: string;
   onTimeZone: (v: string) => void;
@@ -2414,6 +2513,8 @@ function StepConnect({
   onAnsweringMode: (v: string) => void;
   onConnectCalendar: () => void;
   onDisconnectCalendar: () => void;
+  onConnectCalendly: () => void;
+  onDisconnectCalendly: () => void;
   onCalendarId: (v: string) => void;
 
   existingPhoneNumber: string;
@@ -2685,6 +2786,62 @@ function StepConnect({
             )}
           </div>
 
+        </div>
+      ) : null}
+
+      {showCalendly ? (
+        <div className="mt-6 border-t border-gray-100 pt-6">
+          <h3 className="text-sm font-bold text-slate-900 mb-3">Calendly</h3>
+
+          <div className="flex items-center justify-between gap-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg">
+                <svg viewBox="0 0 24 24" className="h-10 w-10" aria-hidden="true">
+                  <rect x="2" y="2" width="20" height="20" rx="5" fill="#006BFF" />
+                  <path
+                    fill="#fff"
+                    d="M12.2 6.5c-3.2 0-5.8 2.6-5.8 5.8s2.6 5.8 5.8 5.8 5.8-2.6 5.8-5.8h-2.1c0 2-1.6 3.7-3.7 3.7s-3.7-1.6-3.7-3.7 1.6-3.7 3.7-3.7V6.5z"
+                  />
+                </svg>
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-slate-800 inline-flex items-center">
+                  {calendly.connected ? "Calendly connected" : "Calendly"}
+                  {!calendly.connected && (
+                    <InfoTooltip content="Not connected. Connect so meeting bookings can trigger this agent." />
+                  )}
+                </p>
+                {calendly.connected && (
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Connected as {calendly.email || "your account"}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {calendly.connected ? (
+              <button
+                type="button"
+                disabled={calendlyBusy}
+                onClick={onDisconnectCalendly}
+                className="btn shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:border-gray-300"
+                data-testid="business-setup-calendly-disconnect"
+              >
+                Disconnect
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={calendlyBusy}
+                onClick={onConnectCalendly}
+                className="btn shrink-0 rounded-xl bg-amber-500 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-600"
+                data-testid="business-setup-calendly-connect"
+              >
+                {calendlyBusy ? "Connecting…" : "Connect"}
+              </button>
+            )}
+          </div>
         </div>
       ) : null}
 
@@ -3236,7 +3393,15 @@ function formatSeconds(total: number): string {
 }
 
 
-type WorkflowTestStepKind = "voice" | "appointment" | "sms" | "confirmation" | "generic" | "input" | "processing";
+type WorkflowTestStepKind =
+  | "voice"
+  | "appointment"
+  | "calendly"
+  | "sms"
+  | "confirmation"
+  | "generic"
+  | "input"
+  | "processing";
 
 type WorkflowTestStep = {
   id: string;
@@ -3253,6 +3418,10 @@ const WORKFLOW_STEP_COPY: Record<WorkflowTestStepKind, { title: string; detail: 
   appointment: {
     title: "View Booked Appointment",
     detail: "Your agent just booked a test appointment — open your calendar to confirm it."
+  },
+  calendly: {
+    title: "Test Calendly Booking",
+    detail: "Confirm Calendly is connected, then run a sample meeting event through this agent."
   },
   sms: {
     title: "Receive Confirmation Text",
@@ -3318,10 +3487,32 @@ function inferWorkflowStepKind(node: any): WorkflowTestStepKind | "skip" {
     return "input";
   }
 
+  // Check Calendly before Google Calendar — "calendly" contains the substring "calendar".
+  if (includesAny(haystack, ["calendly"])) return "calendly";
   if (includesAny(haystack, ["flow.end", "end flow", "confirmation received", "complete"])) return "confirmation";
-  if (includesAny(haystack, ["send_sms", "send sms", "sms", "text message", "send_notification"])) return "sms";
-  if (includesAny(haystack, ["book_appointment", "create_appointment", "calendar.book", "appointment booking", "google_calendar_create_appointment", "google_calendar", "googlecalendar", "calendar", "appointment", "schedule_appointment", "book appointment"])) return "appointment";
-  if (includesAny(haystack, ["voice_conversation", "start_vapi_call", "vapi", "ai voice", "voice call"])) return "voice";
+  if (includesAny(haystack, ["send_sms", "send sms", "inbound_sms", "sms", "text message", "send_notification"])) {
+    return "sms";
+  }
+  if (
+    includesAny(haystack, [
+      "book_appointment",
+      "create_appointment",
+      "calendar.book",
+      "calendar.availability",
+      "appointment booking",
+      "google_calendar_create_appointment",
+      "google_calendar_availability",
+      "google_calendar",
+      "googlecalendar",
+      "schedule_appointment",
+      "book appointment"
+    ])
+  ) {
+    return "appointment";
+  }
+  if (includesAny(haystack, ["voice_conversation", "start_vapi_call", "vapi", "ai voice", "voice call"])) {
+    return "voice";
+  }
   if (String(data.nodeKind ?? "").toLowerCase() === "trigger") return "skip";
   return "generic";
 }
@@ -3358,17 +3549,23 @@ function workflowJsonFromListing(listing?: any): any {
 function buildWorkflowTestSteps({
   listing,
   showPreview,
+  showCallTest,
   showCalendarTest,
+  showCalendly,
+  showSmsTest,
   labels
 }: {
   listing?: any;
   showPreview: boolean;
+  showCallTest: boolean;
   showCalendarTest: boolean;
+  showCalendly: boolean;
+  showSmsTest: boolean;
   labels: ReturnType<typeof getAnsweringLabels>;
 }): WorkflowTestStep[] {
   const workflowJson = workflowJsonFromListing(listing);
   const nodes = orderedWorkflowNodes(workflowJson);
-  
+
   const hasManualTrigger = nodes.some((node) => {
     const data = workflowNodeData(node);
     const dataType = String(data.type ?? node.type ?? "").toLowerCase();
@@ -3381,7 +3578,11 @@ function buildWorkflowTestSteps({
       const kind = inferWorkflowStepKind(node);
       if (kind === "skip") return null;
       if (hasManualTrigger && kind === "generic") return null;
-      // Deduplicate: if this kind already appeared (e.g. two SMS nodes), skip the duplicate.
+      // Drop steps that do not belong to this workflow's setup requirements.
+      if (kind === "voice" && !showPreview && !showCallTest) return null;
+      if (kind === "appointment" && !showCalendarTest) return null;
+      if (kind === "calendly" && !showCalendly) return null;
+      if ((kind === "sms" || kind === "confirmation") && !showSmsTest && !showCallTest) return null;
       if (seenKinds.has(kind)) return null;
       seenKinds.add(kind);
       return {
@@ -3403,16 +3604,20 @@ function buildWorkflowTestSteps({
     return steps;
   }
 
-  // Fallback: no workflowJson found — always show the full demo workflow so the user
-  // can simulate every step regardless of which connectors are configured.
+  // Fallback when workflow JSON is missing — only include steps this agent actually needs.
   const fallback: WorkflowTestStep[] = [];
-  if (showPreview) fallback.push({ id: "fallback-voice", kind: "voice", ...WORKFLOW_STEP_COPY.voice });
-  // Always include appointment step (it's a simulated interaction, no real calendar API needed)
-  fallback.push({ id: "fallback-appointment", kind: "appointment", ...WORKFLOW_STEP_COPY.appointment });
-  // Always include SMS + confirmation steps (simulated — no real SMS is sent here)
-  fallback.push({ id: "fallback-sms", kind: "sms", ...WORKFLOW_STEP_COPY.sms });
-  fallback.push({ id: "fallback-confirmation", kind: "confirmation", ...WORKFLOW_STEP_COPY.confirmation });
-  if (fallback.length === 0) fallback.push({ id: "fallback-generic", kind: "generic", ...WORKFLOW_STEP_COPY.generic });
+  if (showCalendly) fallback.push({ id: "fallback-calendly", kind: "calendly", ...WORKFLOW_STEP_COPY.calendly });
+  if (showPreview || showCallTest) fallback.push({ id: "fallback-voice", kind: "voice", ...WORKFLOW_STEP_COPY.voice });
+  if (showCalendarTest) {
+    fallback.push({ id: "fallback-appointment", kind: "appointment", ...WORKFLOW_STEP_COPY.appointment });
+  }
+  if (showSmsTest || showCallTest) {
+    fallback.push({ id: "fallback-sms", kind: "sms", ...WORKFLOW_STEP_COPY.sms });
+    fallback.push({ id: "fallback-confirmation", kind: "confirmation", ...WORKFLOW_STEP_COPY.confirmation });
+  }
+  if (fallback.length === 0) {
+    fallback.push({ id: "fallback-generic", kind: "generic", ...WORKFLOW_STEP_COPY.generic });
+  }
   return fallback;
 }
 
@@ -3960,9 +4165,10 @@ const nodeText = (node: any) => {
     .join(" ");
 };
 
-const inferWorkflowChannel = (nodes: any[], connectors: string[]): "sms" | "missed-call" | "voice" | "whatsapp" | "email" | "manual" => {
+const inferWorkflowChannel = (nodes: any[], connectors: string[]): "sms" | "missed-call" | "voice" | "whatsapp" | "email" | "calendly" | "manual" => {
   const haystack = [...nodes.map(nodeText), connectors.join(" ").toLowerCase()].join(" ");
 
+  if (includesAny(haystack, ["calendly"])) return "calendly";
   if (includesAny(haystack, ["missed_call", "missed call", "no-answer", "no_answer"])) return "missed-call";
   if (includesAny(haystack, ["phone_call", "voice_conversation", "vapi", "voice call", "incoming call"])) return "voice";
   if (includesAny(haystack, ["whatsapp"])) return "whatsapp";
@@ -4013,6 +4219,14 @@ const getAnsweringLabels = (mode: string, listing?: any, assignedNumber?: string
         callTitle: "Email your agent",
         callHint: "Send an email to your Triven alias — a real inbound email to your agent."
       };
+    case "calendly":
+      return {
+        isVoice: false,
+        usesNumber: false,
+        cta: null,
+        callTitle: "Test Calendly",
+        callHint: "Book a test meeting in Calendly or run the sample event below to verify this agent."
+      };
     case "voice":
       return {
         isVoice: true,
@@ -4051,11 +4265,16 @@ function StepTest({
   testResult,
   browserOutcome = null,
   onBrowserOutcome,
+  onTestFlowComplete,
   onTestCallRouting,
   answeringMode,
   listing,
   showCalendarTest = false,
+  showCalendly = false,
+  showSmsTest = false,
   calendarConnected = false,
+  calendlyConnected = false,
+  calendlyEmail = null,
   timeZone = "",
   lastTestEvent = null,
   agentName = "",
@@ -4074,11 +4293,17 @@ function StepTest({
   /** Browser test-call outcome held at page level (feeds the Go-live checklist). */
   browserOutcome?: "passed" | "failed" | null;
   onBrowserOutcome?: (outcome: "passed" | "failed") => void;
+  /** Fired when every test step is completed — advances to the next setup page. */
+  onTestFlowComplete?: () => void;
   onTestCallRouting: () => void;
   answeringMode: string;
   listing?: any;
   showCalendarTest?: boolean;
+  showCalendly?: boolean;
+  showSmsTest?: boolean;
   calendarConnected?: boolean;
+  calendlyConnected?: boolean;
+  calendlyEmail?: string | null;
   timeZone?: string;
   lastTestEvent?: BusinessTestCalendarEvent | null;
   agentName?: string;
@@ -4095,7 +4320,15 @@ function StepTest({
     // optional result handler hook
   }, []);
 
-  const workflowSteps = buildWorkflowTestSteps({ listing, showPreview, showCalendarTest, labels });
+  const workflowSteps = buildWorkflowTestSteps({
+    listing,
+    showPreview,
+    showCallTest,
+    showCalendarTest,
+    showCalendly,
+    showSmsTest,
+    labels
+  });
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
   const [allDone, setAllDone] = useState(false);
@@ -4109,10 +4342,11 @@ function StepTest({
     const nextIndex = stepIndex + 1;
     if (nextIndex < workflowSteps.length) {
       setActiveStepIndex(nextIndex);
-    } else {
-      setAllDone(true);
-      onBrowserOutcome?.("passed");
+      return;
     }
+    setAllDone(true);
+    onBrowserOutcome?.("passed");
+    onTestFlowComplete?.();
   }
 
   function getStepStatus(step: WorkflowTestStep, index: number): "pending" | "active" | "completed" {
@@ -4241,6 +4475,14 @@ function StepTest({
                           timeZone={timeZone}
                           eventUrl={lastTestEvent?.htmlLink ?? null}
                           eventStartAt={lastTestEvent?.startAt ?? null}
+                          onComplete={() => completeStep(step.id, index)}
+                        />
+                      )}
+                      {step.kind === "calendly" && (
+                        <WorkflowCalendlyStepPanel
+                          calendlyConnected={calendlyConnected}
+                          calendlyEmail={calendlyEmail}
+                          listing={listing}
                           onComplete={() => completeStep(step.id, index)}
                         />
                       )}
@@ -4795,6 +5037,237 @@ function WorkflowVoiceStepPanel({
           className="hidden"
         />
       )}
+    </div>
+  );
+}
+
+/** Calendly step — confirm connection and run a sample meeting-booked event through the agent */
+function WorkflowCalendlyStepPanel({
+  calendlyConnected,
+  calendlyEmail,
+  listing,
+  onComplete
+}: {
+  calendlyConnected: boolean;
+  calendlyEmail?: string | null;
+  listing?: any;
+  onComplete: () => void;
+}) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState("");
+  const [summary, setSummary] = useState("");
+  const [fields, setFields] = useState<Array<{ label: string; value: string }>>([]);
+  const [done, setDone] = useState(false);
+
+  const workflowId = listing?.workflowId || listing?.workflow?.id || "";
+
+  async function runCalendlyTest() {
+    if (running) return;
+    if (!calendlyConnected) {
+      setError("Connect Calendly in the Connect step, then return here to test.");
+      return;
+    }
+    if (!workflowId) {
+      // Agent may not be installed yet — still let the buyer confirm connection and continue.
+      setSummary("Calendly is connected. Continue to go live.");
+      setFields(
+        calendlyEmail ? [{ label: "Account", value: calendlyEmail }] : []
+      );
+      setDone(true);
+      onComplete();
+      return;
+    }
+    setRunning(true);
+    setError("");
+    setSummary("");
+    setFields([]);
+
+    const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const end = new Date(start.getTime() + 30 * 60 * 1000);
+    const invitee = {
+      name: "Alex Rivera",
+      email: "alex.rivera@example.com",
+      status: "active"
+    };
+    const scheduledEvent = {
+      name: "Sample consultation",
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      status: "active",
+      uri: "https://api.calendly.com/scheduled_events/SAMPLE"
+    };
+
+    const res = await runBusinessSetupWorkflowTest(workflowId, {
+      input: {
+        triggerType: "trigger.calendly",
+        callerName: invitee.name,
+        businessName: "Sample Business",
+        businessType: "Service Business",
+        timeZone: "America/Los_Angeles",
+        calendlyTriggerEvent: "meeting_booked",
+        calendlyInviteeName: invitee.name,
+        calendlyInviteeEmail: invitee.email,
+        calendlyStartTime: scheduledEvent.start_time,
+        calendlyEndTime: scheduledEvent.end_time,
+        calendly: {
+          event: "invitee.created",
+          calendlyEvent: "meeting_booked",
+          invitee,
+          scheduledEvent
+        },
+        message: "Calendly meeting booked",
+        latestMessage: "Calendly meeting booked"
+      }
+    });
+
+    setRunning(false);
+
+    if (!res.success || !res.data?.run) {
+      setError(res.error || "Could not run the Calendly test. Save setup and try again.");
+      return;
+    }
+
+    const run = res.data.run;
+    const failed = (run.logs || []).some((log) => log.status === "error");
+    if (failed) {
+      const firstError = (run.logs || []).find((log) => log.status === "error");
+      setError(firstError?.message || "Calendly workflow test failed.");
+      return;
+    }
+
+    const calendlyCtx =
+      run.context && typeof run.context === "object" && run.context !== null
+        ? (run.context as Record<string, unknown>).calendly
+        : null;
+    const calendlyRecord =
+      calendlyCtx && typeof calendlyCtx === "object" && calendlyCtx !== null
+        ? (calendlyCtx as Record<string, unknown>)
+        : null;
+    const inviteeOut =
+      calendlyRecord?.invitee && typeof calendlyRecord.invitee === "object"
+        ? (calendlyRecord.invitee as Record<string, unknown>)
+        : invitee;
+    const eventOut =
+      calendlyRecord?.scheduledEvent && typeof calendlyRecord.scheduledEvent === "object"
+        ? (calendlyRecord.scheduledEvent as Record<string, unknown>)
+        : scheduledEvent;
+    const action = typeof calendlyRecord?.action === "string" ? calendlyRecord.action : "";
+
+    const nextFields: Array<{ label: string; value: string }> = [];
+    const name = typeof inviteeOut.name === "string" ? inviteeOut.name : "";
+    const email = typeof inviteeOut.email === "string" ? inviteeOut.email : "";
+    const meeting = typeof eventOut.name === "string" ? eventOut.name : "";
+    const startAt = typeof eventOut.start_time === "string" ? eventOut.start_time : "";
+    if (meeting) nextFields.push({ label: "Meeting", value: meeting });
+    if (name || email) nextFields.push({ label: "Invitee", value: [name, email].filter(Boolean).join(" · ") });
+    if (startAt) {
+      const when = new Date(startAt);
+      nextFields.push({
+        label: "Starts",
+        value: Number.isNaN(when.getTime())
+          ? startAt
+          : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(when)
+      });
+    }
+    if (action) {
+      nextFields.push({
+        label: "Action",
+        value: action
+          .split("_")
+          .filter(Boolean)
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(" ")
+      });
+    }
+
+    setFields(nextFields);
+    setSummary(
+      action
+        ? `Sample Calendly event processed · ${action.replace(/_/g, " ")}`
+        : "Sample Calendly meeting event processed successfully."
+    );
+    setDone(true);
+  }
+
+  function handleContinue() {
+    if (!done) {
+      void runCalendlyTest();
+      return;
+    }
+    onComplete();
+  }
+
+  return (
+    <div className="space-y-3" data-testid="workflow-calendly-step">
+      <div className="rounded-xl border border-sky-100 bg-sky-50/40 px-4 py-3">
+        <div className="flex items-start gap-3">
+          <svg viewBox="0 0 24 24" className="h-9 w-9 shrink-0" aria-hidden="true">
+            <rect x="2" y="2" width="20" height="20" rx="5" fill="#006BFF" />
+            <path
+              fill="#fff"
+              d="M12.2 6.5c-3.2 0-5.8 2.6-5.8 5.8s2.6 5.8 5.8 5.8 5.8-2.6 5.8-5.8h-2.1c0 2-1.6 3.7-3.7 3.7s-3.7-1.6-3.7-3.7 1.6-3.7 3.7-3.7V6.5z"
+            />
+          </svg>
+          <div>
+            <p className="text-sm font-semibold text-slate-800">
+              {calendlyConnected ? "Calendly connected" : "Calendly not connected"}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {calendlyConnected
+                ? `Connected as ${calendlyEmail || "your account"}. Run a sample booking event through this agent.`
+                : "Connect Calendly in the Connect step, then return here to test."}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {error ? (
+        <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600" data-testid="workflow-calendly-error">
+          {error}
+        </p>
+      ) : null}
+
+      {summary ? (
+        <div className="rounded-xl border border-gray-100 bg-white px-4 py-3" data-testid="workflow-calendly-result">
+          <p className="text-sm font-semibold text-slate-800">{summary}</p>
+          {fields.length > 0 ? (
+            <dl className="mt-2 space-y-1.5">
+              {fields.map((field) => (
+                <div key={`${field.label}-${field.value}`} className="flex gap-3 text-[13px]">
+                  <dt className="w-20 shrink-0 font-medium text-slate-500">{field.label}</dt>
+                  <dd className="min-w-0 break-words text-slate-800">{field.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        {workflowId ? (
+          <button
+            type="button"
+            disabled={!calendlyConnected || running || done}
+            onClick={() => void runCalendlyTest()}
+            data-testid="workflow-calendly-run"
+            className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-60"
+          >
+            {running ? "Running…" : done ? "Test complete" : "Run Calendly test"}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          disabled={!calendlyConnected || running || (Boolean(workflowId) && !done)}
+          onClick={handleContinue}
+          data-testid="workflow-calendly-continue"
+          className="inline-flex items-center gap-2 rounded-xl bg-green-500 px-5 py-2 text-sm font-bold text-white hover:bg-green-600 disabled:opacity-60"
+        >
+          Continue
+        </button>
+        {!calendlyConnected ? (
+          <p className="text-xs text-slate-500">Connect Calendly first to enable this test.</p>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -5552,10 +6025,12 @@ const CHECKLIST_TARGETS: Record<string, { kind: "connect" } | { kind: "configure
   booking_rules: { kind: "configure", section: "hours-availability" },
   business_hours: { kind: "configure", section: "hours-availability" },
   google_calendar: { kind: "connect" },
+  calendly: { kind: "connect" },
   gmail: { kind: "connect" },
   phone_routing: { kind: "connect" },
   sms_sender: { kind: "connect" },
-  mail_setup: { kind: "connect" }
+  mail_setup: { kind: "connect" },
+  telegram: { kind: "connect" }
 };
 
 function StepGoLive({

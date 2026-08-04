@@ -11,10 +11,13 @@ import {
   deleteBusinessAccount,
   downloadBusinessDataExport,
   disconnectBusinessCalendar,
+  disconnectBusinessCalendly,
   disconnectBusinessWhatsApp,
   getBusinessCalendarOAuthUrl,
+  getBusinessCalendlyOAuthUrl,
   postBusinessCalendarDisclosureConsent,
   getBusinessCalendarStatus,
+  getBusinessCalendlyStatus,
   getBusinessWhatsAppStatus,
   getBusinessLoginHistory,
   getBusinessActiveSessions,
@@ -1166,6 +1169,9 @@ export function BusinessSettingsView() {
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [calendarDisclosureOpen, setCalendarDisclosureOpen] = useState(false);
   const [calendarEmail, setCalendarEmail] = useState<string | null>(null);
+  const [calendlyConnected, setCalendlyConnected] = useState(false);
+  const [calendlyEmail, setCalendlyEmail] = useState<string | null>(null);
+  const [calendlyBusy, setCalendlyBusy] = useState(false);
   const [whatsappConnected, setWhatsappConnected] = useState(false);
   const [whatsappPhoneNumber, setWhatsappPhoneNumber] = useState<string | null>(null);
   const [whatsappDisplayName, setWhatsappDisplayName] = useState<string | null>(null);
@@ -1239,11 +1245,12 @@ export function BusinessSettingsView() {
   }
 
   const loadData = useCallback(async () => {
-    const [setupResult, billingResult, calendarResult, whatsappResult, profileResult, sessionsResult, loginHistoryResult] =
+    const [setupResult, billingResult, calendarResult, calendlyResult, whatsappResult, profileResult, sessionsResult, loginHistoryResult] =
       await Promise.all([
         getBusinessSetup(),
         apiGet<{ billing: BillingData }>("/payments/billing"),
         getBusinessCalendarStatus(),
+        getBusinessCalendlyStatus(),
         getBusinessWhatsAppStatus(),
         getBusinessSettingsProfile(),
         getBusinessActiveSessions(),
@@ -1300,6 +1307,11 @@ export function BusinessSettingsView() {
     if (calendarResult.success && calendarResult.data) {
       setCalendarConnected(calendarResult.data.connected);
       setCalendarEmail(calendarResult.data.email);
+    }
+
+    if (calendlyResult.success && calendlyResult.data) {
+      setCalendlyConnected(calendlyResult.data.connected);
+      setCalendlyEmail(calendlyResult.data.email);
     }
 
     if (whatsappResult.success && whatsappResult.data) {
@@ -1366,9 +1378,19 @@ export function BusinessSettingsView() {
       showToast("Could not connect Google Calendar");
     }
 
-    if (gmailResult) {
+    const calendlyResult = params.get("calendly");
+    if (calendlyResult === "connected") {
+      showToast("Calendly connected");
+    } else if (calendlyResult === "denied") {
+      showToast("Calendly connection was cancelled");
+    } else if (calendlyResult === "failed") {
+      showToast("Could not connect Calendly");
+    }
+
+    if (gmailResult || calendlyResult) {
       // Strip the one-shot result flag so a refresh doesn't re-toast.
       params.delete("gmail");
+      params.delete("calendly");
       const query = params.toString();
       window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
     }
@@ -1551,6 +1573,29 @@ export function BusinessSettingsView() {
       return;
     }
     showToast(result.error ?? "Could not disconnect Google Calendar");
+  }
+
+  async function handleConnectCalendly() {
+    if (calendlyBusy) return;
+    setCalendlyBusy(true);
+    const result = await getBusinessCalendlyOAuthUrl("/business/setting?tab=integrations");
+    setCalendlyBusy(false);
+    if (result.success && result.data?.url) {
+      window.location.href = result.data.url;
+      return;
+    }
+    showToast(result.error ?? "Could not start Calendly connection");
+  }
+
+  async function handleDisconnectCalendly() {
+    const result = await disconnectBusinessCalendly();
+    if (result.success) {
+      setCalendlyConnected(false);
+      setCalendlyEmail(null);
+      showToast("Calendly disconnected");
+      return;
+    }
+    showToast(result.error ?? "Could not disconnect Calendly");
   }
 
   function handleConnectWhatsApp() {
@@ -2310,6 +2355,16 @@ export function BusinessSettingsView() {
                   onDisconnect={handleDisconnectCalendar}
                 />
                 <IntegrationCard
+                  name="Calendly"
+                  description="Trigger agents from Calendly bookings and run scheduling actions"
+                  connected={calendlyConnected}
+                  connectedDetail={calendlyEmail ? `Connected · ${calendlyEmail}` : undefined}
+                  testId="calendly"
+                  icon="calendly"
+                  onConnect={handleConnectCalendly}
+                  onDisconnect={handleDisconnectCalendly}
+                />
+                {/* <IntegrationCard
                   name="WhatsApp Business"
                   description="Send and receive WhatsApp messages from your AI agents"
                   connected={whatsappConnected}
@@ -2323,7 +2378,7 @@ export function BusinessSettingsView() {
                   onConnect={handleConnectWhatsApp}
                   onDisconnect={handleDisconnectWhatsApp}
                 />
-                {/* <IntegrationCard
+                <IntegrationCard
                   name="Google Business Profile"
                   description="Manage reviews, respond to customers, update business listing"
                   connected={false}
@@ -2905,6 +2960,16 @@ function IntegrationIcon({ icon }: { icon?: string }) {
           <rect x="14" y="6" width="3" height="6" rx="1.5" fill="#9AA0A6" />
           <rect x="31" y="6" width="3" height="6" rx="1.5" fill="#9AA0A6" />
           <text x="24" y="33" textAnchor="middle" fontFamily="Inter, Arial, sans-serif" fontSize="14" fontWeight="700" fill="#4285F4">31</text>
+        </svg>
+      );
+    case "calendly":
+      return (
+        <svg viewBox="0 0 48 48" className="h-7 w-7" aria-hidden="true">
+          <rect x="6" y="6" width="36" height="36" rx="9" fill="#006BFF" />
+          <path
+            fill="#fff"
+            d="M24.4 13c-6.4 0-11.6 5.2-11.6 11.6S18 36.2 24.4 36.2 36 31 36 24.6h-4.2c0 4.1-3.3 7.4-7.4 7.4s-7.4-3.3-7.4-7.4 3.3-7.4 7.4-7.4V13z"
+          />
         </svg>
       );
     case "twilio":

@@ -1,4 +1,10 @@
-import { getNodeDefinition, TELEGRAM_NODE_TYPES, VOICE_NODE_TYPES, workflowJsonForTemplate } from "@coreai/shared";
+import {
+  CALENDLY_NODE_TYPES,
+  getNodeDefinition,
+  TELEGRAM_NODE_TYPES,
+  VOICE_NODE_TYPES,
+  workflowJsonForTemplate
+} from "@coreai/shared";
 
 export type WorkflowTemplate = {
   id: string;
@@ -70,6 +76,34 @@ function buildDentalReceptionistWorkflow(): WorkflowTemplate["workflowJson"] {
     { id: VOICE_NODE_TYPES.bookAppointment, type: VOICE_NODE_TYPES.bookAppointment },
     { id: VOICE_NODE_TYPES.sendSms, type: VOICE_NODE_TYPES.sendSms },
     { id: VOICE_NODE_TYPES.endFlow, type: VOICE_NODE_TYPES.endFlow }
+  ]);
+  return workflowJsonForTemplate(graph) as WorkflowTemplate["workflowJson"];
+}
+
+/**
+ * Calendly booking intake: meeting booked → save lead → fetch event details.
+ * Business setup asks for Calendly connect (not phone / Google Calendar).
+ */
+function buildCalendlyBookingWorkflow(): WorkflowTemplate["workflowJson"] {
+  const graph = flow([
+    {
+      id: "calendly-trigger",
+      type: CALENDLY_NODE_TYPES.trigger,
+      title: "Meeting Booked",
+      data: { calendlyEvent: "meeting_booked" }
+    },
+    {
+      id: "save-lead",
+      type: "action.save_lead",
+      title: "Save Patient Lead",
+      data: { leadSource: "CALENDLY", leadStatus: "CAPTURED" }
+    },
+    {
+      id: "get-event",
+      type: CALENDLY_NODE_TYPES.action,
+      title: "Get Event Details",
+      data: { connectorAction: "get_event" }
+    }
   ]);
   return workflowJsonForTemplate(graph) as WorkflowTemplate["workflowJson"];
 }
@@ -238,6 +272,21 @@ const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | 
     tags: ["Telegram", "Scheduling", "Multi-channel"],
     recommended: true,
     workflowJson: buildTelegramAppointmentWorkflow()
+  },
+  {
+    id: "tpl-calendly-dental-booking",
+    slug: "calendly-dental-booking",
+    title: "Calendly Dental Booking",
+    category: "Dental",
+    difficulty: "Beginner",
+    description:
+      "When a patient books on Calendly → save the lead → load event details. Connect Calendly to go live.",
+    forks: 0,
+    rating: 5,
+    reviewCount: 0,
+    tags: ["Dental", "Calendly", "Scheduling"],
+    recommended: true,
+    workflowJson: buildCalendlyBookingWorkflow()
   },
   {
     id: "tpl-missed-call",

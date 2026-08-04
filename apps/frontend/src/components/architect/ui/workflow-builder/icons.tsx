@@ -132,6 +132,18 @@ export function BuilderIcon({
     );
   }
 
+  if (name === "calendly") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="2" y="2" width="20" height="20" rx="5" fill="#006BFF" />
+        <path
+          fill="#fff"
+          d="M12.2 6.5c-3.2 0-5.8 2.6-5.8 5.8s2.6 5.8 5.8 5.8 5.8-2.6 5.8-5.8h-2.1c0 2-1.6 3.7-3.7 3.7s-3.7-1.6-3.7-3.7 1.6-3.7 3.7-3.7V6.5z"
+        />
+      </svg>
+    );
+  }
+
   if (name === "capture") {
     return (
       <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
