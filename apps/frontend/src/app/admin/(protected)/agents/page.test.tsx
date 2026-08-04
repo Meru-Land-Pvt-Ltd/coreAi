@@ -3,14 +3,16 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import AdminAgentsPage from "./page";
 
-const { getAdminAgentsMock, updateAdminAgentStatusMock } = vi.hoisted(() => ({
+const { getAdminAgentsMock, updateAdminAgentStatusMock, deleteAdminAgentMock } = vi.hoisted(() => ({
   getAdminAgentsMock: vi.fn(),
-  updateAdminAgentStatusMock: vi.fn()
+  updateAdminAgentStatusMock: vi.fn(),
+  deleteAdminAgentMock: vi.fn()
 }));
 
 vi.mock("@/components/admin/features/api", () => ({
   getAdminAgents: getAdminAgentsMock,
-  updateAdminAgentStatus: updateAdminAgentStatusMock
+  updateAdminAgentStatus: updateAdminAgentStatusMock,
+  deleteAdminAgent: deleteAdminAgentMock
 }));
 
 beforeEach(() => {
@@ -18,6 +20,10 @@ beforeEach(() => {
   updateAdminAgentStatusMock.mockReset().mockResolvedValue({
     success: true,
     data: { listing: { id: "listing-1", status: "REJECTED" } }
+  });
+  deleteAdminAgentMock.mockReset().mockResolvedValue({
+    success: true,
+    data: { deleted: true, listingId: "listing-1", workflowId: "workflow-1", softDeleted: false }
   });
   getAdminAgentsMock.mockReset().mockResolvedValue({
     success: true,
@@ -116,5 +122,23 @@ describe("Admin moderation queue", () => {
     expect(within(card).queryByRole("button", { name: "Review" })).toBeNull();
     expect(within(card).queryByRole("button", { name: "Quick Approve" })).toBeNull();
     expect(within(card).queryByRole("button", { name: "Reject" })).toBeNull();
+  });
+
+  it("requires confirmation and removes the deleted agent from the queue", async () => {
+    render(<AdminAgentsPage />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Delete Reception Agent" }));
+    const dialog = screen.getByRole("dialog", { name: "Permanently delete agent?" });
+    const confirmButton = within(dialog).getByRole("button", { name: "Permanently delete" });
+    expect((confirmButton as HTMLButtonElement).disabled).toBe(true);
+
+    await user.type(within(dialog).getByTestId("admin-agent-delete-confirmation"), "DELETE");
+    await user.click(confirmButton);
+
+    await waitFor(() => expect(deleteAdminAgentMock).toHaveBeenCalledWith("listing-1", "DELETE"));
+    expect(await screen.findByText("Reception Agent and its unused workflow were permanently deleted.")).toBeTruthy();
+    expect(screen.queryByTestId("admin-agent-card-listing-1")).toBeNull();
+    expect(screen.getByTestId("admin-agents-empty")).toBeTruthy();
   });
 });

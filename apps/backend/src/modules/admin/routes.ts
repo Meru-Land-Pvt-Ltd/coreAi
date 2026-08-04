@@ -48,6 +48,10 @@ const deleteArchitectSchema = z.object({
   confirmation: z.literal("DELETE")
 });
 
+const deleteAgentSchema = z.object({
+  confirmation: z.literal("DELETE")
+});
+
 // 1. GET /admin/summary
 adminRoutes.get("/summary", async (c) => {
   const [
@@ -220,7 +224,9 @@ adminRoutes.get("/agents", async (c) => {
   const search = (c.req.query("search") ?? "").trim();
   const status = (c.req.query("status") ?? "").trim();
 
-  const where: Record<string, unknown> = {};
+  const where: Record<string, unknown> = {
+    NOT: { rejectionReason: { startsWith: "[deleted by admin]" } }
+  };
   if (search) {
     where.OR = [
       { name: { contains: search, mode: "insensitive" as const } },
@@ -304,7 +310,96 @@ adminRoutes.get("/agents", async (c) => {
   return successResponse(c, { items, total, page, limit });
 });
 
-// 5. PATCH /admin/agents/:listingId/status
+// 5. DELETE /admin/agents/:listingId
+adminRoutes.delete("/agents/:listingId", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const listingId = c.req.param("listingId");
+    deleteAgentSchema.parse(await c.req.json().catch(() => ({})));
+
+    const listing = await prisma.agentListing.findUnique({
+      where: { id: listingId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        workflowId: true,
+        architectUserId: true,
+        _count: { select: { installedAgents: true, payments: true } }
+      }
+    });
+
+    if (!listing) {
+      return errorResponse(c, "Agent not found", 404, "LISTING_NOT_FOUND");
+    }
+
+    // Sold/live agents retain payment history and buyer installs. They are
+    // removed from admin/marketplace views instead of breaking those records.
+    const softDeleted =
+      listing.status === "APPROVED" ||
+      listing.status === "PAUSED" ||
+      listing._count.installedAgents > 0 ||
+      listing._count.payments > 0;
+
+    if (softDeleted) {
+      await prisma.agentListing.update({
+        where: { id: listingId },
+        data: {
+          status: "SUSPENDED",
+          publishStatus: "UNPUBLISHED",
+          rejectionReason: "[deleted by admin] Permanently removed from platform views"
+        }
+      });
+    } else {
+      await prisma.$transaction(async (tx) => {
+        await tx.agentListing.delete({ where: { id: listingId } });
+
+        if (listing.workflowId) {
+          const [otherListing, installedAgent] = await Promise.all([
+            tx.agentListing.findFirst({ where: { workflowId: listing.workflowId } }),
+            tx.installedAgent.findFirst({ where: { workflowId: listing.workflowId } })
+          ]);
+
+          if (!otherListing && !installedAgent) {
+            await tx.workflowDefinition.deleteMany({
+              where: { id: listing.workflowId, architectUserId: listing.architectUserId }
+            });
+          }
+        }
+      });
+    }
+
+    await logAdminAction({
+      adminUserId: authUser.id,
+      action: softDeleted ? "AGENT_REMOVED" : "AGENT_DELETED",
+      targetType: "AGENT_LISTING",
+      targetId: listingId,
+      meta: {
+        workflowId: listing.workflowId,
+        architectUserId: listing.architectUserId,
+        previousStatus: listing.status,
+        installedAgents: listing._count.installedAgents,
+        payments: listing._count.payments,
+        softDeleted
+      }
+    });
+
+    return successResponse(
+      c,
+      { deleted: true, listingId, workflowId: listing.workflowId, softDeleted },
+      softDeleted
+        ? "Agent removed; buyer installs and payment history were preserved"
+        : "Agent and unused workflow deleted"
+    );
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, "Type DELETE to confirm agent deletion", 422, "CONFIRMATION_REQUIRED");
+    }
+    return errorResponse(c, "Could not delete agent", 500, "AGENT_DELETE_FAILED");
+  }
+});
+
+// 6. PATCH /admin/agents/:listingId/status
 adminRoutes.patch("/agents/:listingId/status", async (c) => {
   try {
     const listingId = c.req.param("listingId");
@@ -411,7 +506,7 @@ adminRoutes.patch("/agents/:listingId/status", async (c) => {
   }
 });
 
-// 6. DELETE /admin/architects/:userId
+// 7. DELETE /admin/architects/:userId
 adminRoutes.delete("/architects/:userId", async (c) => {
   try {
     const authUser = c.get("authUser");
@@ -475,7 +570,7 @@ adminRoutes.delete("/architects/:userId", async (c) => {
   }
 });
 
-// 7. PATCH /admin/architects/:userId/status
+// 8. PATCH /admin/architects/:userId/status
 adminRoutes.patch("/architects/:userId/status", async (c) => {
   try {
     const userId = c.req.param("userId");
@@ -522,7 +617,7 @@ adminRoutes.patch("/architects/:userId/status", async (c) => {
   }
 });
 
-// 8. PATCH /admin/users/:userId/suspension
+// 9. PATCH /admin/users/:userId/suspension
 adminRoutes.patch("/users/:userId/suspension", async (c) => {
   try {
     const authUser = c.get("authUser");

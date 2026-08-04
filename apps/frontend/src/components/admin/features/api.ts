@@ -177,6 +177,15 @@ export function updateAdminAgentStatus(listingId: string, status: ListingStatus,
   }>(`/admin/agents/${listingId}/status`, { status, reason });
 }
 
+export function deleteAdminAgent(listingId: string, confirmation: "DELETE") {
+  return apiDelete<{
+    deleted: true;
+    listingId: string;
+    workflowId: string | null;
+    softDeleted: boolean;
+  }>(`/admin/agents/${listingId}`, { confirmation });
+}
+
 export function updateAdminArchitectStatus(userId: string, approvalStatus: ArchitectApprovalStatus) {
   return apiPatch<{ architectProfile: unknown }>(`/admin/architects/${userId}/status`, { approvalStatus });
 }

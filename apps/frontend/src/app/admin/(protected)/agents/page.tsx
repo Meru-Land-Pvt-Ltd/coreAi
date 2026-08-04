@@ -9,10 +9,12 @@ import {
   CircleDollarSign,
   Download,
   Search,
+  Trash2,
   UserRound,
   X
 } from "lucide-react";
 import {
+  deleteAdminAgent,
   getAdminAgents,
   updateAdminAgentStatus,
   type AdminAgent,
@@ -295,6 +297,10 @@ export default function AdminAgentsPage() {
   const [message, setMessage] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [reviewingAgent, setReviewingAgent] = useState<AdminAgent | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminAgent | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function load(searchValue: string) {
     setState("loading");
@@ -381,6 +387,46 @@ export default function AdminAgentsPage() {
     )));
     setUpdatingId(null);
     return true;
+  }
+
+  function openDeleteDialog(agent: AdminAgent) {
+    setDeleteTarget(agent);
+    setDeleteConfirmation("");
+    setDeleteError("");
+    setMessage("");
+  }
+
+  function closeDeleteDialog() {
+    if (deletingId) return;
+    setDeleteTarget(null);
+    setDeleteConfirmation("");
+    setDeleteError("");
+  }
+
+  async function permanentlyDeleteAgent() {
+    if (!deleteTarget || deleteConfirmation !== "DELETE" || deletingId) return;
+
+    const target = deleteTarget;
+    setDeletingId(target.id);
+    setDeleteError("");
+    const result = await deleteAdminAgent(target.id, "DELETE");
+
+    if (!result.success) {
+      setDeleteError(result.error ?? "Could not delete agent.");
+      setDeletingId(null);
+      return;
+    }
+
+    setRows((current) => current.filter((agent) => agent.id !== target.id));
+    setMessage(
+      result.data?.softDeleted
+        ? `${target.name} was removed and unpublished. Buyer installs and payment history were preserved.`
+        : `${target.name} and its unused workflow were permanently deleted.`
+    );
+    setDeleteTarget(null);
+    setDeleteConfirmation("");
+    setDeleteError("");
+    setDeletingId(null);
   }
 
   return (
@@ -566,6 +612,17 @@ export default function AdminAgentsPage() {
                     ) : (
                       <AgentStatusBadge status={agent.status} />
                     )}
+                    <button
+                      type="button"
+                      disabled={isUpdating || deletingId === agent.id}
+                      onClick={() => openDeleteDialog(agent)}
+                      aria-label={`Delete ${agent.name}`}
+                      data-testid={`admin-agent-delete-${agent.id}`}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      Delete
+                    </button>
                   </div>
                 </div>
               </article>
@@ -581,6 +638,48 @@ export default function AdminAgentsPage() {
           onClose={() => setReviewingAgent(null)}
           onDecision={(status, reason) => changeStatus(reviewingAgent.id, status, reason)}
         />
+      ) : null}
+
+      {deleteTarget ? createPortal(
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-[2px]" role="presentation">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-agent-title"
+            data-testid="admin-agent-delete-dialog"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+          >
+            <h2 id="delete-agent-title" className="text-lg font-extrabold text-slate-900">Permanently delete agent?</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              This removes <span className="font-semibold text-slate-900">{deleteTarget.name}</span> from the platform. Unsold agents and their unused workflow are permanently deleted. For sold agents, buyer installs and financial history are preserved. This cannot be undone.
+            </p>
+            <label className="mt-5 block text-sm font-semibold text-slate-700">
+              Type <span className="font-mono text-red-600">DELETE</span> to confirm
+              <input
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                autoFocus
+                disabled={Boolean(deletingId)}
+                data-testid="admin-agent-delete-confirmation"
+                className="mt-2 h-11 w-full rounded-xl border border-gray-200 px-3 font-mono text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 disabled:bg-gray-50"
+              />
+            </label>
+            {deleteError ? <p role="alert" className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{deleteError}</p> : null}
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" onClick={closeDeleteDialog} disabled={Boolean(deletingId)} className="h-10 rounded-xl border border-gray-200 px-4 text-sm font-semibold text-slate-600 disabled:opacity-50">Cancel</button>
+              <button
+                type="button"
+                onClick={() => void permanentlyDeleteAgent()}
+                disabled={deleteConfirmation !== "DELETE" || Boolean(deletingId)}
+                data-testid="admin-agent-confirm-delete"
+                className="h-10 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {deletingId ? "Deleting…" : "Permanently delete"}
+              </button>
+            </div>
+          </section>
+        </div>,
+        document.body
       ) : null}
     </div>
   );
