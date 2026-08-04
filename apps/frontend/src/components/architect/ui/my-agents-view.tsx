@@ -454,8 +454,16 @@ function formatRelativeTime(value: string | null | undefined): string {
   return formatDate(value);
 }
 
+function formatUsdAmount(amount: number, showCents = !Number.isInteger(amount)): string {
+  return `$${Math.max(0, amount).toLocaleString("en-US", {
+    minimumFractionDigits: showCents ? 2 : 0,
+    maximumFractionDigits: showCents ? 2 : 0
+  })}`;
+}
+
 function formatUsdFromCents(cents: number): string {
-  return `$${Math.max(0, Math.round(cents / 100)).toLocaleString("en-US")}`;
+  const amount = Math.max(0, cents) / 100;
+  return formatUsdAmount(amount, !Number.isInteger(amount));
 }
 
 function formatUsdMoney(cents: number): string {
@@ -1732,11 +1740,11 @@ function CountUp({ value, format = "int" }: { value: number; format?: "int" | "m
     return () => cancelAnimationFrame(raf);
   }, [value]);
 
-  const rounded = Math.round(display);
   if (format === "money") {
     // Revenue must show $0 (formatMoney(0) returns "Free" for listing prices).
-    return <>{`$${rounded.toLocaleString("en-US")}`}</>;
+    return <>{formatUsdAmount(display, !Number.isInteger(value))}</>;
   }
+  const rounded = Math.round(display);
   return <>{rounded.toLocaleString("en-US")}</>;
 }
 

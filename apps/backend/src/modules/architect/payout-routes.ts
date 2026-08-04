@@ -211,7 +211,10 @@ async function computeArchitectPayoutSummary(
     instantAvailableCents: 0
   };
 
-  const totalEarningsCents = sumApprovedEarningsCents(sales);
+  const approvedSales = sales.filter((sale) => effectiveEarningStatus(sale) === "APPROVED");
+  const totalEarningsCents = sumApprovedEarningsCents(approvedSales);
+  const grossSalesCents = approvedSales.reduce((sum, sale) => sum + sale.grossCents, 0);
+  const platformFeeCents = Math.max(0, grossSalesCents - totalEarningsCents);
   const pendingCents = sumPendingEarningsCents(sales);
 
   // Withdrawable = released-but-untransferred ledger earnings plus the fresh
@@ -299,9 +302,9 @@ async function computeArchitectPayoutSummary(
     nextPayout: {
       amountCents: availableBalanceCents,
       scheduledFor: scheduledFor.toISOString(),
-      grossSalesCents: totalEarningsCents,
-      platformFeeCents: 0,
-      earningsCents: availableBalanceCents
+      grossSalesCents,
+      platformFeeCents,
+      earningsCents: totalEarningsCents
     },
     instantPayout: {
       eligible: Boolean(instantDestination),
