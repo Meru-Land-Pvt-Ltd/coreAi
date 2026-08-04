@@ -1,4 +1,4 @@
-import type { UserRole } from "@prisma/client";
+import type { Prisma, UserRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 
 export type WorkspaceDeletionResult = {
@@ -8,22 +8,65 @@ export type WorkspaceDeletionResult = {
   remainingRoles: UserRole[];
 };
 
+async function deleteArchitectOwnedRecords(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  email: string
+): Promise<void> {
+  // Financial and execution records reference one another, so remove the
+  // architect-owned leaves before deleting listings and workflows.
+  await tx.architectLedgerEntry.deleteMany({ where: { architectUserId: userId } });
+  await tx.architectEarning.deleteMany({ where: { architectUserId: userId } });
+  await tx.architectPayout.deleteMany({ where: { architectUserId: userId } });
+  await tx.architectPayoutMethod.deleteMany({ where: { architectUserId: userId } });
+  await tx.architectBackupPayoutMethod.deleteMany({ where: { architectUserId: userId } });
+  await tx.architectRefundSettlement.deleteMany({ where: { architectUserId: userId } });
+  await tx.projectProposal.deleteMany({ where: { architectUserId: userId } });
+  await tx.templateRequest.deleteMany({ where: { architectUserId: userId } });
+  await tx.whatsAppConnection.deleteMany({ where: { architectUserId: userId } });
+  await tx.memoryRecord.deleteMany({ where: { architectUserId: userId } });
+  await tx.connectorCredential.deleteMany({
+    where: { userId, provider: { in: ["GMAIL", "CALENDLY"] } }
+  });
+  await tx.emailVerificationCode.deleteMany({ where: { email, role: "ARCHITECT" } });
+  await tx.agentListing.deleteMany({ where: { architectUserId: userId } });
+  await tx.workflowDefinition.deleteMany({ where: { architectUserId: userId } });
+  await tx.architectProfile.deleteMany({ where: { userId } });
+}
+
 export async function deleteUserWorkspace(
   userId: string,
   workspace: Extract<UserRole, "BUSINESS" | "ARCHITECT">
 ): Promise<WorkspaceDeletionResult> {
   const [memberships, user] = await Promise.all([
     prisma.userRoleMembership.findMany({ where: { userId }, select: { role: true } }),
-    prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true, email: true, _count: { select: { businesses: true } } }
+    })
   ]);
 
   const heldRoles = new Set<UserRole>(memberships.map((membership) => membership.role));
   if (user?.role) heldRoles.add(user.role);
+  // Legacy dual-role accounts may predate UserRoleMembership. An owned
+  // business is authoritative evidence that the BUSINESS workspace exists.
+  if (user?._count.businesses) heldRoles.add("BUSINESS");
 
   const remainingRoles = [...heldRoles].filter((role) => role !== workspace);
 
   if (remainingRoles.length === 0) {
-    await prisma.user.delete({ where: { id: userId } });
+    await prisma.$transaction(async (tx) => {
+      if (workspace === "ARCHITECT") {
+        // This model intentionally has no User relation and cannot cascade.
+        await tx.architectRefundSettlement.deleteMany({ where: { architectUserId: userId } });
+      }
+      if (user?.email) {
+        await tx.emailVerificationCode.deleteMany({
+          where: { email: user.email, role: { in: [...heldRoles] } }
+        });
+      }
+      await tx.user.delete({ where: { id: userId } });
+    });
     return { accountRemoved: true, remainingRoles: [] };
   }
 
@@ -56,9 +99,8 @@ export async function deleteUserWorkspace(
       // Every business-owned record cascades from Business.
       await tx.business.deleteMany({ where: { ownerId: userId } });
     } else {
-      await tx.agentListing.deleteMany({ where: { architectUserId: userId } });
-      await tx.workflowDefinition.deleteMany({ where: { architectUserId: userId } });
-      await tx.architectProfile.deleteMany({ where: { userId } });
+      if (!user?.email) throw new Error("User not found");
+      await deleteArchitectOwnedRecords(tx, userId, user.email);
     }
 
     await tx.userRoleMembership.deleteMany({ where: { userId, role: workspace } });

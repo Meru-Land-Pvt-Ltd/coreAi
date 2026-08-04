@@ -5,6 +5,11 @@ import {
 } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 
+/** Temporary accelerated cadence for end-to-end billing QA. */
+export const AGENT_INVOICE_CYCLE_DAYS = 2;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const AGENT_INVOICE_CYCLE_MS = AGENT_INVOICE_CYCLE_DAYS * DAY_MS;
+
 export type AgentPaymentIdentity = {
   userId: string;
   businessId: string | null;
@@ -23,64 +28,16 @@ export type AgentPaymentPeriod = AgentPaymentIdentity & {
   dueAt?: Date | null;
 };
 
-export function addUtcCalendarMonth(date: Date) {
-  const targetMonthStart = new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)
-  );
-  const lastTargetDay = new Date(
-    Date.UTC(
-      targetMonthStart.getUTCFullYear(),
-      targetMonthStart.getUTCMonth() + 1,
-      0
-    )
-  ).getUTCDate();
+export function addAgentInvoiceCycle(date: Date, cycleCount = 1) {
   return new Date(
-    Date.UTC(
-      targetMonthStart.getUTCFullYear(),
-      targetMonthStart.getUTCMonth(),
-      Math.min(date.getUTCDate(), lastTargetDay),
-      date.getUTCHours(),
-      date.getUTCMinutes(),
-      date.getUTCSeconds(),
-      date.getUTCMilliseconds()
-    )
+    date.getTime() + Math.trunc(cycleCount) * AGENT_INVOICE_CYCLE_MS
   );
 }
 
-/** The Nth monthly anniversary, clamped only when that month is shorter. */
-export function utcBillingAnniversary(anchorAt: Date, monthOffset: number) {
-  const absoluteMonth =
-    anchorAt.getUTCFullYear() * 12 +
-    anchorAt.getUTCMonth() +
-    Math.trunc(monthOffset);
-  const year = Math.floor(absoluteMonth / 12);
-  const month = ((absoluteMonth % 12) + 12) % 12;
-  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  return new Date(
-    Date.UTC(
-      year,
-      month,
-      Math.min(anchorAt.getUTCDate(), lastDay),
-      anchorAt.getUTCHours(),
-      anchorAt.getUTCMinutes(),
-      anchorAt.getUTCSeconds(),
-      anchorAt.getUTCMilliseconds()
-    )
-  );
-}
-
-export function nextUtcBillingAnniversary(anchorAt: Date, after: Date) {
-  let monthOffset =
-    (after.getUTCFullYear() - anchorAt.getUTCFullYear()) * 12 +
-    after.getUTCMonth() -
-    anchorAt.getUTCMonth() +
-    1;
-  let candidate = utcBillingAnniversary(anchorAt, monthOffset);
-  while (candidate <= after) {
-    monthOffset += 1;
-    candidate = utcBillingAnniversary(anchorAt, monthOffset);
-  }
-  return candidate;
+function nextAgentInvoiceBoundary(anchorAt: Date, after: Date) {
+  const elapsedMs = Math.max(0, after.getTime() - anchorAt.getTime());
+  const cycles = Math.floor(elapsedMs / AGENT_INVOICE_CYCLE_MS) + 1;
+  return addAgentInvoiceCycle(anchorAt, cycles);
 }
 
 export type AgentBillingPeriod = {
@@ -95,16 +52,11 @@ export function agentBillingPeriodFor(
   anchorAt: Date,
   occurredAt: Date
 ): AgentBillingPeriod {
-  let monthOffset =
-    (occurredAt.getUTCFullYear() - anchorAt.getUTCFullYear()) * 12 +
-    occurredAt.getUTCMonth() -
-    anchorAt.getUTCMonth();
-  let start = utcBillingAnniversary(anchorAt, monthOffset);
-  if (occurredAt < start) {
-    monthOffset -= 1;
-    start = utcBillingAnniversary(anchorAt, monthOffset);
-  }
-  const end = utcBillingAnniversary(anchorAt, monthOffset + 1);
+  const cycleOffset = Math.floor(
+    (occurredAt.getTime() - anchorAt.getTime()) / AGENT_INVOICE_CYCLE_MS
+  );
+  const start = addAgentInvoiceCycle(anchorAt, cycleOffset);
+  const end = addAgentInvoiceCycle(start);
   return {
     key: start.toISOString().slice(0, 7),
     start,
@@ -247,21 +199,23 @@ export function nextSubscriptionInvoicePeriod(
 ) {
   const paidPeriodStart = paid.periodStart ?? paid.paidAt ?? paid.createdAt;
   if (anchorAt) {
-    // The immutable purchase/post-trial anchor owns the cadence. Legacy rows
-    // sometimes stored a calendar-month periodEnd (for example Aug 1 for a
-    // Jul 24 purchase); trusting that value would permanently move renewals to
-    // the first. Advance from the paid period's start to the next anniversary.
-    const start = nextUtcBillingAnniversary(anchorAt, paidPeriodStart);
+    // The immutable purchase/post-trial anchor owns the accelerated cadence.
+    // Ignore legacy calendar-month period ends so old rows also move onto the
+    // temporary two-day QA cycle.
+    const start = nextAgentInvoiceBoundary(
+      anchorAt,
+      paidPeriodStart < anchorAt ? anchorAt : paidPeriodStart
+    );
     return {
       start,
-      end: nextUtcBillingAnniversary(anchorAt, start)
+      end: addAgentInvoiceCycle(start)
     };
   }
 
-  const start = paid.periodEnd ?? addUtcCalendarMonth(paidPeriodStart);
+  const start = paid.periodEnd ?? addAgentInvoiceCycle(paidPeriodStart);
   return {
     start,
-    end: addUtcCalendarMonth(start)
+    end: addAgentInvoiceCycle(start)
   };
 }
 
@@ -273,7 +227,7 @@ export function initialAgentPurchasePeriod(
     start: purchasedAt,
     end:
       pricingModel === "SUBSCRIPTION"
-        ? addUtcCalendarMonth(purchasedAt)
+        ? addAgentInvoiceCycle(purchasedAt)
         : null
   };
 }
@@ -339,9 +293,9 @@ export function paidPaymentCoversAgentInvoice(
   if (pricingModel === "ONE_TIME") return true;
 
   const paidStart = paid.periodStart ?? paid.paidAt ?? paid.createdAt;
-  const paidEnd = paid.periodEnd ?? addUtcCalendarMonth(paidStart);
+  const paidEnd = paid.periodEnd ?? addAgentInvoiceCycle(paidStart);
   const debtStart = debt.periodStart ?? debt.dueAt ?? debt.createdAt;
-  const debtEnd = debt.periodEnd ?? addUtcCalendarMonth(debtStart);
+  const debtEnd = debt.periodEnd ?? addAgentInvoiceCycle(debtStart);
 
   return paidStart < debtEnd && paidEnd > debtStart;
 }

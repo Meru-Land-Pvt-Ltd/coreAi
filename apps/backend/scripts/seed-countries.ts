@@ -9,14 +9,18 @@ async function main() {
   for (const row of rows) {
     const existing = await prisma.country.findUnique({
       where: { countryCode: row.countryCode },
-      select: { id: true, name: true, flag: true }
+      select: { id: true, name: true, callingCode: true, flag: true }
     });
 
     if (existing) {
-      if (existing.name !== row.name || existing.flag !== row.flag) {
+      if (
+        existing.name !== row.name ||
+        existing.callingCode !== row.callingCode ||
+        existing.flag !== row.flag
+      ) {
         await prisma.country.update({
           where: { countryCode: row.countryCode },
-          data: { name: row.name, flag: row.flag }
+          data: { name: row.name, callingCode: row.callingCode, flag: row.flag }
         });
         updated += 1;
       }
@@ -27,6 +31,7 @@ async function main() {
       data: {
         name: row.name,
         countryCode: row.countryCode,
+        callingCode: row.callingCode,
         flag: row.flag
       }
     });

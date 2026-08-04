@@ -12,6 +12,7 @@ countryRoutes.get("/", async (c) => {
         id: true,
         name: true,
         countryCode: true,
+        callingCode: true,
         flag: true
       }
     });

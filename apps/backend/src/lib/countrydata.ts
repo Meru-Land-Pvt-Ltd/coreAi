@@ -18,6 +18,7 @@ export type CountryDataEntry = {
 export type CountrySeedRow = {
   name: string;
   countryCode: string;
+  callingCode: string;
   flag: string;
 };
 
@@ -4102,6 +4103,7 @@ export function getCountrySeedRows(): CountrySeedRow[] {
   return countries.map((country) => ({
     name: country.countryNameEn,
     countryCode: country.countryCode,
+    callingCode: `+${country.countryCallingCode.replace(/\D/g, "")}`,
     flag: country.flag
   }));
 }

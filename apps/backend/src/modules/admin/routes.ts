@@ -10,6 +10,9 @@ import { adminPricingRoutes } from "./pricing-routes";
 import { sendBusinessEmail } from "../email/ses-mail-service";
 import { listRegisteredBusinessAccounts } from "./registered-business-accounts";
 import { getAdminLiveSummaryData } from "./admin-summary";
+import { pseudonymizeDisclosureConsentsForUser } from "../compliance/disclosure-consent";
+import { deleteUserWorkspace } from "../auth/workspace-deletion";
+import { logAdminAction } from "./audit";
 
 export const adminRoutes = new Hono();
 
@@ -39,6 +42,10 @@ const architectStatusSchema = z.object({
 
 const suspensionSchema = z.object({
   isSuspended: z.boolean()
+});
+
+const deleteArchitectSchema = z.object({
+  confirmation: z.literal("DELETE")
 });
 
 // 1. GET /admin/summary
@@ -404,7 +411,71 @@ adminRoutes.patch("/agents/:listingId/status", async (c) => {
   }
 });
 
-// 6. PATCH /admin/architects/:userId/status
+// 6. DELETE /admin/architects/:userId
+adminRoutes.delete("/architects/:userId", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const userId = c.req.param("userId");
+    deleteArchitectSchema.parse(await c.req.json().catch(() => ({})));
+
+    if (userId === authUser.id) {
+      return errorResponse(c, "You cannot delete your own admin account", 409, "SELF_DELETE_FORBIDDEN");
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        role: true,
+        roleMemberships: { select: { role: true } },
+        _count: { select: { businesses: true } }
+      }
+    });
+
+    const roles = new Set(user ? [user.role, ...user.roleMemberships.map((membership) => membership.role)] : []);
+    if (user?._count.businesses) roles.add("BUSINESS");
+    if (!user || !roles.has("ARCHITECT")) {
+      return errorResponse(c, "Architect not found", 404, "ARCHITECT_NOT_FOUND");
+    }
+    if (roles.has("ADMIN")) {
+      return errorResponse(c, "Admin accounts cannot be deleted here", 409, "ADMIN_DELETE_FORBIDDEN");
+    }
+
+    // Consent evidence is pseudonymized only when the shared User row will be
+    // removed. A surviving business workspace still owns that consent.
+    if ([...roles].every((role) => role === "ARCHITECT")) {
+      await pseudonymizeDisclosureConsentsForUser(userId);
+    }
+
+    const deletion = await deleteUserWorkspace(userId, "ARCHITECT");
+
+    await logAdminAction({
+      adminUserId: authUser.id,
+      action: deletion.accountRemoved ? "ARCHITECT_ACCOUNT_DELETED" : "ARCHITECT_WORKSPACE_DELETED",
+      targetType: "USER",
+      targetId: userId,
+      meta: { roles: [...roles] }
+    });
+
+    return successResponse(
+      c,
+      {
+        deleted: true,
+        userId,
+        accountRemoved: deletion.accountRemoved,
+        remainingRoles: deletion.remainingRoles
+      },
+      deletion.accountRemoved ? "Architect account and associated data deleted" : "Architect workspace and associated data deleted"
+    );
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, "Type DELETE to confirm account deletion", 422, "CONFIRMATION_REQUIRED");
+    }
+    return errorResponse(c, "Could not delete architect account", 500, "ARCHITECT_DELETE_FAILED");
+  }
+});
+
+// 7. PATCH /admin/architects/:userId/status
 adminRoutes.patch("/architects/:userId/status", async (c) => {
   try {
     const userId = c.req.param("userId");
@@ -451,7 +522,7 @@ adminRoutes.patch("/architects/:userId/status", async (c) => {
   }
 });
 
-// 7. PATCH /admin/users/:userId/suspension
+// 8. PATCH /admin/users/:userId/suspension
 adminRoutes.patch("/users/:userId/suspension", async (c) => {
   try {
     const authUser = c.get("authUser");
