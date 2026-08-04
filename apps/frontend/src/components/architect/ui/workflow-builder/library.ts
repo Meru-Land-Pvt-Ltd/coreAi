@@ -2,7 +2,7 @@ import {
   comingSoonNodes,
   getNodeDefinition,
   CALENDLY_NODE_TYPES,
-  TELEGRAM_NODE_TYPES,
+  // TELEGRAM_NODE_TYPES,
   VOICE_NODE_PRESENTATION,
   VOICE_NODE_TYPES
 } from "@coreai/shared";
@@ -47,7 +47,7 @@ export const libraryGroups: LibraryGroup[] = [
     title: "Triggers",
     items: [
       paletteItem(VOICE_NODE_TYPES.phoneCallTrigger, { icon: "phone", accent: "amber" }),
-      paletteItem(TELEGRAM_NODE_TYPES.trigger, { icon: "telegram", accent: "amber", kind: "TELEGRAM BOT" }),
+      // paletteItem(TELEGRAM_NODE_TYPES.trigger, { icon: "telegram", accent: "amber", kind: "TELEGRAM BOT" }),
       paletteItem("trigger.twilio_inbound_sms", { icon: "message", accent: "amber" }),
       paletteItem("trigger.twilio_missed_call", { icon: "phone", accent: "amber" }),
       paletteItem("trigger.whatsapp_message_received", { icon: "whatsapp", accent: "green" }),
@@ -87,8 +87,7 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(CALENDLY_NODE_TYPES.action, { icon: "calendar", accent: "blue", kind: "CALENDLY" })
     ]
   },
-  /* Telegram ACTION nodes are hidden — only the Telegram Bot Trigger is offered.
-     Restore this group to bring the send/edit/delete actions back. */
+  /* Telegram trigger and action nodes are hidden from the Architect palette. */
   // {
   //   title: "Telegram Bot",
   //   items: [
