@@ -3721,7 +3721,7 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
   }
 
   const target = await prisma.appointment.findFirst({
-    where: { id: targetId, businessId, customerPhone: callerPhone },
+    where: { id: targetId, businessId },
     select: {
       id: true,
       service: true,
@@ -3735,6 +3735,12 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
   });
 
   if (!target) {
+    return { cancelled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
+  }
+
+  const isCallerMatched = callerPhone && target.customerPhone === callerPhone;
+  const isVerifiedRef = Boolean(requestedId && resolveAppointmentAiRef(requestedId, eligible)?.id === target.id);
+  if (!isCallerMatched && !isVerifiedRef) {
     return { cancelled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
   }
 
@@ -3789,7 +3795,7 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
   let smsSent = false;
   try {
     const smsOutcome = await sendTrackedSms({
-      to: callerPhone,
+      to: target.customerPhone || callerPhone,
       body: `${smsAttributionPrefix(ctx.business.businessName)}Hi ${target.customerName || "there"}, your ${target.service ? `${target.service} ` : ""}appointment on ${cancelledDate} at ${cancelledTime} has been cancelled. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
       messageType: "APPOINTMENT_CANCELLATION",
       businessId,
@@ -4115,7 +4121,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   let smsSent = false;
   try {
     const smsOutcome = await sendTrackedSms({
-      to: callerPhone,
+      to: target.customerPhone || callerPhone,
       body: `${smsAttributionPrefix(ctx.business.businessName)}Hi ${target.customerName || "there"}, your ${target.service ? `${target.service} ` : ""}appointment has been moved to ${newDateLabel} at ${newTimeLabel}. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
       messageType: "APPOINTMENT_CONFIRMATION",
       businessId,
