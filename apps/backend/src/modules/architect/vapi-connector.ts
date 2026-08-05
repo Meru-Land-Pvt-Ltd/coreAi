@@ -1055,10 +1055,6 @@ export function genericAssistantTools() {
             booking_phone: {
               type: "string",
               description: "Phone number used during booking, in full E.164 format with country code."
-            },
-            booking_email: {
-              type: "string",
-              description: "Optional email address used during booking."
             }
           },
           required: ["full_name", "booking_phone"]
