@@ -254,4 +254,168 @@ describe("Returning Caller & 3-Factor Alternate Phone Verification Flow", () => 
     expect(resultPayload.success).toBe(false);
     expect(resultPayload.code).toBe("USE_RESCHEDULE_TOOL");
   });
+
+  it("allows reschedule_appointment after alternate phone verification without requiring email", async () => {
+    if (!dbAvailable) return;
+
+    const bookingPhone = "+16505557070";
+    const bookingName = "Charlie Reschedule";
+    const futureDate = new Date(Date.now() + 86400000 * 4);
+
+    const appt = await prisma.appointment.create({
+      data: {
+        businessId: testBusinessId,
+        customerPhone: bookingPhone,
+        customerName: bookingName,
+        customerEmail: "charlie@example.com",
+        service: "Checkup",
+        startAt: futureDate,
+        endAt: new Date(futureDate.getTime() + 1800000),
+        status: "BOOKED"
+      }
+    });
+
+    const app = new Hono();
+    app.post("/vapi-webhook", (c) => handleVapiWebhook(c));
+
+    // Step 1: verify_and_lookup_appointment (caller on alternate phone +16505550000)
+    const verifRes = await app.request("/vapi-webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: {
+          type: "tool-calls",
+          call: { id: `call-${RUN}-r1`, customer: { number: "+16505550000" }, metadata: { businessId: testBusinessId } },
+          toolCalls: [
+            {
+              id: `tool-${RUN}-v1`,
+              function: {
+                name: "verify_and_lookup_appointment",
+                arguments: { full_name: "Charlie Reschedule", booking_phone: bookingPhone }
+              }
+            }
+          ]
+        }
+      })
+    });
+    const verifJson = await verifRes.json();
+    const verifPayload = JSON.parse(verifJson.results[0].result);
+    expect(verifPayload.verified).toBe(true);
+    const appointmentAiId = verifPayload.appointments[0].appointment_id;
+
+    // Step 2: reschedule_appointment using HMAC appointment_id from alternate phone
+    const reschedRes = await app.request("/vapi-webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: {
+          type: "tool-calls",
+          call: { id: `call-${RUN}-r1`, customer: { number: "+16505550000" }, metadata: { businessId: testBusinessId } },
+          toolCalls: [
+            {
+              id: `tool-${RUN}-r1`,
+              function: {
+                name: "reschedule_appointment",
+                arguments: {
+                  appointment_id: appointmentAiId,
+                  new_date: "2026-08-20",
+                  new_time: "14:00",
+                  confirmed: true
+                }
+              }
+            }
+          ]
+        }
+      })
+    });
+
+    expect(reschedRes.status).toBe(200);
+    const reschedJson = await reschedRes.json();
+    const reschedPayload = JSON.parse(reschedJson.results[0].result);
+    expect(reschedPayload.rescheduled).toBe(true);
+    expect(reschedPayload.code).toBe("RESCHEDULED");
+
+    // Verify DB update
+    const updatedAppt = await prisma.appointment.findUnique({ where: { id: appt.id } });
+    expect(updatedAppt?.startAt.toISOString()).toContain("2026-08-20");
+  });
+
+  it("allows cancel_appointment after alternate phone verification without requiring email", async () => {
+    if (!dbAvailable) return;
+
+    const bookingPhone = "+16505556060";
+    const bookingName = "David Cancel";
+    const futureDate = new Date(Date.now() + 86400000 * 5);
+
+    await prisma.appointment.create({
+      data: {
+        businessId: testBusinessId,
+        customerPhone: bookingPhone,
+        customerName: bookingName,
+        customerEmail: "david@example.com",
+        service: "Cleaning",
+        startAt: futureDate,
+        endAt: new Date(futureDate.getTime() + 1800000),
+        status: "BOOKED"
+      }
+    });
+
+    const app = new Hono();
+    app.post("/vapi-webhook", (c) => handleVapiWebhook(c));
+
+    // Step 1: verify_and_lookup_appointment
+    const verifRes = await app.request("/vapi-webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: {
+          type: "tool-calls",
+          call: { id: `call-${RUN}-c1`, customer: { number: "+16505550000" }, metadata: { businessId: testBusinessId } },
+          toolCalls: [
+            {
+              id: `tool-${RUN}-v2`,
+              function: {
+                name: "verify_and_lookup_appointment",
+                arguments: { full_name: "David Cancel", booking_phone: bookingPhone }
+              }
+            }
+          ]
+        }
+      })
+    });
+    const verifJson = await verifRes.json();
+    const verifPayload = JSON.parse(verifJson.results[0].result);
+    expect(verifPayload.verified).toBe(true);
+    const appointmentAiId = verifPayload.appointments[0].appointment_id;
+
+    // Step 2: cancel_appointment using HMAC appointment_id
+    const cancelRes = await app.request("/vapi-webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: {
+          type: "tool-calls",
+          call: { id: `call-${RUN}-c1`, customer: { number: "+16505550000" }, metadata: { businessId: testBusinessId } },
+          toolCalls: [
+            {
+              id: `tool-${RUN}-c1`,
+              function: {
+                name: "cancel_appointment",
+                arguments: {
+                  appointment_id: appointmentAiId,
+                  confirmed: true
+                }
+              }
+            }
+          ]
+        }
+      })
+    });
+
+    expect(cancelRes.status).toBe(200);
+    const cancelJson = await cancelRes.json();
+    const cancelPayload = JSON.parse(cancelJson.results[0].result);
+    expect(cancelPayload.cancelled).toBe(true);
+    expect(cancelPayload.code).toBe("CANCELLED");
+  });
 });
