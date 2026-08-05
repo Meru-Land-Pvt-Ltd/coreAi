@@ -534,13 +534,14 @@ function SetupWizard() {
   const [statusMsg, setStatusMsg] = useState("");
   const [error, setError] = useState("");
   const [deployed, setDeployed] = useState(false);
+  const [wasAlreadyDeployed, setWasAlreadyDeployed] = useState(false);
   const [redeploySuccess, setRedeploySuccess] = useState(false);
   const [successNumber, setSuccessNumber] = useState<string | null>(null);
   const [liveVapiAssistantId, setLiveVapiAssistantId] = useState<string | null>(null);
   const [liveInstalledAgentId, setLiveInstalledAgentId] = useState<string | null>(null);
 
   const isEditParam = searchParams.get("mode") === "edit";
-  const isEditMode = isEditParam || deployed || Boolean(liveVapiAssistantId);
+  const isEditMode = isEditParam || wasAlreadyDeployed;
 
   useEffect(() => {
     if (isEditMode && !redeploySuccess && step === 4) {
@@ -762,6 +763,9 @@ function SetupWizard() {
         (data.installedAgent && data.installedAgent.status === "ACTIVE") ||
         Boolean(existingVapiAssistantId);
       setDeployed(isDeployed);
+      if (isEditParam || isDeployed) {
+        setWasAlreadyDeployed(true);
+      }
       setAssistantName(readAssistantName(data));
 
       if (data.business) {
@@ -2325,6 +2329,7 @@ function SetupWizard() {
                   <button
                     type="button"
                     onClick={() => {
+                      setWasAlreadyDeployed(true);
                       setRedeploySuccess(false);
                       setStep(1);
                       if (typeof window !== "undefined") {
