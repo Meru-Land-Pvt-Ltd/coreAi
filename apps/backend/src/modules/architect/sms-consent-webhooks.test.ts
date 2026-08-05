@@ -1,6 +1,9 @@
 import { createHmac } from "node:crypto";
 import { Hono } from "hono";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+vi.mock("../../lib/redis", () => ({ getSharedRedis: () => null, sharedRedisConfigured: () => false }));
+
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { recordVerbalSmsConsent } from "../notifications/sms-consent";
@@ -14,6 +17,8 @@ import { handleTwilioInboundSms, handleVapiWebhook } from "./twilio-business-rou
  */
 
 const RUN = `smsconwh-${process.pid}-${Date.now().toString(36)}`;
+
+delete process.env.REDIS_URL;
 
 const originalEnv = {
   TWILIO_ACCOUNT_SID: env.TWILIO_ACCOUNT_SID,

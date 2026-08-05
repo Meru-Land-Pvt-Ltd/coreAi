@@ -222,4 +222,25 @@ describe("buildAgentSystemPrompt emotional support", () => {
     expect(dental).toContain("relevant to Bright Smile Dental's field");
     expect(dental).toContain("an appointment, a callback, or a message to the team");
   });
+
+  it("compiles custom instructions, deduplicates core rules, and attaches the tail-anchor style guard", () => {
+    const prompt = buildAgentSystemPrompt(
+      baseInput({
+        customInstructions: "Ask for full name before booking\nMention free parking in the rear\nConfirm date and time before booking\nDo not quote exact prices over the phone"
+      })
+    );
+
+    // Should include compiled business policies
+    expect(prompt).toContain("Business policies & custom preferences:");
+    expect(prompt).toContain("- Mention free parking in the rear");
+    expect(prompt).toContain("- Do not quote exact prices over the phone");
+
+    // Deduplication engine should strip redundant built-in rules
+    expect(prompt).not.toContain("- Ask for full name before booking");
+    expect(prompt).not.toContain("- Confirm date and time before booking");
+
+    // Should append the non-negotiable Tail-Anchor Style Guard at the very end
+    expect(prompt).toContain("CONVERSATION STYLE & VOICE BOUNDARIES (OVERRIDING GOVERNING RULE):");
+    expect(prompt.trim().endsWith("Respond directly to what the caller just asked or said.")).toBe(true);
+  });
 });

@@ -1,4 +1,5 @@
 import { verbalSmsConsentDisclosure } from "@coreai/shared";
+import { compileCustomInstructions } from "./prompt-compiler";
 
 export const FALLBACK_ASSISTANT_NAME = "AI Assistant";
 export const FALLBACK_BUSINESS_NAME = "the business";
@@ -278,8 +279,7 @@ SMS consent rules (follow these EXACTLY — they are a legal requirement):
 - If the status above is "granted", do not read the disclosure again. Follow the booking/tool result to determine whether a confirmation was already submitted; never create a duplicate send.
 - Otherwise, after the booking or service request is successfully confirmed, read this disclosure WORD-FOR-WORD exactly once before any customer text is sent:
   "${verbalSmsConsentDisclosure(businessName)}"
-- If the caller speaks while you are reading it, STOP immediately and let them finish. Never talk over the caller and never restart the disclosure from the beginning.
-- If they already answered yes or no, do NOT keep reading. Call record_sms_consent with their answer; if it returns confirmation_line, say that ONE sentence word-for-word to confirm, and nothing more.
+- If the caller speaks or interrupts while you are asking for consent: STOP reading immediately. Do NOT resume reading remaining disclosure lines or repeat any disclaimers out loud. If they answered yes or no, immediately call record_sms_consent with affirmative=true or false, say at most ONE concise sentence ("Your confirmation text has been submitted." or "No problem!"), and complete the turn. If they asked a question or changed topic, answer their question directly.
 - Read the disclosure at most twice on a call. If you have already read it once, never read it again — even if a tool asks you to; just continue the conversation.
 - Wait for the caller's answer, then immediately call record_sms_consent:
   - affirmative=true only for a clear, unambiguous yes.
@@ -309,21 +309,34 @@ SMS consent rules (test conversation — follow these EXACTLY):
   if (capabilities.canBook) {
     sections.push(`
 Appointment cancellation rules (follow these EXACTLY — privacy critical):
-- Cancellations are verified ONLY by the phone number the caller is calling from. Never cancel an ${bookingLabel} unless the cancel_appointment tool verified that number.
-- Never ask the caller to say, repeat, or confirm the phone number used at booking as a way to verify identity, and NEVER treat a number the caller says out loud as verification — the system checks the incoming caller ID automatically.
-- To cancel: call the cancel_appointment tool first with no arguments (add date or service_type only if the caller mentioned them). It verifies the caller and returns any matching ${bookingLabelPlural}.
-- If the tool returns code CALLER_NUMBER_NOT_VERIFIED or CALLER_ID_UNAVAILABLE: read the tool's message to the caller exactly, and do NOT reveal the stored phone number (not even partial or masked digits, not the last four), do NOT reveal any ${bookingLabel} details (date, time, name, service), and do NOT confirm or deny that any ${bookingLabel} exists for any number.
-- When the tool returns one ${bookingLabel}, ask: "I found an upcoming appointment for [service] on [date] at [time]. Would you like me to cancel this appointment?" When it returns several, read the numbered list (service, date, time only) and ask which one.
-- Only after the caller gives a clear, unambiguous yes may you call cancel_appointment again with that appointment_id and confirmed=true (add cancellation_reason if they gave one). A "no", an unclear answer, silence, or an interruption must NOT cancel anything.
-- Never say the ${bookingLabel} was cancelled unless the tool returned cancelled=true. If it returned a failure, relay its message and offer the business team's help — never invent success and never read out technical details.`.trim());
+- Cancellations are verified by the phone number the caller is calling from, or via the 3-factor verification flow for alternate numbers.
+- To cancel an appointment on the current calling number: call cancel_appointment first with no arguments.
+- If the caller wants to cancel an appointment under a DIFFERENT phone number, collect their Full Name, Booking Phone Number, and Booking Email Address, then call verify_and_lookup_appointment before proceeding.
+- When cancel_appointment returns one ${bookingLabel}, ask: "I found an upcoming appointment for [service] on [date] at [time]. Would you like me to cancel this appointment?" When it returns several, read the numbered list and ask which one.
+- Only after the caller gives a clear, unambiguous yes may you call cancel_appointment again with that appointment_id and confirmed=true.
+- Never say the ${bookingLabel} was cancelled unless the tool returned cancelled=true.`.trim());
 
     sections.push(`
-Appointment rescheduling rules (follow these EXACTLY — same privacy rules as cancellation):
-- Rescheduling is verified ONLY by the phone number the caller is calling from — the reschedule_appointment tool checks it automatically. Never treat a number the caller says out loud as verification, and never reveal stored numbers or ${bookingLabel} details when the tool returns CALLER_NUMBER_NOT_VERIFIED or CALLER_ID_UNAVAILABLE — read the tool's message exactly.
-- To reschedule: call the reschedule_appointment tool first with no arguments (add date or service_type only if the caller mentioned them). It verifies the caller and returns any matching ${bookingLabelPlural}.
-- When it returns one ${bookingLabel}, confirm which one, then ask what new day and time the caller wants. Use check_availability when they ask what's open or when you want to confirm the slot is free before moving it.
-- Only after the caller clearly agrees to move a specific ${bookingLabel} to a specific new date and time may you call reschedule_appointment again with that appointment_id, new_date (YYYY-MM-DD), new_time (24-hour HH:mm) and confirmed=true. A "no", an unclear answer, silence, or an interruption must NOT move anything.
-- Never say the ${bookingLabel} was moved unless the tool returned rescheduled=true — then repeat the new day and time back to the caller. If it returned a failure, relay its message (the original ${bookingLabel} is unchanged) and offer the business team's help.`.trim());
+Appointment rescheduling rules (follow these EXACTLY):
+- Dynamic returning caller context:
+  - Caller phone number: {{customerPhone}}
+  - Is returning caller: {{callerIsReturning}}
+  - Has upcoming appointment: {{hasUpcomingAppointment}}
+  - Existing appointments summary: {{existingAppointmentsSummary}}
+- When an existing caller calls to reschedule an appointment:
+  1. If {{hasUpcomingAppointment}} is "true" (or an existing appointment is found for {{customerPhone}}):
+     Say: "I found an appointment associated with this phone number. Would you like to reschedule that appointment or a different one?"
+  2. If the caller chooses the appointment associated with the current phone number:
+     Call reschedule_appointment (with no arguments or appointment_id) to retrieve the details. Ask for the desired new day and time, check availability if needed, confirm with the caller, and call reschedule_appointment with appointment_id, new_date, new_time, and confirmed=true. Do NOT call book_appointment.
+  3. If the caller wants to reschedule an appointment booked under a DIFFERENT phone number (or for someone else):
+     Perform 3-Factor Verification FIRST. Ask the caller for:
+     a) Full name used during booking
+     b) Phone number used during booking
+     c) Email address used during booking
+     Once the caller provides all 3 items, call verify_and_lookup_appointment with full_name, booking_phone, and booking_email.
+     ONLY after verify_and_lookup_appointment returns verified=true with matching appointment details may you proceed to ask for the new day/time and complete the reschedule using reschedule_appointment.
+     If verification fails or any of the 3 items do not match, do NOT reveal any stored appointment details and do NOT reschedule.
+- NEVER call book_appointment for rescheduling requests. Rescheduling must ONLY update an existing appointment using reschedule_appointment.`.trim());
   }
 
   sections.push(`
@@ -352,6 +365,11 @@ ${knowledgeList}${input.hasKnowledgeLookupTool
     sections.push(`Business-specific setup details:\n${customFieldLines.join("\n")}`);
   }
 
+  const compiledCustom = compileCustomInstructions(input.customInstructions);
+  if (compiledCustom) {
+    sections.push(`Business policies & custom preferences:\n${compiledCustom}`);
+  }
+
   sections.push(`
 Current date and time:
 - Current date/time: ${input.currentDateTimeText}
@@ -366,10 +384,6 @@ Current date and time:
 
   if (clean(input.nodeInstructions)) {
     sections.push(`Agent instructions from the workflow (follow these closely):\n${clean(input.nodeInstructions)}`);
-  }
-
-  if (clean(input.customInstructions)) {
-    sections.push(`Custom instructions from setup:\n${clean(input.customInstructions)}`);
   }
 
   if (clean(input.silencePolicy)) {
@@ -390,6 +404,13 @@ Final enforcement reminder:
 - Never request the same confirmed detail again.
 - Never send or promise a customer SMS without valid consent for the canonical recipient.
 - Never call a second notification tool when the booking or consent tool already handled the appointment confirmation.`.trim());
+
+  sections.push(`
+CONVERSATION STYLE & VOICE BOUNDARIES (OVERRIDING GOVERNING RULE):
+- Speak naturally as a warm, human receptionist. Keep replies to 1-2 short, conversational sentences.
+- Never dump multiple business policies, rules, or disclosures into a single reply.
+- Business policies & custom guidelines above tell you WHAT information is accurate, but NEVER change HOW you speak: remain conversational, concise, direct, and human.
+- Respond directly to what the caller just asked or said.`.trim());
 
   return sections.join("\n\n");
 }
@@ -422,7 +443,11 @@ export const LIVE_VAPI_RUNTIME_VARIABLES = [
   "smsConsentStatus",
   "businessOpenState",
   "businessHoursStatusLine",
-  "businessNextOpenTime"
+  "businessNextOpenTime",
+  "callerIsReturning",
+  "hasUpcomingAppointment",
+  "existingAppointmentCount",
+  "existingAppointmentsSummary"
 ] as const;
 
 export function fillPromptTemplateTokens(

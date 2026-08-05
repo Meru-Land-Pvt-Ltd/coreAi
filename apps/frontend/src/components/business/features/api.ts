@@ -491,6 +491,30 @@ export type BusinessAddress = {
   confirmedAt: string | null;
 };
 
+export type DocumentProfileSuggestion = {
+  businessName: string | null;
+  businessNameCandidates: string[];
+  primaryDoctor: string | null;
+  doctorNames: string[];
+  multipleDoctorsDetected: boolean;
+  businessType: string | null;
+  services: string[];
+  registrationNumber: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  address: {
+    formatted: string;
+    line1: string;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+    sourceFilename: string | null;
+  } | null;
+  sourceFilename: string | null;
+  extractedAt: string;
+};
+
 export type BusinessFactsData = {
   businessName: string | null;
   address: BusinessAddress | null;
@@ -507,6 +531,8 @@ export type BusinessFactsData = {
     postalCode: string | null;
     sourceFilename: string | null;
   } | null;
+  /** Extracted structured profile suggestion from uploaded documents */
+  profileSuggestion?: DocumentProfileSuggestion | null;
   /** True when a confirmed address AND a differing document-derived address both exist. */
   conflict: boolean;
 };
@@ -526,13 +552,32 @@ export type BusinessAddressInput = {
   confirm: boolean;
 };
 
+let cachedFactsResponse: ApiResponse<BusinessFactsData> | null = null;
+let cachedFactsTimestamp = 0;
+const FACTS_CACHE_TTL_MS = 300_000; // 5 minutes frontend memory cache
+
+export function clearBusinessFactsCache() {
+  cachedFactsResponse = null;
+  cachedFactsTimestamp = 0;
+}
+
 /** Structured business facts (address, completeness, PDF suggestion, conflicts). */
-export function getBusinessFacts() {
-  return apiGet<BusinessFactsData>("/business/setup/business-facts");
+export async function getBusinessFacts(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cachedFactsResponse && now - cachedFactsTimestamp < FACTS_CACHE_TTL_MS) {
+    return cachedFactsResponse;
+  }
+  const res = await apiGet<BusinessFactsData>("/business/setup/business-facts");
+  if (res.success) {
+    cachedFactsResponse = res;
+    cachedFactsTimestamp = Date.now();
+  }
+  return res;
 }
 
 /** Save + confirm the Business Address; the live assistant is re-synced server-side. */
-export function saveBusinessAddressApi(input: BusinessAddressInput) {
+export async function saveBusinessAddressApi(input: BusinessAddressInput) {
+  clearBusinessFactsCache();
   return apiPut<{
     addressFormatted: string | null;
     addressConfirmed: boolean;
@@ -735,10 +780,11 @@ export type KnowledgeLiveSync = {
 };
 
 /** Upload one or more knowledge documents (multipart). Both ids are optional. */
-export function uploadBusinessKnowledgeFiles(
+export async function uploadBusinessKnowledgeFiles(
   files: File[],
   opts: { listingId?: string; installedAgentId?: string } = {}
 ) {
+  clearBusinessFactsCache();
   const form = new FormData();
   for (const file of files) {
     form.append("files", file, file.name);
@@ -767,14 +813,16 @@ export function getBusinessKnowledgeFiles() {
 }
 
 /** Delete one knowledge document (and its extracted knowledge). */
-export function deleteBusinessKnowledgeFile(id: string) {
+export async function deleteBusinessKnowledgeFile(id: string) {
+  clearBusinessFactsCache();
   return apiDelete<{ deleted: true; liveSync: KnowledgeLiveSync }>(
     `/business/setup/knowledge-files/${encodeURIComponent(id)}`
   );
 }
 
 /** Re-run extraction for a FAILED knowledge document. */
-export function reprocessBusinessKnowledgeFile(id: string) {
+export async function reprocessBusinessKnowledgeFile(id: string) {
+  clearBusinessFactsCache();
   return apiPost<{ file: KnowledgeFileSummary; liveSync: KnowledgeLiveSync }>(
     `/business/setup/knowledge-files/${encodeURIComponent(id)}/reprocess`,
     {}

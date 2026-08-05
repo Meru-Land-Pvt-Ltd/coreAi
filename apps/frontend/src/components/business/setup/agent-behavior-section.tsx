@@ -109,7 +109,7 @@ export function AgentBehaviorSection({
           value={customInstructions}
           onChange={(e) => onCustomInstructions(e.target.value)}
           rows={6}
-          placeholder="e.g. Always greet by business name. Confirm date and time before booking."
+          placeholder="e.g. Mention free parking behind the building. Direct detailed pricing questions to our website."
           className={`${FIELD} mt-3`}
         />
       </div>
