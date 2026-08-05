@@ -1344,6 +1344,7 @@ enum ConnectorProvider {
   VAPI
   WHATSAPP
   CALENDLY
+  TELEGRAM
 }
 
 enum WhatsAppConnectionStatus {

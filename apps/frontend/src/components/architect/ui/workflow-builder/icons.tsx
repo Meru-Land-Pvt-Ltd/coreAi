@@ -1,4 +1,4 @@
-import { FileText, Image as ImageIcon, MapPin, Pencil, Send, Trash2 } from "lucide-react";
+import { FileText, Image as ImageIcon, MapPin, Pencil, Trash2 } from "lucide-react";
 
 export function BuilderIcon({
   name,
@@ -8,7 +8,11 @@ export function BuilderIcon({
   className?: string;
 }) {
   if (name === "telegram") {
-    return <Send className={className} aria-hidden="true" />;
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M21.4 2.6 2.8 9.8c-1.3.5-1.3 1.3-.2 1.6l4.8 1.5 1.8 5.7c.2.7.1.9.8.9.5 0 .8-.2 1.1-.5l2.3-2.2 4.8 3.5c.9.5 1.5.2 1.8-.8l3.1-14.9c.3-1.3-.5-1.9-1.7-1.4ZM9.3 12.6l9.3-5.9c.5-.3.9-.1.5.2l-7.7 7-.3 3.2-1.8-4.5Z" />
+      </svg>
+    );
   }
   if (name === "image") return <ImageIcon className={className} aria-hidden="true" />;
   if (name === "file") return <FileText className={className} aria-hidden="true" />;

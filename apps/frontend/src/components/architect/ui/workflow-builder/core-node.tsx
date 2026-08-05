@@ -86,37 +86,15 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
           <span className="absolute -bottom-[23px] left-[30%] -translate-x-1/2 text-[10px] font-bold text-green-600" data-testid="architect-ui-workflow-builder-core-node-yes-text">Yes</span>
           <span className="absolute -bottom-[23px] left-[70%] -translate-x-1/2 text-[10px] font-bold text-red-500" data-testid="architect-ui-workflow-builder-core-node-no-text">No</span>
         </>
-      ) : isTelegramTrigger ? (
-        <>
-          {/* Only two ports, because the architect must not presume a business's
-              commands. "*" is always in telegramRouteCandidates so it catches
-              every update — that is the port a general-purpose bot uses, and the
-              AI node answers "/pricing" or "book me in" as ordinary text.
-              "/start" is separate purely because Telegram always sends it as the
-              first message, so a welcome branch is usually wanted.
-              Business-specific commands belong to the BUYER's setup, not here. */}
-          {[
-            { id: "*", label: "Any message (all events)", left: "33%" },
-            { id: "/start", label: "Start command", left: "67%" }
-          ].map((route) => (
-            <Handle
-              key={route.id}
-              id={route.id}
-              type="source"
-              position={Position.Bottom}
-              className="core-port"
-              style={{ left: route.left, background: palette.handle }}
-              title={route.label}
-              aria-label={route.label}
-            />
-          ))}
-        </>
       ) : (
         <Handle
+          id={isTelegramTrigger ? "*" : undefined}
           type="source"
           position={Position.Bottom}
           className="core-port"
           style={{ background: palette.handle }}
+          title={isTelegramTrigger ? "All Telegram updates" : undefined}
+          aria-label={isTelegramTrigger ? "All Telegram updates" : undefined}
         />
       )}
     </div>

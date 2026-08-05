@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { TestPanel } from "./test-panel";
 
 afterEach(() => cleanup());
@@ -103,5 +103,63 @@ describe("TestPanel dynamic trigger fields & standard business fields", () => {
     expect(screen.getByText("Business name")).toBeDefined();
     expect(screen.getByText("Business services")).toBeDefined();
     expect(screen.getByText("Timezone")).toBeDefined();
+  });
+
+  it("puts Telegram commands and multiple test services in the live Test section", () => {
+    render(
+      <TestPanel
+        {...defaultProps}
+        isTelegramWorkflow={true}
+        needsAnyTestConnection={true}
+        appointmentService={"Consultation\nCleaning"}
+        telegramCommandSettings={{
+          telegramBookingMode: true,
+          telegramServicesCommand: true,
+          telegramBookCommand: true,
+          telegramMyBookingsCommand: false,
+          telegramRescheduleCommand: false,
+          telegramCancelCommand: false,
+          telegramHelpCommand: true
+        }}
+      />
+    );
+
+    expect(screen.getByTestId("builder-test-telegram-commands")).toBeDefined();
+    expect(screen.getByText("/start")).toBeDefined();
+    expect(screen.getByText("/services")).toBeDefined();
+    expect((screen.getByTestId("builder-test-appointment-service-input") as HTMLTextAreaElement).value)
+      .toBe("Consultation\nCleaning");
+  });
+
+  it("lets the Architect define a custom Telegram command and its behavior", () => {
+    const onTelegramCustomCommandsChange = vi.fn();
+    render(
+      <TestPanel
+        {...defaultProps}
+        isTelegramWorkflow={true}
+        needsAnyTestConnection={true}
+        telegramCustomCommands={[{
+          id: "command-contact",
+          command: "contact",
+          description: "Show contact information",
+          action: "reply",
+          response: "Contact {{business.name}}"
+        }]}
+        onTelegramCustomCommandsChange={onTelegramCustomCommandsChange}
+      />
+    );
+
+    expect(screen.getByTestId("builder-test-telegram-custom-commands")).toBeDefined();
+    expect((screen.getByTestId("builder-test-telegram-custom-command-name") as HTMLInputElement).value)
+      .toBe("contact");
+    expect((screen.getByTestId("builder-test-telegram-custom-command-response") as HTMLTextAreaElement).value)
+      .toContain("{{business.name}}");
+
+    fireEvent.change(screen.getByTestId("builder-test-telegram-custom-command-action"), {
+      target: { value: "services" }
+    });
+    expect(onTelegramCustomCommandsChange).toHaveBeenCalledWith([
+      expect.objectContaining({ command: "contact", action: "services" })
+    ]);
   });
 });

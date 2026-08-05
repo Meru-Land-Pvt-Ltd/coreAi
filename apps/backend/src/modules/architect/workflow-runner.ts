@@ -76,6 +76,7 @@ import {
   type TelegramActionInput,
   type TelegramButton
 } from "./telegram-actions";
+import { executeArchitectTelegramTestAction } from "./architect-telegram-test-actions";
 
 /** Threaded through the runner to bound workflow-to-workflow chaining. */
 type WorkflowChain = {
@@ -136,6 +137,8 @@ export type WorkflowRunInput = {
   assistantName?: string;
   telegramChatId?: string;
   telegramConnectionId?: string;
+  /** Encrypted Architect-owned test bot credential used for live Telegram tests. */
+  architectTelegramTestConnectionId?: string;
   telegramUserId?: string;
   telegramUsername?: string;
   telegramMessageId?: string;
@@ -429,6 +432,7 @@ type RunnerContext = {
   };
   telegramEvent?: unknown;
   telegramConnectionId?: string;
+  architectTelegramTestConnectionId?: string;
   telegramAction?: {
     success: boolean;
     chatId: string;
@@ -976,6 +980,22 @@ export function setMemoryScopeForContext(context: RunnerContext, scopeKey: strin
 function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainNodeConfig {
   const isLlmCall = asString(node.data?.type) === "ai.llm_call";
   const isTestMode = context._mode === "test";
+  const configuredSystemPrompt = asString(node.data?.llmSystemPrompt);
+  const hasAuthoredTask = Boolean(
+    asString(node.data?.llmRequirements) ||
+    asString(node.data?.llmPrompt) ||
+    asString(node.data?.prompt) ||
+    asString(node.data?.instructions) ||
+    (configuredSystemPrompt && configuredSystemPrompt !== "You are a helpful assistant.")
+  );
+  const telegramDefaultTask = context.telegram && !hasAuthoredTask
+    ? [
+        `Write one concise, friendly Telegram reply for ${asString(context.business?.name, "the business")}.`,
+        `Customer message: ${JSON.stringify(asString(context.latestMessage) || asString(context.telegram.text))}`,
+        "Use only the supplied business context and knowledge. Do not invent services, prices, hours, availability, policies, or confirmations.",
+        "Return only the customer-facing reply in plain text."
+      ].join("\n")
+    : "";
 
   const rawMaxTokens = isLlmCall
     ? (node.data?.llmMaxTokens ?? node.data?.maxTokens)
@@ -1002,7 +1022,7 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
         // ones — keep them rendered too so {{memory}} and friends resolve.
         llmSystemPrompt: renderTemplate(node.data?.llmSystemPrompt, context),
         llmPrompt: renderTemplate(node.data?.llmPrompt, context),
-        llmRequirements: renderTemplate(node.data?.llmRequirements, context),
+        llmRequirements: renderTemplate(node.data?.llmRequirements, context) || telegramDefaultTask,
         temperature: node.data?.llmTemperature ?? node.data?.temperature,
         maxTokens: finalMaxTokens,
         outputFormat: node.data?.llmOutputFormat ?? node.data?.outputFormat,
@@ -1206,6 +1226,7 @@ function seedMissedCallContext(
     context.trigger = { telegram: liveEvent ?? dryRunEvent };
     context.telegramConnectionId =
       optionalString(input?.telegramConnectionId) ?? (isTest ? "dry-run-telegram-connection" : undefined);
+    context.architectTelegramTestConnectionId = optionalString(input?.architectTelegramTestConnectionId);
     context.latestMessage = text;
   } else if (hasExplicitMissedCallInput || hasExplicitCallerInput || isCallOrVoice) {
     const timestamp = optionalString(input?.callTimestamp) ?? (isCallOrVoice ? new Date().toISOString() : undefined);
@@ -3187,12 +3208,23 @@ async function resolveTelegramActionChatId(node: RunnerNode, context: RunnerCont
     if (!context.business?.id || !context.installedAgentId || !context.telegramConnectionId) {
       throw new Error("Telegram tenant context is incomplete.");
     }
+    const telegramUserId = asString(context.telegram?.user_id);
+    const customerPhone = asString(context.telegram?.phone_number) || asString(context.caller_number);
+    const recipientFilters = [
+      ...(telegramUserId ? [{ telegramUserId }] : []),
+      ...(customerPhone
+        ? [{ contextJson: { path: ["customerPhone"], equals: customerPhone } }]
+        : [])
+    ];
+    if (recipientFilters.length === 0) {
+      throw new Error("A Telegram user ID or customer phone is required to find the stored chat.");
+    }
     const state = await prisma.telegramConversationState.findFirst({
       where: {
         businessId: context.business.id,
         installedAgentId: context.installedAgentId,
         telegramConnectionId: context.telegramConnectionId,
-        telegramUserId: context.telegram?.user_id,
+        OR: recipientFilters,
         chatStatus: "ACTIVE"
       },
       orderBy: { updatedAt: "desc" },
@@ -3229,11 +3261,13 @@ function publishTelegramActionOutput(context: RunnerContext, output: RunnerConte
 }
 
 async function runTelegramConnectorNode({
+  userId,
   node,
   context,
   logs,
   mode
 }: {
+  userId: string;
   node: RunnerNode;
   context: RunnerContext;
   logs: WorkflowRunLog[];
@@ -3275,6 +3309,34 @@ async function runTelegramConnectorNode({
     nodeType === TELEGRAM_NODE_TYPES.sendButtons || nodeType === TELEGRAM_NODE_TYPES.editMessage
       ? parseTelegramButtons(node.data?.telegramButtonsJson, context)
       : undefined;
+
+  if (mode === "test" && context.architectTelegramTestConnectionId) {
+    const output = await executeArchitectTelegramTestAction({
+      userId,
+      connectionId: context.architectTelegramTestConnectionId,
+      actionType,
+      chatId,
+      messageId: messageId || undefined,
+      callbackQueryId: callbackQueryId || undefined,
+      text: textBody,
+      caption: renderTemplate(node.data?.telegramCaption, context),
+      parseMode,
+      buttons,
+      source,
+      latitude: Number(renderTemplate(node.data?.telegramLatitude, context)),
+      longitude: Number(renderTemplate(node.data?.telegramLongitude, context)),
+      livePeriod: Number(renderTemplate(node.data?.telegramLivePeriod, context)) || undefined,
+      showAlert: telegramBoolean(node.data?.telegramShowAlert),
+      url: renderTemplate(node.data?.telegramCallbackUrl, context) || undefined,
+      replyToMessageId: renderTemplate(node.data?.telegramReplyToMessageId, context) || undefined,
+      disableNotification: telegramBoolean(node.data?.telegramDisableNotification),
+      protectContent: telegramBoolean(node.data?.telegramProtectContent),
+      contactButtonText: renderTemplate(node.data?.telegramContactButtonText, context) || undefined
+    });
+    publishTelegramActionOutput(context, output);
+    logs.push(createLog(node, "success", "Telegram action sent through the Architect test bot.", output));
+    return;
+  }
 
   if (mode === "test") {
     const output = {
@@ -3364,7 +3426,7 @@ async function runConnectorNode({
   const connector = asString(node.data?.connector, "SMS").toLowerCase().replace(/[_-]+/g, " ");
 
   if (telegramActionType(nodeType) || connector === "telegram" || connector === "telegram bot") {
-    await runTelegramConnectorNode({ node, context, logs, mode });
+    await runTelegramConnectorNode({ userId, node, context, logs, mode });
     return;
   }
 

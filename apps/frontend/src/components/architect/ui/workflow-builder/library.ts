@@ -2,7 +2,7 @@ import {
   comingSoonNodes,
   getNodeDefinition,
   CALENDLY_NODE_TYPES,
-  // TELEGRAM_NODE_TYPES,
+  TELEGRAM_NODE_TYPES,
   VOICE_NODE_PRESENTATION,
   VOICE_NODE_TYPES
 } from "@coreai/shared";
@@ -47,7 +47,7 @@ export const libraryGroups: LibraryGroup[] = [
     title: "Triggers",
     items: [
       paletteItem(VOICE_NODE_TYPES.phoneCallTrigger, { icon: "phone", accent: "amber" }),
-      // paletteItem(TELEGRAM_NODE_TYPES.trigger, { icon: "telegram", accent: "amber", kind: "TELEGRAM BOT" }),
+      paletteItem(TELEGRAM_NODE_TYPES.trigger, { icon: "telegram", accent: "blue", kind: "TELEGRAM BOT" }),
       paletteItem("trigger.twilio_inbound_sms", { icon: "message", accent: "amber" }),
       paletteItem("trigger.twilio_missed_call", { icon: "phone", accent: "amber" }),
       paletteItem("trigger.whatsapp_message_received", { icon: "whatsapp", accent: "green" }),
@@ -87,11 +87,17 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(CALENDLY_NODE_TYPES.action, { icon: "calendly", accent: "blue", kind: "CALENDLY" })
     ]
   },
-  /* Telegram trigger and action nodes are hidden from the Architect palette. */
+  /* Keep the common reply action visible; advanced Telegram actions remain
+     hidden until their dedicated UX is ready. */
+  {
+    title: "Telegram Features",
+    items: [
+      paletteItem(TELEGRAM_NODE_TYPES.sendMessage, { icon: "telegram", accent: "blue" })
+    ]
+  },
   // {
-  //   title: "Telegram Bot",
+  //   title: "Telegram Bot Advanced",
   //   items: [
-  //     paletteItem(TELEGRAM_NODE_TYPES.sendMessage, { icon: "telegram", accent: "green" }),
   //     paletteItem(TELEGRAM_NODE_TYPES.sendButtons, { icon: "telegram", accent: "green" }),
   //     paletteItem(TELEGRAM_NODE_TYPES.answerCallback, { icon: "telegram", accent: "green" }),
   //     paletteItem(TELEGRAM_NODE_TYPES.requestContact, { icon: "telegram", accent: "green" }),

@@ -94,6 +94,13 @@ export type BuilderNodeData = Record<string, unknown> & {
   telegramRescheduleCommand?: string;
   telegramCancelCommand?: string;
   telegramHelpCommand?: string;
+  telegramCustomCommands?: Array<{
+    id: string;
+    command: string;
+    description: string;
+    action: "reply" | "services" | "book" | "help";
+    response: string;
+  }>;
   telegramRequestPhone?: string;
   telegramRequestEmail?: string;
   telegramRequestNotes?: string;

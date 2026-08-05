@@ -30,11 +30,14 @@ import { GoogleDisclosureModal } from "@/components/common/google-disclosure-mod
 import { ArchitectEmptyState } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectWorkflow,
+  connectArchitectTelegramTestConnection,
   deleteArchitectTestEvent,
+  disconnectArchitectTelegramTestConnection,
   disconnectGmailConnector,
   disconnectCalendlyConnector,
   getArchitectTestDeployment,
   getArchitectWorkflow,
+  getArchitectTelegramTestConnection,
   getGmailConnectorStatus,
   getCalendlyConnectorStatus,
   getGmailOAuthUrl,
@@ -49,9 +52,11 @@ import {
   startArchitectVapiBrowserTest,
   stopArchitectTestDeployment,
   submitWorkflowForReview,
+  syncArchitectTelegramTestConnection,
   updateArchitectWorkflow,
   useArchitectTemplate
 } from "@/components/architect/features/api";
+import type { ArchitectTelegramTestConnection } from "@/components/architect/features/api";
 import type {
   ArchitectConversationMessage,
   ArchitectConversationToolCall,
@@ -85,7 +90,12 @@ import { defaultAgentDescription, defaultAgentName, defaultNodeData } from "./wo
 import { parseEdges, parseNodes } from "./workflow-builder/parsers";
 import { PreviewModal } from "./workflow-builder/preview-modal";
 import { PublishPanel } from "./workflow-builder/publish-panel";
-import { TestPanel } from "./workflow-builder/test-panel";
+import {
+  TestPanel,
+  type TelegramCommandField,
+  type TelegramCustomCommand,
+  type TelegramTestCommandSettings
+} from "./workflow-builder/test-panel";
 import { isMeaningfulWorkflow, useBuilderAutosaveHistory } from "./workflow-builder/use-builder-autosave-history";
 import { WorkflowBuilderStyles } from "./workflow-builder/builder-styles";
 import { deriveWorkflowCapabilities } from "./workflow-builder/workflow-capabilities";
@@ -114,6 +124,18 @@ export function isManualTriggerNode(node: { data?: Record<string, unknown>; type
 
 function testInputsStashKey(workflowId: string): string {
   return `triven-builder-test-inputs:${workflowId || "draft"}`;
+}
+
+function builderFlag(value: unknown, fallback = false): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.trim().toLowerCase() === "true";
+  return fallback;
+}
+
+function telegramTestServices(value: string): string[] {
+  return Array.from(
+    new Set(value.split(/\r?\n|,/).map((service) => service.trim()).filter(Boolean))
+  ).slice(0, 30);
 }
 
 export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: string }) {
@@ -177,6 +199,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [connectingGmail, setConnectingGmail] = useState(false);
   const [whatsappConnected, setWhatsAppConnected] = useState(false);
   const [connectingWhatsApp, setConnectingWhatsApp] = useState(false);
+  const [telegramTestConnection, setTelegramTestConnection] = useState<ArchitectTelegramTestConnection | null>(null);
+  const [connectingTelegramTest, setConnectingTelegramTest] = useState(false);
+  const [syncingTelegramTest, setSyncingTelegramTest] = useState(false);
   const [whatsappConnectOpen, setWhatsAppConnectOpen] = useState(false);
   const [googleDisclosureOpen, setGoogleDisclosureOpen] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgentName);
@@ -289,6 +314,32 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const hasSmsFlow = capabilities.hasSmsSendOrTwilioConnector;
   const isVoiceWorkflow = capabilities.hasVoice;
   const isTelegramWorkflow = capabilities.hasTelegram;
+  const telegramCommandSettings = useMemo<TelegramTestCommandSettings>(() => {
+    const data = nodes.find((node) => node.data.type === "trigger.telegram_message")?.data;
+    return {
+      telegramBookingMode: builderFlag(data?.telegramBookingMode, false),
+      telegramServicesCommand: builderFlag(data?.telegramServicesCommand, false),
+      telegramBookCommand: builderFlag(data?.telegramBookCommand, false),
+      telegramMyBookingsCommand: builderFlag(data?.telegramMyBookingsCommand, false),
+      telegramRescheduleCommand: builderFlag(data?.telegramRescheduleCommand, false),
+      telegramCancelCommand: builderFlag(data?.telegramCancelCommand, false),
+      telegramHelpCommand: builderFlag(data?.telegramHelpCommand, true)
+    };
+  }, [nodes]);
+  const telegramCustomCommands = useMemo<TelegramCustomCommand[]>(() => {
+    const value = nodes.find((node) => node.data.type === "trigger.telegram_message")?.data.telegramCustomCommands;
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter((item): item is TelegramCustomCommand => Boolean(
+        item &&
+        typeof item.id === "string" &&
+        typeof item.command === "string" &&
+        typeof item.description === "string" &&
+        typeof item.action === "string" &&
+        typeof item.response === "string"
+      ))
+      .slice(0, 20);
+  }, [nodes]);
   const needsCalendarConnection = capabilities.hasCalendar;
   const needsCalendlyConnection = capabilities.hasCalendly;
   const isMissedCallWorkflow = capabilities.hasMissedCall;
@@ -310,6 +361,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     needsCalendlyConnection ||
     needsTwilioConnection ||
     needsVapiConnection ||
+    isTelegramWorkflow ||
     needsWhatsAppConnection;
 
   const requestTabChange = useCallback(
@@ -557,6 +609,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       if (blockIfUnderReview()) return;
       if (!connection.source || !connection.target) return;
 
+      const sourceNode = nodes.find((node) => node.id === connection.source);
+      const edgeAccent = sourceNode?.data.icon === "telegram" ? "blue" : "amber";
+
       setEdges((currentEdges) =>
         addEdge(
           createFlowEdge({
@@ -564,13 +619,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             source: connection.source,
             target: connection.target,
             sourceHandle: connection.sourceHandle ?? undefined,
-            accent: "amber"
+            accent: edgeAccent
           }),
           currentEdges
         )
       );
     },
-    [setEdges, blockIfUnderReview]
+    [nodes, setEdges, blockIfUnderReview]
   );
 
   async function loadWorkflow(label = "Loading Builder...") {
@@ -660,6 +715,126 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     const result = await getArchitectTestDeployment(id);
     if (result.success && result.data) {
       setTestDeployment(result.data.testDeployment);
+    }
+  }
+
+  async function loadTelegramTestStatus() {
+    const id = currentWorkflowIdRef.current;
+    if (!id) return;
+    const result = await getArchitectTelegramTestConnection(id);
+    if (result.success && result.data) {
+      setTelegramTestConnection(result.data.connection);
+      if (result.data.connection?.services?.length) {
+        setAppointmentService((current) => current.trim() || result.data!.connection!.services.join("\n"));
+      }
+    }
+  }
+
+  function updateTelegramCommand(field: TelegramCommandField, value: boolean) {
+    if (blockIfUnderReview()) return;
+    setNodes((current) => current.map((node) => {
+      if (node.data.type !== "trigger.telegram_message") return node;
+      const clearedBookingCommands = field === "telegramBookingMode" && !value
+        ? {
+            telegramBookCommand: "false",
+            telegramMyBookingsCommand: "false",
+            telegramRescheduleCommand: "false",
+            telegramCancelCommand: "false"
+          }
+        : {};
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          ...clearedBookingCommands,
+          [field]: String(value)
+        }
+      };
+    }));
+  }
+
+  function updateTelegramCustomCommands(commands: TelegramCustomCommand[]) {
+    if (blockIfUnderReview()) return;
+    setNodes((current) => current.map((node) => node.data.type === "trigger.telegram_message"
+      ? { ...node, data: { ...node.data, telegramCustomCommands: commands.slice(0, 20) } }
+      : node));
+  }
+
+  function telegramTestContext() {
+    const services = telegramTestServices(appointmentService);
+    return {
+      businessName: businessName.trim() || agentName.trim() || undefined,
+      businessType: businessType.trim() || undefined,
+      appointmentService: services[0],
+      services,
+      timeZone: timeZone.trim() || undefined
+    };
+  }
+
+  async function connectTelegramTest(botToken: string) {
+    if (blockIfUnderReview()) return;
+    setConnectingTelegramTest(true);
+    setMessage("Connecting Telegram test bot...");
+    try {
+      const saved = await saveAgent(false);
+      const id = currentWorkflowIdRef.current;
+      if (!saved || !id) {
+        setMessage("Save the workflow before connecting a Telegram test bot.");
+        return;
+      }
+      const result = await connectArchitectTelegramTestConnection(id, {
+        botToken,
+        ...telegramTestContext()
+      });
+      if (!result.success || !result.data) {
+        setMessage(result.error ?? "Could not connect the Telegram test bot.");
+        return;
+      }
+      setTelegramTestConnection(result.data.connection);
+      setMessage("Telegram test bot connected. Open it and send a real message.");
+    } finally {
+      setConnectingTelegramTest(false);
+    }
+  }
+
+  async function syncTelegramTest() {
+    if (blockIfUnderReview()) return;
+    const id = currentWorkflowIdRef.current;
+    if (!id || !telegramTestConnection?.connected) return;
+    setSyncingTelegramTest(true);
+    setMessage("Saving and syncing Telegram test setup...");
+    try {
+      const saved = await saveAgent(false);
+      if (!saved) {
+        setMessage("Could not save the workflow before syncing Telegram.");
+        return;
+      }
+      const result = await syncArchitectTelegramTestConnection(id, telegramTestContext());
+      if (!result.success || !result.data) {
+        setMessage(result.error ?? "Could not sync Telegram test settings.");
+        return;
+      }
+      setTelegramTestConnection(result.data.connection);
+      setMessage("Test business name, commands, and services synced. Open the bot on your phone to test them.");
+    } finally {
+      setSyncingTelegramTest(false);
+    }
+  }
+
+  async function disconnectTelegramTest() {
+    const id = currentWorkflowIdRef.current;
+    if (!id) return;
+    setConnectingTelegramTest(true);
+    try {
+      const result = await disconnectArchitectTelegramTestConnection(id);
+      if (!result.success) {
+        setMessage(result.error ?? "Could not disconnect the Telegram test bot.");
+        return;
+      }
+      setTelegramTestConnection(null);
+      setMessage("Telegram test bot disconnected.");
+    } finally {
+      setConnectingTelegramTest(false);
     }
   }
 
@@ -772,7 +947,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   async function refreshConnections() {
     setMessage("Refreshing connection status...");
-    await Promise.all([loadGmailStatus(), loadCalendlyStatus(), loadWhatsAppStatus(), loadTestDeployment()]);
+    await Promise.all([loadGmailStatus(), loadCalendlyStatus(), loadWhatsAppStatus(), loadTelegramTestStatus(), loadTestDeployment()]);
     setMessage("Connection status refreshed");
   }
 
@@ -843,6 +1018,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     void loadWhatsAppStatus();
     void loadTestDeployment();
   }, [workflowId]);
+
+  useEffect(() => {
+    if (!isTelegramWorkflow || activeTab !== "test") return;
+    // The bot webhook runs independently. Load status once on entry; the Test
+    // panel's Refresh status button is the explicit way to fetch newer logs.
+    void loadTelegramTestStatus();
+  }, [activeTab, isTelegramWorkflow, currentWorkflowId]);
 
   // On mobile, open the Components drawer automatically when entering Build.
   useEffect(() => {
@@ -2060,6 +2242,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             isMissedCallWorkflow={isMissedCallWorkflow}
             isSmsWorkflow={isSmsWorkflow}
             isTelegramWorkflow={isTelegramWorkflow}
+            telegramTestConnection={telegramTestConnection}
+            connectingTelegramTest={connectingTelegramTest}
+            syncingTelegramTest={syncingTelegramTest}
+            telegramCommandSettings={telegramCommandSettings}
+            telegramCustomCommands={telegramCustomCommands}
             onConnectGmail={connectGmail}
             onDisconnectGoogle={() => void disconnectGoogle()}
             onConnectCalendly={() => void connectCalendly()}
@@ -2103,6 +2290,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onTriggerMessageChange={handleTriggerMessageChange}
             onTriggerAttachmentsChange={handleTriggerAttachmentsChange}
             onConnectWhatsApp={connectWhatsApp}
+            onConnectTelegramTest={(token) => connectTelegramTest(token)}
+            onSyncTelegramTest={() => void syncTelegramTest()}
+            onDisconnectTelegramTest={() => void disconnectTelegramTest()}
+            onTelegramCommandChange={updateTelegramCommand}
+            onTelegramCustomCommandsChange={updateTelegramCustomCommands}
           />
         ) : null}
 

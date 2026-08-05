@@ -122,6 +122,37 @@ export async function saveTelegramConversationState(
   return { ...row, context };
 }
 
+/**
+ * Remember every customer who talks to the bot without disturbing an active
+ * booking state. This lets later confirmation and notification steps reuse
+ * the captured Telegram chat.
+ */
+export async function rememberTelegramConversation(identity: TelegramConversationIdentity) {
+  return prisma.telegramConversationState.upsert({
+    where: {
+      businessId_installedAgentId_telegramConnectionId_telegramChatId: {
+        businessId: identity.businessId,
+        installedAgentId: identity.installedAgentId,
+        telegramConnectionId: identity.telegramConnectionId,
+        telegramChatId: identity.telegramChatId
+      }
+    },
+    create: {
+      ...identity,
+      state: "STARTED",
+      contextJson: {},
+      expiresAt: expiresAt()
+    },
+    update: {
+      telegramBotId: identity.telegramBotId,
+      telegramUserId: identity.telegramUserId,
+      chatStatus: "ACTIVE",
+      lastDeliveryError: null,
+      expiresAt: expiresAt()
+    }
+  });
+}
+
 export async function resetTelegramConversationState(identity: TelegramConversationIdentity) {
   return saveTelegramConversationState(identity, "STARTED", {});
 }

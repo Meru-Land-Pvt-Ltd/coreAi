@@ -5,8 +5,8 @@ import {
 } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 
-/** Temporary accelerated cadence for end-to-end billing QA. */
-export const AGENT_INVOICE_CYCLE_DAYS = 2;
+/** Standard business billing cadence. */
+export const AGENT_INVOICE_CYCLE_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AGENT_INVOICE_CYCLE_MS = AGENT_INVOICE_CYCLE_DAYS * DAY_MS;
 
@@ -199,9 +199,9 @@ export function nextSubscriptionInvoicePeriod(
 ) {
   const paidPeriodStart = paid.periodStart ?? paid.paidAt ?? paid.createdAt;
   if (anchorAt) {
-    // The immutable purchase/post-trial anchor owns the accelerated cadence.
+    // The immutable purchase/post-trial anchor owns the billing cadence.
     // Ignore legacy calendar-month period ends so old rows also move onto the
-    // temporary two-day QA cycle.
+    // standard 30-day cycle.
     const start = nextAgentInvoiceBoundary(
       anchorAt,
       paidPeriodStart < anchorAt ? anchorAt : paidPeriodStart

@@ -5,6 +5,7 @@ import { prisma } from "../../lib/prisma";
 import { executeTelegramAction, TELEGRAM_ACTION_TYPES } from "./telegram-actions";
 import {
   loadTelegramConversationState,
+  rememberTelegramConversation,
   saveTelegramConversationState,
   type TelegramConversationIdentity
 } from "./telegram-conversation-state";
@@ -226,5 +227,29 @@ describe("Telegram tenant isolation", () => {
     const loaded = await loadTelegramConversationState(stateIdentity);
     expect(loaded?.state).toBe("EXPIRED");
     expect(loaded?.context).toEqual({});
+  });
+
+  it("remembers a chat without overwriting an active booking state", async () => {
+    if (!dbAvailable) return;
+    const stateIdentity = identity({
+      businessId: businessAId,
+      installedAgentId: agentAId,
+      telegramConnectionId: connectionAId,
+      botId: "bot-a"
+    });
+    await saveTelegramConversationState(stateIdentity, "WAITING_FOR_PHONE", {
+      customerName: "Telegram Customer",
+      serviceName: "Consultation"
+    });
+
+    await rememberTelegramConversation({ ...stateIdentity, telegramUserId: "updated-user-id" });
+
+    const loaded = await loadTelegramConversationState({
+      ...stateIdentity,
+      telegramUserId: "updated-user-id"
+    });
+    expect(loaded?.state).toBe("WAITING_FOR_PHONE");
+    expect(loaded?.telegramUserId).toBe("updated-user-id");
+    expect(loaded?.context.serviceName).toBe("Consultation");
   });
 });

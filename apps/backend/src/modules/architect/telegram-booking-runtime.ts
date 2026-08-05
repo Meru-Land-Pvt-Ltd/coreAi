@@ -20,6 +20,7 @@ import {
 } from "./telegram-actions";
 import {
   loadTelegramConversationState,
+  rememberTelegramConversation,
   resetTelegramConversationState,
   saveTelegramConversationState,
   type TelegramBookingContext,
@@ -38,6 +39,12 @@ import {
   type NormalizedTelegramEvent,
   type TelegramTriggerConfig
 } from "./telegram-update";
+import {
+  inspectTelegramOwnerAuthorizationCommand,
+  shouldRememberTelegramEventAsCustomer,
+  telegramEventBelongsToBusinessOwner
+} from "./telegram-owner-routing";
+import { telegramCommandList, telegramCustomCommands } from "./telegram-command-config";
 import { parseRunnerWorkflowJson, runWorkflowTest } from "./workflow-runner";
 import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/agent-knowledge";
 
@@ -57,16 +64,6 @@ function boolValue(value: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
-function sha256(value: string): string {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
-
-function secureEqual(left: string, right: string): boolean {
-  const a = Buffer.from(left);
-  const b = Buffer.from(right);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
-
 function renderBusinessTemplate(template: unknown, businessName: string): string {
   return stringValue(template).replace(/\{\{\s*business\.name\s*\}\}/gi, businessName);
 }
@@ -75,6 +72,14 @@ function triggerNode(workflowJson: unknown) {
   return parseRunnerWorkflowJson(workflowJson).nodes.find(
     (node) => stringValue(node.data?.type) === "trigger.telegram_message"
   );
+}
+
+function telegramTriggerData(workflowJson: unknown, configJson: unknown): JsonRecord {
+  const config = record(configJson);
+  return {
+    ...record(triggerNode(workflowJson)?.data),
+    ...record(config.telegram)
+  };
 }
 
 function triggerConfig(data: JsonRecord): TelegramTriggerConfig {
@@ -95,7 +100,11 @@ function triggerConfig(data: JsonRecord): TelegramTriggerConfig {
 }
 
 function bookingMode(data: JsonRecord): boolean {
-  return boolValue(data.telegramBookingMode, true);
+  return boolValue(data.telegramBookingMode, false);
+}
+
+function commandEnabled(data: JsonRecord, field: string): boolean {
+  return boolValue(data[field], field === "telegramHelpCommand");
 }
 
 function nextDate(date: string, days: number): string {
@@ -157,6 +166,10 @@ function normalizePhone(value: string): string | null {
 
 function validEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function normalizedServiceName(value: string): string {
+  return value.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function bookingReference(): string {
@@ -294,14 +307,38 @@ async function sendMainMenu(
   const welcome =
     renderBusinessTemplate(triggerData.telegramWelcomeMessage, connection.business.name) ||
     `Welcome to ${connection.business.name}. Choose what you would like to do.`;
-  return sendButtons(connection, event, "main-menu", welcome, [
-    [
-      { text: "View services", callbackData: "nav:services" },
-      { text: "Book appointment", callbackData: "nav:book" }
-    ],
-    [{ text: "My bookings", callbackData: "nav:mybookings" }],
-    [{ text: "Help", callbackData: "nav:help" }]
-  ]);
+  const bookingEnabled = bookingMode(triggerData);
+  const primary = [
+    ...(commandEnabled(triggerData, "telegramServicesCommand")
+      ? [{ text: "View services", callbackData: "nav:services" }]
+      : []),
+    ...(bookingEnabled && commandEnabled(triggerData, "telegramBookCommand")
+      ? [{ text: "Book appointment", callbackData: "nav:book" }]
+      : [])
+  ];
+  const rows = [
+    ...(primary.length ? [primary] : []),
+    ...(bookingEnabled && commandEnabled(triggerData, "telegramMyBookingsCommand")
+      ? [[{ text: "My bookings", callbackData: "nav:mybookings" }]]
+      : []),
+    ...(commandEnabled(triggerData, "telegramHelpCommand")
+      ? [[{ text: "Help", callbackData: "nav:help" }]]
+      : [])
+  ];
+  return rows.length
+    ? sendButtons(connection, event, "main-menu", welcome, rows)
+    : sendText(connection, event, "main-menu", welcome);
+}
+
+async function sendHelpMenu(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  triggerData: JsonRecord
+) {
+  const helpLines = telegramCommandList(triggerData).map(
+    (item) => `/${item.command} - ${item.description}`
+  );
+  await sendText(connection, event, "help", helpLines.join("\n"));
 }
 
 async function showServices(
@@ -319,6 +356,20 @@ async function showServices(
       event,
       "services-empty",
       `No bookable services are configured for ${connection.business.name} yet. Please contact the business directly.`
+    );
+    return;
+  }
+  if (!forBooking) {
+    const list = services.slice(0, 20).map((service) =>
+      service.priceVisible && service.priceCents !== null
+        ? `• ${service.name} - $${(service.priceCents / 100).toFixed(2)}`
+        : `• ${service.name}`
+    );
+    await sendText(
+      connection,
+      event,
+      "show-services",
+      [`Services at ${connection.business.name}:`, ...list].join("\n")
     );
     return;
   }
@@ -629,6 +680,20 @@ async function notifyOwner(
   }).catch(() => null);
 }
 
+function ownerCustomerDetails(
+  event: NormalizedTelegramEvent,
+  context: TelegramBookingContext
+): string[] {
+  const telegramName = [event.sender.firstName, event.sender.lastName].filter(Boolean).join(" ");
+  return [
+    `Customer: ${context.customerName || telegramName || "Not provided"}`,
+    `Phone: ${context.customerPhone || event.contact.phoneNumber || "Not provided"}`,
+    `Email: ${context.customerEmail || "Not provided"}`,
+    `Telegram: ${event.sender.username ? `@${event.sender.username}` : telegramName || "Not provided"}`,
+    `Notes: ${context.customerNotes || "None"}`
+  ];
+}
+
 async function confirmBooking(
   connection: LoadedConnection,
   event: NormalizedTelegramEvent,
@@ -694,11 +759,13 @@ async function confirmBooking(
     [
       "New Telegram booking",
       "",
-      `Customer: ${context.customerName}`,
-      `Phone: ${context.customerPhone}`,
+      `Business: ${connection.business.name}`,
+      ...ownerCustomerDetails(event, context),
       `Service: ${appointment.service ?? "Appointment"}`,
       `When: ${localAppointmentLabel(appointment.startAt.toISOString(), timeZone)}`,
+      `Timezone: ${timeZone}`,
       `Booking reference: ${reference}`,
+      "Status: Confirmed",
       "Source: Telegram"
     ].join("\n")
   );
@@ -807,7 +874,16 @@ async function cancelAppointment(
     connection,
     event,
     "owner-cancel-notification",
-    `Telegram cancellation\nCustomer: ${context.customerName ?? context.customerPhone}\n${message}`
+    [
+      "Telegram booking cancelled",
+      "",
+      `Business: ${connection.business.name}`,
+      ...ownerCustomerDetails(event, context),
+      `Service: ${cancelled.service ?? "Appointment"}`,
+      `Original time: ${localAppointmentLabel(cancelled.startAt.toISOString(), cancelled.timeZone || connection.business.profile?.timeZone || "UTC")}`,
+      `Booking reference: ${cancelled.bookingReference || context.bookingReference || cancelled.id.slice(-8).toUpperCase()}`,
+      "Status: Cancelled"
+    ].join("\n")
   );
   await saveTelegramConversationState(stateIdentity, "CANCELLED", {
     ...context,
@@ -923,7 +999,17 @@ async function confirmReschedule(
     connection,
     event,
     "owner-reschedule-notification",
-    `Telegram reschedule\nCustomer: ${context.customerName ?? context.customerPhone}\n${message}`
+    [
+      "Telegram booking rescheduled",
+      "",
+      `Business: ${connection.business.name}`,
+      ...ownerCustomerDetails(event, context),
+      `Service: ${appointment.service ?? context.serviceName ?? "Appointment"}`,
+      `New time: ${localAppointmentLabel(startAt.toISOString(), timeZone)}`,
+      `Timezone: ${timeZone}`,
+      `Booking reference: ${appointment.bookingReference || context.bookingReference || appointment.id.slice(-8).toUpperCase()}`,
+      "Status: Rescheduled"
+    ].join("\n")
   );
   await saveTelegramConversationState(stateIdentity, "BOOKED", {
     ...context,
@@ -936,10 +1022,28 @@ async function authorizeOwnerChat(
   connection: LoadedConnection,
   event: NormalizedTelegramEvent
 ): Promise<boolean> {
-  const match = event.message.text.trim().match(/^\/start\s+owner_([A-Za-z0-9_-]+)$/);
-  if (!match || !connection.ownerNotificationNonceHash || event.chat.type !== "private") return false;
-  const nonce = match[1] ?? "";
-  if (!secureEqual(sha256(nonce), connection.ownerNotificationNonceHash)) return false;
+  const authorization = inspectTelegramOwnerAuthorizationCommand({
+    text: event.message.text,
+    expectedTokenHash: connection.ownerNotificationNonceHash,
+    chatType: event.chat.type
+  });
+  if (!authorization.matches) return false;
+  if (authorization.expired) {
+    await prisma.telegramBotConnection.update({
+      where: { id: connection.id },
+      data: {
+        ownerNotificationStatus: "NOT_CONNECTED",
+        ownerNotificationNonceHash: null
+      }
+    });
+    await sendText(
+      connection,
+      event,
+      "owner-authorization-expired",
+      "This owner connection link has expired. Generate a new link from Business Setup."
+    );
+    return true;
+  }
   await prisma.telegramBotConnection.update({
     where: { id: connection.id },
     data: {
@@ -959,6 +1063,29 @@ async function authorizeOwnerChat(
   return true;
 }
 
+async function handleConnectedOwnerMessage(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent
+): Promise<boolean> {
+  if (!telegramEventBelongsToBusinessOwner(connection, event)) return false;
+  if (connection.ownerNotificationStatus !== "CONNECTED") {
+    await prisma.telegramBotConnection.update({
+      where: { id: connection.id },
+      data: {
+        ownerNotificationStatus: "CONNECTED",
+        lastError: null
+      }
+    });
+  }
+  await sendText(
+    connection,
+    event,
+    "owner-chat-message",
+    `This Telegram chat is connected as the business owner for ${connection.business.name}. You will receive customer and booking notifications here; customer messages are kept separate.`
+  );
+  return true;
+}
+
 async function handleCommand(
   connection: LoadedConnection,
   event: NormalizedTelegramEvent,
@@ -974,6 +1101,46 @@ async function handleCommand(
     await sendMainMenu(connection, event, triggerData);
     return true;
   }
+  const commandSetting = {
+    services: "telegramServicesCommand",
+    book: "telegramBookCommand",
+    mybookings: "telegramMyBookingsCommand",
+    reschedule: "telegramRescheduleCommand",
+    cancel: "telegramCancelCommand",
+    help: "telegramHelpCommand"
+  }[command];
+  if (commandSetting && !commandEnabled(triggerData, commandSetting)) return false;
+  if (["book", "mybookings", "reschedule", "cancel"].includes(command) && !bookingMode(triggerData)) {
+    return false;
+  }
+  const customCommand = telegramCustomCommands(triggerData).find((item) => item.command === command);
+  if (customCommand) {
+    if (customCommand.action === "services") {
+      await saveTelegramConversationState(stateIdentity, "SHOWING_SERVICES", context);
+      await showServices(connection, event, false);
+      return true;
+    }
+    if (customCommand.action === "book") {
+      if (!bookingMode(triggerData)) {
+        await sendText(connection, event, "custom-booking-disabled", "Booking is not enabled for this bot.");
+        return true;
+      }
+      await saveTelegramConversationState(stateIdentity, "SELECTING_SERVICE", {});
+      await showServices(connection, event, true);
+      return true;
+    }
+    if (customCommand.action === "help") {
+      await sendHelpMenu(connection, event, triggerData);
+      return true;
+    }
+    await sendText(
+      connection,
+      event,
+      `custom-command:${customCommand.command}`,
+      renderBusinessTemplate(customCommand.response, connection.business.name)
+    );
+    return true;
+  }
   if (command === "services") {
     await saveTelegramConversationState(stateIdentity, "SHOWING_SERVICES", context);
     await showServices(connection, event, false);
@@ -985,20 +1152,7 @@ async function handleCommand(
     return true;
   }
   if (command === "help") {
-    await sendText(
-      connection,
-      event,
-      "help",
-      [
-        "/start - Start over",
-        "/services - View services",
-        "/book - Book an appointment",
-        "/mybookings - View upcoming bookings",
-        "/reschedule - Reschedule a booking",
-        "/cancel - Cancel the current flow or a booking",
-        "/help - Show this help"
-      ].join("\n")
-    );
+    await sendHelpMenu(connection, event, triggerData);
     return true;
   }
   if (command === "mybookings" || command === "reschedule") {
@@ -1040,6 +1194,18 @@ async function handleCallback(
 ): Promise<boolean> {
   const data = event.callback.data;
   if (!data) return false;
+  const bookingCallback =
+    data === "nav:book" ||
+    data === "nav:mybookings" ||
+    data.startsWith("service:") ||
+    data.startsWith("date:") ||
+    data.startsWith("slot:") ||
+    data.startsWith("booking:") ||
+    data.startsWith("reschedule:") ||
+    data.startsWith("cancel:");
+  if (bookingCallback && !bookingMode(triggerData)) return false;
+  if (data === "nav:services" && !commandEnabled(triggerData, "telegramServicesCommand")) return false;
+  if (data === "nav:help" && !commandEnabled(triggerData, "telegramHelpCommand")) return false;
   if (data === "nav:services") {
     await answerCallback(connection, event, "nav-services-callback");
     await saveTelegramConversationState(stateIdentity, "SHOWING_SERVICES", context);
@@ -1240,6 +1406,42 @@ async function handleCollectedInput(
   context: TelegramBookingContext
 ): Promise<boolean> {
   const text = event.message.text.trim();
+  if (stateName === "SELECTING_SERVICE" && text && !text.startsWith("/")) {
+    const services = await loadTelegramBusinessServices({
+      businessId: connection.businessId,
+      installedAgentId: connection.installedAgentId
+    });
+    const wanted = normalizedServiceName(text);
+    const exact = services.find((service) => normalizedServiceName(service.name) === wanted);
+    const partial = services.filter((service) => {
+      const candidate = normalizedServiceName(service.name);
+      return candidate.includes(wanted) || wanted.includes(candidate);
+    });
+    const service = exact ?? (partial.length === 1 ? partial[0] : null);
+    if (!service) {
+      await sendText(
+        connection,
+        event,
+        "typed-service-not-found",
+        `I couldn't match “${text.slice(0, 80)}” to one service. Type the exact service name or choose a button below.`
+      );
+      await showServices(connection, event, true);
+      return true;
+    }
+    const next: TelegramBookingContext = {
+      ...context,
+      serviceId: service.id,
+      serviceSlug: service.slug,
+      serviceName: service.name,
+      serviceDurationMinutes: service.durationMinutes,
+      selectedDate: undefined,
+      selectedStartAt: undefined,
+      bookingAttemptId: undefined
+    };
+    await saveTelegramConversationState(stateIdentity, "SELECTING_DATE", next);
+    await showDates(connection, event, service.name);
+    return true;
+  }
   if (stateName === "WAITING_FOR_NAME" && text && !text.startsWith("/")) {
     const next = { ...context, customerName: text.slice(0, 120) };
     await saveTelegramConversationState(stateIdentity, "WAITING_FOR_PHONE", next);
@@ -1505,6 +1707,7 @@ async function processEvent(
   triggerData: JsonRecord
 ): Promise<string | null> {
   if (await authorizeOwnerChat(connection, event)) return null;
+  if (await handleConnectedOwnerMessage(connection, event)) return null;
   const stateIdentity = identity(connection, event);
   const loadedState = await loadTelegramConversationState(stateIdentity);
   const stateName = loadedState?.state ?? "STARTED";
@@ -1516,8 +1719,11 @@ async function processEvent(
     await answerCallback(connection, event, "unknown-callback", "This option has expired.");
     return null;
   }
-  if (await handleCollectedInput(connection, event, triggerData, stateIdentity, stateName, context)) return null;
-  if (await naturalLanguageRoute(connection, event, stateIdentity, context)) return null;
+  if (
+    bookingMode(triggerData) &&
+    await handleCollectedInput(connection, event, triggerData, stateIdentity, stateName, context)
+  ) return null;
+  if (bookingMode(triggerData) && await naturalLanguageRoute(connection, event, stateIdentity, context)) return null;
   return workflowFallback(connection, event, triggerData);
 }
 
@@ -1591,6 +1797,15 @@ export async function processTelegramStoredUpdate(processedUpdateId: string): Pr
       });
       return;
     }
+    const ownerAuthorization = inspectTelegramOwnerAuthorizationCommand({
+      text: event.message.text,
+      expectedTokenHash: connection.ownerNotificationNonceHash,
+      chatType: event.chat.type
+    });
+    const isConnectedOwner = telegramEventBelongsToBusinessOwner(connection, event);
+    if (shouldRememberTelegramEventAsCustomer(connection, event, ownerAuthorization.matches)) {
+      await rememberTelegramConversation(identity(connection, event));
+    }
     const node = triggerNode(connection.installedAgent.workflow.workflowJson);
     if (!node) {
       await prisma.telegramProcessedUpdate.update({
@@ -1599,9 +1814,17 @@ export async function processTelegramStoredUpdate(processedUpdateId: string): Pr
       });
       return;
     }
-    const data = record(node.data);
+    const data = telegramTriggerData(
+      connection.installedAgent.workflow.workflowJson,
+      connection.installedAgent.configJson
+    );
     const matches = telegramTriggerMatches(event, triggerConfig(data));
-    if (!matches && !(bookingMode(data) && event.eventType === "callback_query")) {
+    if (
+      !matches &&
+      !(bookingMode(data) && event.eventType === "callback_query") &&
+      !isConnectedOwner &&
+      !ownerAuthorization.matches
+    ) {
       await prisma.telegramProcessedUpdate.update({
         where: { id: stored.id },
         data: { status: "IGNORED", errorCode: "TRIGGER_NOT_MATCHED", processedAt: new Date() }

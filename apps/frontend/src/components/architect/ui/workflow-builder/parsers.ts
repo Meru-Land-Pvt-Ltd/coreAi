@@ -21,6 +21,7 @@ export function isBuilderNode(value: unknown): value is BuilderNode {
 
 export function normalizeNode(node: BuilderNode): BuilderNode {
   const nodeKind = isNodeKind(node.data.nodeKind) ? node.data.nodeKind : "connector";
+  const isTelegramTrigger = node.data.type === "trigger.telegram_message";
 
   return {
     ...node,
@@ -29,6 +30,7 @@ export function normalizeNode(node: BuilderNode): BuilderNode {
       ...defaultNodeData(nodeKind),
       ...node.data,
       nodeKind,
+      ...(isTelegramTrigger ? { accent: "blue" as const, icon: "telegram" } : {}),
       label: String(node.data.label ?? node.data.title ?? defaultNodeData(nodeKind).label),
       title: String(node.data.title ?? node.data.label ?? defaultNodeData(nodeKind).title)
     }

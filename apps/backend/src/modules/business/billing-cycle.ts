@@ -816,7 +816,7 @@ async function createDueSubscriptionInvoices(now: Date) {
         OR: [
           { invoiceKey },
           // A legacy monthly key may cover one accelerated period, but must
-          // not suppress every later two-day renewal in the same month.
+          // not suppress every later 30-day renewal that starts in the same month.
           { invoiceKey: legacyInvoiceKey, periodStart }
         ]
       },

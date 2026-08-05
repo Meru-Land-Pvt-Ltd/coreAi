@@ -109,6 +109,13 @@ import {
   TelegramConnectorError
 } from "./telegram-connector";
 import {
+  connectArchitectTelegramTestBot,
+  disconnectArchitectTelegramTestBot,
+  getArchitectTelegramTestStatus,
+  handleArchitectTelegramTestWebhook,
+  syncArchitectTelegramTestBot
+} from "./architect-telegram-test-connector";
+import {
   buildArchitectAgentAnalyticsCsv,
   loadArchitectAgentAnalytics,
   parseArchitectAnalyticsRange
@@ -231,6 +238,7 @@ architectRoutes.post("/connectors/twilio/missed-call/:workflowId", handleTwilioM
 architectRoutes.post("/connectors/vapi/webhook", handleVapiWebhook);
 architectRoutes.post("/connectors/telegram/manager-webhook", handleTelegramManagerWebhook);
 architectRoutes.post("/connectors/telegram/webhook/:connectionId", handleTelegramBotWebhook);
+architectRoutes.post("/connectors/telegram/test-webhook/:connectionId", handleArchitectTelegramTestWebhook);
 // Stripe signs this public Connect webhook; it must be registered before auth.
 architectRoutes.post("/payouts/stripe/webhook", handleStripeConnectWebhook);
 // Public GET probe: Vapi only POSTs here; this keeps curl diagnostics honest.
@@ -587,6 +595,106 @@ architectRoutes.post("/connectors/telegram/manager/setup", async (c) => {
       error instanceof TelegramConnectorError ? error.code : "TELEGRAM_MANAGER_SETUP_FAILED"
     );
   }
+});
+
+const architectTelegramTestContextSchema = z.object({
+  businessName: z.string().trim().max(120).optional(),
+  businessType: z.string().trim().max(120).optional(),
+  appointmentService: z.string().trim().max(200).optional(),
+  services: z.array(z.string().trim().min(1).max(200)).max(30).optional(),
+  timeZone: z.string().trim().max(100).optional()
+});
+
+const architectTelegramTestConnectSchema = architectTelegramTestContextSchema.extend({
+  botToken: z.string().trim().min(20, "Enter the token provided by BotFather").max(256)
+});
+
+architectRoutes.get("/workflows/:workflowId/telegram-test-connection", async (c) => {
+  const authUser = c.get("authUser");
+  try {
+    return successResponse(
+      c,
+      await getArchitectTelegramTestStatus(authUser.id, c.req.param("workflowId"))
+    );
+  } catch (error) {
+    const status = error instanceof TelegramConnectorError ? error.status : 500;
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Telegram test status could not be loaded.",
+      apiErrorStatus(status, 500),
+      error instanceof TelegramConnectorError ? error.code : "TELEGRAM_TEST_STATUS_FAILED"
+    );
+  }
+});
+
+architectRoutes.post("/workflows/:workflowId/telegram-test-connection", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = architectTelegramTestConnectSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid Telegram test setup.", 422, "VALIDATION_ERROR");
+  }
+  try {
+    return successResponse(
+      c,
+      await connectArchitectTelegramTestBot({
+        userId: authUser.id,
+        workflowId: c.req.param("workflowId"),
+        botToken: parsed.data.botToken,
+        testContext: {
+          businessName: parsed.data.businessName,
+          businessType: parsed.data.businessType,
+          appointmentService: parsed.data.appointmentService,
+          services: parsed.data.services,
+          timeZone: parsed.data.timeZone
+        }
+      }),
+      "Telegram test bot connected."
+    );
+  } catch (error) {
+    const status = error instanceof TelegramConnectorError ? error.status : 502;
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Telegram test bot could not be connected.",
+      apiErrorStatus(status, 500),
+      error instanceof TelegramConnectorError ? error.code : "TELEGRAM_TEST_CONNECT_FAILED"
+    );
+  }
+});
+
+architectRoutes.put("/workflows/:workflowId/telegram-test-connection", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = architectTelegramTestContextSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid Telegram test settings.", 422, "VALIDATION_ERROR");
+  }
+  try {
+    return successResponse(
+      c,
+      await syncArchitectTelegramTestBot({
+        userId: authUser.id,
+        workflowId: c.req.param("workflowId"),
+        testContext: parsed.data
+      }),
+      "Telegram test commands and services synced."
+    );
+  } catch (error) {
+    const status = error instanceof TelegramConnectorError ? error.status : 502;
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Telegram test settings could not be synced.",
+      apiErrorStatus(status, 500),
+      error instanceof TelegramConnectorError ? error.code : "TELEGRAM_TEST_SYNC_FAILED"
+    );
+  }
+});
+
+architectRoutes.delete("/workflows/:workflowId/telegram-test-connection", async (c) => {
+  const authUser = c.get("authUser");
+  const disconnected = await disconnectArchitectTelegramTestBot(
+    authUser.id,
+    c.req.param("workflowId")
+  );
+  return successResponse(c, { disconnected }, "Telegram test bot disconnected.");
 });
 
 architectRoutes.get("/ai/providers", async (c) => {

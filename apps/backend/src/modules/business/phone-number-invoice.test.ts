@@ -101,9 +101,9 @@ describe("addPhoneNumberFeeToPendingInvoiceTx", () => {
         billingMonth: "2026-07",
         sequence: 1,
         status: "PENDING",
-        periodStart: new Date("2026-07-27T10:30:00.000Z"),
-        periodEnd: new Date("2026-07-29T10:30:00.000Z"),
-        dueAt: new Date("2026-07-29T10:30:00.000Z"),
+        periodStart: new Date("2026-07-25T10:30:00.000Z"),
+        periodEnd: new Date("2026-08-24T10:30:00.000Z"),
+        dueAt: new Date("2026-08-24T10:30:00.000Z"),
         issuedAt: INPUT.chargedAt,
         subtotalMicroUsd: 0,
         totalMicroUsd: 0
@@ -154,7 +154,7 @@ describe("addPhoneNumberFeeToPendingInvoiceTx", () => {
     });
   });
 
-  it("keeps the monthly phone fee on the current two-day usage invoice", async () => {
+  it("keeps the monthly phone fee on the current 30-day usage invoice", async () => {
     const tx = invoiceTx();
     const augustInput = {
       ...INPUT,
@@ -173,7 +173,7 @@ describe("addPhoneNumberFeeToPendingInvoiceTx", () => {
         installedAgentId: INPUT.installedAgentId,
         billingMonth: "2026-08",
         periodStart: new Date("2026-08-24T10:30:00.000Z"),
-        periodEnd: new Date("2026-08-26T10:30:00.000Z")
+        periodEnd: new Date("2026-09-23T10:30:00.000Z")
       }),
       select: { id: true }
     });

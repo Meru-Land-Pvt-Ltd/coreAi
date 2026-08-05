@@ -73,7 +73,14 @@ npm run prisma:migrate:deploy
 npm run prisma:generate
 ```
 
-Start these in separate terminals:
+The normal root development command starts the shared package, backend,
+frontend, and Telegram worker together:
+
+```powershell
+npm run dev
+```
+
+To run the processes in separate terminals instead:
 
 ```powershell
 npm run dev:backend

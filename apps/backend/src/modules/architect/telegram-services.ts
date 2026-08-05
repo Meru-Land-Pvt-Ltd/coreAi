@@ -117,15 +117,9 @@ export async function loadTelegramBusinessServices(options: {
   businessId: string;
   installedAgentId: string;
 }) {
-  const services = await prisma.businessService.findMany({
-    where: {
-      businessId: options.businessId,
-      installedAgentId: options.installedAgentId,
-      active: true
-    },
-    orderBy: [{ name: "asc" }, { id: "asc" }]
-  });
-  return services.length > 0 ? services : syncTelegramBusinessServices(options);
+  // Business Profile is the source of truth. Sync on reads so each buyer can
+  // change their own services without leaving stale Telegram menu entries.
+  return syncTelegramBusinessServices(options);
 }
 
 export async function loadTelegramBusinessService(options: {

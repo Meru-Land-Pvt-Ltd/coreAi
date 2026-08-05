@@ -22,6 +22,72 @@ import {
 } from "./use-calendly-pickers";
 import { marked } from "marked";
 import type { CalendlyPickerOption } from "@/components/architect/features/types";
+import type { ArchitectTelegramTestConnection } from "@/components/architect/features/api";
+import { useState } from "react";
+
+export type TelegramCommandField =
+  | "telegramBookingMode"
+  | "telegramServicesCommand"
+  | "telegramBookCommand"
+  | "telegramMyBookingsCommand"
+  | "telegramRescheduleCommand"
+  | "telegramCancelCommand"
+  | "telegramHelpCommand";
+
+export type TelegramTestCommandSettings = Record<TelegramCommandField, boolean>;
+
+export type TelegramCustomCommand = {
+  id: string;
+  command: string;
+  description: string;
+  action: "reply" | "services" | "book" | "help";
+  response: string;
+};
+
+const DEFAULT_TELEGRAM_COMMAND_SETTINGS: TelegramTestCommandSettings = {
+  telegramBookingMode: false,
+  telegramServicesCommand: false,
+  telegramBookCommand: false,
+  telegramMyBookingsCommand: false,
+  telegramRescheduleCommand: false,
+  telegramCancelCommand: false,
+  telegramHelpCommand: true
+};
+
+function TelegramCommandToggle({
+  label,
+  checked,
+  disabled = false,
+  onChange
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className={`flex items-center justify-between gap-3 rounded-lg border border-sky-100 bg-white px-3 py-2 text-xs font-semibold text-slate-700 ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}>
+      <span>{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-4 w-4 rounded border-sky-200 text-[#229ED9] focus:ring-sky-400"
+      />
+    </label>
+  );
+}
+
+function newTelegramCustomCommand(): TelegramCustomCommand {
+  return {
+    id: globalThis.crypto?.randomUUID?.() ?? `telegram-command-${Date.now()}`,
+    command: "",
+    description: "",
+    action: "reply",
+    response: ""
+  };
+}
 
 function calendlyPickerSelectOptions(
   selected: string,
@@ -132,6 +198,11 @@ export function TestPanel({
   isMissedCallWorkflow = false,
   isSmsWorkflow = false,
   isTelegramWorkflow = false,
+  telegramTestConnection = null,
+  connectingTelegramTest = false,
+  syncingTelegramTest = false,
+  telegramCommandSettings = DEFAULT_TELEGRAM_COMMAND_SETTINGS,
+  telegramCustomCommands = [],
   onConnectGmail,
   onDisconnectGoogle,
   onConnectCalendly,
@@ -160,6 +231,11 @@ export function TestPanel({
   onResetConversationTest,
   onBrowserCallEnded,
   onConnectWhatsApp,
+  onConnectTelegramTest,
+  onSyncTelegramTest,
+  onDisconnectTelegramTest,
+  onTelegramCommandChange,
+  onTelegramCustomCommandsChange,
   onCallerNumberChange,
   onCallerNameChange,
   onBusinessNameChange,
@@ -247,6 +323,11 @@ export function TestPanel({
   isMissedCallWorkflow?: boolean;
   isSmsWorkflow?: boolean;
   isTelegramWorkflow?: boolean;
+  telegramTestConnection?: ArchitectTelegramTestConnection | null;
+  connectingTelegramTest?: boolean;
+  syncingTelegramTest?: boolean;
+  telegramCommandSettings?: TelegramTestCommandSettings;
+  telegramCustomCommands?: TelegramCustomCommand[];
   onConnectGmail: () => void;
   onDisconnectGoogle: () => void;
   onConnectCalendly?: () => void;
@@ -268,6 +349,11 @@ export function TestPanel({
   onCalendlyLocationChange?: (value: string) => void;
   onRefreshConnections: () => void;
   onConnectWhatsApp?: () => void;
+  onConnectTelegramTest?: (botToken: string) => void;
+  onSyncTelegramTest?: () => void;
+  onDisconnectTelegramTest?: () => void;
+  onTelegramCommandChange?: (field: TelegramCommandField, value: boolean) => void;
+  onTelegramCustomCommandsChange?: (commands: TelegramCustomCommand[]) => void;
   onRunTest: () => void;
   onStartLiveTest: () => void;
   onStopLiveTest: () => void;
@@ -291,6 +377,21 @@ export function TestPanel({
   onTriggerMessageChange: (value: string) => void;
   onTriggerAttachmentsChange: (value: AIAttachment[]) => void;
 }) {
+  const [telegramBotToken, setTelegramBotToken] = useState("");
+  const telegramCustomCommandError = (() => {
+    const builtIns = new Set(["start", "services", "book", "mybookings", "reschedule", "cancel", "help"]);
+    const seen = new Set<string>();
+    for (const item of telegramCustomCommands) {
+      const command = item.command.trim().toLowerCase().replace(/^\/+/, "");
+      if (!command) return "Enter a command name for every custom command.";
+      if (builtIns.has(command)) return `/${command} is already a built-in command.`;
+      if (seen.has(command)) return `/${command} is duplicated.`;
+      if (!item.description.trim()) return `Add a Telegram menu description for /${command}.`;
+      if (item.action === "reply" && !item.response.trim()) return `Add the bot reply for /${command}.`;
+      seen.add(command);
+    }
+    return "";
+  })();
 
   const sentSms = getSentSms(runContext);
   const capturedLead = getCapturedLead(runContext);
@@ -365,6 +466,8 @@ export function TestPanel({
   })();
   const subtitle = isVoiceWorkflow || needsCalendlyConnection
     ? null
+    : isTelegramWorkflow
+      ? "Connect a dedicated test bot, then send it a real Telegram message. The draft workflow runs without publishing."
     : needsWhatsAppConnection
       ? "Connect WhatsApp, fill the sample message fields, then run a dry test."
       : "Send a sample trigger through the workflow and watch each step run in real time.";
@@ -389,12 +492,13 @@ export function TestPanel({
     !isManualTriggerWorkflow &&
     (isVoiceWorkflow || isMissedCallWorkflow || isSmsWorkflow || hasWhatsAppTrigger);
   const showTriggerMessage =
-    isManualTriggerWorkflow || isSmsWorkflow || isTelegramWorkflow || hasWhatsAppTrigger;
+    isManualTriggerWorkflow || isSmsWorkflow || hasWhatsAppTrigger;
   const showBusinessContextFields =
     !isManualTriggerWorkflow &&
     (isVoiceWorkflow ||
       isMissedCallWorkflow ||
       isSmsWorkflow ||
+      isTelegramWorkflow ||
       hasWhatsAppTrigger ||
       needsCalendarConnection ||
       hasGmailFlow);
@@ -494,16 +598,29 @@ export function TestPanel({
             ) : null}
           </div>
           <div className="flex shrink-0 gap-2.5">
-            <button
-              type="button"
-              onClick={onRunTest}
-              disabled={running || (needsWhatsAppConnection && !whatsappConnected)}
-              data-testid="test-run"
-              className="btn-primary shadow-amber inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-2.5 text-[14px] font-bold text-white transition disabled:opacity-60"
-            >
-              <BuilderIcon name="play" className="h-4 w-4" />
-              {running ? "Running..." : "Run dry test"}
-            </button>
+            {!isTelegramWorkflow ? (
+              <button
+                type="button"
+                onClick={onRunTest}
+                disabled={running || (needsWhatsAppConnection && !whatsappConnected)}
+                data-testid="test-run"
+                className="btn-primary shadow-amber inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 px-5 py-2.5 text-[14px] font-bold text-white transition disabled:opacity-60"
+              >
+                <BuilderIcon name="play" className="h-4 w-4" />
+                {running ? "Running..." : "Run dry test"}
+              </button>
+            ) : telegramTestConnection?.connected && telegramTestConnection.botUrl ? (
+              <a
+                href={telegramTestConnection.botUrl}
+                target="_blank"
+                rel="noreferrer"
+                data-testid="builder-test-open-telegram"
+                className="inline-flex items-center gap-2 rounded-xl bg-[#229ED9] px-5 py-2.5 text-[14px] font-bold text-white shadow-sm transition hover:bg-[#168ac2]"
+              >
+                <BuilderIcon name="telegram" className="h-4 w-4" />
+                Open in Telegram
+              </a>
+            ) : null}
             {false && isVoiceWorkflow ? (
               sandboxReady ? (
                 <button
@@ -557,13 +674,19 @@ export function TestPanel({
                 : isSmsWorkflow
                   ? "Simulate an inbound SMS"
                   : isTelegramWorkflow
-                    ? "Simulate a Telegram message"
+                    ? "Live Telegram test context"
                     : hasWhatsAppTrigger
                       ? "Simulate a WhatsApp message"
                       : needsCalendlyConnection
                         ? "Calendly request data"
                         : "Simulate a customer event"}
           </h3>
+          {isTelegramWorkflow ? (
+            <div className="mb-5 rounded-xl border border-sky-100 bg-sky-50/70 px-4 py-3 text-sm leading-6 text-sky-900" data-testid="builder-test-telegram-live-instructions">
+              These values provide sample business context to the draft. Connect the test bot below, open it in Telegram,
+              and send a real message. Incoming updates and outgoing replies use Telegram&apos;s live API.
+            </div>
+          ) : null}
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             {showCallerFields && (
               <>
@@ -644,13 +767,28 @@ export function TestPanel({
 
                 <label data-testid="builder-test-appointment-service-label">
                   <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">Business services</span>
-                  <input data-testid="builder-test-appointment-service-input"
-                    type="text"
-                    value={appointmentService}
-                    onChange={(event) => onAppointmentServiceChange(event.target.value)}
-                    placeholder="General Consultation"
-                    className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                  />
+                  {isTelegramWorkflow ? (
+                    <textarea
+                      rows={4}
+                      value={appointmentService}
+                      onChange={(event) => onAppointmentServiceChange(event.target.value)}
+                      placeholder={"General Consultation\nDental Cleaning\nEmergency Visit"}
+                      data-testid="builder-test-appointment-service-input"
+                      className="fld w-full resize-y rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-sky-300 focus:ring-2 focus:ring-sky-400/30"
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={appointmentService}
+                      onChange={(event) => onAppointmentServiceChange(event.target.value)}
+                      placeholder="General Consultation"
+                      data-testid="builder-test-appointment-service-input"
+                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                    />
+                  )}
+                  {isTelegramWorkflow ? (
+                    <span className="mt-1 block text-[11px] text-slate-500">Enter one test service per line. Every buyer can use a different list from Business Profile.</span>
+                  ) : null}
                 </label>
 
                 <label data-testid="builder-test-timezone-label">
@@ -1258,6 +1396,290 @@ export function TestPanel({
                     Uses a sandbox assistant for this workflow.
                   </p>
                 </div>
+              </div>
+            ) : null}
+
+            {isTelegramWorkflow ? (
+              <div
+                className="mt-3 rounded-xl border border-sky-100 bg-sky-50/30 px-4 py-4"
+                data-testid="builder-test-telegram-card"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#229ED9] text-white">
+                      <BuilderIcon name="telegram" className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800" data-testid="builder-test-telegram-status">
+                        {telegramTestConnection?.connected
+                          ? `@${telegramTestConnection.botUsername || "telegram_test_bot"}`
+                          : "Telegram test bot"}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {telegramTestConnection?.connected
+                          ? "Webhook is connected to this draft workflow."
+                          : "Use a separate BotFather token reserved for Architect testing."}
+                      </p>
+                    </div>
+                  </div>
+
+                  {telegramTestConnection?.connected ? (
+                    <div className="flex gap-2">
+                      {telegramTestConnection.botUrl ? (
+                        <a href={telegramTestConnection.botUrl} target="_blank" rel="noreferrer" className="rounded-xl bg-[#229ED9] px-4 py-2 text-xs font-semibold text-white">
+                          Open on phone
+                        </a>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={onDisconnectTelegramTest}
+                        disabled={connectingTelegramTest}
+                        data-testid="builder-test-disconnect-telegram"
+                        className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 rounded-xl border border-sky-100 bg-sky-50/60 p-4" data-testid="builder-test-telegram-commands">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wide text-sky-800">Test bot command menu</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                        These are the Architect defaults. Save &amp; sync updates the Test business name, services, and real command menu visible on your phone.
+                      </p>
+                    </div>
+                    {telegramTestConnection?.connected ? (
+                      <button
+                        type="button"
+                        onClick={onSyncTelegramTest}
+                        disabled={connectingTelegramTest || syncingTelegramTest || Boolean(telegramCustomCommandError)}
+                        data-testid="builder-test-sync-telegram"
+                        className="rounded-lg border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-sky-700 disabled:opacity-60"
+                      >
+                        {syncingTelegramTest ? "Syncing…" : "Save & sync test setup"}
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="flex items-center justify-between rounded-lg border border-sky-100 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                      <span>/start</span><span className="text-sky-700">Always on</span>
+                    </div>
+                    <TelegramCommandToggle
+                      label="/services"
+                      checked={telegramCommandSettings.telegramServicesCommand}
+                      onChange={(value) => onTelegramCommandChange?.("telegramServicesCommand", value)}
+                    />
+                    <TelegramCommandToggle
+                      label="Booking features"
+                      checked={telegramCommandSettings.telegramBookingMode}
+                      onChange={(value) => onTelegramCommandChange?.("telegramBookingMode", value)}
+                    />
+                    <TelegramCommandToggle
+                      label="/book"
+                      checked={telegramCommandSettings.telegramBookCommand}
+                      disabled={!telegramCommandSettings.telegramBookingMode}
+                      onChange={(value) => onTelegramCommandChange?.("telegramBookCommand", value)}
+                    />
+                    <TelegramCommandToggle
+                      label="/mybookings"
+                      checked={telegramCommandSettings.telegramMyBookingsCommand}
+                      disabled={!telegramCommandSettings.telegramBookingMode}
+                      onChange={(value) => onTelegramCommandChange?.("telegramMyBookingsCommand", value)}
+                    />
+                    <TelegramCommandToggle
+                      label="/reschedule"
+                      checked={telegramCommandSettings.telegramRescheduleCommand}
+                      disabled={!telegramCommandSettings.telegramBookingMode}
+                      onChange={(value) => onTelegramCommandChange?.("telegramRescheduleCommand", value)}
+                    />
+                    <TelegramCommandToggle
+                      label="/cancel"
+                      checked={telegramCommandSettings.telegramCancelCommand}
+                      disabled={!telegramCommandSettings.telegramBookingMode}
+                      onChange={(value) => onTelegramCommandChange?.("telegramCancelCommand", value)}
+                    />
+                    <TelegramCommandToggle
+                      label="/help"
+                      checked={telegramCommandSettings.telegramHelpCommand}
+                      onChange={(value) => onTelegramCommandChange?.("telegramHelpCommand", value)}
+                    />
+                  </div>
+                  <div className="mt-4 border-t border-sky-100 pt-4" data-testid="builder-test-telegram-custom-commands">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold text-slate-800">Custom commands</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">
+                          Add the command shown in Telegram, describe its feature, then choose what the bot should do.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onTelegramCustomCommandsChange?.([
+                          ...telegramCustomCommands,
+                          newTelegramCustomCommand()
+                        ])}
+                        disabled={telegramCustomCommands.length >= 20}
+                        data-testid="builder-test-add-telegram-command"
+                        className="rounded-lg border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-sky-700 disabled:opacity-50"
+                      >
+                        Add command
+                      </button>
+                    </div>
+                    {telegramCustomCommands.length ? (
+                      <div className="mt-3 space-y-3">
+                        {telegramCustomCommands.map((custom, index) => {
+                          const updateCustom = (patch: Partial<TelegramCustomCommand>) => {
+                            onTelegramCustomCommandsChange?.(
+                              telegramCustomCommands.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, ...patch } : item
+                              )
+                            );
+                          };
+                          return (
+                            <div key={custom.id} className="rounded-xl border border-sky-100 bg-white p-3" data-testid="builder-test-telegram-custom-command">
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <label>
+                                  <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">Command</span>
+                                  <div className="flex rounded-lg border border-gray-200 bg-white focus-within:border-sky-300">
+                                    <span className="px-3 py-2 text-sm text-slate-400">/</span>
+                                    <input
+                                      value={custom.command}
+                                      onChange={(event) => updateCustom({
+                                        command: event.target.value.toLowerCase().replace(/^\/+/, "").replace(/[^a-z0-9_]/g, "").slice(0, 32)
+                                      })}
+                                      placeholder="contact"
+                                      className="min-w-0 flex-1 rounded-r-lg px-1 py-2 text-sm text-slate-800 outline-none"
+                                      data-testid="builder-test-telegram-custom-command-name"
+                                    />
+                                  </div>
+                                </label>
+                                <label>
+                                  <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">Menu description</span>
+                                  <input
+                                    value={custom.description}
+                                    onChange={(event) => updateCustom({ description: event.target.value.slice(0, 256) })}
+                                    placeholder="Show contact information"
+                                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-sky-300"
+                                    data-testid="builder-test-telegram-custom-command-description"
+                                  />
+                                </label>
+                                <label>
+                                  <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">What should it do?</span>
+                                  <select
+                                    value={custom.action}
+                                    onChange={(event) => updateCustom({ action: event.target.value as TelegramCustomCommand["action"] })}
+                                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-sky-300"
+                                    data-testid="builder-test-telegram-custom-command-action"
+                                  >
+                                    <option value="reply">Send a custom reply</option>
+                                    <option value="services">Show services</option>
+                                    <option value="book">Start booking</option>
+                                    <option value="help">Show command help</option>
+                                  </select>
+                                </label>
+                              </div>
+                              {custom.action === "reply" ? (
+                                <label className="mt-3 block">
+                                  <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">Bot reply</span>
+                                  <textarea
+                                    rows={2}
+                                    value={custom.response}
+                                    onChange={(event) => updateCustom({ response: event.target.value.slice(0, 4096) })}
+                                    placeholder="You can contact {{business.name}} at..."
+                                    className="w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-sky-300"
+                                    data-testid="builder-test-telegram-custom-command-response"
+                                  />
+                                </label>
+                              ) : null}
+                              <div className="mt-2 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => onTelegramCustomCommandsChange?.(
+                                    telegramCustomCommands.filter((_, itemIndex) => itemIndex !== index)
+                                  )}
+                                  className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                                  data-testid="builder-test-remove-telegram-command"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-xs text-slate-500">No custom commands yet.</p>
+                    )}
+                    {telegramCustomCommandError ? (
+                      <p className="mt-2 text-xs font-semibold text-rose-600" data-testid="builder-test-telegram-custom-command-error">
+                        {telegramCustomCommandError}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                {!telegramTestConnection?.connected ? (
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="password"
+                      value={telegramBotToken}
+                      onChange={(event) => setTelegramBotToken(event.target.value)}
+                      autoComplete="off"
+                      placeholder="BotFather token · 123456789:AA..."
+                      data-testid="builder-test-telegram-token"
+                      className="fld min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 font-mono text-[13px] text-slate-800 outline-none focus:border-sky-300 focus:ring-2 focus:ring-sky-400/30"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => onConnectTelegramTest?.(telegramBotToken.trim())}
+                      disabled={connectingTelegramTest || telegramBotToken.trim().length < 20 || Boolean(telegramCustomCommandError)}
+                      data-testid="builder-test-connect-telegram"
+                      className="rounded-xl bg-[#229ED9] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#168ac2] disabled:opacity-60"
+                    >
+                      {connectingTelegramTest ? "Connecting…" : "Connect test bot"}
+                    </button>
+                  </div>
+                ) : null}
+
+                {telegramTestConnection?.lastChatId ? (
+                  <p className="mt-3 text-xs font-medium text-emerald-700" data-testid="builder-test-telegram-chat-captured">
+                    Latest Telegram chat captured for replies and confirmation messages.
+                  </p>
+                ) : null}
+
+                {telegramTestConnection?.lastRunAt ? (
+                  <div className="mt-4 border-t border-sky-100 pt-3" data-testid="builder-test-telegram-last-run">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className={`rounded-full px-2 py-1 font-bold ${
+                        telegramTestConnection.lastRunStatus === "SUCCESS"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : telegramTestConnection.lastRunStatus === "FAILED"
+                            ? "bg-rose-100 text-rose-700"
+                            : "bg-slate-100 text-slate-600"
+                      }`}>
+                        {telegramTestConnection.lastRunStatus}
+                      </span>
+                      <span className="text-slate-500">
+                        {telegramTestConnection.lastSender || "Telegram user"} · {telegramTestConnection.lastMessage || "Update received"}
+                      </span>
+                    </div>
+                    {telegramTestConnection.lastError ? (
+                      <p className="mt-2 text-xs font-semibold text-rose-600">{telegramTestConnection.lastError}</p>
+                    ) : null}
+                    {telegramTestConnection.lastRunLogs.length ? (
+                      <div className="mt-3 space-y-1.5">
+                        {telegramTestConnection.lastRunLogs.slice(-5).map((log, index) => (
+                          <p key={`${log.nodeId}-${index}`} className="text-xs text-slate-600">
+                            <span className="font-semibold text-slate-800">{log.label}:</span> {log.message}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

@@ -378,31 +378,38 @@ export type TelegramConnectionSummary = {
 
 export type TelegramSetupStatus = {
   connection: TelegramConnectionSummary | null;
-  managedProvisioningAvailable: boolean;
-  managedProvisioningReason: string | null;
   manualProvisioningAvailable: boolean;
+  settings: TelegramBusinessSettings;
+  services: string[];
+};
+
+export type TelegramBusinessCustomCommand = {
+  command: string;
+  description: string;
+  action: "reply" | "services" | "book" | "help";
+  response: string;
+};
+
+export type TelegramBusinessSettings = {
+  telegramWelcomeMessage: string;
+  telegramFallbackMessage: string;
+  telegramBookingMode: boolean;
+  telegramServicesCommand: boolean;
+  telegramBookCommand: boolean;
+  telegramMyBookingsCommand: boolean;
+  telegramRescheduleCommand: boolean;
+  telegramCancelCommand: boolean;
+  telegramHelpCommand: boolean;
+  telegramCustomCommands: TelegramBusinessCustomCommand[];
+  telegramRequestPhone: boolean;
+  telegramRequestEmail: boolean;
+  telegramRequestNotes: boolean;
 };
 
 export function getBusinessTelegramStatus(installedAgentId: string) {
   return apiGet<TelegramSetupStatus>(
     `/business/agents/${encodeURIComponent(installedAgentId)}/telegram/status`
   );
-}
-
-export function startBusinessTelegramManagedSetup(
-  installedAgentId: string,
-  body: { botDisplayName: string }
-) {
-  return apiPost<{
-    connectionId: string;
-    status: string;
-    provisioningMode: string;
-    provisioningStatus?: string;
-    requestedUsername?: string;
-    botUsername?: string | null;
-    botUrl?: string | null;
-    approvalUrl?: string | null;
-  }>(`/business/agents/${encodeURIComponent(installedAgentId)}/telegram/setup`, body);
 }
 
 export function connectBusinessTelegramManualBot(
@@ -420,6 +427,16 @@ export function connectBusinessTelegramManualBot(
   }>(`/business/agents/${encodeURIComponent(installedAgentId)}/telegram/manual`, body);
 }
 
+export function updateBusinessTelegramSettings(
+  installedAgentId: string,
+  body: TelegramBusinessSettings & { botDisplayName: string; services: string[] }
+) {
+  return apiPut<{ settings: TelegramBusinessSettings; services: string[]; botDisplayName: string }>(
+    `/business/agents/${encodeURIComponent(installedAgentId)}/telegram/settings`,
+    body
+  );
+}
+
 export function refreshBusinessTelegramHealth(installedAgentId: string) {
   return apiPost<{
     ok: boolean;
@@ -433,7 +450,7 @@ export function refreshBusinessTelegramHealth(installedAgentId: string) {
 }
 
 export function startBusinessTelegramOwnerAuthorization(installedAgentId: string) {
-  return apiPost<{ authorizationUrl: string; status: string }>(
+  return apiPost<{ authorizationUrl: string; status: string; expiresAt: string }>(
     `/business/agents/${encodeURIComponent(installedAgentId)}/telegram/owner-authorization`,
     {}
   );

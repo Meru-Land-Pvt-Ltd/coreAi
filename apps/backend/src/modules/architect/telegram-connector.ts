@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import type { Context } from "hono";
-import { Prisma } from "@prisma/client";
+import { ConnectorProvider, Prisma } from "@prisma/client";
 import { env } from "../../config/env";
 import { decryptSecret, encryptSecret } from "../../lib/crypto";
 import { prisma } from "../../lib/prisma";
@@ -19,6 +19,14 @@ import {
   type TelegramUpdate
 } from "./telegram-update";
 import { parseRunnerWorkflowJson } from "./workflow-runner";
+import { createTelegramOwnerAuthorizationToken } from "./telegram-owner-routing";
+import {
+  telegramCommandList,
+  telegramCustomCommands,
+  type TelegramCustomCommand
+} from "./telegram-command-config";
+
+export { telegramCommandList } from "./telegram-command-config";
 
 const TELEGRAM_TRIGGER_TYPE = "trigger.telegram_message";
 const TELEGRAM_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token";
@@ -133,20 +141,72 @@ function triggerNode(workflowJson: unknown) {
   );
 }
 
-function commandList(triggerData: JsonRecord) {
-  const commands = [{ command: "start", description: "Start the assistant" }];
-  const optional = [
-    ["telegramServicesCommand", "services", "View available services"],
-    ["telegramBookCommand", "book", "Book an appointment"],
-    ["telegramMyBookingsCommand", "mybookings", "View your bookings"],
-    ["telegramRescheduleCommand", "reschedule", "Reschedule a booking"],
-    ["telegramCancelCommand", "cancel", "Cancel a booking"],
-    ["telegramHelpCommand", "help", "Show available commands"]
-  ] as const;
-  for (const [field, command, description] of optional) {
-    if (flag(triggerData[field], true)) commands.push({ command, description });
-  }
-  return commands;
+const TELEGRAM_BUSINESS_SETTING_DEFAULTS = {
+  telegramWelcomeMessage: "",
+  telegramFallbackMessage: "",
+  telegramBookingMode: false,
+  telegramServicesCommand: false,
+  telegramBookCommand: false,
+  telegramMyBookingsCommand: false,
+  telegramRescheduleCommand: false,
+  telegramCancelCommand: false,
+  telegramHelpCommand: true,
+  telegramRequestPhone: false,
+  telegramRequestEmail: false,
+  telegramRequestNotes: false
+} as const;
+
+export type TelegramBusinessSettings = {
+  telegramWelcomeMessage: string;
+  telegramFallbackMessage: string;
+  telegramBookingMode: boolean;
+  telegramServicesCommand: boolean;
+  telegramBookCommand: boolean;
+  telegramMyBookingsCommand: boolean;
+  telegramRescheduleCommand: boolean;
+  telegramCancelCommand: boolean;
+  telegramHelpCommand: boolean;
+  telegramCustomCommands: TelegramCustomCommand[];
+  telegramRequestPhone: boolean;
+  telegramRequestEmail: boolean;
+  telegramRequestNotes: boolean;
+};
+
+function telegramBuyerOverrides(configJson: unknown): JsonRecord {
+  return record(record(configJson).telegram);
+}
+
+function mergedTelegramTriggerData(workflowJson: unknown, configJson: unknown): JsonRecord {
+  const node = triggerNode(workflowJson);
+  return {
+    ...record(node?.data),
+    ...telegramBuyerOverrides(configJson)
+  };
+}
+
+function telegramBusinessSettings(workflowJson: unknown, configJson: unknown): TelegramBusinessSettings {
+  const data = mergedTelegramTriggerData(workflowJson, configJson);
+  return {
+    telegramWelcomeMessage: text(
+      data.telegramWelcomeMessage,
+      TELEGRAM_BUSINESS_SETTING_DEFAULTS.telegramWelcomeMessage
+    ),
+    telegramFallbackMessage: text(
+      data.telegramFallbackMessage,
+      TELEGRAM_BUSINESS_SETTING_DEFAULTS.telegramFallbackMessage
+    ),
+    telegramBookingMode: flag(data.telegramBookingMode, TELEGRAM_BUSINESS_SETTING_DEFAULTS.telegramBookingMode),
+    telegramServicesCommand: flag(data.telegramServicesCommand, TELEGRAM_BUSINESS_SETTING_DEFAULTS.telegramServicesCommand),
+    telegramBookCommand: flag(data.telegramBookCommand, TELEGRAM_BUSINESS_SETTING_DEFAULTS.telegramBookCommand),
+    telegramMyBookingsCommand: flag(data.telegramMyBookingsCommand, TELEGRAM_BUSINESS_SETTING_DEFAULTS.telegramMyBookingsCommand),
+    telegramRescheduleCommand: flag(data.telegramRescheduleCommand, TELEGRAM_BUSINESS_SETTING_DEFAULTS.telegramRescheduleCommand),
+    telegramCancelCommand: flag(data.telegramCancelCommand, TELEGRAM_BUSINESS_SETTING_DEFAULTS.telegramCancelCommand),
+    telegramHelpCommand: flag(data.telegramHelpCommand, TELEGRAM_BUSINESS_SETTING_DEFAULTS.telegramHelpCommand),
+    telegramCustomCommands: telegramCustomCommands(data),
+    telegramRequestPhone: flag(data.telegramRequestPhone, TELEGRAM_BUSINESS_SETTING_DEFAULTS.telegramRequestPhone),
+    telegramRequestEmail: flag(data.telegramRequestEmail, TELEGRAM_BUSINESS_SETTING_DEFAULTS.telegramRequestEmail),
+    telegramRequestNotes: flag(data.telegramRequestNotes, TELEGRAM_BUSINESS_SETTING_DEFAULTS.telegramRequestNotes)
+  };
 }
 
 function allowedUpdates(): string[] {
@@ -197,7 +257,7 @@ async function loadOwnedAgent(ownerId: string, installedAgentId: string) {
       business: { ownerId }
     },
     include: {
-      business: true,
+      business: { include: { profile: true } },
       workflow: true,
       telegramBot: true
     }
@@ -236,7 +296,10 @@ async function configureTelegramBot(options: {
       422
     );
   }
-  const data = record(node.data);
+  const data = mergedTelegramTriggerData(
+    connection.installedAgent.workflow.workflowJson,
+    connection.installedAgent.configJson
+  );
   const businessName = connection.business.name;
   const displayName =
     connection.botDisplayName ||
@@ -260,7 +323,7 @@ async function configureTelegramBot(options: {
     short_description: shortDescription.slice(0, 120)
   });
   await telegramApiRequest<boolean>(options.botToken, "setMyCommands", {
-    commands: commandList(data)
+    commands: telegramCommandList(data)
   });
   const webhookUrl = childWebhookUrl(connection.webhookConnectionId);
   await telegramApiRequest<boolean>(options.botToken, "setWebhook", {
@@ -430,8 +493,27 @@ export async function connectTelegramManualBot(options: {
       409
     );
   }
+  const architectTestUse = await prisma.connectorCredential.findFirst({
+    where: {
+      provider: ConnectorProvider.TELEGRAM,
+      metadata: { path: ["botId"], equals: String(identity.id) }
+    },
+    select: { id: true }
+  });
+  if (architectTestUse) {
+    throw new TelegramConnectorError(
+      "Disconnect this bot from Architect testing before using it for a business installation.",
+      "TELEGRAM_BOT_ALREADY_CONNECTED",
+      409
+    );
+  }
   const webhookSecret = crypto.randomBytes(32).toString("base64url");
   const displayName = options.botDisplayName.trim().slice(0, 64);
+  const replacingBot = Boolean(
+    agent.telegramBot &&
+      ((agent.telegramBot.botUserId && agent.telegramBot.botUserId !== String(identity.id)) ||
+        (agent.telegramBot.botUsername && agent.telegramBot.botUsername !== identity.username))
+  );
   const connection = agent.telegramBot
     ? await prisma.telegramBotConnection.update({
         where: { id: agent.telegramBot.id },
@@ -448,7 +530,15 @@ export async function connectTelegramManualBot(options: {
           setupNonceHash: null,
           status: "CONFIGURING",
           credentialRotatedAt: agent.telegramBot.botTokenEncrypted ? new Date() : null,
-          lastError: null
+          lastError: null,
+          ...(replacingBot
+            ? {
+                telegramOwnerUserId: null,
+                ownerChatId: null,
+                ownerNotificationStatus: "NOT_CONNECTED",
+                ownerNotificationNonceHash: null
+              }
+            : {})
         }
       })
     : await prisma.telegramBotConnection.create({
@@ -483,43 +573,96 @@ export async function connectTelegramManualBot(options: {
 }
 
 export async function getTelegramConnectionStatus(ownerId: string, installedAgentId: string) {
-  const [connection, managerStatus] = await Promise.all([
-    prisma.telegramBotConnection.findFirst({
-      where: {
-        installedAgentId,
-        business: { ownerId }
-      },
-      select: {
-        id: true,
-        status: true,
-        provisioningMode: true,
-        provisioningStatus: true,
-        webhookStatus: true,
-        ownerNotificationStatus: true,
-        requestedUsername: true,
-        botUsername: true,
-        botDisplayName: true,
-        lastWebhookAt: true,
-        lastSuccessfulSendAt: true,
-        lastProviderErrorCode: true,
-        lastError: true,
-        credentialRotatedAt: true,
-        createdAt: true,
-        updatedAt: true
-      }
-    }),
-    managerProvisioningStatus()
-  ]);
+  const agent = await loadOwnedAgent(ownerId, installedAgentId);
+  const connection = agent.telegramBot;
   return {
     connection: connection
       ? {
-          ...connection,
+          id: connection.id,
+          status: connection.status,
+          provisioningMode: connection.provisioningMode,
+          provisioningStatus: connection.provisioningStatus,
+          webhookStatus: connection.webhookStatus,
+          ownerNotificationStatus: connection.ownerNotificationStatus,
+          requestedUsername: connection.requestedUsername,
+          botUsername: connection.botUsername,
+          botDisplayName: connection.botDisplayName,
+          lastWebhookAt: connection.lastWebhookAt,
+          lastSuccessfulSendAt: connection.lastSuccessfulSendAt,
+          lastProviderErrorCode: connection.lastProviderErrorCode,
+          lastError: connection.lastError,
+          credentialRotatedAt: connection.credentialRotatedAt,
+          createdAt: connection.createdAt,
+          updatedAt: connection.updatedAt,
           botUrl: connection.botUsername ? `https://t.me/${connection.botUsername}` : null
         }
       : null,
-    managedProvisioningAvailable: managerStatus.available,
-    managedProvisioningReason: managerStatus.reason,
+    settings: telegramBusinessSettings(agent.workflow.workflowJson, agent.configJson),
+    services: agent.business.profile?.services ?? [],
     manualProvisioningAvailable: true
+  };
+}
+
+export async function updateTelegramBusinessSettings(options: {
+  ownerId: string;
+  installedAgentId: string;
+  botDisplayName: string;
+  settings: TelegramBusinessSettings;
+  services: string[];
+}) {
+  const agent = await loadOwnedAgent(options.ownerId, options.installedAgentId);
+  const existingConfig = record(agent.configJson);
+  const configJson = {
+    ...existingConfig,
+    telegram: {
+      ...telegramBuyerOverrides(agent.configJson),
+      ...options.settings
+    }
+  };
+
+  const services = Array.from(
+    new Map(
+      options.services
+        .map((service) => service.trim())
+        .filter(Boolean)
+        .slice(0, 30)
+        .map((service) => [service.toLocaleLowerCase(), service.slice(0, 120)])
+    ).values()
+  );
+
+  await prisma.$transaction([
+    prisma.installedAgent.update({
+      where: { id: agent.id },
+      data: { configJson: configJson as Prisma.InputJsonValue }
+    }),
+    prisma.businessProfile.upsert({
+      where: { businessId: agent.businessId },
+      create: { businessId: agent.businessId, services },
+      update: { services }
+    })
+  ]);
+
+  if (agent.telegramBot) {
+    await prisma.telegramBotConnection.update({
+      where: { id: agent.telegramBot.id },
+      data: { botDisplayName: options.botDisplayName.trim().slice(0, 64) }
+    });
+  }
+
+  if (agent.telegramBot?.botTokenEncrypted && agent.telegramBot.status === "ACTIVE") {
+    const token = decryptSecret(agent.telegramBot.botTokenEncrypted);
+    const identity = await getTelegramBotIdentity(token);
+    await configureTelegramBot({
+      connectionId: agent.telegramBot.id,
+      botToken: token,
+      botUser: identity
+    });
+  }
+
+  return {
+    settings: options.settings,
+    botDisplayName: options.botDisplayName.trim().slice(0, 64),
+    services
   };
 }
 
@@ -578,17 +721,18 @@ export async function createTelegramOwnerAuthorization(ownerId: string, installe
   if (!connection?.botUsername) {
     throw new TelegramConnectorError("Connect the Telegram bot first.", "TELEGRAM_CONNECTION_NOT_READY", 422);
   }
-  const nonce = crypto.randomBytes(18).toString("base64url");
+  const authorization = createTelegramOwnerAuthorizationToken();
   await prisma.telegramBotConnection.update({
     where: { id: connection.id },
     data: {
-      ownerNotificationNonceHash: sha256(nonce),
+      ownerNotificationNonceHash: authorization.tokenHash,
       ownerNotificationStatus: "PENDING"
     }
   });
   return {
-    authorizationUrl: `https://t.me/${connection.botUsername}?start=${encodeURIComponent(`owner_${nonce}`)}`,
-    status: "PENDING"
+    authorizationUrl: `https://t.me/${connection.botUsername}?start=${encodeURIComponent(`owner_${authorization.token}`)}`,
+    status: "PENDING",
+    expiresAt: authorization.expiresAt.toISOString()
   };
 }
 
@@ -639,6 +783,7 @@ export async function disconnectTelegramBot(ownerId: string, installedAgentId: s
       setupNonceHash: null,
       ownerNotificationNonceHash: null,
       ownerChatId: null,
+      telegramOwnerUserId: null,
       ownerNotificationStatus: "NOT_CONNECTED",
       provisioningStatus: "DISCONNECTED",
       webhookStatus: "DISCONNECTED",

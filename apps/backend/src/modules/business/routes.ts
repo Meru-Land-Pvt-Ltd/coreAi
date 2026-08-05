@@ -137,12 +137,12 @@ import { updateBusinessSpendingAlert } from "./spending-alert";
 import {
   connectTelegramManualBot,
   createTelegramOwnerAuthorization,
-  createTelegramManagedBotSetup,
   disconnectTelegramBot,
   getTelegramConnectionStatus,
   refreshTelegramConnectionHealth,
   sendTelegramConnectionTest,
-  TelegramConnectorError
+  TelegramConnectorError,
+  updateTelegramBusinessSettings
 } from "../architect/telegram-connector";
 
 export const businessRoutes = new Hono();
@@ -212,34 +212,42 @@ const telegramManualSetupSchema = telegramBotSetupSchema.extend({
     .max(256)
 });
 
-businessRoutes.post("/agents/:installedAgentId/telegram/setup", async (c) => {
-  const authUser = c.get("authUser");
-  const parsed = telegramBotSetupSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) {
-    return errorResponse(
-      c,
-      parsed.error.issues[0]?.message || "Invalid Telegram setup request.",
-      422,
-      "VALIDATION_ERROR"
-    );
-  }
-
-  try {
-    const result = await createTelegramManagedBotSetup({
-      ownerId: authUser.id,
-      installedAgentId: c.req.param("installedAgentId"),
-      botDisplayName: parsed.data.botDisplayName
+const telegramBusinessSettingsSchema = z.object({
+  botDisplayName: z.string().trim().min(1, "Bot name is required").max(64),
+  telegramWelcomeMessage: z.string().trim().max(4096),
+  telegramFallbackMessage: z.string().trim().max(4096),
+  telegramBookingMode: z.boolean(),
+  telegramServicesCommand: z.boolean(),
+  telegramBookCommand: z.boolean(),
+  telegramMyBookingsCommand: z.boolean(),
+  telegramRescheduleCommand: z.boolean(),
+  telegramCancelCommand: z.boolean(),
+  telegramHelpCommand: z.boolean(),
+  telegramCustomCommands: z.array(z.object({
+    command: z.string().trim().toLowerCase().regex(/^[a-z0-9_]{1,32}$/, "Use 1-32 lowercase letters, numbers, or underscores for a custom command"),
+    description: z.string().trim().min(1, "Custom command description is required").max(256),
+    action: z.enum(["reply", "services", "book", "help"]),
+    response: z.string().trim().max(4096)
+  }).superRefine((command, context) => {
+    if (command.action === "reply" && !command.response) {
+      context.addIssue({ code: "custom", message: `Add the bot reply for /${command.command}.`, path: ["response"] });
+    }
+    if (["start", "services", "book", "mybookings", "reschedule", "cancel", "help"].includes(command.command)) {
+      context.addIssue({ code: "custom", message: `/${command.command} is already a built-in command.`, path: ["command"] });
+    }
+  })).max(20).superRefine((commands, context) => {
+    const seen = new Set<string>();
+    commands.forEach((command, index) => {
+      if (seen.has(command.command)) {
+        context.addIssue({ code: "custom", message: `/${command.command} is duplicated.`, path: [index, "command"] });
+      }
+      seen.add(command.command);
     });
-    return successResponse(c, result, "Telegram bot setup started.", 201);
-  } catch (error) {
-    const status = error instanceof TelegramConnectorError ? error.status : 500;
-    return errorResponse(
-      c,
-      error instanceof Error ? error.message : "Telegram bot setup failed.",
-      apiErrorStatus(status, 500),
-      error instanceof TelegramConnectorError ? error.code : "TELEGRAM_SETUP_FAILED"
-    );
-  }
+  }),
+  services: z.array(z.string().trim().min(1).max(120)).max(30),
+  telegramRequestPhone: z.boolean(),
+  telegramRequestEmail: z.boolean(),
+  telegramRequestNotes: z.boolean()
 });
 
 businessRoutes.get("/agents/:installedAgentId/telegram/status", async (c) => {
@@ -249,6 +257,55 @@ businessRoutes.get("/agents/:installedAgentId/telegram/status", async (c) => {
     c.req.param("installedAgentId")
   );
   return successResponse(c, status);
+});
+
+businessRoutes.put("/agents/:installedAgentId/telegram/settings", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = telegramBusinessSettingsSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(
+      c,
+      parsed.error.issues[0]?.message || "Invalid Telegram bot settings.",
+      422,
+      "VALIDATION_ERROR"
+    );
+  }
+  try {
+    const { botDisplayName, services, ...telegramSettings } = parsed.data;
+    const bookingEnabled =
+      parsed.data.telegramBookingMode ||
+      parsed.data.telegramBookCommand ||
+      parsed.data.telegramMyBookingsCommand ||
+      parsed.data.telegramRescheduleCommand ||
+      parsed.data.telegramCancelCommand;
+    return successResponse(
+      c,
+      await updateTelegramBusinessSettings({
+        ownerId: authUser.id,
+        installedAgentId: c.req.param("installedAgentId"),
+        botDisplayName,
+        services,
+        settings: {
+          ...telegramSettings,
+          telegramBookingMode: bookingEnabled,
+          // Phone is the stable booking lookup key and is required by the
+          // appointment/calendar persistence model whenever booking is on.
+          telegramRequestPhone: bookingEnabled
+            ? true
+            : parsed.data.telegramRequestPhone
+        }
+      }),
+      "Telegram bot settings saved."
+    );
+  } catch (error) {
+    const status = error instanceof TelegramConnectorError ? error.status : 500;
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Telegram bot settings could not be saved.",
+      apiErrorStatus(status, 500),
+      error instanceof TelegramConnectorError ? error.code : "TELEGRAM_SETTINGS_FAILED"
+    );
+  }
 });
 
 businessRoutes.post("/agents/:installedAgentId/telegram/manual", async (c) => {

@@ -1888,7 +1888,7 @@ function TelegramTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel
       <Section title="Bot profile">
         <Label>Bot name template</Label>
         <TextInput
-          value={str("telegramBotNameTemplate", "{{business.name}} Booking Assistant")}
+          value={str("telegramBotNameTemplate", "{{business.name}} Assistant")}
           onChange={set("telegramBotNameTemplate")}
           maxLength={64}
           testId="telegram-bot-name-template"
@@ -1918,7 +1918,7 @@ function TelegramTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel
 
         <div className="mt-4">
           <Label>Bot username</Label>
-          <ReadOnly value="Generated uniquely for each business during install" testId="telegram-bot-username-policy" />
+          <ReadOnly value="Taken from the BotFather token connected in Test or Business Setup" testId="telegram-bot-username-policy" />
         </div>
       </Section>
 
@@ -1980,16 +1980,11 @@ function TelegramTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel
           </div>
         ) : null}
 
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="mt-4">
           <BoolField
             label="Ignore bots"
             value={flag("telegramIgnoreBots", true)}
             onChange={set("telegramIgnoreBots")}
-          />
-          <BoolField
-            label="Booking commands"
-            value={flag("telegramBookingMode", true)}
-            onChange={set("telegramBookingMode")}
           />
         </div>
       </Section>
@@ -2029,23 +2024,11 @@ function TelegramTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel
         </div>
       </Section>
 
-      <Section title="Command menu">
-        <div className="grid grid-cols-2 gap-3">
-          <BoolField label="/services" value={flag("telegramServicesCommand", true)} onChange={set("telegramServicesCommand")} />
-          <BoolField label="/book" value={flag("telegramBookCommand", true)} onChange={set("telegramBookCommand")} />
-          <BoolField label="/mybookings" value={flag("telegramMyBookingsCommand", true)} onChange={set("telegramMyBookingsCommand")} />
-          <BoolField label="/reschedule" value={flag("telegramRescheduleCommand", true)} onChange={set("telegramRescheduleCommand")} />
-          <BoolField label="/cancel" value={flag("telegramCancelCommand", true)} onChange={set("telegramCancelCommand")} />
-          <BoolField label="/help" value={flag("telegramHelpCommand", true)} onChange={set("telegramHelpCommand")} />
-        </div>
-        <p className="mt-3 text-[11px] leading-5 text-slate-400">/start is always enabled.</p>
-      </Section>
-
       <Section title="Customer details">
         <div className="grid grid-cols-2 gap-3">
           <BoolField
             label="Request phone"
-            value={flag("telegramRequestPhone", true)}
+            value={flag("telegramRequestPhone", false)}
             onChange={set("telegramRequestPhone")}
           />
           <BoolField
@@ -2062,9 +2045,10 @@ function TelegramTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel
       </Section>
 
       <Section title="Business setup" last>
-        <RequirementNotice title="Created separately for every business" testId="telegram-business-setup-requirement">
-          The buyer supplies the bot name and business phone, connects the booking calendar, and approves bot creation.
-          Triven generates a collision-free username and applies these settings automatically.
+        <RequirementNotice title="Connected separately for every business" testId="telegram-business-setup-requirement">
+          Set and sync the Architect test-bot commands in the Test tab. The buyer later connects a BotFather token and
+          can override the command menu, customer details, welcome copy, and fallback copy. Each bot reads its own
+          business service list from that buyer&apos;s Business Profile.
         </RequirementNotice>
       </Section>
     </>
@@ -2074,6 +2058,7 @@ function TelegramTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel
 function TelegramActionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
   const type = String(selectedNode.data.type ?? "");
+  const recipientSource = str("telegramRecipientSource", "trigger_chat");
   const isCallback = type === TELEGRAM_NODE_TYPES.answerCallback;
   const isDelete = type === TELEGRAM_NODE_TYPES.deleteMessage;
   const isEdit = type === TELEGRAM_NODE_TYPES.editMessage;
@@ -2102,25 +2087,42 @@ function TelegramActionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel)
         <Section title="Recipient">
           <Label>Recipient source</Label>
           <SelectBox
-            value={str("telegramRecipientSource", "trigger_chat")}
+            value={recipientSource}
             onChange={set("telegramRecipientSource")}
             testId="telegram-recipient-source"
             options={[
-              { value: "trigger_chat", label: "Current Telegram trigger chat" },
-              { value: "stored_customer", label: "Stored customer Telegram chat" },
-              { value: "manual", label: "Mapped or manual chat ID" },
-              { value: "business_owner", label: "Configured business owner chat" }
+              { value: "trigger_chat", label: "Current customer (from trigger)" },
+              { value: "business_owner", label: "Connected business owner" },
+              { value: "stored_customer", label: "Stored customer (previous chat)" },
+              { value: "manual", label: "Advanced: mapped chat ID" }
             ]}
           />
-          <div className="mt-4">
+          {recipientSource === "business_owner" ? (
+            <div className="mt-4">
+              <RequirementNotice title="No chat ID required">
+                The buyer securely connects their private owner chat in Business Setup. This recipient receives the
+                detailed operational message configured below.
+              </RequirementNotice>
+            </div>
+          ) : recipientSource === "stored_customer" ? (
+            <div className="mt-4">
+              <RequirementNotice title="Uses a captured customer chat">
+                The customer must have messaged this business bot before. Their tenant-scoped Telegram chat is looked
+                up automatically.
+              </RequirementNotice>
+            </div>
+          ) : recipientSource === "trigger_chat" ? (
+            <p className="mt-2 text-xs text-slate-500">Replies only to the customer who started this workflow run.</p>
+          ) : null}
+          {recipientSource === "manual" ? <div className="mt-4">
             <Label>Chat ID expression</Label>
             <TextInput
               mono
-              value={str("telegramChatIdExpression", "{{trigger.telegram.chat.id}}")}
+              value={str("telegramChatIdExpression")}
               onChange={set("telegramChatIdExpression")}
               testId="telegram-chat-id-expression"
             />
-          </div>
+          </div> : null}
         </Section>
       ) : null}
 

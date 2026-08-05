@@ -7,6 +7,8 @@ import {
 } from "@coreai/shared";
 import { libraryGroups } from "./library";
 import { NodeInspector } from "./node-inspector";
+import { CoreNode } from "./core-node";
+import { ReactFlowProvider } from "@xyflow/react";
 import type { BuilderNode, BuilderNodeData } from "./types";
 
 afterEach(() => cleanup());
@@ -24,7 +26,26 @@ function telegramNode(): BuilderNode {
       kind: "TELEGRAM",
       nodeKind: "trigger",
       type: "trigger.telegram_message",
-      accent: "amber",
+      accent: "blue",
+      icon: "telegram",
+      ...(definition?.defaultConfig ?? {})
+    } as BuilderNodeData
+  } as BuilderNode;
+}
+
+function telegramSendMessageNode(): BuilderNode {
+  const definition = getNodeDefinition("action.telegram_send_message");
+  return {
+    id: "telegram-send-1",
+    type: "coreNode",
+    position: { x: 0, y: 0 },
+    data: {
+      label: definition?.label ?? "Telegram Send Message",
+      title: definition?.label ?? "Telegram Send Message",
+      kind: "TELEGRAM",
+      nodeKind: "connector",
+      type: "action.telegram_send_message",
+      accent: "blue",
       icon: "telegram",
       ...(definition?.defaultConfig ?? {})
     } as BuilderNodeData
@@ -39,6 +60,8 @@ describe("Telegram trigger architect setup", () => {
     );
 
     expect(item?.label).toBe("Telegram Bot Trigger");
+    expect(item?.accent).toBe("blue");
+    expect(item?.icon).toBe("telegram");
     // Business-scoped copy, never a hardcoded business name.
     expect(item?.overrides?.telegramBotNameTemplate).toContain("{{business.name}}");
   });
@@ -76,6 +99,44 @@ describe("Telegram trigger architect setup", () => {
     expect(deriveRequiredIntegrationsFromWorkflow(workflow).telegram).toBe(true);
   });
 
+  it("exposes the Telegram Send Message action for confirmations", () => {
+    const telegramGroup = libraryGroups.find((group) => group.title === "Telegram Features");
+    expect(telegramGroup?.items.map((item) => item.overrides?.type)).toContain("action.telegram_send_message");
+    expect(telegramGroup?.items).toHaveLength(1);
+  });
+
+  it("uses one mandatory catch-all output connection", () => {
+    const { container } = render(
+      <ReactFlowProvider>
+        <CoreNode {...({ id: "telegram-trigger-1", data: telegramNode().data, selected: false } as any)} />
+      </ReactFlowProvider>
+    );
+
+    const outputs = container.querySelectorAll(".react-flow__handle.source");
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0]?.getAttribute("data-handleid")).toBe("*");
+    expect(outputs[0]?.getAttribute("aria-label")).toBe("All Telegram updates");
+  });
+
+  it("routes messages to customers or the connected owner without exposing chat IDs", () => {
+    const onUpdateNodeData = vi.fn();
+    render(
+      <NodeInspector
+        selectedNode={telegramSendMessageNode()}
+        onClearSelection={vi.fn()}
+        onUpdateNodeData={onUpdateNodeData}
+        onDeleteNode={vi.fn()}
+      />
+    );
+
+    const recipient = screen.getByTestId("telegram-recipient-source") as HTMLSelectElement;
+    expect(Array.from(recipient.options).map((option) => option.text)).toContain("Connected business owner");
+    expect(screen.queryByTestId("telegram-chat-id-expression")).toBeNull();
+
+    fireEvent.change(recipient, { target: { value: "business_owner" } });
+    expect(onUpdateNodeData).toHaveBeenCalledWith("telegramRecipientSource", "business_owner");
+  });
+
   it("shows Telegram-specific settings and saves edits to the node", () => {
     const onUpdateNodeData = vi.fn();
 
@@ -89,11 +150,18 @@ describe("Telegram trigger architect setup", () => {
     );
 
     expect(screen.getByTestId("telegram-bot-username-policy").textContent).toContain(
-      "Generated uniquely"
+      "BotFather token"
     );
     expect(screen.getByTestId("telegram-business-setup-requirement").textContent).toContain(
-      "booking calendar"
+      "BotFather token"
     );
+    expect(screen.getByTestId("telegram-business-setup-requirement").textContent).toContain(
+      "Business Profile"
+    );
+    expect(screen.getByTestId("telegram-business-setup-requirement").textContent).toContain(
+      "Test tab"
+    );
+    expect(screen.queryByText("Command menu")).toBeNull();
     expect((screen.getByTestId("telegram-event-type") as HTMLSelectElement).value).toBe("message");
 
     fireEvent.change(screen.getByTestId("telegram-welcome-message"), {

@@ -119,6 +119,69 @@ export function updateArchitectWorkflow(
   return apiPut<{ workflow: ArchitectWorkflow }>(`/architect/workflows/${workflowId}`, body);
 }
 
+export type ArchitectTelegramTestConnection = {
+  id: string;
+  connected: boolean;
+  activeForWorkflow: boolean;
+  status: "CONNECTED" | "ERROR";
+  webhookStatus: string;
+  botUsername: string | null;
+  botUrl: string | null;
+  lastWebhookAt: string | null;
+  lastMessage: string | null;
+  lastSender: string | null;
+  lastChatId: string | null;
+  lastRunAt: string | null;
+  lastRunStatus: "PROCESSING" | "SUCCESS" | "FAILED" | "IGNORED" | null;
+  lastWorkflowRunId: string | null;
+  lastRunLogs: import("./types").WorkflowRunLog[];
+  lastError: string | null;
+  commands: Array<{ command: string; description: string }>;
+  services: string[];
+};
+
+export type ArchitectTelegramTestContext = {
+  businessName?: string;
+  businessType?: string;
+  appointmentService?: string;
+  services?: string[];
+  timeZone?: string;
+};
+
+export function getArchitectTelegramTestConnection(workflowId: string) {
+  return apiGet<{ connection: ArchitectTelegramTestConnection | null }>(
+    `/architect/workflows/${encodeURIComponent(workflowId)}/telegram-test-connection`
+  );
+}
+
+export function connectArchitectTelegramTestConnection(
+  workflowId: string,
+  body: ArchitectTelegramTestContext & {
+    botToken: string;
+  }
+) {
+  return apiPost<{ connection: ArchitectTelegramTestConnection | null }>(
+    `/architect/workflows/${encodeURIComponent(workflowId)}/telegram-test-connection`,
+    body
+  );
+}
+
+export function syncArchitectTelegramTestConnection(
+  workflowId: string,
+  body: ArchitectTelegramTestContext
+) {
+  return apiPut<{ connection: ArchitectTelegramTestConnection | null }>(
+    `/architect/workflows/${encodeURIComponent(workflowId)}/telegram-test-connection`,
+    body
+  );
+}
+
+export function disconnectArchitectTelegramTestConnection(workflowId: string) {
+  return apiDelete<{ disconnected: boolean }>(
+    `/architect/workflows/${encodeURIComponent(workflowId)}/telegram-test-connection`
+  );
+}
+
 export type DentalDeployment = {
   businessId: string;
   workflowId: string;

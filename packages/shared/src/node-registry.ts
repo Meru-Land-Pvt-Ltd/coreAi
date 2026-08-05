@@ -535,6 +535,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       telegramRescheduleCommand: "false",
       telegramCancelCommand: "false",
       telegramHelpCommand: "true",
+      telegramCustomCommands: [],
       telegramRequestPhone: "false",
       telegramRequestEmail: "false",
       telegramRequestNotes: "false"
