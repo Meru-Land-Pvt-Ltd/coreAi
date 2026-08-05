@@ -3705,35 +3705,10 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
   /* ------------------------- confirmed cancellation ------------------------ */
 
   let targetId: string | null = null;
-  let isVerifiedRef = false;
   if (requestedId) {
-    const directMatch = resolveAppointmentAiRef(requestedId, eligible);
-    if (directMatch) {
-      targetId = directMatch.id;
-      isVerifiedRef = true;
-      console.log(`[vapi-webhook] Identity verification path: caller ID verified for cancel_appointment (appointmentId: "${directMatch.id}", callerPhone: "${callerPhone}")`);
-    } else {
-      const allUpcoming = await prisma.appointment.findMany({
-        where: {
-          businessId,
-          status: { in: CANCELLABLE_APPOINTMENT_STATUSES },
-          startAt: { gte: now }
-        },
-        select: { id: true, customerPhone: true }
-      });
-      const alternateMatch = allUpcoming.find((candidate) => appointmentAiRef(candidate.id) === requestedId);
-      if (alternateMatch) {
-        targetId = alternateMatch.id;
-        isVerifiedRef = true;
-        console.log(`[vapi-webhook] Identity verification path: alternate phone HMAC ref verified for cancel_appointment (appointmentId: "${alternateMatch.id}", callerPhone: "${callerPhone ?? "hidden"}", bookingPhone: "${alternateMatch.customerPhone}")`);
-      } else {
-        targetId = requestedId;
-      }
-    }
+    targetId = resolveAppointmentAiRef(requestedId, eligible)?.id ?? requestedId;
   } else if (eligible.length === 1) {
     targetId = eligible[0].id;
-    isVerifiedRef = true;
-    console.log(`[vapi-webhook] Identity verification path: single caller appointment selected for cancel_appointment (appointmentId: "${targetId}", callerPhone: "${callerPhone}")`);
   } else if (eligible.length === 0) {
     return { cancelled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
   } else {
@@ -3764,6 +3739,7 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
   }
 
   const isCallerMatched = callerPhone && target.customerPhone === callerPhone;
+  const isVerifiedRef = Boolean(requestedId && resolveAppointmentAiRef(requestedId, eligible)?.id === target.id);
   if (!isCallerMatched && !isVerifiedRef) {
     return { cancelled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
   }
@@ -3969,35 +3945,10 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   /* -------------------------- confirmed reschedule ------------------------- */
 
   let targetId: string | null = null;
-  let isVerifiedRef = false;
   if (requestedId) {
-    const directMatch = resolveAppointmentAiRef(requestedId, eligible);
-    if (directMatch) {
-      targetId = directMatch.id;
-      isVerifiedRef = true;
-      console.log(`[vapi-webhook] Identity verification path: caller ID verified for reschedule_appointment (appointmentId: "${directMatch.id}", callerPhone: "${callerPhone}")`);
-    } else {
-      const allUpcoming = await prisma.appointment.findMany({
-        where: {
-          businessId,
-          status: { in: CANCELLABLE_APPOINTMENT_STATUSES },
-          startAt: { gte: now }
-        },
-        select: { id: true, customerPhone: true }
-      });
-      const alternateMatch = allUpcoming.find((candidate) => appointmentAiRef(candidate.id) === requestedId);
-      if (alternateMatch) {
-        targetId = alternateMatch.id;
-        isVerifiedRef = true;
-        console.log(`[vapi-webhook] Identity verification path: alternate phone HMAC ref verified for reschedule_appointment (appointmentId: "${alternateMatch.id}", callerPhone: "${callerPhone ?? "hidden"}", bookingPhone: "${alternateMatch.customerPhone}")`);
-      } else {
-        targetId = requestedId;
-      }
-    }
+    targetId = resolveAppointmentAiRef(requestedId, eligible)?.id ?? requestedId;
   } else if (eligible.length === 1) {
     targetId = eligible[0].id;
-    isVerifiedRef = true;
-    console.log(`[vapi-webhook] Identity verification path: single caller appointment selected for reschedule_appointment (appointmentId: "${targetId}", callerPhone: "${callerPhone}")`);
   } else if (eligible.length === 0) {
     return { rescheduled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
   } else {
@@ -4031,6 +3982,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   }
 
   const isCallerMatched = callerPhone && target.customerPhone === callerPhone;
+  const isVerifiedRef = Boolean(requestedId && resolveAppointmentAiRef(requestedId, eligible)?.id === target.id);
   if (!isCallerMatched && !isVerifiedRef) {
     return { rescheduled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
   }
@@ -4272,19 +4224,22 @@ async function runVerifyAndLookupAppointmentTool(args: Record<string, unknown>, 
     const matches = eligible.filter((appt) => {
       const apptName = (appt.customerName || "").trim().toLowerCase();
       if (!apptName) return false;
-      return apptName.includes(fullNameNorm) || fullNameNorm.includes(apptName);
+      const nameMatch = apptName.includes(fullNameNorm) || fullNameNorm.includes(apptName);
+      if (!nameMatch) return false;
+      if (bookingEmail) {
+        const apptEmail = (appt.customerEmail || "").trim().toLowerCase();
+        if (apptEmail && apptEmail !== bookingEmail) return false;
+      }
+      return true;
     });
 
     if (matches.length === 0) {
-      console.log(`[vapi-webhook] Identity verification failed for name: "${fullNameRaw}", phone: "${bookingPhone}"`);
       return {
         verified: false,
         code: "VERIFICATION_FAILED",
         message: "The provided name and phone number do not match any active booking in our system. Please check the details and try again."
       };
     }
-
-    console.log(`[vapi-webhook] Identity verification path: alternate phone verification successful (Name + Phone) for name: "${fullNameRaw}", phone: "${bookingPhone}" (matches: ${matches.length}, emailProvided: ${Boolean(emailRaw)})`);
 
     const describe = (appointment: (typeof matches)[number]) => ({
       appointment_id: appointmentAiRef(appointment.id),
