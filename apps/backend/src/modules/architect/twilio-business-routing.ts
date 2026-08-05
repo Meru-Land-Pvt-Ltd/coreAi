@@ -4185,11 +4185,11 @@ async function runVerifyAndLookupAppointmentTool(args: Record<string, unknown>, 
   const phoneRaw = argStr(args, ["booking_phone", "bookingPhone", "phone", "customer_phone"]);
   const emailRaw = argStr(args, ["booking_email", "bookingEmail", "email", "customer_email"]);
 
-  if (!fullNameRaw || !phoneRaw || !emailRaw) {
+  if (!fullNameRaw || !phoneRaw) {
     return {
       verified: false,
       code: "MISSING_VERIFICATION_FIELDS",
-      message: "To look up an appointment under a different phone number, I need all three details: full name, phone number used during booking, and email address used during booking."
+      message: "To look up an appointment under a different phone number, I need both details: full name and the phone number used during booking."
     };
   }
 
@@ -4198,12 +4198,12 @@ async function runVerifyAndLookupAppointmentTool(args: Record<string, unknown>, 
     return {
       verified: false,
       code: "VERIFICATION_FAILED",
-      message: "The provided name, phone number, and email address do not match any active booking in our system. Please check the details and try again."
+      message: "The provided name and phone number do not match any active booking in our system. Please check the details and try again."
     };
   }
 
   const bookingPhone = validatedPhone.e164;
-  const bookingEmail = emailRaw.trim().toLowerCase();
+  const bookingEmail = emailRaw ? emailRaw.trim().toLowerCase() : null;
   const fullNameNorm = fullNameRaw.trim().toLowerCase();
   const businessId = ctx.business.businessId;
   const timeZone = ctx.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
@@ -4222,18 +4222,22 @@ async function runVerifyAndLookupAppointmentTool(args: Record<string, unknown>, 
     });
 
     const matches = eligible.filter((appt) => {
-      const apptEmail = (appt.customerEmail || "").trim().toLowerCase();
       const apptName = (appt.customerName || "").trim().toLowerCase();
-      if (!apptEmail || apptEmail !== bookingEmail) return false;
       if (!apptName) return false;
-      return apptName.includes(fullNameNorm) || fullNameNorm.includes(apptName);
+      const nameMatch = apptName.includes(fullNameNorm) || fullNameNorm.includes(apptName);
+      if (!nameMatch) return false;
+      if (bookingEmail) {
+        const apptEmail = (appt.customerEmail || "").trim().toLowerCase();
+        if (apptEmail && apptEmail !== bookingEmail) return false;
+      }
+      return true;
     });
 
     if (matches.length === 0) {
       return {
         verified: false,
         code: "VERIFICATION_FAILED",
-        message: "The provided name, phone number, and email address do not match any active booking in our system. Please check the details and try again."
+        message: "The provided name and phone number do not match any active booking in our system. Please check the details and try again."
       };
     }
 
@@ -4250,7 +4254,7 @@ async function runVerifyAndLookupAppointmentTool(args: Record<string, unknown>, 
       code: "VERIFIED",
       count: matches.length,
       appointments: matches.map((appt, idx) => ({ number: idx + 1, ...describe(appt) })),
-      message: `Verification successful. I found ${matches.length} upcoming appointment(s) booked under that name and email. Ask the caller for the new day and time they would like to move the appointment to, then call reschedule_appointment with appointment_id, new_date, new_time, and confirmed=true.`
+      message: `Verification successful. I found ${matches.length} upcoming appointment(s) booked under that name and phone number. Ask the caller for the new day and time they would like to move the appointment to, then call reschedule_appointment with appointment_id, new_date, new_time, and confirmed=true.`
     };
   } catch (error) {
     console.error("[vapi-webhook] verify_and_lookup_appointment failed", error);

@@ -105,11 +105,10 @@ describe("Returning Caller & 3-Factor Alternate Phone Verification Flow", () => 
     expect(ctx?.existingAppointmentsSummary).toContain("Teeth Cleaning");
   });
 
-  it("verifies 3-factor authentication when all details match (Name + Phone + Email)", async () => {
+  it("verifies 2-factor authentication when details match (Name + Phone)", async () => {
     if (!dbAvailable) return;
 
     const bookingPhone = "+16505558080";
-    const bookingEmail = "alice.smith@example.com";
     const bookingName = "Alice Smith";
     const futureDate = new Date(Date.now() + 86400000 * 3);
 
@@ -118,7 +117,7 @@ describe("Returning Caller & 3-Factor Alternate Phone Verification Flow", () => 
         businessId: testBusinessId,
         customerPhone: bookingPhone,
         customerName: bookingName,
-        customerEmail: bookingEmail,
+        customerEmail: "alice.smith@example.com",
         service: "Consultation",
         startAt: futureDate,
         endAt: new Date(futureDate.getTime() + 1800000),
@@ -144,8 +143,7 @@ describe("Returning Caller & 3-Factor Alternate Phone Verification Flow", () => 
               name: "verify_and_lookup_appointment",
               arguments: {
                 full_name: "Alice Smith",
-                booking_phone: bookingPhone,
-                booking_email: bookingEmail
+                booking_phone: bookingPhone
               }
             }
           }
@@ -168,11 +166,10 @@ describe("Returning Caller & 3-Factor Alternate Phone Verification Flow", () => 
     expect(resultPayload.appointments[0].appointment_id).toBe(appointmentAiRef(appt.id));
   });
 
-  it("fails verification when email does not match", async () => {
+  it("fails verification when name does not match", async () => {
     if (!dbAvailable) return;
 
     const bookingPhone = "+16505558080";
-    const bookingEmail = "alice.smith@example.com";
 
     const app = new Hono();
     app.post("/vapi-webhook", (c) => handleVapiWebhook(c));
@@ -191,9 +188,8 @@ describe("Returning Caller & 3-Factor Alternate Phone Verification Flow", () => 
             function: {
               name: "verify_and_lookup_appointment",
               arguments: {
-                full_name: "Alice Smith",
-                booking_phone: bookingPhone,
-                booking_email: "wrong.email@example.com"
+                full_name: "Bob WrongName",
+                booking_phone: bookingPhone
               }
             }
           }
