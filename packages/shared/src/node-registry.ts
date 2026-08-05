@@ -44,7 +44,7 @@ export type NodeDefinition = {
    */
   requiredConnectors?: ConnectorRequirement[];
   /** Default builder config applied when the node is dropped on the canvas. */
-  defaultConfig?: Record<string, string>;
+  defaultConfig?: Record<string, unknown>;
   /** Agent-runtime capability slug, e.g. "calendar.check_availability". */
   capability?: string;
   /** Variables that must exist in the runtime context before this node can execute. */
