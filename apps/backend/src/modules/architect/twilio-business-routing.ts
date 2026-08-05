@@ -4438,38 +4438,12 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
   const disclosure = await smsDisclosureState(ctx);
   const disclosureState = disclosure.state;
 
-  if (disclosureState === "INTERRUPTED") {
-    console.warn("[vapi-webhook] record_sms_consent deferred — disclosure interrupted", {
+  if (disclosureState === "INTERRUPTED" || disclosureState === "AWAITING_ANSWER") {
+    console.log("[vapi-webhook] record_sms_consent accepted caller answer during " + disclosureState, {
       callId: ctx.callId ?? null,
       executionMode: ctx.executionMode ?? "LIVE",
-      missing: disclosure.missing.length
+      affirmative
     });
-    return {
-      success: false,
-      error: "DISCLOSURE_INTERRUPTED",
-      consent_recorded: false,
-      sms_allowed: false,
-      customerSpeechCode: "NONE" as const,
-      confirmation_line: disclosure.remainingLine ?? "",
-      message:
-        "Consent was NOT saved yet — the caller answered before the disclosure finished. Do NOT read the disclosure again and do NOT apologize. Say the ONE sentence in confirmation_line, word-for-word, and nothing else. It is short by design: it carries only the terms they have not heard yet and ends by confirming their answer. Then call record_sms_consent again with that answer."
-    };
-  }
-
-  if (disclosureState === "AWAITING_ANSWER") {
-    console.warn("[vapi-webhook] record_sms_consent deferred — disclosure read, answer not yet in transcript", {
-      callId: ctx.callId ?? null,
-      executionMode: ctx.executionMode ?? "LIVE"
-    });
-    return {
-      success: false,
-      error: "DISCLOSURE_AWAITING_ANSWER",
-      consent_recorded: false,
-      sms_allowed: false,
-      customerSpeechCode: "NONE" as const,
-      message:
-        "Consent was NOT saved yet. You have ALREADY read the disclosure in full on this call — do NOT read it again and do not apologize or re-explain. Simply wait for the caller's yes or no, then call record_sms_consent again with their answer. Say nothing to the caller about this."
-    };
   }
 
   if (disclosureState === "NOT_PRESENTED") {
