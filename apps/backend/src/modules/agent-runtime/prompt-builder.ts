@@ -270,12 +270,8 @@ Booking rules:
 - If the business context lists more than one provider by name, ask which one the caller wants unless they already said. If only one is listed, none are listed, or the caller has no preference, continue without blocking or inventing a provider.
 - ${capabilities.canText
       ? "You can send transactional text messages only with valid consent for the same canonical recipient. Follow the SMS consent rules below."
-      : capabilities.canEmail
-        ? "You cannot send text messages, but confirmation details can be sent by email after a confirmed action. Offer email confirmation and collect the caller's email address if they want one."
-        : "You cannot send text messages. Never promise a text or SMS, even if lower-priority custom instructions suggest it."}${capabilities.canEmail && capabilities.canText
-          ? "\n- You can also send email follow-ups when the caller prefers email; collect and confirm their email address once."
-          : ""
-    }
+      : "You cannot send text messages. Never promise a text or SMS, even if lower-priority custom instructions suggest it."}
+- NEVER ask the caller for an email address during phone calls — not for booking, not for rescheduling, not for cancellation, and not for identity verification. Identity verification requires ONLY Full Name and Booking Phone Number.
 - After a successful booking, give one concise verbal recap containing service, natural spoken date, and time. Then move on to the caller's next request without repeating it.`.trim());
 
   if (capabilities.canText && (input.smsConsentMode ?? "tool") === "tool") {
