@@ -102,7 +102,7 @@ import {
   recordVerbalSmsConsent,
   smsHelpReplyText
 } from "../notifications/sms-consent";
-import { createVapiInboundTwiml, isRealId, startVapiOutboundCall } from "./vapi-connector";
+import { createVapiInboundTwiml, isRealId, startVapiOutboundCall, type VapiCallerContext } from "./vapi-connector";
 import { enqueueEmail } from "../email/email-queue";
 import {
   applyBuyerEmailRecipients,
@@ -1154,6 +1154,71 @@ async function runMissedCallAgent({
   return run;
 }
 
+export async function resolveCallerContext(
+  businessId: string | null | undefined,
+  callerPhone: string | null | undefined,
+  timeZone?: string
+): Promise<VapiCallerContext | null> {
+  if (!businessId || !callerPhone) return null;
+  const validated = validateSmsRecipientE164(callerPhone);
+  if (!validated.ok || validated.e164.replace("+", "") === ANONYMOUS_CALLER_DIGITS) {
+    return null;
+  }
+  const e164Phone = validated.e164;
+  const now = new Date();
+  const tz = timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+
+  try {
+    const activeAppointments = await prisma.appointment.findMany({
+      where: {
+        businessId,
+        customerPhone: e164Phone,
+        status: { in: CANCELLABLE_APPOINTMENT_STATUSES },
+        startAt: { gte: now }
+      },
+      orderBy: { startAt: "asc" },
+      take: 5,
+      select: {
+        id: true,
+        customerName: true,
+        customerEmail: true,
+        service: true,
+        startAt: true,
+        timeZone: true
+      }
+    });
+
+    const hasUpcoming = activeAppointments.length > 0;
+    const firstMatch = activeAppointments[0];
+    const customerName = firstMatch?.customerName || null;
+    const customerEmail = firstMatch?.customerEmail || null;
+
+    let summary: string | null = null;
+    if (hasUpcoming) {
+      const formatted = activeAppointments.map((appt) => {
+        const d = formatApptDate(appt.startAt, appt.timeZone || tz);
+        const t = formatApptTime(appt.startAt, appt.timeZone || tz);
+        const s = appt.service || "appointment";
+        return `${s} on ${d} at ${t}`;
+      });
+      summary = `${activeAppointments.length} upcoming appointment(s): ${formatted.join("; ")}`;
+    }
+
+    return {
+      callerIsReturning: hasUpcoming || Boolean(customerName),
+      callerName: customerName,
+      callerEmail: customerEmail,
+      existingAppointmentCount: activeAppointments.length,
+      hasUpcomingAppointment: hasUpcoming,
+      existingAppointmentsSummary: summary,
+      activeAppointmentsJson: hasUpcoming ? JSON.stringify(activeAppointments) : null
+    };
+  } catch (error) {
+    console.error("[vapi-webhook] resolveCallerContext failed (non-fatal)", error);
+    return null;
+  }
+}
+
 async function buildVapiAnswerTwiml({
   agent,
   callerNumber,
@@ -1219,12 +1284,15 @@ async function buildVapiAnswerTwiml({
     console.error("[after-hours] live hours decision failed (non-fatal)", error);
   }
 
+  const callerContext = await resolveCallerContext(business.businessId, callerNumber, business.timeZone);
+
   return createVapiInboundTwiml({
     callerNumber,
     callerName,
     reason,
     businessHours: hoursVariables,
     firstMessageOverride,
+    callerContext,
     business: {
       businessId: business.businessId,
       businessName: business.businessName,
@@ -2972,6 +3040,16 @@ async function resolveBookingDurationMinutes(
 export async function runBookAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   console.log("[vapi-tool] book_appointment raw args", JSON.stringify(redactForLog(args)));
 
+  const serviceTypeArg = argStr(args, ["service_type", "service", "appointment_service", "appointmentType", "serviceType"]) ?? "";
+  const notesArg = argStr(args, ["notes", "reason", "description"]) ?? "";
+  if (/reschedul|change\s+appointment|move\s+appointment/i.test(`${serviceTypeArg} ${notesArg}`)) {
+    return {
+      success: false,
+      code: "USE_RESCHEDULE_TOOL",
+      message: "It looks like you are trying to reschedule an existing appointment. Please call the reschedule_appointment tool to move an existing booking instead of creating a new one."
+    };
+  }
+
   const relativeText = argStr(args, ["date", "when", "day", "relativeDate"]) ?? "";
   const { date, isPast } = resolveRequestedDate({ rawDate: argStr(args, ["date"]), relativeText, timeZone: ctx.timeZone });
   if (isPast) return INVALID_DATE_RESULT;
@@ -3877,7 +3955,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   }
 
   const target = await prisma.appointment.findFirst({
-    where: { id: targetId, businessId, customerPhone: callerPhone },
+    where: { id: targetId, businessId },
     select: {
       id: true,
       service: true,
@@ -3894,6 +3972,12 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   });
 
   if (!target) {
+    return { rescheduled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
+  }
+
+  const isCallerMatched = callerPhone && target.customerPhone === callerPhone;
+  const isVerifiedRef = Boolean(requestedId && resolveAppointmentAiRef(requestedId, eligible)?.id === target.id);
+  if (!isCallerMatched && !isVerifiedRef) {
     return { rescheduled: false, code: "CALLER_NUMBER_NOT_VERIFIED", message: CANCEL_NO_MATCH_MESSAGE };
   }
 
@@ -4084,6 +4168,92 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
     sms_sent: smsSent,
     message: `You're all set — the appointment has been moved to ${newDateLabel} at ${newTimeLabel}.`
   };
+}
+
+async function runVerifyAndLookupAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+  if (!ctx.business?.businessId) {
+    return { verified: false, code: "BUSINESS_NOT_RESOLVED", message: "Business could not be verified." };
+  }
+
+  const fullNameRaw = argStr(args, ["full_name", "fullName", "name", "customer_name"]);
+  const phoneRaw = argStr(args, ["booking_phone", "bookingPhone", "phone", "customer_phone"]);
+  const emailRaw = argStr(args, ["booking_email", "bookingEmail", "email", "customer_email"]);
+
+  if (!fullNameRaw || !phoneRaw || !emailRaw) {
+    return {
+      verified: false,
+      code: "MISSING_VERIFICATION_FIELDS",
+      message: "To look up an appointment under a different phone number, I need all three details: full name, phone number used during booking, and email address used during booking."
+    };
+  }
+
+  const validatedPhone = validateSmsRecipientE164(phoneRaw);
+  if (!validatedPhone.ok) {
+    return {
+      verified: false,
+      code: "VERIFICATION_FAILED",
+      message: "The provided name, phone number, and email address do not match any active booking in our system. Please check the details and try again."
+    };
+  }
+
+  const bookingPhone = validatedPhone.e164;
+  const bookingEmail = emailRaw.trim().toLowerCase();
+  const fullNameNorm = fullNameRaw.trim().toLowerCase();
+  const businessId = ctx.business.businessId;
+  const timeZone = ctx.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+  const now = new Date();
+
+  try {
+    const eligible = await prisma.appointment.findMany({
+      where: {
+        businessId,
+        customerPhone: bookingPhone,
+        status: { in: CANCELLABLE_APPOINTMENT_STATUSES },
+        startAt: { gte: now }
+      },
+      orderBy: { startAt: "asc" },
+      take: 10
+    });
+
+    const matches = eligible.filter((appt) => {
+      const apptEmail = (appt.customerEmail || "").trim().toLowerCase();
+      const apptName = (appt.customerName || "").trim().toLowerCase();
+      if (!apptEmail || apptEmail !== bookingEmail) return false;
+      if (!apptName) return false;
+      return apptName.includes(fullNameNorm) || fullNameNorm.includes(apptName);
+    });
+
+    if (matches.length === 0) {
+      return {
+        verified: false,
+        code: "VERIFICATION_FAILED",
+        message: "The provided name, phone number, and email address do not match any active booking in our system. Please check the details and try again."
+      };
+    }
+
+    const describe = (appointment: (typeof matches)[number]) => ({
+      appointment_id: appointmentAiRef(appointment.id),
+      service: appointment.service || "appointment",
+      appointment_date: formatApptDate(appointment.startAt, appointment.timeZone || timeZone),
+      appointment_time: formatApptTime(appointment.startAt, appointment.timeZone || timeZone),
+      customer_name: appointment.customerName || fullNameRaw
+    });
+
+    return {
+      verified: true,
+      code: "VERIFIED",
+      count: matches.length,
+      appointments: matches.map((appt, idx) => ({ number: idx + 1, ...describe(appt) })),
+      message: `Verification successful. I found ${matches.length} upcoming appointment(s) booked under that name and email. Ask the caller for the new day and time they would like to move the appointment to, then call reschedule_appointment with appointment_id, new_date, new_time, and confirmed=true.`
+    };
+  } catch (error) {
+    console.error("[vapi-webhook] verify_and_lookup_appointment failed", error);
+    return {
+      verified: false,
+      code: "VERIFICATION_ERROR",
+      message: "I encountered an error verifying the booking details. Please try again or contact our team directly."
+    };
+  }
 }
 
 async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx: VapiToolContext) {
@@ -5242,9 +5412,10 @@ export async function handleVapiWebhook(c: Context) {
         !isConsent && !isLookup && fnName.includes("update") && fnName.includes("contact");
       const isCancel = !isConsent && !isLookup && !isUpdateContact && fnName.includes("cancel");
       const isReschedule = !isConsent && !isLookup && !isCancel && fnName.includes("resched");
-      const isCheck = !isConsent && !isLookup && !isCancel && !isReschedule && (fnName.startsWith("check") || fnName.includes("availab"));
-      const isBook = !isConsent && !isLookup && !isCancel && !isReschedule && fnName.startsWith("book");
-      const isNotify = !isConsent && !isLookup && !isCancel && !isReschedule && (fnName.startsWith("send") || fnName.includes("notif"));
+      const isVerify = !isConsent && !isLookup && !isUpdateContact && !isCancel && !isReschedule && fnName.includes("verify");
+      const isCheck = !isConsent && !isLookup && !isCancel && !isReschedule && !isVerify && (fnName.startsWith("check") || fnName.includes("availab"));
+      const isBook = !isConsent && !isLookup && !isCancel && !isReschedule && !isVerify && fnName.startsWith("book");
+      const isNotify = !isConsent && !isLookup && !isCancel && !isReschedule && !isVerify && (fnName.startsWith("send") || fnName.includes("notif"));
       const ctx: VapiToolContext = {
         ...baseCtx,
         patientPhone: argStr(toolCall.parameters, PHONE_ARG_KEYS) || customerPhone
@@ -5252,7 +5423,7 @@ export async function handleVapiWebhook(c: Context) {
 
       const gatedAction = isCheck
         ? ("check_availability" as const)
-        : isBook || isCancel || isReschedule
+        : isBook || isCancel || isReschedule || isVerify
           ? ("book_appointment" as const)
           : null;
       const afterHoursBlock = gatedAction ? gateLiveAfterHoursAction(afterHoursGate, gatedAction) : { allowed: true as const };
@@ -5280,6 +5451,7 @@ export async function handleVapiWebhook(c: Context) {
           else if (isUpdateContact) payload = await runUpdateAppointmentContactTool(toolCall.parameters, ctx);
           else if (isCancel) payload = await runCancelAppointmentTool(toolCall.parameters, ctx);
           else if (isReschedule) payload = await runRescheduleAppointmentTool(toolCall.parameters, ctx);
+          else if (isVerify) payload = await runVerifyAndLookupAppointmentTool(toolCall.parameters, ctx);
           else if (isCheck) payload = await runCheckAvailabilityTool(toolCall.parameters, ctx);
           else if (isBook) payload = await runBookAppointmentTool(toolCall.parameters, ctx);
           else if (isNotify) payload = await runSendNotificationTool(toolCall.parameters, ctx);

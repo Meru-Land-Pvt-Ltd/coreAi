@@ -310,21 +310,34 @@ SMS consent rules (test conversation — follow these EXACTLY):
   if (capabilities.canBook) {
     sections.push(`
 Appointment cancellation rules (follow these EXACTLY — privacy critical):
-- Cancellations are verified ONLY by the phone number the caller is calling from. Never cancel an ${bookingLabel} unless the cancel_appointment tool verified that number.
-- Never ask the caller to say, repeat, or confirm the phone number used at booking as a way to verify identity, and NEVER treat a number the caller says out loud as verification — the system checks the incoming caller ID automatically.
-- To cancel: call the cancel_appointment tool first with no arguments (add date or service_type only if the caller mentioned them). It verifies the caller and returns any matching ${bookingLabelPlural}.
-- If the tool returns code CALLER_NUMBER_NOT_VERIFIED or CALLER_ID_UNAVAILABLE: read the tool's message to the caller exactly, and do NOT reveal the stored phone number (not even partial or masked digits, not the last four), do NOT reveal any ${bookingLabel} details (date, time, name, service), and do NOT confirm or deny that any ${bookingLabel} exists for any number.
-- When the tool returns one ${bookingLabel}, ask: "I found an upcoming appointment for [service] on [date] at [time]. Would you like me to cancel this appointment?" When it returns several, read the numbered list (service, date, time only) and ask which one.
-- Only after the caller gives a clear, unambiguous yes may you call cancel_appointment again with that appointment_id and confirmed=true (add cancellation_reason if they gave one). A "no", an unclear answer, silence, or an interruption must NOT cancel anything.
-- Never say the ${bookingLabel} was cancelled unless the tool returned cancelled=true. If it returned a failure, relay its message and offer the business team's help — never invent success and never read out technical details.`.trim());
+- Cancellations are verified by the phone number the caller is calling from, or via the 3-factor verification flow for alternate numbers.
+- To cancel an appointment on the current calling number: call cancel_appointment first with no arguments.
+- If the caller wants to cancel an appointment under a DIFFERENT phone number, collect their Full Name, Booking Phone Number, and Booking Email Address, then call verify_and_lookup_appointment before proceeding.
+- When cancel_appointment returns one ${bookingLabel}, ask: "I found an upcoming appointment for [service] on [date] at [time]. Would you like me to cancel this appointment?" When it returns several, read the numbered list and ask which one.
+- Only after the caller gives a clear, unambiguous yes may you call cancel_appointment again with that appointment_id and confirmed=true.
+- Never say the ${bookingLabel} was cancelled unless the tool returned cancelled=true.`.trim());
 
     sections.push(`
-Appointment rescheduling rules (follow these EXACTLY — same privacy rules as cancellation):
-- Rescheduling is verified ONLY by the phone number the caller is calling from — the reschedule_appointment tool checks it automatically. Never treat a number the caller says out loud as verification, and never reveal stored numbers or ${bookingLabel} details when the tool returns CALLER_NUMBER_NOT_VERIFIED or CALLER_ID_UNAVAILABLE — read the tool's message exactly.
-- To reschedule: call the reschedule_appointment tool first with no arguments (add date or service_type only if the caller mentioned them). It verifies the caller and returns any matching ${bookingLabelPlural}.
-- When it returns one ${bookingLabel}, confirm which one, then ask what new day and time the caller wants. Use check_availability when they ask what's open or when you want to confirm the slot is free before moving it.
-- Only after the caller clearly agrees to move a specific ${bookingLabel} to a specific new date and time may you call reschedule_appointment again with that appointment_id, new_date (YYYY-MM-DD), new_time (24-hour HH:mm) and confirmed=true. A "no", an unclear answer, silence, or an interruption must NOT move anything.
-- Never say the ${bookingLabel} was moved unless the tool returned rescheduled=true — then repeat the new day and time back to the caller. If it returned a failure, relay its message (the original ${bookingLabel} is unchanged) and offer the business team's help.`.trim());
+Appointment rescheduling rules (follow these EXACTLY):
+- Dynamic returning caller context:
+  - Caller phone number: {{customerPhone}}
+  - Is returning caller: {{callerIsReturning}}
+  - Has upcoming appointment: {{hasUpcomingAppointment}}
+  - Existing appointments summary: {{existingAppointmentsSummary}}
+- When an existing caller calls to reschedule an appointment:
+  1. If {{hasUpcomingAppointment}} is "true" (or an existing appointment is found for {{customerPhone}}):
+     Say: "I found an appointment associated with this phone number. Would you like to reschedule that appointment or a different one?"
+  2. If the caller chooses the appointment associated with the current phone number:
+     Call reschedule_appointment (with no arguments or appointment_id) to retrieve the details. Ask for the desired new day and time, check availability if needed, confirm with the caller, and call reschedule_appointment with appointment_id, new_date, new_time, and confirmed=true. Do NOT call book_appointment.
+  3. If the caller wants to reschedule an appointment booked under a DIFFERENT phone number (or for someone else):
+     Perform 3-Factor Verification FIRST. Ask the caller for:
+     a) Full name used during booking
+     b) Phone number used during booking
+     c) Email address used during booking
+     Once the caller provides all 3 items, call verify_and_lookup_appointment with full_name, booking_phone, and booking_email.
+     ONLY after verify_and_lookup_appointment returns verified=true with matching appointment details may you proceed to ask for the new day/time and complete the reschedule using reschedule_appointment.
+     If verification fails or any of the 3 items do not match, do NOT reveal any stored appointment details and do NOT reschedule.
+- NEVER call book_appointment for rescheduling requests. Rescheduling must ONLY update an existing appointment using reschedule_appointment.`.trim());
   }
 
   sections.push(`
@@ -431,7 +444,11 @@ export const LIVE_VAPI_RUNTIME_VARIABLES = [
   "smsConsentStatus",
   "businessOpenState",
   "businessHoursStatusLine",
-  "businessNextOpenTime"
+  "businessNextOpenTime",
+  "callerIsReturning",
+  "hasUpcomingAppointment",
+  "existingAppointmentCount",
+  "existingAppointmentsSummary"
 ] as const;
 
 export function fillPromptTemplateTokens(

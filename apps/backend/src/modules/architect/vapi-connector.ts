@@ -276,13 +276,24 @@ export type VapiBusinessHoursVariables = {
   nextOpenText?: string;
 };
 
+export type VapiCallerContext = {
+  callerIsReturning: boolean;
+  callerName?: string | null;
+  callerEmail?: string | null;
+  existingAppointmentCount: number;
+  hasUpcomingAppointment: boolean;
+  existingAppointmentsSummary?: string | null;
+  activeAppointmentsJson?: string | null;
+};
+
 export function buildVapiVariableValues({
   customerPhone,
   customerName,
   business,
   reason,
   smsConsentStatus,
-  businessHours
+  businessHours,
+  callerContext
 }: {
   customerPhone: string;
   customerName?: string | null;
@@ -290,6 +301,7 @@ export function buildVapiVariableValues({
   reason: string;
   smsConsentStatus?: string | null;
   businessHours?: VapiBusinessHoursVariables | null;
+  callerContext?: VapiCallerContext | null;
 }) {
   const timeZone = business.timeZone
     ? normalizeTimeZone(business.timeZone)
@@ -313,7 +325,7 @@ export function buildVapiVariableValues({
     todayDate: currentDate,
     tomorrowDate,
     customerPhone,
-    customerName: customerName || "the caller",
+    customerName: customerName || callerContext?.callerName || "the caller",
     businessId: business.businessId || "",
     businessName: business.businessName,
     businessType: business.businessType || "business",
@@ -330,7 +342,11 @@ export function buildVapiVariableValues({
     smsConsentStatus: smsConsentStatus || "unknown",
     businessOpenState: businessHours?.state ?? "unknown",
     businessHoursStatusLine: businessHours?.statusLine ?? "Business hours were not evaluated for this call.",
-    businessNextOpenTime: businessHours?.nextOpenText ?? ""
+    businessNextOpenTime: businessHours?.nextOpenText ?? "",
+    callerIsReturning: callerContext?.callerIsReturning ? "true" : "false",
+    hasUpcomingAppointment: callerContext?.hasUpcomingAppointment ? "true" : "false",
+    existingAppointmentCount: String(callerContext?.existingAppointmentCount ?? 0),
+    existingAppointmentsSummary: callerContext?.existingAppointmentsSummary || "No upcoming appointments found for this phone number."
   };
 }
 
@@ -343,7 +359,8 @@ export async function startVapiOutboundCall({
   phoneNumberId,
   metadata = {},
   smsConsentStatus,
-  businessHours
+  businessHours,
+  callerContext
 }: {
   customerPhone: string;
   customerName?: string | null;
@@ -354,6 +371,7 @@ export async function startVapiOutboundCall({
   metadata?: Record<string, unknown>;
   smsConsentStatus?: string | null;
   businessHours?: VapiBusinessHoursVariables | null;
+  callerContext?: VapiCallerContext | null;
 }): Promise<VapiCallResult> {
   const config = requireVapiConfig(assistantId, phoneNumberId);
 
@@ -377,7 +395,8 @@ export async function startVapiOutboundCall({
           business,
           reason,
           smsConsentStatus,
-          businessHours
+          businessHours,
+          callerContext
         })
       },
       metadata: {
@@ -416,7 +435,8 @@ export async function createVapiInboundTwiml({
   metadata = {},
   smsConsentStatus,
   businessHours,
-  firstMessageOverride
+  firstMessageOverride,
+  callerContext
 }: {
   callerNumber: string;
   callerName?: string | null;
@@ -429,6 +449,7 @@ export async function createVapiInboundTwiml({
   smsConsentStatus?: string | null;
   businessHours?: VapiBusinessHoursVariables | null;
   firstMessageOverride?: string | null;
+  callerContext?: VapiCallerContext | null;
 }): Promise<string | null> {
   // Assistant ids come from the database (InstalledAgent.configJson), never
   // from a platform-wide env default — two buyers must never share one.
@@ -451,7 +472,8 @@ export async function createVapiInboundTwiml({
         business,
         reason,
         smsConsentStatus,
-        businessHours
+        businessHours,
+        callerContext
       }),
       ...(firstMessageOverride?.trim() ? { firstMessage: firstMessageOverride.trim() } : {})
     },
@@ -1010,6 +1032,38 @@ export function genericAssistantTools() {
           required: []
         }
       }
+    },
+    {
+      type: "function",
+      messages: [
+        {
+          type: "request-start",
+          content: "Let me check those details for you."
+        }
+      ],
+      function: {
+        name: VOICE_TOOL_NAMES.verifyAndLookupAppointment,
+        description:
+          "Verify ownership and retrieve an upcoming appointment booked under a DIFFERENT phone number. REQUIRES ALL THREE MATCHES: full name, phone number used during booking, and email address used during booking. Only call this after collecting all three pieces of information from the caller.",
+        parameters: {
+          type: "object",
+          properties: {
+            full_name: {
+              type: "string",
+              description: "Full name of the person who booked the appointment."
+            },
+            booking_phone: {
+              type: "string",
+              description: "Phone number used during booking, in full E.164 format with country code."
+            },
+            booking_email: {
+              type: "string",
+              description: "Email address used during booking."
+            }
+          },
+          required: ["full_name", "booking_phone", "booking_email"]
+        }
+      }
     }
   ];
 }
@@ -1051,6 +1105,7 @@ export function shouldIncludeAssistantTool(
   // Cancellation + rescheduling ship with the booking capability.
   if (toolName === VOICE_TOOL_NAMES.cancelAppointment) return includeTools.bookAppointment !== false;
   if (toolName === VOICE_TOOL_NAMES.rescheduleAppointment) return includeTools.bookAppointment !== false;
+  if (toolName === VOICE_TOOL_NAMES.verifyAndLookupAppointment) return includeTools.bookAppointment !== false;
   // Phone-correction ships with booking (and only matters when SMS is on).
   if (toolName === VOICE_TOOL_NAMES.updateAppointmentContact) return includeTools.bookAppointment !== false;
   if (toolName === VOICE_TOOL_NAMES.sendNotification) return includeTools.sendNotification !== false;

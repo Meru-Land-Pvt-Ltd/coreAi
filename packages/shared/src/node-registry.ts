@@ -241,7 +241,8 @@ export const VOICE_TOOL_NAMES = {
   updateAppointmentContact: "update_appointment_contact",
   sendNotification: "send_notification",
   recordSmsConsent: "record_sms_consent",
-  lookupKnowledge: "lookup_knowledge"
+  lookupKnowledge: "lookup_knowledge",
+  verifyAndLookupAppointment: "verify_and_lookup_appointment"
 } as const;
 
 export const DEFAULT_VOICE_PROVIDER = "11labs";
