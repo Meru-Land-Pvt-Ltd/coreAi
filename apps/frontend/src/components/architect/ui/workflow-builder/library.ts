@@ -1,12 +1,11 @@
 import {
-  comingSoonNodes,
   getNodeDefinition,
   CALENDLY_NODE_TYPES,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_PRESENTATION,
   VOICE_NODE_TYPES
 } from "@coreai/shared";
-import type { BuilderNodeData, ComingSoonItem, LibraryGroup, LibraryItem, NodeAccent, NodeKind } from "./types";
+import type { BuilderNodeData, LibraryGroup, LibraryItem, NodeAccent, NodeKind } from "./types";
 
 /**
  * Build a draggable palette item from a registry node definition. The dragged
@@ -128,18 +127,11 @@ export const libraryGroups: LibraryGroup[] = [
     title: "Routing / Logic",
     items: [
       paletteItem("logic.condition", { icon: "diamond", accent: "orange", kind: "BUSINESS HOURS" }),
-      paletteItem("action.human_handoff", { icon: "phone-call", accent: "red" }),
+      // Human Handoff is intentionally hidden from the architect library.
+      // paletteItem("action.human_handoff", { icon: "phone-call", accent: "red" }),
       paletteItem(VOICE_NODE_TYPES.endFlow, { icon: "capture", accent: "slate" })
     ]
   }
 ];
 
-// Future nodes surfaced in the builder as non-executable "Coming soon" chips.
-// They cannot be added to the canvas, so they can never end up in a published
-// or executed workflow.
-export const comingSoonItems: ComingSoonItem[] = comingSoonNodes().map((node) => ({
-  type: node.type,
-  label: node.label,
-  description: node.description,
-  testId: node.testId
-}));
+// Coming Soon nodes are intentionally hidden from the architect library.

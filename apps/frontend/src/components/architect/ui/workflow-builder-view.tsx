@@ -2054,7 +2054,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       <main className="fixed bottom-10 left-0 right-0 top-[6.5rem] overflow-hidden md:top-14">
         {activeTab === "build" ? (
           <section className="builder-view fade-enter flex min-w-0">
-            <aside className="hidden w-72 shrink-0 overflow-y-auto border-r border-gray-100 bg-white scroll-thin xl:block">
+            <aside className="hidden w-[22rem] shrink-0 overflow-y-auto border-r border-gray-100 bg-white scroll-thin xl:block">
               {library}
             </aside>
 
