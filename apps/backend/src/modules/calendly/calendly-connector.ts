@@ -14,6 +14,8 @@ export type CalendlyCredentialMetadata = {
   name?: string | null;
   webhookSubscriptionUri?: string | null;
   webhookSigningKeyEnc?: string | null;
+  /** Last webhook subscribe error (cleared when subscription succeeds). */
+  webhookSubscriptionError?: string | null;
 };
 
 export type CalendlyConnectionStatus = {
@@ -23,6 +25,9 @@ export type CalendlyConnectionStatus = {
   timezone: string | null;
   userUri: string | null;
   organizationUri: string | null;
+  /** True when a Calendly webhook subscription URI is stored. */
+  webhookReady: boolean;
+  webhookError: string | null;
 };
 
 type CalendlyTokenResponse = {
@@ -285,21 +290,49 @@ export async function handleCalendlyOAuthCallback({
       userUri: resource.uri ?? tokens.owner ?? null,
       organizationUri: resource.current_organization ?? tokens.organization ?? null,
       name: resource.name ?? null,
-      timezone: resource.timezone ?? null
+      timezone: resource.timezone ?? null,
+      webhookSubscriptionError: null
     }
   });
 
+  let webhookSubscribed = false;
+  let webhookError: string | null = null;
   try {
     await ensureCalendlyWebhookSubscription(userId);
+    webhookSubscribed = true;
   } catch (error) {
+    webhookError = error instanceof Error ? error.message : String(error);
     console.error("[calendly] webhook subscription failed after OAuth", {
       userId,
-      error: error instanceof Error ? error.message : String(error)
+      error: webhookError
     });
+    const existing = await prisma.connectorCredential.findUnique({
+      where: { userId_provider: { userId, provider: "CALENDLY" } }
+    });
+    const meta = asMetadata(existing?.metadata);
+    await prisma.connectorCredential.update({
+      where: { userId_provider: { userId, provider: "CALENDLY" } },
+      data: {
+        metadata: {
+          ...meta,
+          webhookSubscriptionError: webhookError
+        }
+      }
+    });
+    // Production must not pretend connect succeeded without live triggers.
+    if (env.NODE_ENV === "production") {
+      throw new Error(
+        `Calendly connected but webhook registration failed: ${webhookError}. Check CALENDLY_WEBHOOK_URL is public HTTPS, then reconnect.`
+      );
+    }
   }
 
-  console.info("[calendly] OAuth success", { userId, email: resource.email ?? null });
-  return { userId, redirectPath };
+  console.info("[calendly] OAuth success", {
+    userId,
+    email: resource.email ?? null,
+    webhookSubscribed
+  });
+  return { userId, redirectPath, webhookSubscribed, webhookError };
 }
 
 export async function refreshCalendlyToken(userId: string) {
@@ -350,7 +383,9 @@ export async function getCalendlyConnectionStatus(userId: string): Promise<Calen
       name: null,
       timezone: null,
       userUri: null,
-      organizationUri: null
+      organizationUri: null,
+      webhookReady: false,
+      webhookError: null
     };
   }
   const meta = asMetadata(credential.metadata);
@@ -360,7 +395,9 @@ export async function getCalendlyConnectionStatus(userId: string): Promise<Calen
     name: meta.name ?? null,
     timezone: meta.timezone ?? null,
     userUri: meta.userUri ?? null,
-    organizationUri: meta.organizationUri ?? null
+    organizationUri: meta.organizationUri ?? null,
+    webhookReady: Boolean(meta.webhookSubscriptionUri),
+    webhookError: meta.webhookSubscriptionError ?? null
   };
 }
 
@@ -411,6 +448,50 @@ export async function calendlyListEventTypes(userId: string) {
   );
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Default picker / list window: 1 year past → 1 year ahead. */
+export function calendlyDefaultEventListRange(now = Date.now()) {
+  return {
+    minStartTime: new Date(now - 365 * DAY_MS).toISOString(),
+    maxStartTime: new Date(now + 365 * DAY_MS).toISOString()
+  };
+}
+
+function buildScheduledEventsParams(
+  scope: { userUri?: string | null; organizationUri?: string | null },
+  input: {
+    minStartTime?: string;
+    maxStartTime?: string;
+    status?: string;
+    inviteeEmail?: string;
+    eventTypeUri?: string;
+    count?: number;
+    preferOrganization?: boolean;
+  }
+) {
+  const params = new URLSearchParams({
+    count: String(input.count && input.count > 0 ? Math.min(input.count, 100) : 100),
+    sort: "start_time:desc"
+  });
+  const useOrg =
+    Boolean(input.preferOrganization && scope.organizationUri) ||
+    (!scope.userUri && Boolean(scope.organizationUri));
+  if (useOrg && scope.organizationUri) {
+    params.set("organization", scope.organizationUri);
+  } else if (scope.userUri) {
+    params.set("user", scope.userUri);
+  } else if (scope.organizationUri) {
+    params.set("organization", scope.organizationUri);
+  }
+  if (input.minStartTime) params.set("min_start_time", input.minStartTime);
+  if (input.maxStartTime) params.set("max_start_time", input.maxStartTime);
+  if (input.status) params.set("status", input.status);
+  if (input.inviteeEmail) params.set("invitee_email", input.inviteeEmail);
+  if (input.eventTypeUri) params.set("event_type", input.eventTypeUri);
+  return params;
+}
+
 export async function calendlyListEvents(
   userId: string,
   input: {
@@ -420,47 +501,93 @@ export async function calendlyListEvents(
     inviteeEmail?: string;
     eventTypeUri?: string;
     count?: number;
-  }
+    /** When true, query organization first (admin/owner). Falls back to user if empty/forbidden. */
+    preferOrganization?: boolean;
+  } = {}
 ) {
-  const status = await getCalendlyConnectionStatus(userId);
-  if (!status.userUri) throw new Error("Calendly user URI missing — reconnect Calendly");
+  const connection = await getCalendlyConnectionStatus(userId);
+  if (!connection.userUri && !connection.organizationUri) {
+    throw new Error("Calendly user URI missing — reconnect Calendly");
+  }
   const token = await getValidAccessToken(userId);
-  const params = new URLSearchParams({
-    user: status.userUri,
-    count: String(input.count && input.count > 0 ? Math.min(input.count, 100) : 100)
-  });
-  if (input.minStartTime) params.set("min_start_time", input.minStartTime);
-  if (input.maxStartTime) params.set("max_start_time", input.maxStartTime);
-  if (input.status) params.set("status", input.status);
-  if (input.inviteeEmail) params.set("invitee_email", input.inviteeEmail);
-  if (input.eventTypeUri) params.set("event_type", input.eventTypeUri);
-  return calendlyApiRequest<{ collection: Array<Record<string, unknown>> }>(
-    token,
-    `/scheduled_events?${params.toString()}`
-  );
+  const range =
+    input.minStartTime || input.maxStartTime
+      ? { minStartTime: input.minStartTime, maxStartTime: input.maxStartTime }
+      : calendlyDefaultEventListRange();
+  const listInput = {
+    ...input,
+    minStartTime: range.minStartTime,
+    maxStartTime: range.maxStartTime
+  };
+
+  const fetchScoped = async (preferOrganization: boolean) => {
+    const params = buildScheduledEventsParams(
+      { userUri: connection.userUri, organizationUri: connection.organizationUri },
+      { ...listInput, preferOrganization }
+    );
+    if (!params.has("user") && !params.has("organization")) {
+      throw new Error("Calendly user URI missing — reconnect Calendly");
+    }
+    return calendlyApiRequest<{ collection: Array<Record<string, unknown>> }>(
+      token,
+      `/scheduled_events?${params.toString()}`
+    );
+  };
+
+  // Default: user scope (personal events). If empty, try organization for team calendars.
+  const startWithOrg =
+    Boolean(input.preferOrganization && connection.organizationUri) ||
+    (!connection.userUri && Boolean(connection.organizationUri));
+
+  try {
+    const primary = await fetchScoped(startWithOrg);
+    if ((primary.collection?.length ?? 0) > 0) return primary;
+
+    if (!startWithOrg && connection.userUri && connection.organizationUri) {
+      try {
+        const orgResult = await fetchScoped(true);
+        if ((orgResult.collection?.length ?? 0) > 0) return orgResult;
+      } catch {
+        // Organization list needs admin/owner — keep the user-scoped result.
+      }
+    }
+    return primary;
+  } catch (error) {
+    if (startWithOrg && connection.userUri) {
+      return fetchScoped(false);
+    }
+    throw error;
+  }
 }
 
 export async function calendlyGetEvent(userId: string, eventUuid: string) {
+  const uuid = normalizeCalendlyResourceId(eventUuid);
+  if (!uuid) throw new Error("Calendly event UUID is required");
   const token = await getValidAccessToken(userId);
   return calendlyApiRequest<{ resource: Record<string, unknown> }>(
     token,
-    `/scheduled_events/${encodeURIComponent(eventUuid)}`
+    `/scheduled_events/${encodeURIComponent(uuid)}`
   );
 }
 
 export async function calendlyListInvitees(userId: string, eventUuid: string) {
+  const uuid = normalizeCalendlyResourceId(eventUuid);
+  if (!uuid) throw new Error("Calendly event UUID is required");
   const token = await getValidAccessToken(userId);
   return calendlyApiRequest<{ collection: Array<Record<string, unknown>> }>(
     token,
-    `/scheduled_events/${encodeURIComponent(eventUuid)}/invitees`
+    `/scheduled_events/${encodeURIComponent(uuid)}/invitees`
   );
 }
 
 export async function calendlyGetInvitee(userId: string, eventUuid: string, inviteeUuid: string) {
+  const eventId = normalizeCalendlyResourceId(eventUuid);
+  const inviteeId = normalizeCalendlyResourceId(inviteeUuid);
+  if (!eventId || !inviteeId) throw new Error("Calendly event and invitee UUIDs are required");
   const token = await getValidAccessToken(userId);
   return calendlyApiRequest<{ resource: Record<string, unknown> }>(
     token,
-    `/scheduled_events/${encodeURIComponent(eventUuid)}/invitees/${encodeURIComponent(inviteeUuid)}`
+    `/scheduled_events/${encodeURIComponent(eventId)}/invitees/${encodeURIComponent(inviteeId)}`
   );
 }
 
@@ -500,7 +627,9 @@ export async function calendlyCreateSchedulingLink(userId: string, eventTypeUri:
 }
 
 function inviteeUriFromIds(eventUuid: string, inviteeUuid: string) {
-  return `${CALENDLY_API_BASE}/scheduled_events/${encodeURIComponent(eventUuid)}/invitees/${encodeURIComponent(inviteeUuid)}`;
+  const eventId = normalizeCalendlyResourceId(eventUuid);
+  const inviteeId = normalizeCalendlyResourceId(inviteeUuid);
+  return `${CALENDLY_API_BASE}/scheduled_events/${encodeURIComponent(eventId)}/invitees/${encodeURIComponent(inviteeId)}`;
 }
 
 /** Book a meeting by creating an invitee (Scheduling API — paid plans). */
@@ -534,6 +663,8 @@ export async function calendlyCancelScheduledEvent(
   eventUuid: string,
   reason?: string
 ) {
+  const uuid = normalizeCalendlyResourceId(eventUuid);
+  if (!uuid) throw new Error("Calendly event UUID is required");
   const token = await getValidAccessToken(userId);
   const body =
     reason && reason.trim()
@@ -541,7 +672,7 @@ export async function calendlyCancelScheduledEvent(
       : JSON.stringify({});
   return calendlyApiRequest<{ resource: Record<string, unknown> }>(
     token,
-    `/scheduled_events/${encodeURIComponent(eventUuid)}/cancellation`,
+    `/scheduled_events/${encodeURIComponent(uuid)}/cancellation`,
     { method: "POST", body }
   );
 }
@@ -613,10 +744,18 @@ export async function calendlyListContacts(userId: string) {
     organization: status.organizationUri,
     count: "100"
   });
-  return calendlyApiRequest<{ collection: Array<Record<string, unknown>> }>(
-    token,
-    `/contacts?${params.toString()}`
-  );
+  try {
+    return await calendlyApiRequest<{ collection: Array<Record<string, unknown>> }>(
+      token,
+      `/contacts?${params.toString()}`
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isCalendlyPlanRestrictionError(message)) {
+      throw new Error(calendlyPaidFeatureUnavailableMessage("contacts"));
+    }
+    throw error;
+  }
 }
 
 export async function calendlyCreateOneOffMeetingLink(
@@ -657,7 +796,7 @@ export async function calendlyCreateOneOffMeetingLink(
     throw new Error("Calendly One-Off Meeting Link needs a valid duration in minutes");
   }
 
-  const locationKind = (input.locationKind || "google_conference").trim() || "google_conference";
+  const locationKind = (input.locationKind || "ask_invitee").trim() || "ask_invitee";
   const location: Record<string, unknown> = { kind: locationKind };
   if (
     (locationKind === "physical" || locationKind === "custom" || locationKind === "outbound_call") &&
@@ -719,9 +858,12 @@ export async function calendlyFindInviteeByEmail(
   userId: string,
   input: { email: string; eventTypeUri?: string }
 ) {
+  const { minStartTime, maxStartTime } = calendlyDefaultEventListRange();
   return calendlyListEvents(userId, {
     inviteeEmail: input.email,
     eventTypeUri: input.eventTypeUri,
+    minStartTime,
+    maxStartTime,
     count: 100
   });
 }
@@ -790,12 +932,35 @@ export type CalendlyPickerOption = {
   value: string;
   label: string;
   uri: string;
+  /** Public scheduling URL when listing event types. */
+  schedulingUrl?: string;
 };
 
-function calendlyUuidFromUri(uri: unknown): string {
+export function calendlyUuidFromUri(uri: unknown): string {
   if (typeof uri !== "string" || !uri.trim()) return "";
   const parts = uri.split("/").filter(Boolean);
   return parts[parts.length - 1] ?? "";
+}
+
+/** Accept a bare UUID or a full Calendly resource URI. */
+export function normalizeCalendlyResourceId(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (trimmed.includes("/")) return calendlyUuidFromUri(trimmed);
+  return trimmed;
+}
+
+/** Dry-run / setup-sample placeholders must never hit the live Calendly API. */
+export function isCalendlySampleResourceId(value: unknown): boolean {
+  const id = normalizeCalendlyResourceId(value).toUpperCase();
+  if (!id) return false;
+  return (
+    id === "SAMPLE" ||
+    id === "SAMPLE_EVENT_UUID" ||
+    id === "SAMPLE_INVITEE_UUID" ||
+    id.startsWith("SAMPLE_")
+  );
 }
 
 function formatCalendlyInstant(raw: unknown): string {
@@ -824,7 +989,11 @@ export async function listCalendlyEventTypeOptions(userId: string): Promise<Cale
           : null;
       const inactive = item.active === false ? "inactive" : null;
       const label = [name, duration, inactive].filter(Boolean).join(" · ");
-      return { value: uri, label, uri };
+      const schedulingUrl =
+        typeof item.scheduling_url === "string" && item.scheduling_url.trim()
+          ? item.scheduling_url.trim()
+          : undefined;
+      return { value: uri, label, uri, ...(schedulingUrl ? { schedulingUrl } : {}) };
     })
     .filter((option) => Boolean(option.uri));
 }
@@ -869,13 +1038,35 @@ export async function listCalendlyAvailableTimeOptions(
     .filter((option): option is CalendlyPickerOption => Boolean(option));
 }
 
-/** Recent scheduled events for Get Event / List Invitees / Get Invitee. Value = event UUID. */
-export async function listCalendlyEventOptions(userId: string): Promise<CalendlyPickerOption[]> {
+/** Scheduled events for Get Event / List Invitees / Get Invitee. Value = event UUID. */
+export async function listCalendlyEventOptions(
+  userId: string,
+  options?: { startedOnly?: boolean }
+): Promise<CalendlyPickerOption[]> {
+  const { minStartTime, maxStartTime } = calendlyDefaultEventListRange();
+  const connection = await getCalendlyConnectionStatus(userId);
+  // Picker must only show events the connected user can GET — org-wide lists
+  // include teammates' meetings and yield "You are not allowed to view this event".
+  const token = await getValidAccessToken(userId);
+  if (!connection.userUri) {
+    throw new Error("Calendly user URI missing — reconnect Calendly");
+  }
+  const params = buildScheduledEventsParams(
+    { userUri: connection.userUri, organizationUri: null },
+    { minStartTime, maxStartTime, count: 100 }
+  );
+  const data = await calendlyApiRequest<{ collection: Array<Record<string, unknown>> }>(
+    token,
+    `/scheduled_events?${params.toString()}`
+  );
   const now = Date.now();
-  const minStartTime = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const maxStartTime = new Date(now + 90 * 24 * 60 * 60 * 1000).toISOString();
-  const data = await calendlyListEvents(userId, { minStartTime, maxStartTime });
   return (data.collection ?? [])
+    .filter((item) => {
+      if (!options?.startedOnly) return true;
+      const start =
+        typeof item.start_time === "string" ? Date.parse(item.start_time) : Number.NaN;
+      return Number.isFinite(start) && start <= now;
+    })
     .map((item) => {
       const uri = typeof item.uri === "string" ? item.uri : "";
       const uuid = calendlyUuidFromUri(uri);
@@ -886,6 +1077,67 @@ export async function listCalendlyEventOptions(userId: string): Promise<Calendly
       return { value: uuid, label, uri };
     })
     .filter((option) => Boolean(option.value));
+}
+
+/** Contacts (paid Contacts API). Value = contact UUID. */
+export async function listCalendlyContactOptions(userId: string): Promise<CalendlyPickerOption[]> {
+  const data = await calendlyListContacts(userId);
+  return (data.collection ?? [])
+    .map((item) => {
+      const uri = typeof item.uri === "string" ? item.uri : "";
+      const uuid = calendlyUuidFromUri(uri);
+      const name =
+        (typeof item.name === "string" && item.name.trim() && item.name) ||
+        [item.first_name, item.last_name]
+          .filter((part) => typeof part === "string" && part.trim())
+          .join(" ")
+          .trim() ||
+        "Contact";
+      const email = typeof item.email === "string" ? item.email : null;
+      const label = [name, email].filter(Boolean).join(" · ");
+      return { value: uuid, label, uri };
+    })
+    .filter((option) => Boolean(option.value));
+}
+
+/** Meeting recaps (paid Notetaker API). Value = recap UUID. */
+export async function listCalendlyMeetingRecapOptions(
+  userId: string
+): Promise<CalendlyPickerOption[]> {
+  const status = await getCalendlyConnectionStatus(userId);
+  if (!status.userUri) {
+    throw new Error("Calendly user URI missing — reconnect Calendly");
+  }
+  const token = await getValidAccessToken(userId);
+  const params = new URLSearchParams({
+    user: status.userUri,
+    count: "50"
+  });
+  try {
+    const data = await calendlyApiRequest<{ collection: Array<Record<string, unknown>> }>(
+      token,
+      `/meeting_recaps?${params.toString()}`
+    );
+    return (data.collection ?? [])
+      .map((item) => {
+        const uri = typeof item.uri === "string" ? item.uri : "";
+        const uuid = calendlyUuidFromUri(uri) || (typeof item.uuid === "string" ? item.uuid : "");
+        const title =
+          (typeof item.title === "string" && item.title.trim() && item.title) ||
+          (typeof item.name === "string" && item.name.trim() && item.name) ||
+          "Meeting recap";
+        const when = formatCalendlyInstant(item.created_at || item.start_time);
+        const label = [title, when].filter(Boolean).join(" · ");
+        return { value: uuid, label, uri: uri || uuid };
+      })
+      .filter((option) => Boolean(option.value));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isCalendlyPlanRestrictionError(message)) {
+      throw new Error(calendlyPaidFeatureUnavailableMessage("meeting_recaps"));
+    }
+    throw error;
+  }
 }
 
 /** Invitees for a scheduled event. Value = invitee UUID. */
@@ -945,7 +1197,8 @@ export async function ensureCalendlyWebhookSubscription(userId: string) {
       metadata: {
         ...meta,
         webhookSubscriptionUri: subscriptionUri,
-        webhookSigningKeyEnc: signingKey ? encryptSecret(signingKey) : meta.webhookSigningKeyEnc ?? null
+        webhookSigningKeyEnc: signingKey ? encryptSecret(signingKey) : meta.webhookSigningKeyEnc ?? null,
+        webhookSubscriptionError: null
       }
     }
   });
@@ -953,13 +1206,55 @@ export async function ensureCalendlyWebhookSubscription(userId: string) {
   return subscriptionUri;
 }
 
+const orgCredentialCache = new Map<string, { userId: string; credentialId: string; expiresAt: number }>();
+const ORG_CREDENTIAL_CACHE_TTL_MS = 60_000;
+
 export async function findCalendlyCredentialByOrganizationUri(organizationUri: string) {
+  const org = organizationUri.trim();
+  if (!org) return null;
+
+  const cached = orgCredentialCache.get(org);
+  if (cached && cached.expiresAt > Date.now()) {
+    const row = await prisma.connectorCredential.findUnique({ where: { id: cached.credentialId } });
+    if (row && row.provider === "CALENDLY") return row;
+    orgCredentialCache.delete(org);
+  }
+
+  // Prefer JSON path filter (Postgres) so we don't scan every Calendly row.
+  try {
+    const matched = await prisma.connectorCredential.findFirst({
+      where: {
+        provider: "CALENDLY",
+        metadata: { path: ["organizationUri"], equals: org }
+      }
+    });
+    if (matched) {
+      orgCredentialCache.set(org, {
+        userId: matched.userId,
+        credentialId: matched.id,
+        expiresAt: Date.now() + ORG_CREDENTIAL_CACHE_TTL_MS
+      });
+      return matched;
+    }
+  } catch (error) {
+    console.warn("[calendly] organizationUri JSON path lookup failed; falling back to scan", {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+
   const credentials = await prisma.connectorCredential.findMany({
     where: { provider: "CALENDLY" }
   });
-  return (
-    credentials.find((row) => asMetadata(row.metadata).organizationUri === organizationUri) ?? null
-  );
+  const found =
+    credentials.find((row) => asMetadata(row.metadata).organizationUri === org) ?? null;
+  if (found) {
+    orgCredentialCache.set(org, {
+      userId: found.userId,
+      credentialId: found.id,
+      expiresAt: Date.now() + ORG_CREDENTIAL_CACHE_TTL_MS
+    });
+  }
+  return found;
 }
 
 export function getCalendlySigningKeyFromCredential(credential: {
@@ -1010,4 +1305,36 @@ export function verifyCalendlyWebhookSignature({
   const actualBuf = Buffer.from(signature);
   if (expectedBuf.length !== actualBuf.length) return false;
   return crypto.timingSafeEqual(expectedBuf, actualBuf);
+}
+
+/** True when Calendly rejected the call because the account plan lacks the feature. */
+export function isCalendlyPlanRestrictionError(message: string): boolean {
+  const text = message.toLowerCase();
+  return (
+    text.includes("upgrade") ||
+    text.includes("paid plan") ||
+    text.includes("payment required") ||
+    text.includes("not available on your") ||
+    text.includes("requires a") ||
+    text.includes("does not have access") ||
+    text.includes("insufficient permission") ||
+    // Free / lower plans often reject Contacts/Notetaker query params instead of saying "upgrade".
+    text.includes("is not a supported query parameter") ||
+    text.includes("unsupported query parameter") ||
+    text.includes("not a valid parameter") ||
+    /\b402\b/.test(text) ||
+    (/\b403\b/.test(text) &&
+      (text.includes("plan") || text.includes("permission") || text.includes("contact") || text.includes("forbidden")))
+  );
+}
+
+/** Friendly copy when a Calendly paid-only feature is blocked by plan. */
+export function calendlyPaidFeatureUnavailableMessage(feature: "contacts" | "meeting_recaps" | "generic"): string {
+  if (feature === "contacts") {
+    return "Contacts need a paid Calendly plan.";
+  }
+  if (feature === "meeting_recaps") {
+    return "Meeting recaps need a paid Calendly plan with Notetaker. Upgrade your Calendly account, or switch this step to a free action.";
+  }
+  return "This Calendly action needs a paid plan. Upgrade your Calendly account";
 }

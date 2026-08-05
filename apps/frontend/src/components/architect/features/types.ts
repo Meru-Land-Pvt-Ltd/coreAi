@@ -207,6 +207,7 @@ export type CalendlyPickerOption = {
   value: string;
   label: string;
   uri: string;
+  schedulingUrl?: string;
 };
 
 /** Frontend-safe config for a Vapi-powered browser call test session. */

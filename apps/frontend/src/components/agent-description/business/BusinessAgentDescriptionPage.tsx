@@ -479,8 +479,8 @@ export default function BusinessAgentDescriptionPage() {
     primaryCtaHref = checkoutPath;
     primaryCtaLabel =
       pricingModel === "ONE_TIME"
-        ? `Buy now — $${price}`
-        : `Pay $${price}/mo`;
+        ? `Buy now`
+        : `Install Agent`;
     primaryCtaTestId =
       "owned-agent-detail-pay-now";
   } else {
@@ -488,15 +488,16 @@ export default function BusinessAgentDescriptionPage() {
 
     primaryCtaLabel =
       pricingModel === "FREE"
-                        ? "Install for Free"
-        : pricingModel === "ONE_TIME"
-                        ? `Buy now — $${price}`
-          : canStartTrial
-            ? `Start ${trialDays}-day free trial`
-            : `Subscribe — $${price}/mo`;
+        ? "Install for Free"
+        : canStartTrial
+          ? `Start ${trialDays}-Day Free Trial`
+          : pricingModel === "ONE_TIME"
+            ? `Buy now`
+            : `Install Agent`;
 
-    primaryCtaTestId =
-      "agent-detail-get-agent";
+    primaryCtaTestId = canStartTrial
+      ? "agent-detail-start-trial"
+      : "agent-detail-get-agent";
   }
 
   const pricingSubtext =

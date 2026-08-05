@@ -213,6 +213,411 @@ export function calendlyActionPaidPlanNote(action: string): string | null {
     : "Requires a paid Calendly plan.";
 }
 
+/** Per-action input/output variables for the Calendly Action node (Telegram-style mapping). */
+export type CalendlyActionIo = {
+  requiredVariables: string[];
+  producedVariables: string[];
+};
+
+const CALENDLY_IO_BASE = ["calendly.action", "calendly.result"] as const;
+
+const CALENDLY_IO_EVENT_RESOURCE = [
+  ...CALENDLY_IO_BASE,
+  "calendly.result.resource.name",
+  "calendly.result.resource.status",
+  "calendly.result.resource.start_time",
+  "calendly.result.resource.end_time",
+  "calendly.result.resource.uri"
+] as const;
+
+const CALENDLY_IO_INVITEE_RESOURCE = [
+  ...CALENDLY_IO_BASE,
+  "calendly.result.resource.name",
+  "calendly.result.resource.email",
+  "calendly.result.resource.status",
+  "calendly.result.resource.timezone",
+  "calendly.result.resource.uri"
+] as const;
+
+const CALENDLY_IO_CONTACT_RESOURCE = [
+  ...CALENDLY_IO_BASE,
+  "calendly.result.resource.name",
+  "calendly.result.resource.email",
+  "calendly.result.resource.uri"
+] as const;
+
+const CALENDLY_IO_COLLECTION = [
+  ...CALENDLY_IO_BASE,
+  "calendly.result.collection"
+] as const;
+
+const CALENDLY_IO_BOOKING_LINK = [
+  ...CALENDLY_IO_BASE,
+  "calendly.result.resource.booking_url",
+  "calendly.result.resource.scheduling_url",
+  "calendly.result.resource.owner"
+] as const;
+
+/**
+ * What each Calendly `connectorAction` needs as input and publishes as output.
+ * Used by the builder Advanced settings panel so mapping matches the selected action.
+ */
+export const CALENDLY_ACTION_IO: Record<string, CalendlyActionIo> = {
+  find_available_times: {
+    requiredVariables: ["calendlyEventTypeUri", "calendlyStartTime", "calendlyEndTime", "calendlyTimezone"],
+    producedVariables: [...CALENDLY_IO_BASE, "calendly.result.available_times", "calendly.result.collection"]
+  },
+  get_event: {
+    requiredVariables: ["calendlyEventUuid"],
+    producedVariables: [...CALENDLY_IO_EVENT_RESOURCE]
+  },
+  find_event: {
+    requiredVariables: ["calendlyEventUuid"],
+    producedVariables: [...CALENDLY_IO_EVENT_RESOURCE]
+  },
+  list_events: {
+    requiredVariables: [],
+    producedVariables: [...CALENDLY_IO_COLLECTION]
+  },
+  get_invitee: {
+    requiredVariables: ["calendlyEventUuid", "calendlyInviteeUuid"],
+    producedVariables: [...CALENDLY_IO_INVITEE_RESOURCE]
+  },
+  list_invitees: {
+    requiredVariables: ["calendlyEventUuid"],
+    producedVariables: [...CALENDLY_IO_COLLECTION]
+  },
+  get_event_types: {
+    requiredVariables: [],
+    producedVariables: [
+      ...CALENDLY_IO_COLLECTION,
+      "calendly.result.collection.0.name",
+      "calendly.result.collection.0.duration",
+      "calendly.result.collection.0.scheduling_url"
+    ]
+  },
+  get_my_profile: {
+    requiredVariables: [],
+    producedVariables: [
+      ...CALENDLY_IO_BASE,
+      "calendly.result.resource.name",
+      "calendly.result.resource.email",
+      "calendly.result.resource.timezone",
+      "calendly.result.resource.scheduling_url",
+      "calendly.result.resource.uri"
+    ]
+  },
+  create_scheduling_link: {
+    requiredVariables: ["calendlyEventTypeUri"],
+    producedVariables: [...CALENDLY_IO_BOOKING_LINK]
+  },
+  book_meeting_for_invitee: {
+    requiredVariables: [
+      "calendlyEventTypeUri",
+      "calendlyStartTime",
+      "calendlyInviteeName",
+      "calendlyInviteeEmail",
+      "calendlyTimezone"
+    ],
+    producedVariables: [...CALENDLY_IO_INVITEE_RESOURCE, "calendly.result.resource.event"]
+  },
+  cancel_event: {
+    requiredVariables: ["calendlyEventUuid"],
+    producedVariables: [...CALENDLY_IO_EVENT_RESOURCE, "calendly.result.resource.cancellation.reason"]
+  },
+  cancel_scheduled_event: {
+    requiredVariables: ["calendlyEventUuid"],
+    producedVariables: [...CALENDLY_IO_EVENT_RESOURCE, "calendly.result.resource.cancellation.reason"]
+  },
+  create_contact: {
+    requiredVariables: ["calendlyContactEmail"],
+    producedVariables: [...CALENDLY_IO_CONTACT_RESOURCE]
+  },
+  update_contact: {
+    requiredVariables: ["calendlyContactUuid"],
+    producedVariables: [...CALENDLY_IO_CONTACT_RESOURCE]
+  },
+  delete_contact: {
+    requiredVariables: ["calendlyContactUuid"],
+    producedVariables: [...CALENDLY_IO_BASE]
+  },
+  find_contact: {
+    requiredVariables: ["calendlyContactUuid"],
+    producedVariables: [...CALENDLY_IO_CONTACT_RESOURCE]
+  },
+  list_contacts: {
+    requiredVariables: [],
+    producedVariables: [...CALENDLY_IO_COLLECTION]
+  },
+  create_one_off_meeting_link: {
+    requiredVariables: [
+      "calendlyMeetingName",
+      "calendlyDurationMinutes",
+      "calendlyOneOffStartDate",
+      "calendlyOneOffEndDate",
+      "calendlyTimezone"
+    ],
+    producedVariables: [
+      ...CALENDLY_IO_BASE,
+      "calendly.result.resource.name",
+      "calendly.result.resource.duration",
+      "calendly.result.resource.scheduling_url",
+      "calendly.result.resource.booking_url",
+      "calendly.result.resource.timezone"
+    ]
+  },
+  mark_invitee_no_show: {
+    requiredVariables: ["calendlyEventUuid", "calendlyInviteeUuid"],
+    producedVariables: [...CALENDLY_IO_INVITEE_RESOURCE]
+  },
+  find_invitee_by_email: {
+    requiredVariables: ["calendlyInviteeEmail"],
+    producedVariables: [...CALENDLY_IO_COLLECTION, "calendly.result.resource.name", "calendly.result.resource.email"]
+  },
+  find_meeting_recap: {
+    requiredVariables: ["calendlyMeetingRecapUuid"],
+    producedVariables: [...CALENDLY_IO_BASE, "calendly.result.resource.uri", "calendly.result.resource.status"]
+  },
+  find_meeting_recap_transcript: {
+    requiredVariables: ["calendlyMeetingRecapUuid"],
+    producedVariables: [...CALENDLY_IO_BASE, "calendly.result.resource.uri"]
+  },
+  find_user: {
+    requiredVariables: ["calendlyUserSearch"],
+    producedVariables: [
+      ...CALENDLY_IO_BASE,
+      "calendly.result.resource.name",
+      "calendly.result.resource.email",
+      "calendly.result.resource.scheduling_url",
+      "calendly.result.resource.timezone",
+      "calendly.result.resource.uri"
+    ]
+  }
+};
+
+export function getCalendlyActionIo(action: string): CalendlyActionIo {
+  return (
+    CALENDLY_ACTION_IO[action] ?? {
+      requiredVariables: [],
+      producedVariables: [...CALENDLY_IO_BASE]
+    }
+  );
+}
+
+/** Plain-language name + when to use it (builder Advanced settings). */
+export type CalendlyVariableGuide = {
+  label: string;
+  tip: string;
+};
+
+const CALENDLY_VARIABLE_GUIDE: Record<string, CalendlyVariableGuide> = {
+  calendlyEventTypeUri: {
+    label: "Event type",
+    tip: "Which Calendly meeting type this step should use"
+  },
+  calendlyEventUuid: {
+    label: "Event",
+    tip: "The booked meeting this step should look up or change"
+  },
+  calendlyInviteeUuid: {
+    label: "Invitee",
+    tip: "The person who booked (guest) on that meeting"
+  },
+  calendlyStartTime: {
+    label: "Start time",
+    tip: "When the meeting window or booking starts"
+  },
+  calendlyEndTime: {
+    label: "End time",
+    tip: "When the meeting window ends"
+  },
+  calendlyTimezone: {
+    label: "Timezone",
+    tip: "Timezone for the times above (e.g. America/New_York)"
+  },
+  calendlyInviteeName: {
+    label: "Guest name",
+    tip: "Name of the person you are booking for"
+  },
+  calendlyInviteeEmail: {
+    label: "Guest email",
+    tip: "Email of the person you are booking for"
+  },
+  calendlyDurationMinutes: {
+    label: "Meeting length",
+    tip: "How long the meeting should be, in minutes"
+  },
+  calendlyOneOffStartDate: {
+    label: "Window start",
+    tip: "First day people can book this one-off link"
+  },
+  calendlyOneOffEndDate: {
+    label: "Window end",
+    tip: "Last day people can book this one-off link"
+  },
+  calendlyCancelReason: {
+    label: "Cancel reason",
+    tip: "Optional note explaining why the meeting was cancelled"
+  },
+  calendlyContactUuid: {
+    label: "Contact ID",
+    tip: "Calendly contact to find, update, or delete"
+  },
+  calendlyContactEmail: {
+    label: "Contact email",
+    tip: "Email for the Calendly contact"
+  },
+  calendlyContactFirstName: {
+    label: "Contact first name",
+    tip: "First name for the Calendly contact"
+  },
+  calendlyContactLastName: {
+    label: "Contact last name",
+    tip: "Last name for the Calendly contact"
+  },
+  calendlyContactName: {
+    label: "Contact full name",
+    tip: "Full name for the Calendly contact"
+  },
+  calendlyLocationKind: {
+    label: "Meeting location type",
+    tip: "Zoom, phone, in person, etc."
+  },
+  calendlyLocation: {
+    label: "Location details",
+    tip: "Address, phone number, or custom meeting link"
+  },
+  calendlyMeetingName: {
+    label: "Meeting name",
+    tip: "Title shown on the one-off meeting link"
+  },
+  calendlyMeetingRecapUuid: {
+    label: "Meeting recap ID",
+    tip: "Which Calendly meeting recap / transcript to load"
+  },
+  calendlyUserSearch: {
+    label: "User search",
+    tip: "Name or email used to find a Calendly user"
+  },
+  calendlyUserUuid: {
+    label: "User ID",
+    tip: "Exact Calendly user ID (optional if you search by name/email)"
+  },
+  "calendly.action": {
+    label: "Action that ran",
+    tip: "Name of the Calendly action this step just finished"
+  },
+  "calendly.result": {
+    label: "Full result",
+    tip: "Complete Calendly response — use when you need the whole object"
+  },
+  "calendly.result.collection": {
+    label: "Result list",
+    tip: "List of matches (events, invitees, contacts, etc.)"
+  },
+  "calendly.result.available_times": {
+    label: "Open time slots",
+    tip: "Available booking times — use these to offer options to the customer"
+  },
+  "calendly.result.resource.name": {
+    label: "Name",
+    tip: "Meeting name, guest name, or contact name from the result"
+  },
+  "calendly.result.resource.full_name": {
+    label: "Full name",
+    tip: "Guest or contact full name (backup if Name is empty)"
+  },
+  "calendly.result.resource.email": {
+    label: "Email",
+    tip: "Guest, contact, or profile email from the result"
+  },
+  "calendly.result.resource.status": {
+    label: "Status",
+    tip: "e.g. active, canceled — useful in confirmation messages"
+  },
+  "calendly.result.resource.start_time": {
+    label: "Starts at",
+    tip: "Meeting start time — paste into SMS, email, or AI replies"
+  },
+  "calendly.result.resource.end_time": {
+    label: "Ends at",
+    tip: "Meeting end time"
+  },
+  "calendly.result.resource.duration": {
+    label: "Duration",
+    tip: "Meeting length from Calendly"
+  },
+  "calendly.result.resource.duration_minutes": {
+    label: "Duration (minutes)",
+    tip: "Meeting length in minutes (backup if Duration is empty)"
+  },
+  "calendly.result.resource.timezone": {
+    label: "Timezone",
+    tip: "Timezone on the meeting, invitee, or profile"
+  },
+  "calendly.result.resource.time_zone": {
+    label: "Timezone (backup)",
+    tip: "Same as Timezone if Calendly used a different field name"
+  },
+  "calendly.result.resource.uri": {
+    label: "Calendly record link",
+    tip: "Internal Calendly ID/URL for this record (advanced)"
+  },
+  "calendly.result.resource.booking_url": {
+    label: "Booking link",
+    tip: "Send this link to the customer so they can book"
+  },
+  "calendly.result.resource.scheduling_url": {
+    label: "Scheduling page",
+    tip: "Public Calendly page / booking URL"
+  },
+  "calendly.result.resource.join_url": {
+    label: "Join link",
+    tip: "Video call join link when available"
+  },
+  "calendly.result.resource.url": {
+    label: "Link",
+    tip: "Generic URL from the result (backup)"
+  },
+  "calendly.result.resource.owner": {
+    label: "Owner",
+    tip: "Which Calendly event type owns this scheduling link"
+  },
+  "calendly.result.resource.event": {
+    label: "Booked event",
+    tip: "The meeting that was created for the invitee"
+  },
+  "calendly.result.resource.cancellation.reason": {
+    label: "Cancel reason",
+    tip: "Why the meeting was cancelled"
+  },
+  "calendly.result.collection.0.name": {
+    label: "First item name",
+    tip: "Name from the first item in the list (e.g. first event type)"
+  },
+  "calendly.result.collection.0.duration": {
+    label: "First item duration",
+    tip: "Duration from the first item in the list"
+  },
+  "calendly.result.collection.0.scheduling_url": {
+    label: "First item booking page",
+    tip: "Scheduling URL from the first item in the list"
+  }
+};
+
+export function getCalendlyVariableGuide(key: string): CalendlyVariableGuide {
+  const known = CALENDLY_VARIABLE_GUIDE[key];
+  if (known) return known;
+  const label = key
+    .replace(/^calendly\./, "")
+    .replace(/[_.]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return {
+    label,
+    tip: "Copy and paste into a later step’s message or field"
+  };
+}
+
 /** Legacy multi-node Calendly types — still recognized for older canvases. */
 export const CALENDLY_LEGACY_TRIGGER_TYPES: Record<string, CalendlyTriggerEvent> = {
   "trigger.calendly_meeting_booked": "meeting_booked",
@@ -1145,7 +1550,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       connectorAction: "get_my_profile",
       calendlyTimezone: "America/New_York",
       calendlyStatus: "active"
-    }
+    },
+    // Defaults for get_my_profile; the builder overrides via getCalendlyActionIo(connectorAction).
+    requiredVariables: getCalendlyActionIo("get_my_profile").requiredVariables,
+    producedVariables: getCalendlyActionIo("get_my_profile").producedVariables
   }),
 
   // ---- D. Voice-booking capability nodes (generic; reusable by any use case) ----
@@ -1513,8 +1921,23 @@ export function requiredConnectorsForType(type: string): ConnectorRequirement[] 
 
 export function getNodeDefinition(type: string): NodeDefinition | undefined {
   const base = NODE_DEFINITIONS.find((node) => node.type === type);
-  if (!base) return undefined;
-  return { ...base, requiredConnectors: requiredConnectorsForType(type) };
+  if (base) return { ...base, requiredConnectors: requiredConnectorsForType(type) };
+
+  // Legacy Calendly node types from older canvases (e.g. action.calendly_get_event_details)
+  // share the same runtime behavior and output/input variable contracts as the base
+  // `action.calendly` / `trigger.calendly` nodes. Provide a metadata fallback so
+  // the builder can still show Input/Output mapping variables.
+  if (type.startsWith("action.calendly_")) {
+    const fallback = NODE_DEFINITIONS.find((node) => node.type === CALENDLY_NODE_TYPES.action);
+    if (fallback) return { ...fallback, requiredConnectors: requiredConnectorsForType(type) };
+  }
+
+  if (type.startsWith("trigger.calendly_")) {
+    const fallback = NODE_DEFINITIONS.find((node) => node.type === CALENDLY_NODE_TYPES.trigger);
+    if (fallback) return { ...fallback, requiredConnectors: requiredConnectorsForType(type) };
+  }
+
+  return undefined;
 }
 
 function workflowNodeList(workflowJson: unknown): Array<Record<string, unknown>> {

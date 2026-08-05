@@ -175,7 +175,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [calendlyEndTime, setCalendlyEndTime] = useState("");
   const [calendlyInviteeName, setCalendlyInviteeName] = useState("");
   const [calendlyInviteeEmail, setCalendlyInviteeEmail] = useState("");
-  const [calendlyMeetingName, setCalendlyMeetingName] = useState("");
+  const [calendlyMeetingName, setCalendlyMeetingName] = useState("One-off meeting");
   const [calendlyTriggerEvent, setCalendlyTriggerEvent] = useState("meeting_booked");
   const [calendlyDurationMinutes, setCalendlyDurationMinutes] = useState("30");
   const [calendlyOneOffStartDate, setCalendlyOneOffStartDate] = useState(() => {
@@ -193,8 +193,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     return local.toISOString().slice(0, 16);
   });
   const [calendlyTimezone, setCalendlyTimezone] = useState("America/New_York");
-  const [calendlyLocationKind, setCalendlyLocationKind] = useState("google_conference");
+  const [calendlyLocationKind, setCalendlyLocationKind] = useState("ask_invitee");
   const [calendlyLocation, setCalendlyLocation] = useState("");
+  const [calendlyContactEmail, setCalendlyContactEmail] = useState("");
+  const [calendlyContactUuid, setCalendlyContactUuid] = useState("");
+  const [calendlyContactName, setCalendlyContactName] = useState("");
+  const [calendlyCancelReason, setCalendlyCancelReason] = useState("");
+  const [calendlyMeetingRecapUuid, setCalendlyMeetingRecapUuid] = useState("");
+  const [calendlyUserSearch, setCalendlyUserSearch] = useState("");
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
   const [whatsappConnected, setWhatsAppConnected] = useState(false);
@@ -1616,19 +1622,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     if (
       capabilities.calendlyActions.some((action) => action.toLowerCase() === "create_one_off_meeting_link")
     ) {
-      if (!calendlyMeetingName.trim()) {
-        setActiveTab("test");
-        setMessage("Enter a meeting name for the one-off meeting link");
-        return;
-      }
       if (!calendlyOneOffStartDate.trim() || !calendlyOneOffEndDate.trim()) {
         setActiveTab("test");
-        setMessage("Select start and end dates for the one-off meeting link");
+        setMessage("Select a window start and length for the one-off meeting link");
         return;
       }
       if (!calendlyDurationMinutes.trim()) {
         setActiveTab("test");
-        setMessage("Select a duration for the one-off meeting link");
+        setMessage("Select a meeting length for the one-off meeting link");
         return;
       }
     }
@@ -1784,18 +1785,24 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               calendlyTriggerEvent: calendlyTriggerEvent.trim() || "meeting_booked",
               calendlyInviteeName: calendlyInviteeName.trim() || undefined,
               calendlyInviteeEmail: calendlyInviteeEmail.trim() || undefined,
-              calendlyMeetingName: calendlyMeetingName.trim() || undefined,
+              calendlyMeetingName: calendlyMeetingName.trim() || "One-off meeting",
               calendlyEventTypeUri: calendlyEventTypeUri.trim() || undefined,
               calendlyEventUuid: calendlyEventUuid.trim() || undefined,
               calendlyInviteeUuid: calendlyInviteeUuid.trim() || undefined,
               calendlyStartTime: calendlyStartTime.trim() || undefined,
               calendlyEndTime: calendlyEndTime.trim() || undefined,
-              calendlyDurationMinutes: calendlyDurationMinutes.trim() || undefined,
+              calendlyDurationMinutes: calendlyDurationMinutes.trim() || "30",
               calendlyOneOffStartDate: calendlyOneOffStartDate.trim() || undefined,
               calendlyOneOffEndDate: calendlyOneOffEndDate.trim() || undefined,
               calendlyTimezone: calendlyTimezone.trim() || timeZone.trim() || undefined,
-              calendlyLocationKind: calendlyLocationKind.trim() || undefined,
-              calendlyLocation: calendlyLocation.trim() || undefined
+              calendlyLocationKind: calendlyLocationKind.trim() || "ask_invitee",
+              calendlyLocation: calendlyLocation.trim() || undefined,
+              calendlyContactEmail: calendlyContactEmail.trim() || undefined,
+              calendlyContactUuid: calendlyContactUuid.trim() || undefined,
+              calendlyContactName: calendlyContactName.trim() || undefined,
+              calendlyCancelReason: calendlyCancelReason.trim() || undefined,
+              calendlyMeetingRecapUuid: calendlyMeetingRecapUuid.trim() || undefined,
+              calendlyUserSearch: calendlyUserSearch.trim() || undefined
             }
           : {}),
         attachments: effectiveAttachments
@@ -2209,6 +2216,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             calendlyTimezone={calendlyTimezone}
             calendlyLocationKind={calendlyLocationKind}
             calendlyLocation={calendlyLocation}
+            calendlyContactEmail={calendlyContactEmail}
+            calendlyContactUuid={calendlyContactUuid}
+            calendlyContactName={calendlyContactName}
+            calendlyCancelReason={calendlyCancelReason}
+            calendlyMeetingRecapUuid={calendlyMeetingRecapUuid}
+            calendlyUserSearch={calendlyUserSearch}
             whatsappConnected={whatsappConnected}
             connectingWhatsApp={connectingWhatsApp}
             running={running}
@@ -2266,6 +2279,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onCalendlyTimezoneChange={setCalendlyTimezone}
             onCalendlyLocationKindChange={setCalendlyLocationKind}
             onCalendlyLocationChange={setCalendlyLocation}
+            onCalendlyContactEmailChange={setCalendlyContactEmail}
+            onCalendlyContactUuidChange={setCalendlyContactUuid}
+            onCalendlyContactNameChange={setCalendlyContactName}
+            onCalendlyCancelReasonChange={setCalendlyCancelReason}
+            onCalendlyMeetingRecapUuidChange={setCalendlyMeetingRecapUuid}
+            onCalendlyUserSearchChange={setCalendlyUserSearch}
             onRefreshConnections={() => void refreshConnections()}
             onRunTest={() => void runAgent()}
             onStartLiveTest={() => void startLiveTest()}

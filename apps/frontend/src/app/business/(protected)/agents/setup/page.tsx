@@ -31,6 +31,7 @@ import { KnowledgeSection } from "@/components/business/setup/knowledge-section"
 import { AgentBehaviorSection } from "@/components/business/setup/agent-behavior-section";
 import { HoursAvailabilitySection } from "@/components/business/setup/hours-availability-section";
 import { TelegramSetupSection } from "@/components/business/setup/telegram-setup-section";
+import { CalendlySetupSection } from "@/components/business/setup/calendly-setup-section";
 import { type ApptNumberField } from "@/components/business/setup/appointment-hours-editor";
 import { validateBookingRules } from "@/components/business/setup/booking-rules-panel";
 import {
@@ -483,6 +484,27 @@ function readInstalledAgentId(data: unknown): string | null {
   return stringOrNull(installedAgent?.id);
 }
 
+function normalizeCalendlyState(
+  value:
+    | {
+        connected?: boolean;
+        email?: string | null;
+        eventTypeUri?: string | null;
+        eventTypeName?: string | null;
+        schedulingUrl?: string | null;
+      }
+    | null
+    | undefined
+) {
+  return {
+    connected: Boolean(value?.connected),
+    email: value?.email ?? null,
+    eventTypeUri: value?.eventTypeUri?.trim() || "",
+    eventTypeName: value?.eventTypeName?.trim() || "",
+    schedulingUrl: value?.schedulingUrl?.trim() || ""
+  };
+}
+
 function readAssistantName(data: unknown): string {
   const root = objectOrNull(data);
   if (!root) return "";
@@ -626,9 +648,18 @@ function SetupWizard() {
   });
   const [calendarBusy, setCalendarBusy] = useState(false);
   const [calendarDisclosureOpen, setCalendarDisclosureOpen] = useState(false);
-  const [calendly, setCalendly] = useState<{ connected: boolean; email: string | null }>({
+  const [calendly, setCalendly] = useState<{
+    connected: boolean;
+    email: string | null;
+    eventTypeUri: string;
+    eventTypeName: string;
+    schedulingUrl: string;
+  }>({
     connected: false,
-    email: null
+    email: null,
+    eventTypeUri: "",
+    eventTypeName: "",
+    schedulingUrl: ""
   });
   const [calendlyBusy, setCalendlyBusy] = useState(false);
   const [calendarId, setCalendarId] = useState("primary");
@@ -719,6 +750,12 @@ function SetupWizard() {
       setCalendly((current) => ({ ...current, connected: true }));
     } else if (calendlyResult === "denied") {
       setError("Calendly connection was cancelled. You can retry anytime.");
+    } else if (calendlyResult === "webhook_failed") {
+      setStatusMsg("Calendly connected — webhook not registered. Reconnect after checking CALENDLY_WEBHOOK_URL.");
+      setCalendly((current) => ({ ...current, connected: true }));
+      setError(
+        "Calendly account connected, but live booking triggers need a public webhook URL. Set CALENDLY_WEBHOOK_URL and reconnect."
+      );
     } else if (calendlyResult) {
       setError("Calendly connection failed. Please try connecting again.");
     }
@@ -834,7 +871,7 @@ function SetupWizard() {
       setPhoneNumbers(data.availablePhoneNumbers ?? []);
       setSelectedPhoneId(data.selectedPlatformPhoneNumberId ?? "");
       setCalendar(data.calendar ?? { connected: false, email: null });
-      setCalendly(data.calendly ?? { connected: false, email: null });
+      setCalendly(normalizeCalendlyState(data.calendly));
       // Legacy CUSTOM_HOURS answering mode is now expressed as coverage
       // "custom" — the Connect routing choice falls back to its default.
       setAnsweringMode(
@@ -1210,7 +1247,14 @@ function SetupWizard() {
           }
         }
         : {}),
-      ...(listingId ? { listingId } : {})
+      ...(listingId ? { listingId } : {}),
+      ...(showCalendly && calendly.eventTypeUri.trim()
+        ? {
+            calendlyEventTypeUri: calendly.eventTypeUri.trim(),
+            calendlyEventTypeName: calendly.eventTypeName.trim() || undefined,
+            calendlySchedulingUrl: calendly.schedulingUrl.trim() || undefined
+          }
+        : {})
     };
 
     const res = await saveBusinessSetup(payload);
@@ -1256,7 +1300,7 @@ function SetupWizard() {
     }
 
     setCalendar(data.calendar ?? calendar);
-    setCalendly(data.calendly ?? calendly);
+    setCalendly(normalizeCalendlyState(data.calendly ?? calendly));
 
     if (sectionFailures.length > 0) {
       setError(sectionFailures.join(" "));
@@ -1361,7 +1405,13 @@ function SetupWizard() {
   async function handleDisconnectCalendly() {
     setCalendlyBusy(true);
     await disconnectBusinessCalendly();
-    setCalendly({ connected: false, email: null });
+    setCalendly({
+      connected: false,
+      email: null,
+      eventTypeUri: "",
+      eventTypeName: "",
+      schedulingUrl: ""
+    });
     setCalendlyBusy(false);
   }
 
@@ -1382,7 +1432,7 @@ function SetupWizard() {
     }
 
     if (bookingRulesBlocked) {
-      setStep(2);
+      setStep(getConfigureStepId());
       reportBookingRulesBlocked();
       return;
     }
@@ -1401,7 +1451,8 @@ function SetupWizard() {
       }
     }
 
-    setStep((current) => Math.min(current + 1, STEPS.length));
+    // Advance by active step ids (e.g. Calendly-only skips Configure / step 2).
+    setStep(getNextActiveStepId(step));
   }
 
   async function handleDeploy() {
@@ -1414,31 +1465,34 @@ function SetupWizard() {
     }
 
     if (!configureComplete) {
-      setStep(2);
+      setStep(getConfigureStepId());
       setError("Complete the Configure step before going live.");
       return;
     }
 
     if (bookingRulesBlocked) {
-      setStep(2);
+      setStep(getConfigureStepId());
       reportBookingRulesBlocked();
       return;
     }
 
-    if (businessName.trim().length < 2 || businessType.trim().length < 2) {
-      setStep(2);
+    if (
+      setupValidationPlan.requireBusinessName &&
+      (businessName.trim().length < 2 || businessType.trim().length < 2)
+    ) {
+      setStep(getConfigureStepId());
       setError("Add your business name and type.");
       return;
     }
 
     if (buyerSetupIssues.length > 0) {
-      setStep(2);
+      setStep(getConfigureStepId());
       setError(buyerSetupIssues[0].message);
       return;
     }
 
     if (setupValidationPlan.requireVoiceIdentity && assistantName.trim().length < 2) {
-      setStep(2);
+      setStep(getConfigureStepId());
       setError("Add your AI assistant name.");
       return;
     }
@@ -1626,7 +1680,7 @@ function SetupWizard() {
     ((!showPhone || phoneSelected) &&
       (!showCallForwarding || forwardToPhone.trim().length >= 5 || answeringMode === "AI_FIRST") &&
       (!showCalendar || calendar.connected) &&
-      (!showCalendly || calendly.connected) &&
+      (!showCalendly || (calendly.connected && Boolean(calendly.eventTypeUri.trim()))) &&
       (!showMail || mailComplete) &&
       (!showTelegram || telegramConnected));
   const connectReady = connectComplete;
@@ -1661,11 +1715,30 @@ function SetupWizard() {
     return list;
   }, [hasConnectStep, hasConfigureSections, isEditMode]);
 
+  function getNextActiveStepId(fromStep: number): number {
+    const ids = activeSteps.map((entry) => entry.id);
+    const currentIndex = ids.indexOf(fromStep);
+    if (currentIndex >= 0 && currentIndex < ids.length - 1) {
+      return ids[currentIndex + 1];
+    }
+    const nextHigher = ids.find((id) => id > fromStep);
+    return nextHigher ?? fromStep;
+  }
+
+  function getConfigureStepId(): number {
+    return activeSteps.some((entry) => entry.id === 2) ? 2 : step;
+  }
+
   useEffect(() => {
     if (loading) return;
     const isStepActive = activeSteps.some((s) => s.id === step);
     if (!isStepActive && activeSteps.length > 0) {
-      setStep(activeSteps[0].id);
+      // Prefer the next higher active step (Connect → Test when Configure is skipped),
+      // otherwise fall back to the previous active step.
+      const nextHigher = activeSteps.find((entry) => entry.id > step)?.id;
+      const previous =
+        [...activeSteps].reverse().find((entry) => entry.id < step)?.id ?? activeSteps[0].id;
+      setStep(nextHigher ?? previous);
     }
   }, [loading, activeSteps, step]);
 
@@ -1748,14 +1821,18 @@ function SetupWizard() {
       : []),
     ...(needsCalendly
       ? [
-        {
+          {
           key: "calendly",
           label: "Calendly",
           required: true,
-          complete: calendly.connected,
-          blocker: calendly.connected ? undefined : "Connect Calendly before going live."
-        }
-      ]
+          complete: calendly.connected && Boolean(calendly.eventTypeUri.trim()),
+          blocker: !calendly.connected
+            ? "Connect Calendly before going live."
+            : !calendly.eventTypeUri.trim()
+              ? "Select your default Calendly event type before going live."
+              : undefined
+          }
+        ]
       : []),
     ...(needsGmail
       ? [
@@ -1999,6 +2076,13 @@ function SetupWizard() {
               onDisconnectCalendar={handleDisconnectCalendar}
               onConnectCalendly={handleConnectCalendly}
               onDisconnectCalendly={handleDisconnectCalendly}
+              onCalendlySelectionChange={(next) => {
+                setCalendly((current) => ({ ...current, ...next }));
+                setConfigDirty(true);
+                if (next.schedulingUrl && !bookingUrl.trim()) {
+                  setBookingUrl(next.schedulingUrl);
+                }
+              }}
               onCalendarId={setCalendarId}
               existingPhoneNumber={existingPhoneNumber}
               onExistingPhoneNumberChange={setExistingPhoneNumber}
@@ -2371,9 +2455,7 @@ function SetupWizard() {
                   {step < 3 && (
                     <button
                       type="button"
-                      onClick={() =>
-                        setStep((current) => Math.min(current + 1, STEPS.length))
-                      }
+                      onClick={() => setStep(getNextActiveStepId(step))}
                       disabled={saving || (step === 1 && !connectComplete) || (step === 2 && !configureComplete)}
                       data-testid="business-setup-skip"
                       className="text-sm font-medium text-slate-500 transition hover:text-slate-700 disabled:opacity-50"
@@ -2468,6 +2550,7 @@ function StepConnect({
   onDisconnectCalendar,
   onConnectCalendly,
   onDisconnectCalendly,
+  onCalendlySelectionChange,
   onCalendarId,
   businessName,
   onMailAliasChange,
@@ -2502,7 +2585,13 @@ function StepConnect({
   answeringMode: string;
   calendar: { connected: boolean; email: string | null };
   calendarBusy: boolean;
-  calendly: { connected: boolean; email: string | null };
+  calendly: {
+    connected: boolean;
+    email: string | null;
+    eventTypeUri: string;
+    eventTypeName: string;
+    schedulingUrl: string;
+  };
   calendlyBusy: boolean;
   calendarId: string;
   timeZone: string;
@@ -2515,6 +2604,11 @@ function StepConnect({
   onDisconnectCalendar: () => void;
   onConnectCalendly: () => void;
   onDisconnectCalendly: () => void;
+  onCalendlySelectionChange: (next: {
+    eventTypeUri: string;
+    eventTypeName: string;
+    schedulingUrl: string;
+  }) => void;
   onCalendarId: (v: string) => void;
 
   existingPhoneNumber: string;
@@ -2790,59 +2884,18 @@ function StepConnect({
       ) : null}
 
       {showCalendly ? (
-        <div className="mt-6 border-t border-gray-100 pt-6">
-          <h3 className="text-sm font-bold text-slate-900 mb-3">Calendly</h3>
-
-          <div className="flex items-center justify-between gap-4 py-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg">
-                <svg viewBox="0 0 24 24" className="h-10 w-10" aria-hidden="true">
-                  <rect x="2" y="2" width="20" height="20" rx="5" fill="#006BFF" />
-                  <path
-                    fill="#fff"
-                    d="M12.2 6.5c-3.2 0-5.8 2.6-5.8 5.8s2.6 5.8 5.8 5.8 5.8-2.6 5.8-5.8h-2.1c0 2-1.6 3.7-3.7 3.7s-3.7-1.6-3.7-3.7 1.6-3.7 3.7-3.7V6.5z"
-                  />
-                </svg>
-              </div>
-
-              <div>
-                <p className="text-sm font-semibold text-slate-800 inline-flex items-center">
-                  {calendly.connected ? "Calendly connected" : "Calendly"}
-                  {!calendly.connected && (
-                    <InfoTooltip content="Not connected. Connect so meeting bookings can trigger this agent." />
-                  )}
-                </p>
-                {calendly.connected && (
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    Connected as {calendly.email || "your account"}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {calendly.connected ? (
-              <button
-                type="button"
-                disabled={calendlyBusy}
-                onClick={onDisconnectCalendly}
-                className="btn shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:border-gray-300"
-                data-testid="business-setup-calendly-disconnect"
-              >
-                Disconnect
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={calendlyBusy}
-                onClick={onConnectCalendly}
-                className="btn shrink-0 rounded-xl bg-amber-500 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-600"
-                data-testid="business-setup-calendly-connect"
-              >
-                {calendlyBusy ? "Connecting…" : "Connect"}
-              </button>
-            )}
-          </div>
-        </div>
+        <CalendlySetupSection
+          installedAgentId={installedAgentIdForPhone}
+          listingId={listingId}
+          connected={calendly.connected}
+          email={calendly.email}
+          busy={calendlyBusy}
+          eventTypeUri={calendly.eventTypeUri}
+          eventTypeName={calendly.eventTypeName}
+          onConnect={onConnectCalendly}
+          onDisconnect={onDisconnectCalendly}
+          onSelectionChange={onCalendlySelectionChange}
+        />
       ) : null}
 
       {showTimeZone ? (
@@ -5084,17 +5137,20 @@ function WorkflowCalendlyStepPanel({
 
     const start = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const end = new Date(start.getTime() + 30 * 60 * 1000);
+    const sampleEventUuid = "SAMPLE_EVENT_UUID";
+    const sampleInviteeUuid = "SAMPLE_INVITEE_UUID";
     const invitee = {
       name: "Alex Rivera",
       email: "alex.rivera@example.com",
-      status: "active"
+      status: "active",
+      uri: `https://api.calendly.com/scheduled_events/${sampleEventUuid}/invitees/${sampleInviteeUuid}`
     };
     const scheduledEvent = {
       name: "Sample consultation",
       start_time: start.toISOString(),
       end_time: end.toISOString(),
       status: "active",
-      uri: "https://api.calendly.com/scheduled_events/SAMPLE"
+      uri: `https://api.calendly.com/scheduled_events/${sampleEventUuid}`
     };
 
     const res = await runBusinessSetupWorkflowTest(workflowId, {
@@ -5105,6 +5161,8 @@ function WorkflowCalendlyStepPanel({
         businessType: "Service Business",
         timeZone: "America/Los_Angeles",
         calendlyTriggerEvent: "meeting_booked",
+        calendlyEventUuid: sampleEventUuid,
+        calendlyInviteeUuid: sampleInviteeUuid,
         calendlyInviteeName: invitee.name,
         calendlyInviteeEmail: invitee.email,
         calendlyStartTime: scheduledEvent.start_time,
@@ -5113,7 +5171,8 @@ function WorkflowCalendlyStepPanel({
           event: "invitee.created",
           calendlyEvent: "meeting_booked",
           invitee,
-          scheduledEvent
+          scheduledEvent,
+          raw: { dryRun: true }
         },
         message: "Calendly meeting booked",
         latestMessage: "Calendly meeting booked"

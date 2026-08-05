@@ -247,7 +247,13 @@ export type BusinessSetupData = {
   assistantName?: string | null;
   knowledge: BusinessKnowledgeItem[];
   calendar: { connected: boolean; email: string | null };
-  calendly?: { connected: boolean; email: string | null };
+  calendly?: {
+    connected: boolean;
+    email: string | null;
+    eventTypeUri?: string | null;
+    eventTypeName?: string | null;
+    schedulingUrl?: string | null;
+  };
   webhooks: {
     voice: string;
     voiceAction: string;
@@ -1045,6 +1051,29 @@ export function getBusinessCalendarStatus() {
 
 export function getBusinessCalendlyStatus() {
   return apiGet<BusinessCalendlyStatus>("/business/connectors/calendly/status");
+}
+
+export function listBusinessCalendlyEventTypes() {
+  return apiGet<{
+    options: Array<{ value: string; label: string; uri: string; schedulingUrl?: string }>;
+  }>("/business/connectors/calendly/event-types");
+}
+
+export function saveBusinessCalendlyConfig(input: {
+  listingId?: string;
+  installedAgentId?: string;
+  eventTypeUri: string;
+  eventTypeName?: string;
+  schedulingUrl?: string;
+}) {
+  return apiPut<{
+    installedAgentId: string;
+    calendly: {
+      eventTypeUri: string;
+      eventTypeName?: string;
+      schedulingUrl?: string;
+    };
+  }>("/business/connectors/calendly/config", input);
 }
 
 export function getBusinessCalendlyOAuthUrl(redirect?: string) {

@@ -1383,6 +1383,8 @@ export function BusinessSettingsView() {
       showToast("Calendly connected");
     } else if (calendlyResult === "denied") {
       showToast("Calendly connection was cancelled");
+    } else if (calendlyResult === "webhook_failed") {
+      showToast("Calendly connected, but webhook registration failed — reconnect after fixing CALENDLY_WEBHOOK_URL");
     } else if (calendlyResult === "failed") {
       showToast("Could not connect Calendly");
     }
