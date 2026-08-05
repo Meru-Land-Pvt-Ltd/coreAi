@@ -1038,13 +1038,13 @@ export function genericAssistantTools() {
       messages: [
         {
           type: "request-start",
-          content: "Let me check those details for you."
+          content: "Let me verify your booking details."
         }
       ],
       function: {
         name: VOICE_TOOL_NAMES.verifyAndLookupAppointment,
         description:
-          "Verify ownership and retrieve an upcoming appointment booked under a DIFFERENT phone number. REQUIRES ALL THREE MATCHES: full name, phone number used during booking, and email address used during booking. Only call this after collecting all three pieces of information from the caller.",
+          "Verify caller identity using Full Name and Booking Phone Number when managing an appointment booked under a different line.",
         parameters: {
           type: "object",
           properties: {
@@ -1058,10 +1058,10 @@ export function genericAssistantTools() {
             },
             booking_email: {
               type: "string",
-              description: "Email address used during booking."
+              description: "Optional email address used during booking."
             }
           },
-          required: ["full_name", "booking_phone", "booking_email"]
+          required: ["full_name", "booking_phone"]
         }
       }
     }
@@ -1219,8 +1219,9 @@ export async function deployVapiAssistant({
     stopSpeakingPlan: {
       numWords: 0,
       voiceSeconds: 0.2,
-      backoffSeconds: 1
+      backoffSeconds: 0
     },
+    interruptionsEnabled: true,
     firstMessageInterruptionsEnabled: true,
     server: {
       url: serverUrl,

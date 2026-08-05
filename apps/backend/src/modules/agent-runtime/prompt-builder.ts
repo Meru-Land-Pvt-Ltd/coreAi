@@ -198,6 +198,7 @@ Emotional support:
 Conversation rules:
 - The greeting is spoken EXACTLY ONCE per call, by the phone system, before your first turn${openingLine ? ` (normally: "${openingLine}" — a different opening is used when the business is closed)` : ""}. Never greet the caller again. Your first reply must answer what they actually said — never begin it with "Hello", "Hi", "Hi there", "Thank you for calling", "Welcome", your own name, or the business name, and never re-ask "how can I help you?" when they have already told you.
 - Always respond to the caller's latest message first.
+- Immediate Interruption & Barge-in Handling: Whenever the caller interrupts while you are speaking (e.g. by saying "yes", "no", asking a question, or changing the topic), immediately stop your current speech. The interrupted prompt is permanently cancelled and must NEVER be resumed, finished, or repeated in subsequent turns. Discard the remainder of the interrupted prompt and respond immediately and directly to the caller's latest input.
 - Do not introduce yourself or the business name again at any later point in the call.
 - Never read out a menu of options more than once per call, and never repeat the same sentence twice in a row. If the caller is unclear, ask one short, focused clarification instead of guessing.
 - If the caller says something vague like "I want to know", ask what they would like to know.
@@ -309,9 +310,9 @@ SMS consent rules (test conversation — follow these EXACTLY):
   if (capabilities.canBook) {
     sections.push(`
 Appointment cancellation rules (follow these EXACTLY — privacy critical):
-- Cancellations are verified by the phone number the caller is calling from, or via the 3-factor verification flow for alternate numbers.
+- Cancellations are verified by the phone number the caller is calling from, or via verification for alternate numbers.
 - To cancel an appointment on the current calling number: call cancel_appointment first with no arguments.
-- If the caller wants to cancel an appointment under a DIFFERENT phone number, collect their Full Name, Booking Phone Number, and Booking Email Address, then call verify_and_lookup_appointment before proceeding.
+- If the caller wants to cancel an appointment under a DIFFERENT phone number, collect their Full Name and Booking Phone Number, then call verify_and_lookup_appointment before proceeding.
 - When cancel_appointment returns one ${bookingLabel}, ask: "I found an upcoming appointment for [service] on [date] at [time]. Would you like me to cancel this appointment?" When it returns several, read the numbered list and ask which one.
 - Only after the caller gives a clear, unambiguous yes may you call cancel_appointment again with that appointment_id and confirmed=true.
 - Never say the ${bookingLabel} was cancelled unless the tool returned cancelled=true.`.trim());
@@ -329,13 +330,12 @@ Appointment rescheduling rules (follow these EXACTLY):
   2. If the caller chooses the appointment associated with the current phone number:
      Call reschedule_appointment (with no arguments or appointment_id) to retrieve the details. Ask for the desired new day and time, check availability if needed, confirm with the caller, and call reschedule_appointment with appointment_id, new_date, new_time, and confirmed=true. Do NOT call book_appointment.
   3. If the caller wants to reschedule an appointment booked under a DIFFERENT phone number (or for someone else):
-     Perform 3-Factor Verification FIRST. Ask the caller for:
+     Perform Verification FIRST. Ask the caller for:
      a) Full name used during booking
      b) Phone number used during booking
-     c) Email address used during booking
-     Once the caller provides all 3 items, call verify_and_lookup_appointment with full_name, booking_phone, and booking_email.
+     Once the caller provides both items, call verify_and_lookup_appointment with full_name and booking_phone.
      ONLY after verify_and_lookup_appointment returns verified=true with matching appointment details may you proceed to ask for the new day/time and complete the reschedule using reschedule_appointment.
-     If verification fails or any of the 3 items do not match, do NOT reveal any stored appointment details and do NOT reschedule.
+     If verification fails or the details do not match, do NOT reveal any stored appointment details and do NOT reschedule.
 - NEVER call book_appointment for rescheduling requests. Rescheduling must ONLY update an existing appointment using reschedule_appointment.`.trim());
   }
 
