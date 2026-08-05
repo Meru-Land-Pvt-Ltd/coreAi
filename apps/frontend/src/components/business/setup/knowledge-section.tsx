@@ -44,6 +44,10 @@ export function DocumentUploadSection({
   installedAgentId,
   onSummaryChange,
   onKnowledgeChanged,
+  onApplyContactName,
+  onApplyBusinessName,
+  onApplyServices,
+  onProfileSuggestionFetched,
   hoursSuggestionReady = false,
   onReviewHours
 }: {
@@ -51,6 +55,10 @@ export function DocumentUploadSection({
   installedAgentId?: string | null;
   onSummaryChange?: (summary: { files: number; ready: number }) => void;
   onKnowledgeChanged?: () => void;
+  onApplyContactName?: (name: string) => void;
+  onApplyBusinessName?: (name: string) => void;
+  onApplyServices?: (services: string[]) => void;
+  onProfileSuggestionFetched?: (suggestion: NonNullable<BusinessFactsData["profileSuggestion"]>) => void;
   hoursSuggestionReady?: boolean;
   onReviewHours?: () => void;
 }) {
@@ -61,15 +69,32 @@ export function DocumentUploadSection({
   const [liveSyncWarning, setLiveSyncWarning] = useState<string | null>(null);
   const [liveSyncOk, setLiveSyncOk] = useState(false);
   const [syncRetrying, setSyncRetrying] = useState(false);
+  const [selectedDoctorIndex, setSelectedDoctorIndex] = useState<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [facts, setFacts] = useState<BusinessFactsData | null>(null);
   const [addressApplying, setAddressApplying] = useState(false);
 
+  const profileCallbackRef = useRef(onProfileSuggestionFetched);
+  useEffect(() => {
+    profileCallbackRef.current = onProfileSuggestionFetched;
+  }, [onProfileSuggestionFetched]);
+
   const refreshFacts = useCallback(async () => {
     const res = await getBusinessFacts();
-    if (res.success && res.data) setFacts(res.data);
+    if (res.success && res.data) {
+      setFacts(res.data);
+      if (res.data.profileSuggestion) {
+        profileCallbackRef.current?.(res.data.profileSuggestion);
+      }
+    }
   }, []);
+
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
+
+  function dismissRow(key: string) {
+    setDismissedKeys((prev) => new Set(prev).add(key));
+  }
 
   async function handleApplyAddress(suggestion: NonNullable<BusinessFactsData["documentSuggestion"]>) {
     setAddressApplying(true);
@@ -89,12 +114,21 @@ export function DocumentUploadSection({
     });
     setAddressApplying(false);
     if (res.success) {
+      dismissRow("address");
       void refreshFacts();
       onKnowledgeChanged?.();
     } else {
       setUploadError(res.error ?? "Failed to apply address suggestion.");
     }
   }
+
+  const hasSuggestionsToShow =
+    (!dismissedKeys.has("doctor") && facts?.profileSuggestion?.doctorNames && facts.profileSuggestion.doctorNames.length > 0) ||
+    (!dismissedKeys.has("businessName") && facts?.profileSuggestion?.businessName) ||
+    (!dismissedKeys.has("services") && facts?.profileSuggestion?.services && facts.profileSuggestion.services.length > 0) ||
+    facts?.profileSuggestion?.registrationNumber ||
+    (!dismissedKeys.has("address") && facts?.documentSuggestion) ||
+    (!dismissedKeys.has("hours") && hoursSuggestionReady);
 
   function applyLiveSync(sync: KnowledgeLiveSync | undefined) {
     if (!sync) return;
@@ -400,7 +434,7 @@ export function DocumentUploadSection({
       ) : null}
 
       {/* Unified minimalist confirmation card for extracted details */}
-      {(facts?.documentSuggestion || hoursSuggestionReady) ? (
+      {(facts?.documentSuggestion || facts?.profileSuggestion || hoursSuggestionReady) ? (
         <div className="mt-4 border-t border-gray-200/60 pt-4 animate-fade-in space-y-3.5">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
@@ -413,8 +447,132 @@ export function DocumentUploadSection({
             </h5>
           </div>
 
-          <div className="grid gap-2.5">
-            {facts?.documentSuggestion ? (
+          <div className="grid">
+            {/* 1. Doctor / Contact Name Extraction */}
+            {!dismissedKeys.has("doctor") && facts?.profileSuggestion?.doctorNames && facts.profileSuggestion.doctorNames.length > 0 ? (
+              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100">
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+                    {facts.profileSuggestion.doctorNames.length > 1
+                      ? `Doctors (${facts.profileSuggestion.doctorNames.length} detected)`
+                      : "Doctor Name"}
+                  </span>
+                  <p className="text-xs text-slate-800 font-bold truncate mt-0.5">
+                    {facts.profileSuggestion.doctorNames.join(", ")}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {onApplyContactName ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onApplyContactName(
+                          facts.profileSuggestion!.primaryDoctor ?? facts.profileSuggestion!.doctorNames[0]
+                        );
+                        dismissRow("doctor");
+                      }}
+                      className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Add Doctors
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => dismissRow("doctor")}
+                    className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer"
+                    title="Remove suggestion"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {/* 2. Business Name Suggestion */}
+            {!dismissedKeys.has("businessName") && facts?.profileSuggestion?.businessName ? (
+              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100">
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Business / Hospital Name</span>
+                  <p className="text-xs text-slate-800 font-bold truncate mt-0.5">
+                    {facts.profileSuggestion.businessName}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {onApplyBusinessName ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onApplyBusinessName(facts.profileSuggestion!.businessName!);
+                        dismissRow("businessName");
+                      }}
+                      className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Add Name
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => dismissRow("businessName")}
+                    className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer"
+                    title="Remove suggestion"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {/* 3. Extracted Services */}
+            {!dismissedKeys.has("services") && facts?.profileSuggestion?.services && facts.profileSuggestion.services.length > 0 ? (
+              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100">
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+                    Services ({facts.profileSuggestion.services.length} procedures detected)
+                  </span>
+                  <p className="text-xs text-slate-700 font-medium truncate mt-0.5">
+                    {facts.profileSuggestion.services.slice(0, 5).join(" · ")}
+                    {facts.profileSuggestion.services.length > 5 ? "..." : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {onApplyServices ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onApplyServices(facts.profileSuggestion!.services);
+                        dismissRow("services");
+                      }}
+                      className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Add Services
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => dismissRow("services")}
+                    className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer"
+                    title="Remove suggestion"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {/* 4. Registration Number */}
+            {facts?.profileSuggestion?.registrationNumber ? (
+              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100">
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">License / Registration No.</span>
+                  <p className="text-xs text-slate-700 font-semibold truncate mt-0.5">
+                    {facts.profileSuggestion.registrationNumber}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {/* 5. Business Address */}
+            {!dismissedKeys.has("address") && facts?.documentSuggestion ? (
               <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 last:border-b-0">
                 <div className="min-w-0">
                   <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Business Address</span>
@@ -422,31 +580,58 @@ export function DocumentUploadSection({
                     {facts.documentSuggestion.formatted}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  disabled={addressApplying}
-                  onClick={() => void handleApplyAddress(facts.documentSuggestion!)}
-                  className="shrink-0 text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
-                >
-                  {addressApplying ? "Applying..." : "Use Address"}
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    disabled={addressApplying}
+                    onClick={() => void handleApplyAddress(facts.documentSuggestion!)}
+                    className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 cursor-pointer shadow-2xs"
+                  >
+                    {addressApplying ? "Applying..." : "Add Address"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => dismissRow("address")}
+                    className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer"
+                    title="Remove suggestion"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             ) : null}
 
-            {hoursSuggestionReady ? (
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50/70 px-3 py-2.5">
-                <p className="text-xs text-slate-600">
-                  Business hours were detected in your document.
-                </p>
-                {onReviewHours ? (
+            {/* 6. Operating Hours */}
+            {!dismissedKeys.has("hours") && hoursSuggestionReady ? (
+              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 last:border-b-0">
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Business Hours</span>
+                  <p className="text-xs text-slate-700 font-medium truncate mt-0.5">
+                    Weekly operating hours detected from document
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {onReviewHours ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onReviewHours();
+                        dismissRow("hours");
+                      }}
+                      className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                    >
+                      View Hours
+                    </button>
+                  ) : null}
                   <button
                     type="button"
-                    onClick={onReviewHours}
-                    className="shrink-0 text-xs font-semibold text-amber-700 hover:text-amber-800 transition-colors cursor-pointer"
+                    onClick={() => dismissRow("hours")}
+                    className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer"
+                    title="Remove suggestion"
                   >
-                    Review Business Hours
+                    ✕
                   </button>
-                ) : null}
+                </div>
               </div>
             ) : null}
           </div>

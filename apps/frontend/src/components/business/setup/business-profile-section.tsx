@@ -79,6 +79,7 @@ export function BusinessProfileSection({
       .filter(Boolean)
   );
   const [customServiceInput, setCustomServiceInput] = useState("");
+  const [profileSuggestion, setProfileSuggestion] = useState<import("@/components/business/features/api").DocumentProfileSuggestion | null>(null);
 
   // Sync selected services → servicesText state
   useEffect(() => {
@@ -86,10 +87,18 @@ export function BusinessProfileSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedServices]);
 
+  // Handle profile suggestion fetched from uploaded documents
+  function handleProfileSuggestion(suggestion: import("@/components/business/features/api").DocumentProfileSuggestion) {
+    setProfileSuggestion(suggestion);
+    // Do NOT auto-fill automatically. Allow user to review detected/mismatched info and click Apply.
+  }
+
   // Derive service suggestions from businessType
   const typeKey =
     Object.keys(SERVICE_MAP).find((key) => businessType.toLowerCase().includes(key)) ?? "";
   const suggestions = (SERVICE_MAP[typeKey] ?? []).filter((s) => !selectedServices.includes(s));
+
+  const [showDoctorChips, setShowDoctorChips] = useState(false);
 
   function addService(s: string) {
     if (!s.trim() || selectedServices.includes(s.trim())) return;
@@ -108,6 +117,15 @@ export function BusinessProfileSection({
         installedAgentId={installedAgentId}
         onSummaryChange={onSummaryChange}
         onKnowledgeChanged={onKnowledgeChanged}
+        onApplyContactName={(name) => {
+          onContactName(name);
+          setShowDoctorChips(true);
+        }}
+        onApplyBusinessName={(name) => onBusinessName(name)}
+        onApplyServices={(newServices) => {
+          for (const s of newServices) addService(s);
+        }}
+        onProfileSuggestionFetched={handleProfileSuggestion}
         hoursSuggestionReady={hoursSuggestionReady}
         onReviewHours={onReviewHours}
       />
@@ -169,6 +187,29 @@ export function BusinessProfileSection({
               ))}
             </select>
           </div>
+
+          {/* Full-width Doctor Roster Chips (Revealed only when Add Doctors is clicked) */}
+          {showDoctorChips && profileSuggestion?.doctorNames && profileSuggestion.doctorNames.length > 0 ? (
+            <div className="col-span-full flex flex-wrap items-center gap-1.5 bg-amber-50/50 border border-amber-100/80 rounded-xl p-2.5">
+              <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold shrink-0">
+                ✨ Detected Doctors ({profileSuggestion.doctorNames.length}):
+              </span>
+              {profileSuggestion.doctorNames.map((docName, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => onContactName(docName)}
+                  className={`text-[11px] font-semibold rounded-full px-2.5 py-0.5 border transition-all cursor-pointer ${
+                    contactName.trim() === docName
+                      ? "bg-amber-500 border-amber-500 text-white shadow-2xs"
+                      : "bg-white border-amber-200 text-amber-800 hover:bg-amber-100 hover:border-amber-400"
+                  }`}
+                >
+                  {contactName.trim() === docName ? "✓ " : "+ "}{docName}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="border-t border-gray-100 pt-3.5">
@@ -187,6 +228,7 @@ export function BusinessProfileSection({
                 {s} ✕
               </button>
             ))}
+            {/* Standard preset suggestions */}
             {suggestions.map((s) => (
               <button
                 key={s}

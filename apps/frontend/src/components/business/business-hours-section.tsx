@@ -191,7 +191,21 @@ export function BusinessHoursSection({
   const effectiveTimeZone = timeZoneOverride?.trim() ? timeZoneOverride.trim() : timeZone;
 
   const applyServerData = useCallback((data: BusinessHoursData) => {
-    setWeek(normalizeWeek(data.hours));
+    const normalized = normalizeWeek(data.hours);
+    setWeek(normalized);
+
+    const activeRows = normalized.filter((d) => !d.closed && d.periods.length > 0);
+    if (activeRows.length > 1) {
+      const firstOpen = activeRows[0].periods[0]?.open;
+      const firstClose = activeRows[0].periods[0]?.close;
+      const hasVarying = activeRows.some(
+        (r) => r.periods[0]?.open !== firstOpen || r.periods[0]?.close !== firstClose
+      );
+      if (hasVarying) {
+        setSameHoursForAll(false);
+      }
+    }
+
     setTimeZone(data.timeZone || "America/New_York");
     setSpecialDates(data.specialDates ?? []);
     setConfigured(data.configured);
@@ -421,15 +435,27 @@ export function BusinessHoursSection({
   function applySuggestion() {
     if (!suggestion) return;
     dismissedSuggestionKeyRef.current = getSuggestionKey(suggestion);
-    setWeek((current) =>
-      current.map((row) => {
-        const suggested = suggestion.days[row.day];
-        if (!suggested) return { ...row, closed: true, periods: [] };
-        return suggested.closed
-          ? { ...row, closed: true, periods: [] }
-          : { ...row, closed: false, periods: [{ open: suggested.open, close: suggested.close }] };
-      })
-    );
+    const newWeek = week.map((row) => {
+      const suggested = suggestion.days[row.day];
+      if (!suggested) return { ...row, closed: true, periods: [] };
+      return suggested.closed
+        ? { ...row, closed: true, periods: [] }
+        : { ...row, closed: false, periods: [{ open: suggested.open, close: suggested.close }] };
+    });
+    setWeek(newWeek);
+
+    const activeRows = newWeek.filter((d) => !d.closed && d.periods.length > 0);
+    if (activeRows.length > 1) {
+      const firstOpen = activeRows[0].periods[0]?.open;
+      const firstClose = activeRows[0].periods[0]?.close;
+      const hasVarying = activeRows.some(
+        (r) => r.periods[0]?.open !== firstOpen || r.periods[0]?.close !== firstClose
+      );
+      if (hasVarying) {
+        setSameHoursForAll(false);
+      }
+    }
+
     setDirty(true);
     setSuggestion(null);
     setStatusMsg("Detected hours loaded — review and save to confirm them.");

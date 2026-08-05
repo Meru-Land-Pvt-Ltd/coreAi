@@ -83,6 +83,7 @@ import {
 import { canBusinessRunSetup, hasAnyAgentAcquisition } from "./purchase-access";
 import { extractHoursFromDocuments, resolveScheduleForBusiness } from "./scheduling";
 import { addressesMateriallyDiffer, extractAddressFromDocuments, loadBusinessFacts } from "./business-facts";
+import { extractProfileFromDocuments, invalidateDocumentProfileCache } from "./document-profile-extractor";
 import {
   KnowledgeFileError,
   MAX_FILE_BYTES,
@@ -1786,6 +1787,7 @@ businessRoutes.post("/setup/knowledge-files", async (c) => {
       });
     }
 
+    invalidateDocumentProfileCache(resolved.businessId);
     const results = await ingestKnowledgeFiles({
       businessId: resolved.businessId,
       installedAgentId: installedAgentId ?? resolved.bootstrappedAgentId,
@@ -1816,6 +1818,7 @@ businessRoutes.delete("/setup/knowledge-files/:id", async (c) => {
   if (!businessId) return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
 
   try {
+    invalidateDocumentProfileCache(businessId);
     await deleteKnowledgeFile(businessId, c.req.param("id"));
     const liveSync = await refreshLiveAssistantKnowledge(businessId);
     return successResponse(c, { deleted: true, liveSync });
@@ -1850,6 +1853,11 @@ businessRoutes.get("/setup/business-facts", async (c) => {
 
   const facts = await loadBusinessFacts(businessId);
   const suggestion = await extractAddressFromDocuments({ businessId }).catch(() => null);
+  const profileSuggestion = await extractProfileFromDocuments({ businessId }).catch(() => null);
+
+  if (profileSuggestion && suggestion) {
+    profileSuggestion.address = suggestion;
+  }
 
   const conflict = Boolean(
     facts?.addressComplete &&
@@ -1866,6 +1874,7 @@ businessRoutes.get("/setup/business-facts", async (c) => {
     addressConfirmed: facts?.addressConfirmed ?? false,
     phone: facts?.phone ?? null,
     documentSuggestion: facts?.addressConfirmed && !conflict ? null : suggestion,
+    profileSuggestion,
     conflict
   });
 });
