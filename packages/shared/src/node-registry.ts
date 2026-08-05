@@ -423,12 +423,12 @@ export const DEFAULT_CALENDAR_BOOKING_RULES = [
 
 /** Quick-add custom-instruction suggestions surfaced as chips in buyer setup. */
 export const CUSTOM_INSTRUCTION_SUGGESTIONS: string[] = [
-  "Ask for full name before booking",
+  "Mention parking available in rear",
+  "Direct detailed pricing inquiries to website",
   "Escalate urgent calls",
-  "Do not quote prices",
-  "Mention parking",
-  "Confirm date and time before booking",
-  "Collect insurance provider"
+  "Collect insurance provider if caller asks",
+  "Mention online portal for test results",
+  "Confirm email address for follow-up details"
 ];
 
 function slug(type: string) {

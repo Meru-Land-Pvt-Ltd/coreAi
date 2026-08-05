@@ -1,4 +1,5 @@
 import { verbalSmsConsentDisclosure } from "@coreai/shared";
+import { compileCustomInstructions } from "./prompt-compiler";
 
 export const FALLBACK_ASSISTANT_NAME = "AI Assistant";
 export const FALLBACK_BUSINESS_NAME = "the business";
@@ -352,6 +353,11 @@ ${knowledgeList}${input.hasKnowledgeLookupTool
     sections.push(`Business-specific setup details:\n${customFieldLines.join("\n")}`);
   }
 
+  const compiledCustom = compileCustomInstructions(input.customInstructions);
+  if (compiledCustom) {
+    sections.push(`Business policies & custom preferences:\n${compiledCustom}`);
+  }
+
   sections.push(`
 Current date and time:
 - Current date/time: ${input.currentDateTimeText}
@@ -366,10 +372,6 @@ Current date and time:
 
   if (clean(input.nodeInstructions)) {
     sections.push(`Agent instructions from the workflow (follow these closely):\n${clean(input.nodeInstructions)}`);
-  }
-
-  if (clean(input.customInstructions)) {
-    sections.push(`Custom instructions from setup:\n${clean(input.customInstructions)}`);
   }
 
   if (clean(input.silencePolicy)) {
@@ -390,6 +392,13 @@ Final enforcement reminder:
 - Never request the same confirmed detail again.
 - Never send or promise a customer SMS without valid consent for the canonical recipient.
 - Never call a second notification tool when the booking or consent tool already handled the appointment confirmation.`.trim());
+
+  sections.push(`
+CONVERSATION STYLE & VOICE BOUNDARIES (OVERRIDING GOVERNING RULE):
+- Speak naturally as a warm, human receptionist. Keep replies to 1-2 short, conversational sentences.
+- Never dump multiple business policies, rules, or disclosures into a single reply.
+- Business policies & custom guidelines above tell you WHAT information is accurate, but NEVER change HOW you speak: remain conversational, concise, direct, and human.
+- Respond directly to what the caller just asked or said.`.trim());
 
   return sections.join("\n\n");
 }
