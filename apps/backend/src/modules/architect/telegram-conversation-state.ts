@@ -6,13 +6,17 @@ export const TELEGRAM_CONVERSATION_STATES = [
   "SELECTING_SERVICE",
   "SELECTING_DATE",
   "SELECTING_TIME",
+  "WAITING_FOR_PREFERRED_DATE",
+  "WAITING_FOR_PREFERRED_TIME",
   "WAITING_FOR_NAME",
   "WAITING_FOR_PHONE",
   "WAITING_FOR_EMAIL",
   "WAITING_FOR_NOTES",
   "CONFIRMING",
+  "CONFIRMING_REQUEST",
   "BOOKING",
   "BOOKED",
+  "REQUESTED",
   "RESCHEDULING",
   "CANCELLING",
   "CANCELLED",
@@ -28,6 +32,9 @@ export type TelegramBookingContext = {
   serviceDurationMinutes?: number;
   selectedDate?: string;
   selectedStartAt?: string;
+  bookingRequestMode?: boolean;
+  preferredDate?: string;
+  preferredTime?: string;
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string;

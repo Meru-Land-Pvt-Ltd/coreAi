@@ -7,6 +7,7 @@ import {
   createGoogleCalendarAppointment,
   rescheduleGoogleCalendarAppointment
 } from "./google-calendar-connector";
+import { getGmailConnectionStatus } from "./gmail-connector";
 import {
   computeBusinessAvailability,
   revalidateAndReserveSlot
@@ -434,6 +435,70 @@ async function showDates(
   return true;
 }
 
+async function businessCalendarConnected(
+  connection: LoadedConnection,
+  serviceName?: string
+): Promise<boolean> {
+  const configured = await getGmailConnectionStatus(connection.business.ownerId)
+    .then((status) => status.calendarConnected)
+    .catch(() => false);
+  if (!configured) return false;
+
+  // A stored credential can be expired, revoked, or missing access despite
+  // still existing in the database. Check the same live availability source
+  // used by booking before promising a real-time calendar flow.
+  const timeZone = connection.business.profile?.timeZone || "UTC";
+  const today = dateOnlyInZone(new Date(), timeZone);
+  return computeBusinessAvailability({
+    businessId: connection.businessId,
+    installedAgentId: connection.installedAgentId,
+    date: today,
+    serviceName
+  })
+    .then((availability) => availability.calendarStatus === "connected")
+    .catch(() => false);
+}
+
+async function beginBookingForService(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  stateIdentity: TelegramConversationIdentity,
+  context: TelegramBookingContext
+) {
+  if (!(await businessCalendarConnected(connection, context.serviceName))) {
+    const requestContext: TelegramBookingContext = {
+      ...context,
+      bookingRequestMode: true,
+      preferredDate: undefined,
+      preferredTime: undefined,
+      selectedDate: undefined,
+      selectedStartAt: undefined,
+      bookingAttemptId: undefined
+    };
+    await saveTelegramConversationState(
+      stateIdentity,
+      "WAITING_FOR_PREFERRED_DATE",
+      requestContext
+    );
+    await sendText(
+      connection,
+      event,
+      "ask-preferred-date",
+      `${connection.business.name} confirms appointment times manually. I can send them your booking request. What date would you prefer?`
+    );
+    return;
+  }
+
+  const calendarContext: TelegramBookingContext = {
+    ...context,
+    bookingRequestMode: false,
+    preferredDate: undefined,
+    preferredTime: undefined
+  };
+  await saveTelegramConversationState(stateIdentity, "SELECTING_DATE", calendarContext);
+  await showDates(connection, event, calendarContext.serviceName ?? "Appointment");
+}
+
 async function showSlots(
   connection: LoadedConnection,
   event: NormalizedTelegramEvent,
@@ -692,6 +757,184 @@ function ownerCustomerDetails(
     `Telegram: ${event.sender.username ? `@${event.sender.username}` : telegramName || "Not provided"}`,
     `Notes: ${context.customerNotes || "None"}`
   ];
+}
+
+async function showBookingRequestSummary(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  context: TelegramBookingContext
+) {
+  const result = await sendButtons(
+    connection,
+    event,
+    "booking-request-summary",
+    [
+      "Please confirm your booking request:",
+      "",
+      `Business: ${connection.business.name}`,
+      `Service: ${context.serviceName ?? "Appointment"}`,
+      `Preferred date: ${context.preferredDate ?? "Not provided"}`,
+      `Preferred time: ${context.preferredTime ?? "Not provided"}`,
+      `Name: ${context.customerName ?? "Not provided"}`,
+      `Phone: ${context.customerPhone ?? "Not provided"}`,
+      ...(context.customerEmail ? [`Email: ${context.customerEmail}`] : []),
+      ...(context.customerNotes ? [`Notes: ${context.customerNotes}`] : []),
+      "",
+      "The business will confirm the final date and time."
+    ].join("\n"),
+    [
+      [{ text: "Send booking request", callbackData: "booking-request:confirm" }],
+      [
+        { text: "Change details", callbackData: "booking:change" },
+        { text: "Cancel", callbackData: "booking:cancel" }
+      ]
+    ]
+  );
+  return result.messageId;
+}
+
+async function persistManualBookingRequest(
+  connection: LoadedConnection,
+  context: TelegramBookingContext,
+  reference: string
+) {
+  if (!context.customerPhone) return;
+  const body = [
+    `Telegram booking request ${reference}`,
+    `Service: ${context.serviceName ?? "Appointment"}`,
+    `Preferred date: ${context.preferredDate ?? "Not provided"}`,
+    `Preferred time: ${context.preferredTime ?? "Not provided"}`,
+    ...(context.customerEmail ? [`Email: ${context.customerEmail}`] : []),
+    ...(context.customerNotes ? [`Notes: ${context.customerNotes}`] : [])
+  ].join("\n");
+  const conversation = await prisma.conversation.upsert({
+    where: {
+      businessId_channel_customerPhone: {
+        businessId: connection.businessId,
+        channel: "TELEGRAM",
+        customerPhone: context.customerPhone
+      }
+    },
+    create: {
+      businessId: connection.businessId,
+      channel: "TELEGRAM",
+      customerPhone: context.customerPhone,
+      messages: { create: { direction: "SYSTEM", body, providerId: reference } }
+    },
+    update: {
+      status: "OPEN",
+      messages: { create: { direction: "SYSTEM", body, providerId: reference } }
+    }
+  });
+  await prisma.lead.upsert({
+    where: {
+      businessId_phoneNumber: {
+        businessId: connection.businessId,
+        phoneNumber: context.customerPhone
+      }
+    },
+    create: {
+      businessId: connection.businessId,
+      conversationId: conversation.id,
+      phoneNumber: context.customerPhone,
+      name: context.customerName,
+      source: "TELEGRAM",
+      status: "CAPTURED"
+    },
+    update: {
+      conversationId: conversation.id,
+      name: context.customerName,
+      source: "TELEGRAM",
+      status: "CAPTURED"
+    }
+  });
+}
+
+async function confirmManualBookingRequest(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  stateIdentity: TelegramConversationIdentity,
+  context: TelegramBookingContext
+) {
+  if (
+    !context.serviceName ||
+    !context.preferredDate ||
+    !context.preferredTime ||
+    !context.customerName ||
+    !context.customerPhone
+  ) {
+    await answerCallback(connection, event, "booking-request-incomplete", "Some details are missing.");
+    await sendText(
+      connection,
+      event,
+      "booking-request-incomplete-message",
+      "Some booking-request details are missing. Send /book to start again."
+    );
+    return;
+  }
+
+  await answerCallback(connection, event, "booking-request-confirm-callback", "Request sent.");
+  const reference = context.bookingReference ?? bookingReference();
+  const next: TelegramBookingContext = { ...context, bookingReference: reference };
+  await persistManualBookingRequest(connection, next, reference);
+  const customerMessage = [
+    "Booking request received",
+    "",
+    `Business: ${connection.business.name}`,
+    `Service: ${next.serviceName}`,
+    `Preferred date: ${next.preferredDate}`,
+    `Preferred time: ${next.preferredTime}`,
+    `Request reference: ${reference}`,
+    "Status: Awaiting confirmation from the business.",
+    "This is not a confirmed appointment yet.",
+    ...(connection.business.profile?.teamPhone
+      ? [`For assistance: ${connection.business.profile.teamPhone}`]
+      : [])
+  ].join("\n");
+  await sendText(connection, event, "booking-request-received", customerMessage);
+  if (context.summaryMessageId) {
+    await editMessage(
+      connection,
+      event,
+      "booking-request-summary-sent",
+      context.summaryMessageId,
+      customerMessage
+    ).catch(() => null);
+  }
+  await notifyOwner(
+    connection,
+    event,
+    "owner-booking-request",
+    [
+      "New Telegram booking request",
+      "",
+      `Business: ${connection.business.name}`,
+      ...ownerCustomerDetails(event, next),
+      `Service: ${next.serviceName}`,
+      `Preferred date: ${next.preferredDate}`,
+      `Preferred time: ${next.preferredTime}`,
+      `Request reference: ${reference}`,
+      "Status: Manual confirmation required",
+      "Source: Telegram"
+    ].join("\n")
+  );
+  await saveTelegramConversationState(stateIdentity, "REQUESTED", next);
+}
+
+async function finishBookingDetails(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  stateIdentity: TelegramConversationIdentity,
+  context: TelegramBookingContext
+) {
+  const summaryMessageId = context.bookingRequestMode
+    ? await showBookingRequestSummary(connection, event, context)
+    : await showBookingSummary(connection, event, context);
+  await saveTelegramConversationState(
+    stateIdentity,
+    context.bookingRequestMode ? "CONFIRMING_REQUEST" : "CONFIRMING",
+    { ...context, summaryMessageId: summaryMessageId ?? undefined }
+  );
 }
 
 async function confirmBooking(
@@ -1167,7 +1410,7 @@ async function handleCommand(
     return true;
   }
   if (command === "cancel") {
-    const activeFlow = !["STARTED", "BOOKED", "CANCELLED", "EXPIRED"].includes(stateName);
+    const activeFlow = !["STARTED", "BOOKED", "REQUESTED", "CANCELLED", "EXPIRED"].includes(stateName);
     if (activeFlow) {
       await saveTelegramConversationState(stateIdentity, "CANCELLED", {});
       await sendText(connection, event, "cancel-flow", "The current booking flow has been cancelled.");
@@ -1201,6 +1444,7 @@ async function handleCallback(
     data.startsWith("date:") ||
     data.startsWith("slot:") ||
     data.startsWith("booking:") ||
+    data.startsWith("booking-request:") ||
     data.startsWith("reschedule:") ||
     data.startsWith("cancel:");
   if (bookingCallback && !bookingMode(triggerData)) return false;
@@ -1263,8 +1507,7 @@ async function handleCallback(
       bookingAttemptId: undefined
     };
     await answerCallback(connection, event, "service-callback", service.name);
-    await saveTelegramConversationState(stateIdentity, "SELECTING_DATE", nextContext);
-    await showDates(connection, event, service.name);
+    await beginBookingForService(connection, event, stateIdentity, nextContext);
     return true;
   }
   if (data.startsWith("date:") && context.serviceName) {
@@ -1329,6 +1572,14 @@ async function handleCallback(
       return true;
     }
     await confirmBooking(connection, event, stateIdentity, context);
+    return true;
+  }
+  if (data === "booking-request:confirm") {
+    if (context.bookingReference) {
+      await answerCallback(connection, event, "booking-request-already-confirmed", "Request already sent.");
+      return true;
+    }
+    await confirmManualBookingRequest(connection, event, stateIdentity, context);
     return true;
   }
   if (data === "booking:change") {
@@ -1438,8 +1689,24 @@ async function handleCollectedInput(
       selectedStartAt: undefined,
       bookingAttemptId: undefined
     };
-    await saveTelegramConversationState(stateIdentity, "SELECTING_DATE", next);
-    await showDates(connection, event, service.name);
+    await beginBookingForService(connection, event, stateIdentity, next);
+    return true;
+  }
+  if (stateName === "WAITING_FOR_PREFERRED_DATE" && text && !text.startsWith("/")) {
+    const next = { ...context, preferredDate: text.slice(0, 120) };
+    await saveTelegramConversationState(stateIdentity, "WAITING_FOR_PREFERRED_TIME", next);
+    await sendText(
+      connection,
+      event,
+      "ask-preferred-time",
+      "What time would you prefer? Include AM/PM and your timezone if relevant."
+    );
+    return true;
+  }
+  if (stateName === "WAITING_FOR_PREFERRED_TIME" && text && !text.startsWith("/")) {
+    const next = { ...context, preferredTime: text.slice(0, 120) };
+    await saveTelegramConversationState(stateIdentity, "WAITING_FOR_NAME", next);
+    await sendText(connection, event, "ask-name", "What is your full name?");
     return true;
   }
   if (stateName === "WAITING_FOR_NAME" && text && !text.startsWith("/")) {
@@ -1489,11 +1756,7 @@ async function handleCollectedInput(
       );
       return true;
     }
-    const summaryMessageId = await showBookingSummary(connection, event, next);
-    await saveTelegramConversationState(stateIdentity, "CONFIRMING", {
-      ...next,
-      summaryMessageId: summaryMessageId ?? undefined
-    });
+    await finishBookingDetails(connection, event, stateIdentity, next);
     return true;
   }
   if (stateName === "WAITING_FOR_EMAIL") {
@@ -1512,11 +1775,7 @@ async function handleCollectedInput(
       );
       return true;
     }
-    const summaryMessageId = await showBookingSummary(connection, event, next);
-    await saveTelegramConversationState(stateIdentity, "CONFIRMING", {
-      ...next,
-      summaryMessageId: summaryMessageId ?? undefined
-    });
+    await finishBookingDetails(connection, event, stateIdentity, next);
     return true;
   }
   if (stateName === "WAITING_FOR_NOTES" && text && !text.startsWith("/")) {
@@ -1524,11 +1783,7 @@ async function handleCollectedInput(
       ...context,
       customerNotes: text.toLowerCase() === "skip" ? undefined : text.slice(0, 1_000)
     };
-    const summaryMessageId = await showBookingSummary(connection, event, next);
-    await saveTelegramConversationState(stateIdentity, "CONFIRMING", {
-      ...next,
-      summaryMessageId: summaryMessageId ?? undefined
-    });
+    await finishBookingDetails(connection, event, stateIdentity, next);
     return true;
   }
   return false;
@@ -1581,6 +1836,10 @@ async function naturalLanguageRoute(
     /\b(available|availability|open|times?|slots?)\b/i.test(text) &&
     context.serviceName
   ) {
+    if (!(await businessCalendarConnected(connection, context.serviceName))) {
+      await beginBookingForService(connection, event, stateIdentity, context);
+      return true;
+    }
     const timeZone = connection.business.profile?.timeZone || "UTC";
     const today = dateOnlyInZone(new Date(), timeZone);
     const requestedDate = /\btomorrow\b/i.test(text) ? nextDate(today, 1) : today;
@@ -1606,8 +1865,7 @@ async function naturalLanguageRoute(
         serviceName: service.name,
         serviceDurationMinutes: service.durationMinutes
       };
-      await saveTelegramConversationState(stateIdentity, "SELECTING_DATE", next);
-      await showDates(connection, event, service.name);
+      await beginBookingForService(connection, event, stateIdentity, next);
     } else {
       await saveTelegramConversationState(stateIdentity, "SELECTING_SERVICE", {});
       await showServices(connection, event, true);
