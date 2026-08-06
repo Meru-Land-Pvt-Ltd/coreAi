@@ -162,6 +162,154 @@ const businessPhoneNumberLegacySelect = {
   updatedAt: true
 } as const;
 
+const WEEKDAY_INDEX_BY_NAME: Record<string, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6
+};
+
+/** Machine marker written into appointment notes on reschedule. */
+const PREV_WINDOW_MARKER_RE = /\[prevWindow:([^/\]]+)\/([^\]]+)\]/i;
+
+function formatScheduleLabel(startAt: Date, endAt: Date, timeZone?: string | null): string {
+  const optionsBase: Intl.DateTimeFormatOptions = timeZone ? { timeZone } : {};
+  const dateLabel = new Intl.DateTimeFormat("en-US", {
+    ...optionsBase,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  }).format(startAt);
+  const startClock = new Intl.DateTimeFormat("en-US", {
+    ...optionsBase,
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(startAt);
+  const endClock = new Intl.DateTimeFormat("en-US", {
+    ...optionsBase,
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(endAt);
+  return `${dateLabel} · ${startClock} – ${endClock}`;
+}
+
+function extractMarkedPreviousWindow(notes: string | null): { previousStartAt: Date; previousEndAt: Date } | null {
+  if (!notes) return null;
+  const match = notes.match(PREV_WINDOW_MARKER_RE);
+  if (!match) return null;
+  const previousStartAt = new Date(match[1]!);
+  const previousEndAt = new Date(match[2]!);
+  if (Number.isNaN(previousStartAt.getTime()) || Number.isNaN(previousEndAt.getTime())) return null;
+  return { previousStartAt, previousEndAt };
+}
+
+function extractPreviousBookingTime(notes: string | null): string | null {
+  if (!notes) return null;
+  const match = notes.match(/rescheduled by the customer.*? from (.+?) to .+?(?:\.|$)/i);
+  return match?.[1]?.trim() ?? null;
+}
+
+function weekdayIndexFromShortName(weekday: string): number {
+  const key = weekday.toLowerCase();
+  if (key.startsWith("sun")) return 0;
+  if (key.startsWith("mon")) return 1;
+  if (key.startsWith("tue")) return 2;
+  if (key.startsWith("wed")) return 3;
+  if (key.startsWith("thu")) return 4;
+  if (key.startsWith("fri")) return 5;
+  return 6;
+}
+
+function parseWeekdayTimeLabel(
+  label: string,
+  referenceStartAt: Date,
+  durationMs: number,
+  timeZone?: string | null
+): { previousStartAt: Date; previousEndAt: Date } | null {
+  const match = label.match(
+    /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s+at\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i
+  );
+  if (!match) return null;
+
+  const [, weekdayNameRaw, hourRaw, minuteRaw, meridiemRaw] = match;
+  const weekdayIndex = WEEKDAY_INDEX_BY_NAME[weekdayNameRaw!.toLowerCase()];
+  if (weekdayIndex == null) return null;
+
+  const tz = timeZone || "UTC";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short"
+  }).formatToParts(referenceStartAt);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? "";
+  const year = Number(part("year"));
+  const month = Number(part("month"));
+  const day = Number(part("day"));
+  const currentWeekday = weekdayIndexFromShortName(part("weekday"));
+  const dayDelta = (currentWeekday - weekdayIndex + 7) % 7 || 7;
+
+  const inputHour = Number(hourRaw) % 12;
+  const minutes = Number(minuteRaw);
+  const normalizedHour = meridiemRaw!.toUpperCase() === "PM" ? inputHour + 12 : inputHour;
+
+  // Approximate wall-clock in timezone, then correct by measured offset.
+  const tentative = new Date(Date.UTC(year, month - 1, day - dayDelta, normalizedHour, minutes, 0, 0));
+  const asParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(tentative);
+  const asValue = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(asParts.find((entry) => entry.type === type)?.value ?? "0");
+  const desiredAsUtc = Date.UTC(year, month - 1, day - dayDelta, normalizedHour, minutes, 0, 0);
+  const actualAsUtc = Date.UTC(
+    asValue("year"),
+    asValue("month") - 1,
+    asValue("day"),
+    asValue("hour"),
+    asValue("minute"),
+    0,
+    0
+  );
+  const previousStartAt = new Date(tentative.getTime() + (desiredAsUtc - actualAsUtc));
+  const previousEndAt = new Date(previousStartAt.getTime() + Math.max(durationMs, 0));
+  return { previousStartAt, previousEndAt };
+}
+
+function parsePreviousBookingWindow(params: {
+  notes: string | null;
+  startAt: Date;
+  endAt: Date;
+  timeZone?: string | null;
+}): { previousStartAt: string; previousEndAt: string; previousScheduleLabel: string } | null {
+  const durationMs = Math.max(params.endAt.getTime() - params.startAt.getTime(), 0);
+  const marked = extractMarkedPreviousWindow(params.notes);
+  const fromLabel = !marked
+    ? (() => {
+        const previousLabel = extractPreviousBookingTime(params.notes);
+        if (!previousLabel) return null;
+        return parseWeekdayTimeLabel(previousLabel, params.startAt, durationMs, params.timeZone);
+      })()
+    : null;
+  const window = marked ?? fromLabel;
+  if (!window) return null;
+  return {
+    previousStartAt: window.previousStartAt.toISOString(),
+    previousEndAt: window.previousEndAt.toISOString(),
+    previousScheduleLabel: formatScheduleLabel(window.previousStartAt, window.previousEndAt, params.timeZone)
+  };
+}
+
 /** "inbound" | "outbound" from the stored Vapi webhook body; inbound when unknown. */
 function vapiCallDirection(metadataJson: unknown): "inbound" | "outbound" {
   if (!metadataJson || typeof metadataJson !== "object" || Array.isArray(metadataJson)) return "inbound";
@@ -924,6 +1072,12 @@ businessRoutes.get("/dashboard", async (c) => {
       calendarConnected: calendar.connected,
       items: monthBookings.map((booking) => {
         const confirmationSms = confirmationSmsByAppointmentId.get(booking.id) ?? null;
+        const previousSchedule = parsePreviousBookingWindow({
+          notes: booking.notes,
+          startAt: booking.startAt,
+          endAt: booking.endAt,
+          timeZone: booking.timeZone
+        });
         return {
           id: booking.id,
           customerName: booking.customerName,
@@ -941,6 +1095,9 @@ businessRoutes.get("/dashboard", async (c) => {
           confirmationSms: confirmationSms
             ? { status: confirmationSms.status, errorCode: confirmationSms.errorCode }
             : null,
+          previousScheduledAt: previousSchedule?.previousStartAt ?? null,
+          previousScheduledEndAt: previousSchedule?.previousEndAt ?? null,
+          previousScheduleLabel: previousSchedule?.previousScheduleLabel ?? null,
           createdAt: booking.createdAt.toISOString()
         };
       })

@@ -111,7 +111,7 @@ const TABS_REQUIRING_CONNECTED_FLOW: readonly BuilderTab[] = ["test", "configure
 
 const LIBRARY_WIDTH_KEY = "triven-builder-library-width";
 const INSPECTOR_WIDTH_KEY = "triven-builder-inspector-width";
-const LIBRARY_WIDTH_DEFAULT = 490;
+const LIBRARY_WIDTH_DEFAULT = 495;
 const INSPECTOR_WIDTH_DEFAULT = 320;
 const LIBRARY_WIDTH_MIN = 280;
 const LIBRARY_WIDTH_MAX = 560;
