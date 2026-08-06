@@ -7,7 +7,10 @@ ENV_FILE=".env.production"
 COMPOSE_FILE="docker-compose.prod.yml"
 
 INFRA_SERVICES=(postgres redis)
-APP_SERVICES=(backend email-worker frontend)
+# Telegram webhooks only enqueue updates. The telegram-worker is what performs
+# owner verification and executes the installed agent workflow (including AI
+# Brain nodes), so it must be rebuilt and recreated with every app deployment.
+APP_SERVICES=(backend email-worker telegram-worker frontend)
 
 compose() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
@@ -76,6 +79,17 @@ if [ -z "$backend_redis" ]; then
 fi
 echo "$backend_redis"
 
+echo -n "  telegram-worker:  "
+telegram_worker_status="$(docker inspect -f '{{.State.Status}}' coreai-telegram-worker 2>/dev/null || echo missing)"
+if [ "$telegram_worker_status" != running ]; then
+  fail "telegram-worker is not running (status: $telegram_worker_status)"
+fi
+telegram_worker_redis="$(docker exec coreai-telegram-worker printenv REDIS_URL 2>/dev/null || true)"
+if [ -z "$telegram_worker_redis" ]; then
+  fail "REDIS_URL is EMPTY inside coreai-telegram-worker"
+fi
+echo "running ($telegram_worker_redis)"
+
 echo -n "  backend health:  "
 curl -fsS http://127.0.0.1:8787/health || fail "backend health check failed"
 echo
@@ -86,5 +100,9 @@ curl -fsS -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:3000/ || fail "
 echo
 echo "  email-worker (last 20 lines):"
 compose logs --tail=20 email-worker | sed 's/^/    /'
+
+echo
+echo "  telegram-worker (last 20 lines):"
+compose logs --tail=20 telegram-worker | sed 's/^/    /'
 
 printf '\n\033[1;32mDeploy complete.\033[0m\n'
