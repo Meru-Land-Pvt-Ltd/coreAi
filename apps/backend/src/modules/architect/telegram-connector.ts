@@ -19,7 +19,10 @@ import {
   type TelegramUpdate
 } from "./telegram-update";
 import { parseRunnerWorkflowJson } from "./workflow-runner";
-import { createTelegramOwnerAuthorizationToken } from "./telegram-owner-routing";
+import {
+  createTelegramOwnerAuthorizationToken,
+  shouldProcessOwnerAuthorizationDuringProvisioning
+} from "./telegram-owner-routing";
 import {
   telegramCommandList,
   telegramCustomCommands,
@@ -1018,6 +1021,7 @@ export async function handleTelegramBotWebhook(c: Context) {
       id: true,
       webhookSecretEncrypted: true,
       status: true,
+      ownerNotificationNonceHash: true,
       installedAgent: {
         select: {
           status: true,
@@ -1057,23 +1061,32 @@ export async function handleTelegramBotWebhook(c: Context) {
       connection.status === "ACTIVE" &&
       connection.installedAgent.status === "ACTIVE" &&
       !connection.installedAgent.pausedAt;
+    const provisioningOwnerAuthorization = shouldProcessOwnerAuthorizationDuringProvisioning({
+      update: parsed.data,
+      expectedTokenHash: connection.ownerNotificationNonceHash,
+      connectionStatus: connection.status,
+      agentStatus: connection.installedAgent.status,
+      pausedAt: connection.installedAgent.pausedAt
+    });
+    const accepted = active || provisioningOwnerAuthorization;
     console.log("[telegram-webhook] Received valid Telegram update:", {
       webhookConnectionId,
       updateId: parsed.data.update_id,
       connectionId: connection.id,
-      active
+      active,
+      provisioningOwnerAuthorization
     });
     stored = await prisma.telegramProcessedUpdate.create({
       data: {
         telegramConnectionId: connection.id,
         updateId: String(parsed.data.update_id),
         payloadJson: parsed.data as never,
-        status: active ? "RECEIVED" : "IGNORED",
-        errorCode: active ? null : "AGENT_INACTIVE",
-        processedAt: active ? null : new Date()
+        status: accepted ? "RECEIVED" : "IGNORED",
+        errorCode: accepted ? null : "AGENT_INACTIVE",
+        processedAt: accepted ? null : new Date()
       }
     });
-    if (!active) {
+    if (!accepted) {
       console.log("[telegram-webhook] Update ignored because connection/agent is not active:", {
         webhookConnectionId,
         connectionStatus: connection.status,
@@ -1081,6 +1094,13 @@ export async function handleTelegramBotWebhook(c: Context) {
         pausedAt: connection.installedAgent.pausedAt
       });
       return c.json({ ok: true, ignored: true });
+    }
+    if (provisioningOwnerAuthorization) {
+      console.log("[telegram-webhook] Owner authorization accepted during agent provisioning:", {
+        webhookConnectionId,
+        connectionId: connection.id,
+        updateId: parsed.data.update_id
+      });
     }
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

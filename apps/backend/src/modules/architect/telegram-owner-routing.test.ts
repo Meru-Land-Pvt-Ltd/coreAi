@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createTelegramOwnerAuthorizationToken,
   inspectTelegramOwnerAuthorizationCommand,
+  shouldProcessOwnerAuthorizationDuringProvisioning,
   shouldRememberTelegramEventAsCustomer,
   TELEGRAM_OWNER_AUTHORIZATION_TTL_MS,
   telegramEventBelongsToBusinessOwner
@@ -52,6 +53,42 @@ describe("Telegram owner routing", () => {
         expectedTokenHash: authorization.tokenHash,
         chatType: "private"
       }).matches
+    ).toBe(false);
+  });
+
+  it("allows only a matching owner authorization update while provisioning", () => {
+    const authorization = createTelegramOwnerAuthorizationToken();
+    const update = {
+      update_id: 123,
+      message: {
+        message_id: 456,
+        date: Math.floor(Date.now() / 1_000),
+        from: { id: 789, is_bot: false, first_name: "Owner" },
+        chat: { id: 789, type: "private" },
+        text: `/start owner_${authorization.token}`
+      }
+    };
+
+    const base = {
+      update,
+      expectedTokenHash: authorization.tokenHash,
+      connectionStatus: "ACTIVE",
+      agentStatus: "PROVISIONING",
+      pausedAt: null
+    };
+
+    expect(shouldProcessOwnerAuthorizationDuringProvisioning(base)).toBe(true);
+    expect(
+      shouldProcessOwnerAuthorizationDuringProvisioning({
+        ...base,
+        update: {
+          ...update,
+          message: { ...update.message, text: "/start" }
+        }
+      })
+    ).toBe(false);
+    expect(
+      shouldProcessOwnerAuthorizationDuringProvisioning({ ...base, agentStatus: "PAUSED" })
     ).toBe(false);
   });
 

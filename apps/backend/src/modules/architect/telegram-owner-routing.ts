@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import type { TelegramUpdate } from "./telegram-update";
 
 export const TELEGRAM_OWNER_AUTHORIZATION_TTL_MS = 15 * 60_000;
 
@@ -47,6 +48,36 @@ export function inspectTelegramOwnerAuthorizationCommand(options: {
     now - issuedAt > TELEGRAM_OWNER_AUTHORIZATION_TTL_MS;
 
   return { matches: true, expired };
+}
+
+/**
+ * Owner verification is part of setup, so its one-time /start command must be
+ * processed while the installed agent is still PROVISIONING. No other update
+ * is allowed through the inactive-agent gate.
+ */
+export function shouldProcessOwnerAuthorizationDuringProvisioning(options: {
+  update: TelegramUpdate;
+  expectedTokenHash: string | null;
+  connectionStatus: string;
+  agentStatus: string;
+  pausedAt: Date | string | null;
+}): boolean {
+  if (
+    options.connectionStatus !== "ACTIVE" ||
+    options.agentStatus !== "PROVISIONING" ||
+    options.pausedAt
+  ) {
+    return false;
+  }
+
+  const message = options.update.message;
+  if (!message) return false;
+
+  return inspectTelegramOwnerAuthorizationCommand({
+    text: message.text ?? "",
+    expectedTokenHash: options.expectedTokenHash,
+    chatType: message.chat.type
+  }).matches;
 }
 
 /** Owner chats are verified and stored separately from customer conversations. */

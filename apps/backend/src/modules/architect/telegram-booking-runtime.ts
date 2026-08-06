@@ -42,6 +42,7 @@ import {
 } from "./telegram-update";
 import {
   inspectTelegramOwnerAuthorizationCommand,
+  shouldProcessOwnerAuthorizationDuringProvisioning,
   shouldRememberTelegramEventAsCustomer,
   telegramEventBelongsToBusinessOwner
 } from "./telegram-owner-routing";
@@ -2020,23 +2021,29 @@ export async function processTelegramStoredUpdate(processedUpdateId: string): Pr
   }
 
   try {
-    if (
-      connection.status !== "ACTIVE" ||
-      connection.installedAgent.status !== "ACTIVE" ||
-      connection.installedAgent.pausedAt ||
-      !connection.botTokenEncrypted
-    ) {
-      await prisma.telegramProcessedUpdate.update({
-        where: { id: stored.id },
-        data: { status: "IGNORED", errorCode: "AGENT_INACTIVE", processedAt: new Date() }
-      });
-      return;
-    }
     const parsed = telegramUpdateSchema.safeParse(stored.payloadJson);
     if (!parsed.success) {
       await prisma.telegramProcessedUpdate.update({
         where: { id: stored.id },
         data: { status: "IGNORED", errorCode: "UNSUPPORTED_UPDATE", processedAt: new Date() }
+      });
+      return;
+    }
+    const active =
+      connection.status === "ACTIVE" &&
+      connection.installedAgent.status === "ACTIVE" &&
+      !connection.installedAgent.pausedAt;
+    const provisioningOwnerAuthorization = shouldProcessOwnerAuthorizationDuringProvisioning({
+      update: parsed.data,
+      expectedTokenHash: connection.ownerNotificationNonceHash,
+      connectionStatus: connection.status,
+      agentStatus: connection.installedAgent.status,
+      pausedAt: connection.installedAgent.pausedAt
+    });
+    if ((!active && !provisioningOwnerAuthorization) || !connection.botTokenEncrypted) {
+      await prisma.telegramProcessedUpdate.update({
+        where: { id: stored.id },
+        data: { status: "IGNORED", errorCode: "AGENT_INACTIVE", processedAt: new Date() }
       });
       return;
     }
