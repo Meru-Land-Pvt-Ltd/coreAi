@@ -65,9 +65,102 @@ function boolValue(value: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
-function renderBusinessTemplate(template: unknown, businessName: string): string {
-  return stringValue(template).replace(/\{\{\s*business\.name\s*\}\}/gi, businessName);
+function renderBusinessTemplate(
+  template: unknown,
+  businessName: string,
+  sender?: NormalizedTelegramEvent["sender"] | { firstName?: string; lastName?: string; username?: string }
+): string {
+  let str = stringValue(template);
+  if (!str) return "";
+  const userFirstName = sender?.firstName || sender?.username || "there";
+  const userLastName = sender?.lastName || "";
+  const fullName = [sender?.firstName, sender?.lastName].filter(Boolean).join(" ") || sender?.username || "there";
+
+  return str
+    .replace(/\{\{\s*business\.name\s*\}\}/gi, businessName)
+    .replace(/\{\{\s*business_name\s*\}\}/gi, businessName)
+    .replace(/\{\{\s*user\.name\s*\}\}/gi, fullName)
+    .replace(/\{\{\s*user\.first_name\s*\}\}/gi, userFirstName)
+    .replace(/\{\{\s*user\.firstName\s*\}\}/gi, userFirstName)
+    .replace(/\{\{\s*user\.last_name\s*\}\}/gi, userLastName)
+    .replace(/\{\{\s*user\.username\s*\}\}/gi, sender?.username || "")
+    .replace(/\{\{\s*customer\.name\s*\}\}/gi, fullName);
 }
+
+async function recordTelegramTurn(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  direction: "INBOUND" | "OUTBOUND" | "SYSTEM",
+  body: string
+) {
+  if (!body || !body.trim()) return;
+  try {
+    const customerId = event.sender.id || "unknown";
+    const conversation = await prisma.conversation.upsert({
+      where: {
+        businessId_channel_customerPhone: {
+          businessId: connection.businessId,
+          channel: "TELEGRAM",
+          customerPhone: customerId
+        }
+      },
+      update: { status: "OPEN" },
+      create: {
+        businessId: connection.businessId,
+        channel: "TELEGRAM",
+        customerPhone: customerId,
+        status: "OPEN"
+      }
+    });
+
+    const latest = await prisma.conversationMessage.findFirst({
+      where: { conversationId: conversation.id },
+      orderBy: { createdAt: "desc" }
+    });
+
+    if (!(latest && latest.direction === direction && latest.body === body)) {
+      await prisma.conversationMessage.create({
+        data: {
+          conversationId: conversation.id,
+          direction,
+          body
+        }
+      });
+    }
+  } catch (err) {
+    console.warn("[telegram] failed to record turn", err);
+  }
+}
+
+async function loadTelegramHistory(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  limit = 10
+): Promise<Array<{ direction: string; body: string }>> {
+  try {
+    const customerId = event.sender.id || "unknown";
+    const conversation = await prisma.conversation.findUnique({
+      where: {
+        businessId_channel_customerPhone: {
+          businessId: connection.businessId,
+          channel: "TELEGRAM",
+          customerPhone: customerId
+        }
+      }
+    });
+    if (!conversation) return [];
+    const messages = await prisma.conversationMessage.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: { direction: true, body: true }
+    });
+    return messages.reverse();
+  } catch {
+    return [];
+  }
+}
+
 
 function triggerNode(workflowJson: unknown) {
   return parseRunnerWorkflowJson(workflowJson).nodes.find(
@@ -173,6 +266,64 @@ function normalizePhone(value: string): string | null {
   return /^\+[1-9]\d{7,14}$/.test(withCountry) ? withCountry : null;
 }
 
+function findMatchingService<T extends { name: string; slug: string }>(
+  text: string,
+  services: T[]
+): T | undefined {
+  const normText = text.toLowerCase();
+  if (!normText) return undefined;
+  for (const s of services) {
+    const normName = s.name.toLowerCase();
+    if (normText.includes(normName) || normName.includes(normText)) {
+      return s;
+    }
+  }
+  const stopWords = new Set([
+    "want", "book", "booking", "schedule", "appointment", "please", "like", "for", "with",
+    "the", "and", "need", "an", "a", "to", "teeth"
+  ]);
+  const textWords = normText.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !stopWords.has(w));
+  let bestMatch: T | undefined;
+  let maxScore = 0;
+  for (const s of services) {
+    const normName = s.name.toLowerCase();
+    const serviceWords = normName.split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+    let score = 0;
+    for (const tw of textWords) {
+      if (serviceWords.some((sw) => sw.includes(tw) || tw.includes(sw))) {
+        score += 2;
+      }
+    }
+    if (score === 0) {
+      const allTextWords = normText.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !["want", "book", "appointment", "please", "for", "with", "the", "an", "a", "to"].includes(w));
+      for (const tw of allTextWords) {
+        if (serviceWords.some((sw) => sw.includes(tw) || tw.includes(sw))) {
+          score += 1;
+        }
+      }
+    }
+    if (score > maxScore) {
+      maxScore = score;
+      bestMatch = s;
+    }
+  }
+  return maxScore > 0 ? bestMatch : undefined;
+}
+
+function extractDateTimeFromText(text: string): { date?: string; time?: string } {
+  const norm = text.trim();
+  const timeMatch = norm.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)|1[0-2]:\d{2}\s*(?:am|pm)?|(?:morning|afternoon|evening|night))\b/i);
+  const dateMatch = norm.match(/\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?|today|tomorrow|next\s+[a-z]+|(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*)\b/i);
+
+  if (timeMatch && dateMatch) {
+    return {
+      date: dateMatch[0].trim(),
+      time: timeMatch[0].trim()
+    };
+  }
+  return {};
+}
+
 function validEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
@@ -243,11 +394,13 @@ async function sendText(
   purpose: string,
   text: string
 ) {
-  return executeTelegramActionWithRetry({
+  const result = await executeTelegramActionWithRetry({
     ...baseAction(connection, event, purpose),
     actionType: TELEGRAM_ACTION_TYPES.sendMessage,
     text
   });
+  await recordTelegramTurn(connection, event, "OUTBOUND", text);
+  return result;
 }
 
 async function sendButtons(
@@ -257,12 +410,14 @@ async function sendButtons(
   text: string,
   buttons: TelegramButton[][]
 ) {
-  return executeTelegramActionWithRetry({
+  const result = await executeTelegramActionWithRetry({
     ...baseAction(connection, event, purpose),
     actionType: TELEGRAM_ACTION_TYPES.sendButtons,
     text,
     buttons
   });
+  await recordTelegramTurn(connection, event, "OUTBOUND", text);
+  return result;
 }
 
 async function requestContact(
@@ -270,12 +425,15 @@ async function requestContact(
   event: NormalizedTelegramEvent,
   purpose: string
 ) {
-  return executeTelegramActionWithRetry({
+  const text = "Please tap the button below to share your phone number, or type it here:";
+  const result = await executeTelegramActionWithRetry({
     ...baseAction(connection, event, purpose),
     actionType: TELEGRAM_ACTION_TYPES.requestContact,
-    text: "Please share your phone number, or type it in international format such as +15551234567.",
+    text,
     contactButtonText: "Share my phone number"
   });
+  await recordTelegramTurn(connection, event, "OUTBOUND", text);
+  return result;
 }
 
 async function answerCallback(
@@ -308,14 +466,44 @@ async function editMessage(
   });
 }
 
+async function askForCustomerName(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  stateIdentity: TelegramConversationIdentity,
+  context: TelegramBookingContext
+) {
+  const telegramName = [event.sender.firstName, event.sender.lastName].filter(Boolean).join(" ") || event.sender.username;
+  await saveTelegramConversationState(stateIdentity, "WAITING_FOR_NAME", context);
+  if (telegramName && telegramName !== "there") {
+    await sendButtons(
+      connection,
+      event,
+      "ask-name",
+      `Would you like to use your name "${telegramName}" for this booking, or type a different name?`,
+      [
+        [{ text: `Use "${telegramName}"`, callbackData: "name:use_telegram" }],
+        [{ text: "Type a different name", callbackData: "name:type_other" }]
+      ]
+    );
+  } else {
+    await sendText(connection, event, "ask-name", "Could you please share your full name?");
+  }
+}
+
 async function sendMainMenu(
   connection: LoadedConnection,
   event: NormalizedTelegramEvent,
   triggerData: JsonRecord
 ) {
+  const userName = event.sender.firstName || event.sender.username || "there";
+  const customWelcome = renderBusinessTemplate(
+    triggerData.telegramWelcomeMessage,
+    connection.business.name,
+    event.sender
+  );
   const welcome =
-    renderBusinessTemplate(triggerData.telegramWelcomeMessage, connection.business.name) ||
-    `Welcome to ${connection.business.name}. Choose what you would like to do.`;
+    customWelcome ||
+    `Hi ${userName}! 👋 Welcome to ${connection.business.name}. I'd be happy to assist you today! How can I help?`;
   const bookingEnabled = bookingMode(triggerData);
   const primary = [
     ...(commandEnabled(triggerData, "telegramServicesCommand")
@@ -497,7 +685,7 @@ async function beginBookingForService(
       connection,
       event,
       "ask-preferred-date",
-      `${connection.business.name} confirms appointment times manually. I can send them your booking request. What date would you prefer?`
+      `I'd be happy to submit your booking request for ${connection.business.name}. What date would you prefer for your appointment?`
     );
     return;
   }
@@ -1075,28 +1263,27 @@ async function confirmManualBookingRequest(
   const next: TelegramBookingContext = { ...context, bookingReference: reference };
   await persistManualBookingRequest(connection, next, reference);
   const customerMessage = [
-    "Booking request received",
+    `Booking request received for ${connection.business.name}`,
     "",
-    `Business: ${connection.business.name}`,
     `Service: ${next.serviceName}`,
     `Preferred date: ${next.preferredDate}`,
     `Preferred time: ${next.preferredTime}`,
-    `Request reference: ${reference}`,
-    "Status: Awaiting confirmation from the business.",
-    "This is not a confirmed appointment yet.",
-    ...(connection.business.profile?.teamPhone
-      ? [`For assistance: ${connection.business.profile.teamPhone}`]
-      : [])
+    `Name: ${next.customerName}`,
+    `Phone: ${next.customerPhone}`,
+    `Reference: ${reference}`
   ].join("\n");
+  let edited = false;
   if (context.summaryMessageId) {
-    await editMessage(
+    const res = await editMessage(
       connection,
       event,
       "booking-request-summary-sent",
       context.summaryMessageId,
       customerMessage
     ).catch(() => null);
-  } else {
+    if (res) edited = true;
+  }
+  if (!edited) {
     await sendText(connection, event, "booking-request-received", customerMessage);
   }
   await notifyOwner(
@@ -1783,8 +1970,20 @@ async function handleCallback(
       });
       return true;
     }
-    await saveTelegramConversationState(stateIdentity, "WAITING_FOR_NAME", next);
-    await sendText(connection, event, "ask-name", "What is your full name?");
+    await askForCustomerName(connection, event, stateIdentity, next);
+    return true;
+  }
+  if (data === "name:use_telegram") {
+    await answerCallback(connection, event, "name-telegram-callback");
+    const telegramName = [event.sender.firstName, event.sender.lastName].filter(Boolean).join(" ") || event.sender.username || "Customer";
+    const next = { ...context, customerName: telegramName };
+    await saveTelegramConversationState(stateIdentity, "WAITING_FOR_PHONE", next);
+    await requestContact(connection, event, "ask-phone");
+    return true;
+  }
+  if (data === "name:type_other") {
+    await answerCallback(connection, event, "name-other-callback");
+    await sendText(connection, event, "ask-other-name", "Please reply with the name you'd like to use for your booking:");
     return true;
   }
   if (data === "booking:confirm") {
@@ -1914,20 +2113,34 @@ async function handleCollectedInput(
     return true;
   }
   if (stateName === "WAITING_FOR_PREFERRED_DATE" && text && !text.startsWith("/")) {
+    const extracted = extractDateTimeFromText(text);
+    if (extracted.date && extracted.time) {
+      const next = {
+        ...context,
+        preferredDate: extracted.date,
+        preferredTime: extracted.time
+      };
+      await askForCustomerName(connection, event, stateIdentity, next);
+      return true;
+    }
     const next = { ...context, preferredDate: text.slice(0, 120) };
     await saveTelegramConversationState(stateIdentity, "WAITING_FOR_PREFERRED_TIME", next);
     await sendText(
       connection,
       event,
       "ask-preferred-time",
-      "What time would you prefer? Include AM/PM and your timezone if relevant."
+      "What time works best for you? (for example: 2:00 PM)"
     );
     return true;
   }
   if (stateName === "WAITING_FOR_PREFERRED_TIME" && text && !text.startsWith("/")) {
-    const next = { ...context, preferredTime: text.slice(0, 120) };
-    await saveTelegramConversationState(stateIdentity, "WAITING_FOR_NAME", next);
-    await sendText(connection, event, "ask-name", "What is your full name?");
+    const extracted = extractDateTimeFromText(text);
+    const next = {
+      ...context,
+      preferredDate: extracted.date ?? context.preferredDate,
+      preferredTime: extracted.time ?? text.slice(0, 120)
+    };
+    await askForCustomerName(connection, event, stateIdentity, next);
     return true;
   }
   if (stateName === "WAITING_FOR_NAME" && text && !text.startsWith("/")) {
@@ -1952,7 +2165,7 @@ async function handleCollectedInput(
         connection,
         event,
         "phone-invalid",
-        "Enter a valid phone number in international format, for example +15551234567."
+        "Please enter a valid phone number (e.g. +15551234567 or 10-digit number)."
       );
       return true;
     }
@@ -1964,7 +2177,7 @@ async function handleCollectedInput(
     }
     if (boolValue(triggerData.telegramRequestEmail, false)) {
       await saveTelegramConversationState(stateIdentity, "WAITING_FOR_EMAIL", next);
-      await sendText(connection, event, "ask-email", "What email address should receive the confirmation?");
+      await sendText(connection, event, "ask-email", "What email address should we send your appointment confirmation to?");
       return true;
     }
     if (boolValue(triggerData.telegramRequestNotes, false)) {
@@ -1973,7 +2186,7 @@ async function handleCollectedInput(
         connection,
         event,
         "ask-notes",
-        "Add any notes for the business, or type skip."
+        "Feel free to share any notes or special requests for the business, or reply 'skip':"
       );
       return true;
     }
@@ -1982,7 +2195,7 @@ async function handleCollectedInput(
   }
   if (stateName === "WAITING_FOR_EMAIL") {
     if (!validEmail(text)) {
-      await sendText(connection, event, "email-invalid", "Enter a valid email address.");
+      await sendText(connection, event, "email-invalid", "Please enter a valid email address.");
       return true;
     }
     const next = { ...context, customerEmail: text.toLowerCase() };
@@ -1992,7 +2205,7 @@ async function handleCollectedInput(
         connection,
         event,
         "ask-notes",
-        "Add any notes for the business, or type skip."
+        "Feel free to share any notes or special requests for the business, or reply 'skip':"
       );
       return true;
     }
@@ -2048,7 +2261,34 @@ async function naturalLanguageRoute(
     await showCustomerBookings(connection, event, next, "mybookings");
     return true;
   }
-  if (/\b(show|view|list).*\bservices?\b|\bwhat (do you|services)/i.test(text)) {
+  if (
+    /\b(book|booking|schedule|appointment|slot|reserve|visit|make a booking|want to book|to book|can book)\b/i.test(text)
+  ) {
+    const services = await loadTelegramBusinessServices({
+      businessId: connection.businessId,
+      installedAgentId: connection.installedAgentId
+    });
+    const matchedService = findMatchingService(text, services);
+    if (matchedService) {
+      const next = {
+        ...context,
+        serviceId: matchedService.id,
+        serviceSlug: matchedService.slug,
+        serviceName: matchedService.name,
+        serviceDurationMinutes: matchedService.durationMinutes
+      };
+      await beginBookingForService(connection, event, stateIdentity, next);
+    } else {
+      await saveTelegramConversationState(stateIdentity, "SELECTING_SERVICE", {});
+      await showServices(connection, event, true);
+    }
+    return true;
+  }
+  if (
+    /\b(services?|offerings?|options?|treatments?)\b/i.test(text) ||
+    /\bwhat\b.*\b(do you|provide|offer|have|available|do)\b/i.test(text) ||
+    /\b(tell|show|view|list)\b.*\b(services?|offerings?|options?)\b/i.test(text)
+  ) {
     await saveTelegramConversationState(stateIdentity, "SHOWING_SERVICES", context);
     await showServices(connection, event, false);
     return true;
@@ -2135,6 +2375,11 @@ async function workflowFallback(
       return [] as string[];
     });
 
+  const history = await loadTelegramHistory(connection, event);
+  const userFirstName = event.sender.firstName || event.sender.username || "there";
+  const userLastName = event.sender.lastName || "";
+  const fullName = [event.sender.firstName, event.sender.lastName].filter(Boolean).join(" ") || event.sender.username || "there";
+
   const run = await runWorkflowTest({
     userId: connection.business.ownerId,
     workflowId: connection.installedAgent.workflowId,
@@ -2154,6 +2399,12 @@ async function workflowFallback(
       timeZone: profile?.timeZone || "UTC",
       services: profile?.services ?? [],
       knowledge,
+      userName: fullName,
+      customerName: fullName,
+      customerFirstName: userFirstName,
+      customerLastName: userLastName,
+      history,
+      messages: history,
       latestMessage: text,
       inboundSmsBody: text,
       telegramConnectionId: connection.id,
@@ -2172,10 +2423,26 @@ async function workflowFallback(
   const telegramAction = record(context.telegramAction);
   if (telegramAction.success === true) return run.workflowRunId ?? null;
   const ai = record(context.ai);
-  const reply =
-    stringValue(ai.output) ||
-    renderBusinessTemplate(triggerData.telegramFallbackMessage, connection.business.name) ||
-    "I did not understand that. Use /services, /book, or /help.";
+  const aiOutput = stringValue(ai.output);
+  if (aiOutput) {
+    const reply = renderBusinessTemplate(aiOutput, connection.business.name, event.sender);
+    await sendText(connection, event, "workflow-reply", reply);
+    return run.workflowRunId ?? null;
+  }
+  if (
+    /\b(services?|offerings?|options?|treatments?)\b/i.test(text) ||
+    /\bwhat\b.*\b(do you|provide|offer|have|available|do)\b/i.test(text)
+  ) {
+    await saveTelegramConversationState(identity(connection, event), "SHOWING_SERVICES", {});
+    await showServices(connection, event, false);
+    return run.workflowRunId ?? null;
+  }
+  const fallbackMessage = stringValue(triggerData.telegramFallbackMessage);
+  const isGreetingMsg = /\b(hi|hello|hey|greetings|hola)\b/i.test(text.trim());
+  const rawReply =
+    (isGreetingMsg ? fallbackMessage : null) ||
+    `Hello ${userFirstName}! 👋 I'm here to assist you with ${connection.business.name}. You can type /services to view our services, /book to schedule an appointment, or ask me any question!`;
+  const reply = renderBusinessTemplate(rawReply, connection.business.name, event.sender);
   await sendText(connection, event, "workflow-reply", reply);
   return run.workflowRunId ?? null;
 }
@@ -2185,6 +2452,9 @@ async function processEvent(
   event: NormalizedTelegramEvent,
   triggerData: JsonRecord
 ): Promise<string | null> {
+  if (event.message.text && event.eventType !== "callback_query") {
+    await recordTelegramTurn(connection, event, "INBOUND", event.message.text);
+  }
   if (await authorizeOwnerChat(connection, event)) return null;
   if (await handleConnectedOwnerMessage(connection, event)) return null;
   const stateIdentity = identity(connection, event);
@@ -2251,7 +2521,7 @@ export async function processTelegramStoredUpdate(processedUpdateId: string): Pr
     }
     const active =
       connection.status === "ACTIVE" &&
-      connection.installedAgent.status === "ACTIVE" &&
+      ["ACTIVE", "PROVISIONING"].includes(connection.installedAgent.status) &&
       !connection.installedAgent.pausedAt;
     const provisioningOwnerAuthorization = shouldProcessOwnerAuthorizationDuringProvisioning({
       update: parsed.data,
