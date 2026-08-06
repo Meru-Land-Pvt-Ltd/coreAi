@@ -437,7 +437,7 @@ export function updateBusinessTelegramSettings(
   installedAgentId: string,
   body: TelegramBusinessSettings & { botDisplayName: string; services: string[] }
 ) {
-  return apiPut<{ settings: TelegramBusinessSettings; services: string[]; botDisplayName: string }>(
+  return apiPost<{ settings: TelegramBusinessSettings; services: string[]; botDisplayName: string }>(
     `/business/agents/${encodeURIComponent(installedAgentId)}/telegram/settings`,
     body
   );

@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { dateOnlyInZone } from "@coreai/shared";
+import { dateOnlyInZone, TELEGRAM_NODE_TYPES, VOICE_NODE_TYPES } from "@coreai/shared";
 import { decryptSecret } from "../../lib/crypto";
 import { prisma } from "../../lib/prisma";
 import {
@@ -7,7 +7,6 @@ import {
   createGoogleCalendarAppointment,
   rescheduleGoogleCalendarAppointment
 } from "./google-calendar-connector";
-import { getGmailConnectionStatus } from "./gmail-connector";
 import {
   computeBusinessAvailability,
   revalidateAndReserveSlot
@@ -82,6 +81,14 @@ function telegramTriggerData(workflowJson: unknown, configJson: unknown): JsonRe
     ...record(triggerNode(workflowJson)?.data),
     ...record(config.telegram)
   };
+}
+
+function automaticBookingNodeConfigured(workflowJson: unknown): boolean {
+  return parseRunnerWorkflowJson(workflowJson).nodes.some((node) => {
+    const type = stringValue(node.data?.type);
+    const action = stringValue(node.data?.connectorAction);
+    return type === VOICE_NODE_TYPES.bookAppointment || action === "book_appointment";
+  });
 }
 
 function triggerConfig(data: JsonRecord): TelegramTriggerConfig {
@@ -404,7 +411,12 @@ async function availableDates(connection: LoadedConnection, serviceName: string)
         date,
         serviceName
       });
-      return result.calendarStatus === "connected" && result.allSlots.length > 0 ? date : null;
+      const localBookingAllowed =
+        result.calendarStatus === "not_connected" &&
+        automaticBookingNodeConfigured(connection.installedAgent.workflow.workflowJson);
+      return (result.calendarStatus === "connected" || localBookingAllowed) && result.allSlots.length > 0
+        ? date
+        : null;
     })
   );
   return availability.filter((date): date is string => Boolean(date)).slice(0, 7);
@@ -436,28 +448,27 @@ async function showDates(
   return true;
 }
 
-async function businessCalendarConnected(
+async function bookingExecutionMode(
   connection: LoadedConnection,
   serviceName?: string
-): Promise<boolean> {
-  const configured = await getGmailConnectionStatus(connection.business.ownerId)
-    .then((status) => status.calendarConnected)
-    .catch(() => false);
-  if (!configured) return false;
-
-  // A stored credential can be expired, revoked, or missing access despite
-  // still existing in the database. Check the same live availability source
-  // used by booking before promising a real-time calendar flow.
+): Promise<"calendar" | "local" | "manual"> {
   const timeZone = connection.business.profile?.timeZone || "UTC";
   const today = dateOnlyInZone(new Date(), timeZone);
-  return computeBusinessAvailability({
+  const availability = await computeBusinessAvailability({
     businessId: connection.businessId,
     installedAgentId: connection.installedAgentId,
     date: today,
     serviceName
   })
-    .then((availability) => availability.calendarStatus === "connected")
-    .catch(() => false);
+    .catch(() => null);
+  if (availability?.calendarStatus === "connected") return "calendar";
+  if (
+    availability?.calendarStatus === "not_connected" &&
+    automaticBookingNodeConfigured(connection.installedAgent.workflow.workflowJson)
+  ) {
+    return "local";
+  }
+  return "manual";
 }
 
 async function beginBookingForService(
@@ -466,7 +477,8 @@ async function beginBookingForService(
   stateIdentity: TelegramConversationIdentity,
   context: TelegramBookingContext
 ) {
-  if (!(await businessCalendarConnected(connection, context.serviceName))) {
+  const executionMode = await bookingExecutionMode(connection, context.serviceName);
+  if (executionMode === "manual") {
     const requestContext: TelegramBookingContext = {
       ...context,
       bookingRequestMode: true,
@@ -512,7 +524,10 @@ async function showSlots(
     date,
     serviceName: context.serviceName
   });
-  if (result.calendarStatus !== "connected") {
+  const localBookingAllowed =
+    result.calendarStatus === "not_connected" &&
+    automaticBookingNodeConfigured(connection.installedAgent.workflow.workflowJson);
+  if (result.calendarStatus !== "connected" && !localBookingAllowed) {
     await sendText(
       connection,
       event,
@@ -591,6 +606,23 @@ async function createTelegramAppointment(options: {
   const durationMinutes = context.serviceDurationMinutes ?? 30;
   const startAt = new Date(context.selectedStartAt);
   const endAt = new Date(startAt.getTime() + durationMinutes * 60_000);
+  const availability = await computeBusinessAvailability({
+    businessId: connection.businessId,
+    installedAgentId: connection.installedAgentId,
+    date: context.selectedDate,
+    serviceName: context.serviceName
+  });
+  const calendarBacked = availability.calendarStatus === "connected";
+  const localBookingAllowed =
+    availability.calendarStatus === "not_connected" &&
+    automaticBookingNodeConfigured(connection.installedAgent.workflow.workflowJson);
+  if (!calendarBacked && !localBookingAllowed) {
+    return {
+      unavailable: true as const,
+      calendarStatus: availability.calendarStatus,
+      alreadyBooked: false as const
+    };
+  }
   const reservation = await revalidateAndReserveSlot({
     businessId: connection.businessId,
     installedAgentId: connection.installedAgentId,
@@ -601,24 +633,26 @@ async function createTelegramAppointment(options: {
     createBooking: async () => {
       const duplicate = await prisma.appointment.findUnique({ where: { idempotencyKey } });
       if (duplicate) return duplicate;
-      const calendarEvent = await createGoogleCalendarAppointment({
-        userId: connection.business.ownerId,
-        calendarId: connection.business.profile?.calendarId || "primary",
-        timeZone,
-        businessName: connection.business.name,
-        customerName: context.customerName,
-        customerPhone: context.customerPhone as string,
-        service: context.serviceName,
-        startAt,
-        endAt,
-        description: [
-          "Booked through the business Telegram bot.",
-          `Customer: ${context.customerName}`,
-          `Phone: ${context.customerPhone}`,
-          ...(context.customerEmail ? [`Email: ${context.customerEmail}`] : []),
-          ...(context.customerNotes ? [`Notes: ${context.customerNotes}`] : [])
-        ].join("\n")
-      });
+      const calendarEvent = calendarBacked
+        ? await createGoogleCalendarAppointment({
+            userId: connection.business.ownerId,
+            calendarId: connection.business.profile?.calendarId || "primary",
+            timeZone,
+            businessName: connection.business.name,
+            customerName: context.customerName,
+            customerPhone: context.customerPhone as string,
+            service: context.serviceName,
+            startAt,
+            endAt,
+            description: [
+              "Booked through the business Telegram bot.",
+              `Customer: ${context.customerName}`,
+              `Phone: ${context.customerPhone}`,
+              ...(context.customerEmail ? [`Email: ${context.customerEmail}`] : []),
+              ...(context.customerNotes ? [`Notes: ${context.customerNotes}`] : [])
+            ].join("\n")
+          })
+        : null;
       try {
         return await prisma.appointment.create({
           data: {
@@ -634,14 +668,14 @@ async function createTelegramAppointment(options: {
             startAt,
             endAt,
             timeZone,
-            calendarEventId: calendarEvent.id,
-            calendarEventLink: calendarEvent.htmlLink,
+            calendarEventId: calendarEvent?.id ?? null,
+            calendarEventLink: calendarEvent?.htmlLink ?? null,
             status: "BOOKED",
             notes: context.customerNotes
           }
         });
       } catch (error) {
-        if (calendarEvent.id) {
+        if (calendarEvent?.id) {
           await cancelGoogleCalendarAppointment({
             userId: connection.business.ownerId,
             calendarId: calendarEvent.calendarId,
@@ -754,10 +788,172 @@ function ownerCustomerDetails(
   return [
     `Customer: ${context.customerName || telegramName || "Not provided"}`,
     `Phone: ${context.customerPhone || event.contact.phoneNumber || "Not provided"}`,
-    `Email: ${context.customerEmail || "Not provided"}`,
+    ...(context.customerEmail ? [`Email: ${context.customerEmail}`] : []),
     `Telegram: ${event.sender.username ? `@${event.sender.username}` : telegramName || "Not provided"}`,
-    `Notes: ${context.customerNotes || "None"}`
+    ...(context.customerNotes ? [`Notes: ${context.customerNotes}`] : [])
   ];
+}
+
+function downstreamBookingMessageNodes(workflowJson: unknown) {
+  const workflow = parseRunnerWorkflowJson(workflowJson);
+  const nodeById = new Map(workflow.nodes.map((node) => [node.id, node]));
+  const bookingNodeIds = new Set(
+    workflow.nodes
+      .filter((node) => {
+        const type = stringValue(node.data?.type);
+        const action = stringValue(node.data?.connectorAction);
+        return type === VOICE_NODE_TYPES.bookAppointment || action === "book_appointment";
+      })
+      .map((node) => node.id)
+  );
+  const queue = workflow.edges
+    .filter((edge) => bookingNodeIds.has(edge.source))
+    .map((edge) => edge.target);
+  const visited = new Set<string>();
+  const messages: typeof workflow.nodes = [];
+
+  while (queue.length > 0) {
+    const nodeId = queue.shift();
+    if (!nodeId || visited.has(nodeId)) continue;
+    visited.add(nodeId);
+    const node = nodeById.get(nodeId);
+    if (node && stringValue(node.data?.type) === TELEGRAM_NODE_TYPES.sendMessage) {
+      messages.push(node);
+    }
+    for (const edge of workflow.edges) {
+      if (edge.source === nodeId && !visited.has(edge.target)) queue.push(edge.target);
+    }
+  }
+
+  return messages;
+}
+
+function configuredTemplateValue(context: JsonRecord, path: string): unknown {
+  return path.split(".").reduce<unknown>((value, segment) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    return (value as JsonRecord)[segment];
+  }, context);
+}
+
+function renderConfiguredTemplate(value: unknown, context: JsonRecord): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (_match, path: string) => {
+    const resolved = configuredTemplateValue(context, path);
+    return resolved === undefined || resolved === null ? "" : String(resolved);
+  });
+}
+
+async function deliverConfiguredBookingMessages(options: {
+  connection: LoadedConnection;
+  event: NormalizedTelegramEvent;
+  context: TelegramBookingContext;
+  appointment: {
+    id: string;
+    bookingReference: string | null;
+    service: string | null;
+    startAt: Date;
+    endAt: Date;
+    status: string;
+  };
+}): Promise<{ customer: boolean; owner: boolean }> {
+  const { connection, event, context, appointment } = options;
+  const nodes = downstreamBookingMessageNodes(connection.installedAgent.workflow.workflowJson);
+  if (nodes.length === 0) return { customer: false, owner: false };
+
+  const timeZone = connection.business.profile?.timeZone || "UTC";
+  const date = appointment.startAt.toLocaleDateString("en-US", {
+    timeZone,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric"
+  });
+  const time = appointment.startAt.toLocaleTimeString("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short"
+  });
+  const templateContext: JsonRecord = {
+    business: {
+      id: connection.businessId,
+      name: connection.business.name,
+      phone: connection.business.profile?.teamPhone ?? "",
+      timeZone
+    },
+    customer: {
+      name: context.customerName ?? "",
+      phone: context.customerPhone ?? "",
+      email: context.customerEmail ?? "",
+      notes: context.customerNotes ?? "",
+      telegram: event.sender.username ? `@${event.sender.username}` : ""
+    },
+    appointment: {
+      id: appointment.id,
+      reference: appointment.bookingReference ?? appointment.id,
+      confirmation_id: appointment.bookingReference ?? appointment.id,
+      service: appointment.service ?? context.serviceName ?? "Appointment",
+      date,
+      time,
+      startAt: appointment.startAt.toISOString(),
+      endAt: appointment.endAt.toISOString(),
+      timeZone,
+      status: appointment.status
+    },
+    trigger: { telegram: event },
+    telegram: {
+      chat_id: event.chat.id,
+      user_id: event.sender.id,
+      username: event.sender.username ?? "",
+      message_id: event.message.id
+    }
+  };
+  const delivered = { customer: false, owner: false };
+
+  for (const node of nodes) {
+    const recipientSource = stringValue(node.data?.telegramRecipientSource, "trigger_chat");
+    const ownerRecipient = recipientSource === "business_owner";
+    const chatId = ownerRecipient
+      ? connection.ownerNotificationStatus === "CONNECTED"
+        ? connection.ownerChatId
+        : null
+      : recipientSource === "manual"
+        ? renderConfiguredTemplate(node.data?.telegramChatIdExpression, templateContext).trim()
+        : event.chat.id;
+    const message = renderConfiguredTemplate(node.data?.telegramMessageText, templateContext).trim();
+    if (!chatId || !message) continue;
+    const parseModeValue = stringValue(node.data?.telegramParseMode);
+
+    try {
+      await executeTelegramActionWithRetry({
+        businessId: connection.businessId,
+        installedAgentId: connection.installedAgentId,
+        telegramConnectionId: connection.id,
+        nodeId: node.id,
+        chatId,
+        idempotencyKey: `telegram:${connection.id}:${event.updateId}:booking-node:${node.id}`,
+        actionType: TELEGRAM_ACTION_TYPES.sendMessage,
+        text: message,
+        parseMode:
+          parseModeValue === "HTML" || parseModeValue === "MarkdownV2"
+            ? parseModeValue
+            : undefined,
+        disableNotification: boolValue(node.data?.telegramDisableNotification, false),
+        protectContent: boolValue(node.data?.telegramProtectContent, false)
+      });
+      if (ownerRecipient) delivered.owner = true;
+      else delivered.customer = true;
+    } catch (error) {
+      console.warn("[telegram-booking] Configured booking message could not be delivered:", {
+        connectionId: connection.id,
+        nodeId: node.id,
+        recipientSource,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  return delivered;
 }
 
 async function showBookingRequestSummary(
@@ -892,7 +1088,6 @@ async function confirmManualBookingRequest(
       ? [`For assistance: ${connection.business.profile.teamPhone}`]
       : [])
   ].join("\n");
-  await sendText(connection, event, "booking-request-received", customerMessage);
   if (context.summaryMessageId) {
     await editMessage(
       connection,
@@ -901,6 +1096,8 @@ async function confirmManualBookingRequest(
       context.summaryMessageId,
       customerMessage
     ).catch(() => null);
+  } else {
+    await sendText(connection, event, "booking-request-received", customerMessage);
   }
   await notifyOwner(
     connection,
@@ -944,9 +1141,23 @@ async function confirmBooking(
   stateIdentity: TelegramConversationIdentity,
   context: TelegramBookingContext
 ) {
-  await answerCallback(connection, event, "confirm-callback", "Checking the calendar...");
+  await answerCallback(connection, event, "confirm-callback", "Confirming your booking...");
   await saveTelegramConversationState(stateIdentity, "BOOKING", context);
   const result = await createTelegramAppointment({ connection, event, context });
+  if ("unavailable" in result && result.unavailable) {
+    await saveTelegramConversationState(stateIdentity, "SELECTING_DATE", {
+      ...context,
+      selectedDate: undefined,
+      selectedStartAt: undefined
+    });
+    await sendText(
+      connection,
+      event,
+      "booking-calendar-unavailable",
+      "Live booking is temporarily unavailable. No appointment was created. Please choose another date or contact the business."
+    );
+    return;
+  }
   if ("conflict" in result && result.conflict) {
     await saveTelegramConversationState(stateIdentity, "SELECTING_TIME", {
       ...context,
@@ -986,7 +1197,12 @@ async function confirmBooking(
       ? [`For assistance: ${connection.business.profile.teamPhone}`]
       : [])
   ].join("\n");
-  await sendText(connection, event, "booking-confirmation", customerMessage);
+  const configuredDelivery = await deliverConfiguredBookingMessages({
+    connection,
+    event,
+    context,
+    appointment
+  });
   if (context.summaryMessageId) {
     await editMessage(
       connection,
@@ -995,24 +1211,28 @@ async function confirmBooking(
       context.summaryMessageId,
       customerMessage
     ).catch(() => null);
+  } else if (!configuredDelivery.customer) {
+    await sendText(connection, event, "booking-confirmation", customerMessage);
   }
-  await notifyOwner(
-    connection,
-    event,
-    "owner-booking-notification",
-    [
-      "New Telegram booking",
-      "",
-      `Business: ${connection.business.name}`,
-      ...ownerCustomerDetails(event, context),
-      `Service: ${appointment.service ?? "Appointment"}`,
-      `When: ${localAppointmentLabel(appointment.startAt.toISOString(), timeZone)}`,
-      `Timezone: ${timeZone}`,
-      `Booking reference: ${reference}`,
-      "Status: Confirmed",
-      "Source: Telegram"
-    ].join("\n")
-  );
+  if (!configuredDelivery.owner) {
+    await notifyOwner(
+      connection,
+      event,
+      "owner-booking-notification",
+      [
+        "New Telegram booking",
+        "",
+        `Business: ${connection.business.name}`,
+        ...ownerCustomerDetails(event, context),
+        `Service: ${appointment.service ?? "Appointment"}`,
+        `When: ${localAppointmentLabel(appointment.startAt.toISOString(), timeZone)}`,
+        `Timezone: ${timeZone}`,
+        `Booking reference: ${reference}`,
+        "Status: Confirmed",
+        "Source: Telegram"
+      ].join("\n")
+    );
+  }
   await saveTelegramConversationState(stateIdentity, "BOOKED", {
     ...context,
     appointmentId: appointment.id,
@@ -1837,7 +2057,7 @@ async function naturalLanguageRoute(
     /\b(available|availability|open|times?|slots?)\b/i.test(text) &&
     context.serviceName
   ) {
-    if (!(await businessCalendarConnected(connection, context.serviceName))) {
+    if ((await bookingExecutionMode(connection, context.serviceName)) === "manual") {
       await beginBookingForService(connection, event, stateIdentity, context);
       return true;
     }

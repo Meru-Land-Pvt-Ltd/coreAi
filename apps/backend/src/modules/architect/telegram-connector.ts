@@ -216,6 +216,13 @@ function allowedUpdates(): string[] {
   return ["message", "callback_query"];
 }
 
+function isTelegramRateLimit(error: unknown): error is TelegramApiError {
+  return (
+    error instanceof TelegramApiError &&
+    (error.httpStatus === 429 || error.providerCode === 429 || error.retryAfterSeconds !== null)
+  );
+}
+
 function usernameStem(value: string): string {
   return (
     value
@@ -316,18 +323,42 @@ async function configureTelegramBot(options: {
     `Book an appointment with ${businessName}.`;
   const webhookSecret = decryptSecret(connection.webhookSecretEncrypted);
 
-  await telegramApiRequest<boolean>(options.botToken, "setMyName", {
-    name: displayName.slice(0, 64)
-  });
-  await telegramApiRequest<boolean>(options.botToken, "setMyDescription", {
-    description: description.slice(0, 512)
-  });
-  await telegramApiRequest<boolean>(options.botToken, "setMyShortDescription", {
-    short_description: shortDescription.slice(0, 120)
-  });
-  await telegramApiRequest<boolean>(options.botToken, "setMyCommands", {
-    commands: telegramCommandList(data)
-  });
+  const customizationSteps = [
+    {
+      method: "setMyName",
+      payload: { name: displayName.slice(0, 64) }
+    },
+    {
+      method: "setMyDescription",
+      payload: { description: description.slice(0, 512) }
+    },
+    {
+      method: "setMyShortDescription",
+      payload: { short_description: shortDescription.slice(0, 120) }
+    },
+    {
+      method: "setMyCommands",
+      payload: { commands: telegramCommandList(data) }
+    }
+  ];
+
+  for (const step of customizationSteps) {
+    try {
+      await telegramApiRequest<boolean>(options.botToken, step.method, step.payload);
+    } catch (error) {
+      if (!isTelegramRateLimit(error)) throw error;
+      console.warn(
+        "[telegram-connector] Bot customization rate-limited; webhook setup will continue:",
+        {
+          connectionId: connection.id,
+          method: error.method,
+          retryAfterSeconds: error.retryAfterSeconds
+        }
+      );
+      break;
+    }
+  }
+
   const webhookUrl = childWebhookUrl(connection.webhookConnectionId);
   console.log("[telegram-connector] Registering webhook for Telegram bot:", {
     connectionId: connection.id,
@@ -336,18 +367,6 @@ async function configureTelegramBot(options: {
     webhookUrl
   });
 
-  await telegramApiRequest<boolean>(options.botToken, "setMyName", {
-    name: displayName.slice(0, 64)
-  });
-  await telegramApiRequest<boolean>(options.botToken, "setMyDescription", {
-    description: description.slice(0, 512)
-  });
-  await telegramApiRequest<boolean>(options.botToken, "setMyShortDescription", {
-    short_description: shortDescription.slice(0, 120)
-  });
-  await telegramApiRequest<boolean>(options.botToken, "setMyCommands", {
-    commands: telegramCommandList(data)
-  });
   await telegramApiRequest<boolean>(options.botToken, "setWebhook", {
     url: webhookUrl,
     secret_token: webhookSecret,
@@ -654,6 +673,9 @@ export async function updateTelegramBusinessSettings(options: {
 }) {
   const agent = await loadOwnedAgent(options.ownerId, options.installedAgentId);
   const existingConfig = record(agent.configJson);
+  const previousCommands = telegramCommandList(
+    mergedTelegramTriggerData(agent.workflow.workflowJson, agent.configJson)
+  );
   const configJson = {
     ...existingConfig,
     telegram: {
@@ -661,6 +683,12 @@ export async function updateTelegramBusinessSettings(options: {
       ...options.settings
     }
   };
+  const nextCommands = telegramCommandList(
+    mergedTelegramTriggerData(agent.workflow.workflowJson, configJson)
+  );
+  const displayName = options.botDisplayName.trim().slice(0, 64);
+  const displayNameChanged = agent.telegramBot?.botDisplayName !== displayName;
+  const commandsChanged = JSON.stringify(previousCommands) !== JSON.stringify(nextCommands);
 
   const services = Array.from(
     new Map(
@@ -687,23 +715,43 @@ export async function updateTelegramBusinessSettings(options: {
   if (agent.telegramBot) {
     await prisma.telegramBotConnection.update({
       where: { id: agent.telegramBot.id },
-      data: { botDisplayName: options.botDisplayName.trim().slice(0, 64) }
+      data: { botDisplayName: displayName }
     });
   }
 
-  if (agent.telegramBot?.botTokenEncrypted && agent.telegramBot.status === "ACTIVE") {
+  if (
+    agent.telegramBot?.botTokenEncrypted &&
+    agent.telegramBot.status === "ACTIVE" &&
+    (displayNameChanged || commandsChanged)
+  ) {
     const token = decryptSecret(agent.telegramBot.botTokenEncrypted);
-    const identity = await getTelegramBotIdentity(token);
-    await configureTelegramBot({
-      connectionId: agent.telegramBot.id,
-      botToken: token,
-      botUser: identity
-    });
+    const updates = [
+      ...(displayNameChanged
+        ? [{ method: "setMyName", payload: { name: displayName } }]
+        : []),
+      ...(commandsChanged
+        ? [{ method: "setMyCommands", payload: { commands: nextCommands } }]
+        : [])
+    ];
+
+    for (const update of updates) {
+      try {
+        await telegramApiRequest<boolean>(token, update.method, update.payload);
+      } catch (error) {
+        console.warn("[telegram-connector] Settings saved; Telegram bot menu/profile sync deferred:", {
+          connectionId: agent.telegramBot.id,
+          method: error instanceof TelegramApiError ? error.method : update.method,
+          retryAfterSeconds: error instanceof TelegramApiError ? error.retryAfterSeconds : null,
+          providerCode: error instanceof TelegramApiError ? error.providerCode : null
+        });
+        break;
+      }
+    }
   }
 
   return {
     settings: options.settings,
-    botDisplayName: options.botDisplayName.trim().slice(0, 64),
+    botDisplayName: displayName,
     services
   };
 }
