@@ -139,6 +139,12 @@ export type WorkflowRunInput = {
   listingId?: string;
   latestMessage?: string;
   assistantName?: string;
+  userName?: string;
+  customerName?: string;
+  customerFirstName?: string;
+  customerLastName?: string;
+  history?: Array<{ direction: string; body: string }>;
+  messages?: Array<{ direction: string; body: string }>;
   telegramChatId?: string;
   telegramConnectionId?: string;
   /** Encrypted Architect-owned test bot credential used for live Telegram tests. */

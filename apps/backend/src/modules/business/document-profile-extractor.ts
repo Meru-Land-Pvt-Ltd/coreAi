@@ -143,7 +143,7 @@ function extractFallbackServices(fullText: string): string[] {
 }
 
 /**
- * AI-powered extraction attempt using Gemini-1.5-Flash (lightweight, high rate-limit)
+ * AI-powered extraction attempt using Gemma-4-31b-it (or configurable via OCR_MODEL env var)
  */
 async function extractProfileWithAI(fullText: string): Promise<Partial<DocumentProfileSuggestion> | null> {
   const apiKey = llmProviderApiKey("gemini") || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -152,6 +152,7 @@ async function extractProfileWithAI(fullText: string): Promise<Partial<DocumentP
   try {
     const { GoogleGenAI } = await import("@google/genai");
     const ai = new GoogleGenAI({ apiKey });
+    const modelName = process.env.OCR_MODEL || "gemma-4-31b-it";
     const prompt = `Analyze this business document text and extract structured profile information in JSON format.
 
     JSON Schema:
@@ -168,7 +169,7 @@ async function extractProfileWithAI(fullText: string): Promise<Partial<DocumentP
     ${fullText.slice(0, 8000)}`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: modelName,
       contents: prompt,
       config: { responseMimeType: "application/json" }
     });

@@ -124,8 +124,14 @@ function secureEqual(left: string, right: string): boolean {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-function render(template: unknown, businessName: string): string {
-  return text(template).replace(/\{\{\s*business\.name\s*\}\}/gi, businessName);
+function render(template: unknown, businessName: string, userName = "there"): string {
+  return text(template)
+    .replace(/\{\{\s*business\.name\s*\}\}/gi, businessName)
+    .replace(/\{\{\s*business_name\s*\}\}/gi, businessName)
+    .replace(/\{\{\s*user\.name\s*\}\}/gi, userName)
+    .replace(/\{\{\s*user\.first_name\s*\}\}/gi, userName)
+    .replace(/\{\{\s*user\.firstName\s*\}\}/gi, userName)
+    .replace(/\{\{\s*customer\.name\s*\}\}/gi, userName);
 }
 
 function managerWebhookUrl(): string {
@@ -1059,7 +1065,7 @@ export async function handleTelegramBotWebhook(c: Context) {
   try {
     const active =
       connection.status === "ACTIVE" &&
-      connection.installedAgent.status === "ACTIVE" &&
+      ["ACTIVE", "PROVISIONING"].includes(connection.installedAgent.status) &&
       !connection.installedAgent.pausedAt;
     const provisioningOwnerAuthorization = shouldProcessOwnerAuthorizationDuringProvisioning({
       update: parsed.data,

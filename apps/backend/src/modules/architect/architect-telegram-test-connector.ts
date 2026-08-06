@@ -93,10 +93,14 @@ function flag(value: unknown, fallback = false): boolean {
   return fallback;
 }
 
-export function renderArchitectTelegramTestTemplate(template: string, businessName: string): string {
+export function renderArchitectTelegramTestTemplate(template: string, businessName: string, userName = "there"): string {
   return template
     .replace(/\{\{\s*business\.name\s*\}\}/gi, businessName)
-    .replace(/\{\{\s*business_name\s*\}\}/gi, businessName);
+    .replace(/\{\{\s*business_name\s*\}\}/gi, businessName)
+    .replace(/\{\{\s*user\.name\s*\}\}/gi, userName)
+    .replace(/\{\{\s*user\.first_name\s*\}\}/gi, userName)
+    .replace(/\{\{\s*user\.firstName\s*\}\}/gi, userName)
+    .replace(/\{\{\s*customer\.name\s*\}\}/gi, userName);
 }
 
 function metadata(value: unknown): ArchitectTelegramTestMetadata {
