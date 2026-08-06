@@ -261,7 +261,7 @@ businessRoutes.get("/agents/:installedAgentId/telegram/status", async (c) => {
   return successResponse(c, status);
 });
 
-businessRoutes.put("/agents/:installedAgentId/telegram/settings", async (c) => {
+businessRoutes.post("/agents/:installedAgentId/telegram/settings", async (c) => {
   const authUser = c.get("authUser");
   const parsed = telegramBusinessSettingsSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
