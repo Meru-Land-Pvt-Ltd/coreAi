@@ -16,10 +16,17 @@ import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
 import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
 import {
   useCalendlyAvailableTimeOptions,
+  useCalendlyContactOptions,
   useCalendlyEventOptions,
   useCalendlyEventTypeOptions,
-  useCalendlyInviteeOptions
+  useCalendlyInviteeOptions,
+  useCalendlyMeetingRecapOptions
 } from "./use-calendly-pickers";
+import {
+  CalendlyAvailableSlotButtons,
+  CalendlyTeamsRangePicker,
+  CalendlyTimezoneSelect
+} from "./calendly-time-controls";
 import { marked } from "marked";
 import type { CalendlyPickerOption } from "@/components/architect/features/types";
 import type { ArchitectTelegramTestConnection } from "@/components/architect/features/api";
@@ -97,6 +104,10 @@ function calendlyPickerSelectOptions(
   return [{ value: selected, label: selected, uri: selected }, ...options];
 }
 
+function CalendlyRequiredMark() {
+  return <span className="font-bold text-amber-600"> *</span>;
+}
+
 const CALENDLY_DURATION_OPTIONS = [
   { value: "15", label: "15 minutes" },
   { value: "30", label: "30 minutes" },
@@ -107,10 +118,10 @@ const CALENDLY_DURATION_OPTIONS = [
 ] as const;
 
 const CALENDLY_LOCATION_OPTIONS = [
+  { value: "ask_invitee", label: "Ask invitee" },
   { value: "google_conference", label: "Google Meet" },
   { value: "zoom_conference", label: "Zoom" },
   { value: "microsoft_teams_conference", label: "Microsoft Teams" },
-  { value: "ask_invitee", label: "Ask invitee" },
   { value: "outbound_call", label: "Phone call (outbound)" },
   { value: "inbound_call", label: "Phone call (inbound)" },
   { value: "physical", label: "In person" },
@@ -163,8 +174,14 @@ export function TestPanel({
   calendlyOneOffStartDate = "",
   calendlyOneOffEndDate = "",
   calendlyTimezone = "America/New_York",
-  calendlyLocationKind = "google_conference",
+  calendlyLocationKind = "ask_invitee",
   calendlyLocation = "",
+  calendlyContactEmail = "",
+  calendlyContactUuid = "",
+  calendlyContactName = "",
+  calendlyCancelReason = "",
+  calendlyMeetingRecapUuid = "",
+  calendlyUserSearch = "",
   whatsappConnected = false,
   connectingWhatsApp = false,
   running,
@@ -222,6 +239,12 @@ export function TestPanel({
   onCalendlyTimezoneChange,
   onCalendlyLocationKindChange,
   onCalendlyLocationChange,
+  onCalendlyContactEmailChange,
+  onCalendlyContactUuidChange,
+  onCalendlyContactNameChange,
+  onCalendlyCancelReasonChange,
+  onCalendlyMeetingRecapUuidChange,
+  onCalendlyUserSearchChange,
   onRefreshConnections,
   onRunTest,
   onStartLiveTest,
@@ -289,6 +312,12 @@ export function TestPanel({
   calendlyTimezone?: string;
   calendlyLocationKind?: string;
   calendlyLocation?: string;
+  calendlyContactEmail?: string;
+  calendlyContactUuid?: string;
+  calendlyContactName?: string;
+  calendlyCancelReason?: string;
+  calendlyMeetingRecapUuid?: string;
+  calendlyUserSearch?: string;
   whatsappConnected?: boolean;
   connectingWhatsApp?: boolean;
   running: boolean;
@@ -347,6 +376,12 @@ export function TestPanel({
   onCalendlyTimezoneChange?: (value: string) => void;
   onCalendlyLocationKindChange?: (value: string) => void;
   onCalendlyLocationChange?: (value: string) => void;
+  onCalendlyContactEmailChange?: (value: string) => void;
+  onCalendlyContactUuidChange?: (value: string) => void;
+  onCalendlyContactNameChange?: (value: string) => void;
+  onCalendlyCancelReasonChange?: (value: string) => void;
+  onCalendlyMeetingRecapUuidChange?: (value: string) => void;
+  onCalendlyUserSearchChange?: (value: string) => void;
   onRefreshConnections: () => void;
   onConnectWhatsApp?: () => void;
   onConnectTelegramTest?: (botToken: string) => void;
@@ -504,7 +539,7 @@ export function TestPanel({
       hasGmailFlow);
 
   const calendlyActionSet = new Set(calendlyActions.map((action) => action.toLowerCase()));
-  // Only fields the runner requires for the selected Calendly action(s).
+  // Mandatory (and useful optional) fields for each Calendly action in the dry-test panel.
   const showCalendlyEventTypeUri =
     needsCalendlyConnection &&
     (calendlyActionSet.has("find_available_times") ||
@@ -531,6 +566,24 @@ export function TestPanel({
     needsCalendlyConnection &&
     (calendlyActionSet.has("book_meeting_for_invitee") ||
       calendlyActionSet.has("find_invitee_by_email"));
+  const showCalendlyContactEmail =
+    needsCalendlyConnection && calendlyActionSet.has("create_contact");
+  const showCalendlyContactUuid =
+    needsCalendlyConnection &&
+    (calendlyActionSet.has("update_contact") ||
+      calendlyActionSet.has("delete_contact") ||
+      calendlyActionSet.has("find_contact"));
+  const showCalendlyContactName =
+    needsCalendlyConnection &&
+    (calendlyActionSet.has("create_contact") || calendlyActionSet.has("update_contact"));
+  const showCalendlyCancelReason =
+    needsCalendlyConnection &&
+    (calendlyActionSet.has("cancel_event") || calendlyActionSet.has("cancel_scheduled_event"));
+  const showCalendlyMeetingRecapUuid =
+    needsCalendlyConnection &&
+    (calendlyActionSet.has("find_meeting_recap") ||
+      calendlyActionSet.has("find_meeting_recap_transcript"));
+  const showCalendlyUserSearch = needsCalendlyConnection && calendlyActionSet.has("find_user");
   const showCalendlyOneOffFields =
     needsCalendlyConnection && calendlyActionSet.has("create_one_off_meeting_link");
   const showCalendlyTriggerFields = needsCalendlyConnection && hasCalendlyTrigger;
@@ -542,13 +595,25 @@ export function TestPanel({
     showCalendlyTimeRange ||
     showCalendlyBookStartTime ||
     showCalendlyBookInviteeFields ||
+    showCalendlyContactEmail ||
+    showCalendlyContactUuid ||
+    showCalendlyContactName ||
+    showCalendlyCancelReason ||
+    showCalendlyMeetingRecapUuid ||
+    showCalendlyUserSearch ||
     showCalendlyOneOffFields;
 
   const eventTypePicker = useCalendlyEventTypeOptions(Boolean(calendlyConnected && showCalendlyEventTypeUri));
-  const eventPicker = useCalendlyEventOptions(Boolean(calendlyConnected && showCalendlyEventUuid));
+  const eventPicker = useCalendlyEventOptions(Boolean(calendlyConnected && showCalendlyEventUuid), {
+    startedOnly: calendlyActionSet.has("mark_invitee_no_show")
+  });
   const inviteePicker = useCalendlyInviteeOptions(
     Boolean(calendlyConnected && showCalendlyInviteeUuid),
     calendlyEventUuid
+  );
+  const contactPicker = useCalendlyContactOptions(Boolean(calendlyConnected && showCalendlyContactUuid));
+  const meetingRecapPicker = useCalendlyMeetingRecapOptions(
+    Boolean(calendlyConnected && showCalendlyMeetingRecapUuid)
   );
   const availableTimePicker = useCalendlyAvailableTimeOptions(
     Boolean(calendlyConnected && showCalendlyBookStartTime),
@@ -812,6 +877,7 @@ export function TestPanel({
 
             {showCalendlyTestFields ? (
               <>
+
                 {showCalendlyTriggerFields ? (
                   <>
                     <label data-testid="builder-test-calendly-trigger-event-label">
@@ -875,6 +941,7 @@ export function TestPanel({
                   <label className="col-span-1 sm:col-span-2" data-testid="builder-test-calendly-event-type-uri-label">
                     <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
                       Event type
+                      <CalendlyRequiredMark />
                     </span>
                     <select
                       data-testid="builder-test-calendly-event-type-uri-input"
@@ -910,6 +977,7 @@ export function TestPanel({
                   <label data-testid="builder-test-calendly-event-uuid-label">
                     <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
                       Event
+                      <CalendlyRequiredMark />
                     </span>
                     <select
                       data-testid="builder-test-calendly-event-uuid-input"
@@ -925,7 +993,9 @@ export function TestPanel({
                         {eventPicker.loading
                           ? "Loading events…"
                           : eventPicker.options.length === 0
-                            ? "No recent events found"
+                            ? calendlyActionSet.has("mark_invitee_no_show")
+                              ? "No started meetings found"
+                              : "No recent events found"
                             : "Select an event"}
                       </option>
                       {calendlyPickerSelectOptions(calendlyEventUuid, eventPicker.options).map((option) => (
@@ -939,12 +1009,18 @@ export function TestPanel({
                         {eventPicker.error}
                       </p>
                     ) : null}
+                    {calendlyActionSet.has("mark_invitee_no_show") ? (
+                      <p className="mt-1.5 text-[12px] leading-4 text-slate-400">
+                        Only meetings that have already started are listed — Calendly blocks no-show before the start time.
+                      </p>
+                    ) : null}
                   </label>
                 ) : null}
                 {showCalendlyInviteeUuid ? (
                   <label data-testid="builder-test-calendly-invitee-uuid-label">
                     <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
                       Invitee
+                      <CalendlyRequiredMark />
                     </span>
                     <select
                       data-testid="builder-test-calendly-invitee-uuid-input"
@@ -977,79 +1053,79 @@ export function TestPanel({
                 ) : null}
                 {showCalendlyTimeRange ? (
                   <>
-                    <label data-testid="builder-test-calendly-start-time-label">
+                    <label
+                      className="col-span-1 sm:col-span-2"
+                      data-testid="builder-test-calendly-timezone-label"
+                    >
                       <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
-                        Start time (ISO)
+                        Timezone
+                        <CalendlyRequiredMark />
                       </span>
-                      <input
-                        data-testid="builder-test-calendly-start-time-input"
-                        type="text"
-                        value={calendlyStartTime}
-                        onChange={(event) => onCalendlyStartTimeChange?.(event.target.value)}
-                        placeholder="2026-08-04T09:00:00.000Z"
-                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 font-mono text-[13px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                      <CalendlyTimezoneSelect
+                        value={calendlyTimezone}
+                        onChange={(value) => onCalendlyTimezoneChange?.(value)}
+                        disabled={!calendlyConnected}
+                        testId="builder-test-calendly-timezone-input"
                       />
                     </label>
-                    <label data-testid="builder-test-calendly-end-time-label">
-                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
-                        End time (ISO)
-                      </span>
-                      <input
-                        data-testid="builder-test-calendly-end-time-input"
-                        type="text"
-                        value={calendlyEndTime}
-                        onChange={(event) => onCalendlyEndTimeChange?.(event.target.value)}
-                        placeholder="2026-08-11T17:00:00.000Z"
-                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 font-mono text-[13px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                      />
-                    </label>
+                    <CalendlyTeamsRangePicker
+                      startValue={calendlyStartTime}
+                      endValue={calendlyEndTime}
+                      timeZone={calendlyTimezone}
+                      disabled={!calendlyConnected}
+                      requiredMark
+                      valueMode="iso"
+                      startLabel="Window start"
+                      durationLabel="Window length"
+                      testIdPrefix="builder-test-calendly-window"
+                      onChange={({ start, end }) => {
+                        onCalendlyStartTimeChange?.(start);
+                        onCalendlyEndTimeChange?.(end);
+                      }}
+                    />
                   </>
                 ) : null}
                 {showCalendlyBookStartTime ? (
-                  <label
+                  <div
                     className="col-span-1 sm:col-span-2"
                     data-testid="builder-test-calendly-book-start-time-label"
                   >
                     <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
                       Start time
+                      <CalendlyRequiredMark />
                     </span>
-                    <select
-                      data-testid="builder-test-calendly-start-time-input"
-                      value={calendlyStartTime}
-                      onChange={(event) => onCalendlyStartTimeChange?.(event.target.value)}
-                      disabled={
-                        !calendlyConnected ||
-                        !calendlyEventTypeUri.trim() ||
-                        availableTimePicker.loading
+                    <div className="mb-3">
+                      <span className="mb-1.5 block text-[12px] font-medium text-slate-500">Timezone</span>
+                      <CalendlyTimezoneSelect
+                        value={calendlyTimezone}
+                        onChange={(value) => onCalendlyTimezoneChange?.(value)}
+                        disabled={!calendlyConnected}
+                        testId="builder-test-calendly-book-timezone-input"
+                      />
+                    </div>
+                    <CalendlyAvailableSlotButtons
+                      options={
+                        calendlyStartTime.trim() &&
+                        !availableTimePicker.options.some((option) => option.value === calendlyStartTime)
+                          ? [{ value: calendlyStartTime, label: calendlyStartTime }, ...availableTimePicker.options]
+                          : availableTimePicker.options
                       }
-                      className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
-                    >
-                      <option value="">
-                        {!calendlyEventTypeUri.trim()
+                      value={calendlyStartTime}
+                      onChange={(value) => onCalendlyStartTimeChange?.(value)}
+                      timeZone={calendlyTimezone}
+                      loading={availableTimePicker.loading}
+                      disabled={
+                        !calendlyConnected || !calendlyEventTypeUri.trim() || availableTimePicker.loading
+                      }
+                      emptyHint={
+                        !calendlyEventTypeUri.trim()
                           ? "Select an event type first"
-                          : availableTimePicker.loading
-                            ? "Loading available times…"
-                            : availableTimePicker.options.length === 0
-                              ? "No available times in the next 7 days"
-                              : "Select a start time"}
-                      </option>
-                      {calendlyPickerSelectOptions(calendlyStartTime, availableTimePicker.options).map(
-                        (option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        )
-                      )}
-                    </select>
-                    {availableTimePicker.error ? (
-                      <p
-                        className="mt-1.5 text-[12px] text-rose-600"
-                        data-testid="builder-test-calendly-available-time-error"
-                      >
-                        {availableTimePicker.error}
-                      </p>
-                    ) : null}
-                  </label>
+                          : "No available times in the next 7 days"
+                      }
+                      error={availableTimePicker.error}
+                      testIdPrefix="builder-test-calendly-start-time"
+                    />
+                  </div>
                 ) : null}
                 {showCalendlyBookInviteeFields && !showCalendlyTriggerFields ? (
                   <>
@@ -1057,6 +1133,7 @@ export function TestPanel({
                       <label data-testid="builder-test-calendly-book-invitee-name-label">
                         <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
                           Invitee name
+                          <CalendlyRequiredMark />
                         </span>
                         <input
                           data-testid="builder-test-calendly-book-invitee-name-input"
@@ -1071,6 +1148,7 @@ export function TestPanel({
                     <label data-testid="builder-test-calendly-book-invitee-email-label">
                       <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
                         Invitee email
+                        <CalendlyRequiredMark />
                       </span>
                       <input
                         data-testid="builder-test-calendly-book-invitee-email-input"
@@ -1082,6 +1160,154 @@ export function TestPanel({
                       />
                     </label>
                   </>
+                ) : null}
+                {showCalendlyContactEmail ? (
+                  <label data-testid="builder-test-calendly-contact-email-label">
+                    <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                      Contact email
+                      <CalendlyRequiredMark />
+                    </span>
+                    <input
+                      data-testid="builder-test-calendly-contact-email-input"
+                      type="email"
+                      value={calendlyContactEmail}
+                      onChange={(event) => onCalendlyContactEmailChange?.(event.target.value)}
+                      placeholder="contact@email.com"
+                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                    />
+                  </label>
+                ) : null}
+                {showCalendlyContactName ? (
+                  <label data-testid="builder-test-calendly-contact-name-label">
+                    <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                      Contact name
+                    </span>
+                    <input
+                      data-testid="builder-test-calendly-contact-name-input"
+                      type="text"
+                      value={calendlyContactName}
+                      onChange={(event) => onCalendlyContactNameChange?.(event.target.value)}
+                      placeholder="Optional name"
+                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                    />
+                  </label>
+                ) : null}
+                {showCalendlyContactUuid ? (
+                  <label
+                    className="col-span-1 sm:col-span-2"
+                    data-testid="builder-test-calendly-contact-uuid-label"
+                  >
+                    <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                      Contact
+                      <CalendlyRequiredMark />
+                    </span>
+                    <select
+                      data-testid="builder-test-calendly-contact-uuid-input"
+                      value={calendlyContactUuid}
+                      onChange={(event) => onCalendlyContactUuidChange?.(event.target.value)}
+                      disabled={!calendlyConnected || contactPicker.loading}
+                      className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                    >
+                      <option value="">
+                        {contactPicker.loading
+                          ? "Loading contacts…"
+                          : contactPicker.options.length === 0
+                            ? "No contacts found"
+                            : "Select a contact"}
+                      </option>
+                      {calendlyPickerSelectOptions(calendlyContactUuid, contactPicker.options).map(
+                        (option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        )
+                      )}
+                    </select>
+                    {contactPicker.error ? (
+                      <p className="mt-1.5 text-[12px] text-rose-600" data-testid="builder-test-calendly-contact-error">
+                        {contactPicker.error}
+                      </p>
+                    ) : null}
+                  </label>
+                ) : null}
+                {showCalendlyCancelReason ? (
+                  <label
+                    className="col-span-1 sm:col-span-2"
+                    data-testid="builder-test-calendly-cancel-reason-label"
+                  >
+                    <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                      Cancellation reason
+                    </span>
+                    <input
+                      data-testid="builder-test-calendly-cancel-reason-input"
+                      type="text"
+                      value={calendlyCancelReason}
+                      onChange={(event) => onCalendlyCancelReasonChange?.(event.target.value)}
+                      placeholder="Optional reason"
+                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                    />
+                  </label>
+                ) : null}
+                {showCalendlyMeetingRecapUuid ? (
+                  <label
+                    className="col-span-1 sm:col-span-2"
+                    data-testid="builder-test-calendly-meeting-recap-uuid-label"
+                  >
+                    <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                      Meeting recap
+                      <CalendlyRequiredMark />
+                    </span>
+                    <select
+                      data-testid="builder-test-calendly-meeting-recap-uuid-input"
+                      value={calendlyMeetingRecapUuid}
+                      onChange={(event) => onCalendlyMeetingRecapUuidChange?.(event.target.value)}
+                      disabled={!calendlyConnected || meetingRecapPicker.loading}
+                      className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                    >
+                      <option value="">
+                        {meetingRecapPicker.loading
+                          ? "Loading meeting recaps…"
+                          : meetingRecapPicker.options.length === 0
+                            ? "No meeting recaps found"
+                            : "Select a meeting recap"}
+                      </option>
+                      {calendlyPickerSelectOptions(
+                        calendlyMeetingRecapUuid,
+                        meetingRecapPicker.options
+                      ).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {meetingRecapPicker.error ? (
+                      <p
+                        className="mt-1.5 text-[12px] text-rose-600"
+                        data-testid="builder-test-calendly-meeting-recap-error"
+                      >
+                        {meetingRecapPicker.error}
+                      </p>
+                    ) : null}
+                  </label>
+                ) : null}
+                {showCalendlyUserSearch ? (
+                  <label
+                    className="col-span-1 sm:col-span-2"
+                    data-testid="builder-test-calendly-user-search-label"
+                  >
+                    <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                      User email or name
+                      <CalendlyRequiredMark />
+                    </span>
+                    <input
+                      data-testid="builder-test-calendly-user-search-input"
+                      type="text"
+                      value={calendlyUserSearch}
+                      onChange={(event) => onCalendlyUserSearchChange?.(event.target.value)}
+                      placeholder="name@email.com or full name"
+                      className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                    />
+                  </label>
                 ) : null}
                 {showCalendlyOneOffFields ? (
                   <>
@@ -1099,27 +1325,27 @@ export function TestPanel({
                           : "Connect Calendly to use your account as host"}
                       </p>
                     </div>
-                    {!showCalendlyTriggerFields ? (
-                      <label
-                        className="col-span-1 sm:col-span-2"
-                        data-testid="builder-test-calendly-one-off-meeting-name-label"
-                      >
-                        <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
-                          Meeting name
-                        </span>
-                        <input
-                          data-testid="builder-test-calendly-one-off-meeting-name-input"
-                          type="text"
-                          value={calendlyMeetingName}
-                          onChange={(event) => onCalendlyMeetingNameChange?.(event.target.value)}
-                          placeholder="Meeting name"
-                          className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
-                        />
-                      </label>
-                    ) : null}
+                    <label
+                      className="col-span-1 sm:col-span-2"
+                      data-testid="builder-test-calendly-one-off-meeting-name-label"
+                    >
+                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
+                        Meeting name
+                        <CalendlyRequiredMark />
+                      </span>
+                      <input
+                        data-testid="builder-test-calendly-one-off-meeting-name-input"
+                        type="text"
+                        value={calendlyMeetingName}
+                        onChange={(event) => onCalendlyMeetingNameChange?.(event.target.value)}
+                        placeholder="One-off meeting"
+                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
+                      />
+                    </label>
                     <label data-testid="builder-test-calendly-one-off-duration-label">
                       <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
-                        Duration
+                        Meeting length
+                        <CalendlyRequiredMark />
                       </span>
                       <select
                         data-testid="builder-test-calendly-one-off-duration-input"
@@ -1143,61 +1369,45 @@ export function TestPanel({
                       <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
                         Timezone
                       </span>
-                      <select
-                        data-testid="builder-test-calendly-one-off-timezone-input"
+                      <CalendlyTimezoneSelect
                         value={calendlyTimezone}
-                        onChange={(event) => onCalendlyTimezoneChange?.(event.target.value)}
+                        onChange={(value) => onCalendlyTimezoneChange?.(value)}
                         disabled={!calendlyConnected}
-                        className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
-                      >
-                        {(COMMON_TIMEZONES.some((option) => option.value === calendlyTimezone) ||
-                        !calendlyTimezone
-                          ? COMMON_TIMEZONES
-                          : [{ value: calendlyTimezone, label: calendlyTimezone }, ...COMMON_TIMEZONES]
-                        ).map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="mt-1.5 text-[12px] text-slate-500">
-                        Prefills from your connected Calendly account when available.
+                        testId="builder-test-calendly-one-off-timezone-input"
+                      />
+
+                    </label>
+                    <div
+                      className="col-span-1 sm:col-span-2"
+                      data-testid="builder-test-calendly-one-off-start-date-label"
+                    >
+                      <p className="mb-1.5 text-[13px] font-semibold text-slate-700">
+                        Availability window
+                        <CalendlyRequiredMark />
                       </p>
-                    </label>
-                    <label data-testid="builder-test-calendly-one-off-start-date-label">
-                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
-                        Window start
-                      </span>
-                      <input
-                        data-testid="builder-test-calendly-one-off-start-date-input"
-                        type="datetime-local"
-                        value={calendlyOneOffStartDate}
-                        onChange={(event) => onCalendlyOneOffStartDateChange?.(event.target.value)}
+                      <CalendlyTeamsRangePicker
+                        startValue={calendlyOneOffStartDate}
+                        endValue={calendlyOneOffEndDate}
+                        timeZone={calendlyTimezone}
                         disabled={!calendlyConnected}
-                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
+                        requiredMark
+                        valueMode="local"
+                        startLabel="Window start"
+                        durationLabel="Window length"
+                        testIdPrefix="builder-test-calendly-one-off-window"
+                        onChange={({ start, end }) => {
+                          onCalendlyOneOffStartDateChange?.(start);
+                          onCalendlyOneOffEndDateChange?.(end);
+                        }}
                       />
-                    </label>
-                    <label data-testid="builder-test-calendly-one-off-end-date-label">
-                      <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
-                        Window end
-                      </span>
-                      <input
-                        data-testid="builder-test-calendly-one-off-end-date-input"
-                        type="datetime-local"
-                        value={calendlyOneOffEndDate}
-                        min={calendlyOneOffStartDate || undefined}
-                        onChange={(event) => onCalendlyOneOffEndDateChange?.(event.target.value)}
-                        disabled={!calendlyConnected}
-                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
-                      />
-                    </label>
+                    </div>
                     <label data-testid="builder-test-calendly-one-off-location-kind-label">
                       <span className="mb-1.5 block text-[13px] font-semibold text-slate-700">
                         Location
                       </span>
                       <select
                         data-testid="builder-test-calendly-one-off-location-kind-input"
-                        value={calendlyLocationKind}
+                        value={calendlyLocationKind || "ask_invitee"}
                         onChange={(event) => onCalendlyLocationKindChange?.(event.target.value)}
                         disabled={!calendlyConnected}
                         className="fld w-full cursor-pointer rounded-xl border border-gray-100 bg-gray-50/40 px-3.5 py-2.5 text-[14px] text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40 disabled:opacity-60"
@@ -1230,13 +1440,6 @@ export function TestPanel({
                         />
                       </label>
                     ) : null}
-                    <p
-                      className="col-span-1 text-[12px] text-slate-500 sm:col-span-2"
-                      data-testid="builder-test-calendly-one-off-hint"
-                    >
-                      Calendly uses the date part of your window. Invitees book times from your
-                      connected host availability inside that range.
-                    </p>
                   </>
                 ) : null}
               </>
@@ -2243,6 +2446,7 @@ function NodeResultsPanel({
 }) {
   const successCount = runLogs.filter((log) => log.status === "success").length;
   const errorCount = runLogs.filter((log) => log.status === "error").length;
+  const waitingCount = runLogs.filter((log) => log.status === "waiting").length;
 
   return (
     <div className="mt-5 pb-2" data-testid="test-panel-node-results">
@@ -2262,6 +2466,11 @@ function NodeResultsPanel({
           <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700 ring-1 ring-emerald-100">
             {successCount} passed
           </span>
+          {waitingCount > 0 ? (
+            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-800 ring-1 ring-amber-100">
+              {waitingCount} need input
+            </span>
+          ) : null}
           {errorCount > 0 ? (
             <span className="rounded-full bg-red-50 px-2.5 py-1 text-red-700 ring-1 ring-red-100">
               {errorCount} failed
@@ -2368,7 +2577,7 @@ function NodeResultsPanel({
                       <span
                         className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${stepTone.badge}`}
                       >
-                        {log.status}
+                        {isWaiting ? "needs input" : log.status}
                       </span>
                       {llmMessage?.providerId || llmMessage?.modelName ? (
                         <span className="rounded-full bg-violet-100/80 px-2 py-0.5 font-mono text-[10px] font-semibold text-violet-700">
@@ -2420,7 +2629,11 @@ function NodeResultsPanel({
                     ))}
                   </div>
                 ) : !llmMessage ? (
-                  <p className="mt-3 text-[12px] italic text-slate-400">No extra output fields for this step.</p>
+                  <p className="mt-3 text-[12px] italic text-slate-400">
+                    {isWaiting
+                      ? "Fill the fields above, then run the dry test again."
+                      : "No extra output fields for this step."}
+                  </p>
                 ) : null}
               </div>
             </div>

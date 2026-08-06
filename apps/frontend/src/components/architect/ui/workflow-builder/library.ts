@@ -49,7 +49,10 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(TELEGRAM_NODE_TYPES.trigger, { icon: "telegram", accent: "blue", kind: "TELEGRAM BOT" }),
       paletteItem("trigger.twilio_inbound_sms", { icon: "message", accent: "amber" }),
       paletteItem("trigger.twilio_missed_call", { icon: "phone", accent: "amber" }),
-      paletteItem("trigger.whatsapp_message_received", { icon: "whatsapp", accent: "green" }),
+      {
+        ...paletteItem("trigger.whatsapp_message_received", { icon: "whatsapp", accent: "green" }),
+        badge: "POPULAR"
+      },
       paletteItem(CALENDLY_NODE_TYPES.trigger, { icon: "calendly", accent: "blue", kind: "CALENDLY" }),
       paletteItem("trigger.manual", { icon: "play", accent: "amber" })
     ]
@@ -57,16 +60,23 @@ export const libraryGroups: LibraryGroup[] = [
   {
     title: "AI",
     items: [
-      paletteItem(VOICE_NODE_TYPES.voiceConversation, { icon: "sparkles", accent: "violet" }),
+      {
+        ...paletteItem(VOICE_NODE_TYPES.voiceConversation, { icon: "sparkles", accent: "violet" }),
+        badge: "POPULAR"
+      },
       paletteItem("ai.context_reply", { icon: "sparkles", accent: "violet" }),
       paletteItem("ai.memory", { icon: "database", accent: "violet" }),
-      paletteItem("ai.image_generation", { icon: "image", accent: "violet" }),
+      {
+        ...paletteItem("ai.image_generation", { icon: "image", accent: "violet" }),
+        badge: "BETA"
+      },
       {
         nodeKind: "ai",
         label: "AI Brain",
         helper: "Generate text or JSON using a select LLM model",
         icon: "sparkles",
         accent: "violet",
+        badge: "NEW",
         testId: "library-ai-llm-call",
         overrides: {
           type: "ai.llm_call",

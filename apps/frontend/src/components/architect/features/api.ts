@@ -1051,15 +1051,30 @@ export function listCalendlyEventTypes() {
   );
 }
 
-export function listCalendlyEvents() {
+export function listCalendlyEvents(options?: { startedOnly?: boolean }) {
+  const params = new URLSearchParams();
+  if (options?.startedOnly) params.set("startedOnly", "1");
+  const query = params.toString();
   return apiGet<{ options: import("./types").CalendlyPickerOption[] }>(
-    "/architect/connectors/calendly/events"
+    `/architect/connectors/calendly/events${query ? `?${query}` : ""}`
   );
 }
 
 export function listCalendlyInvitees(eventUuid: string) {
   return apiGet<{ options: import("./types").CalendlyPickerOption[] }>(
     `/architect/connectors/calendly/events/${encodeURIComponent(eventUuid)}/invitees`
+  );
+}
+
+export function listCalendlyContacts() {
+  return apiGet<{ options: import("./types").CalendlyPickerOption[] }>(
+    "/architect/connectors/calendly/contacts"
+  );
+}
+
+export function listCalendlyMeetingRecaps() {
+  return apiGet<{ options: import("./types").CalendlyPickerOption[] }>(
+    "/architect/connectors/calendly/meeting-recaps"
   );
 }
 

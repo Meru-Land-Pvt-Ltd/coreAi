@@ -4,14 +4,17 @@ import {
   CALENDLY_NODE_TYPES,
   type CalendlyTriggerEvent
 } from "@coreai/shared";
-import { env } from "../../config/env";
+import crypto from "crypto";
+import { env, isProduction } from "../../config/env";
 import { prisma } from "../../lib/prisma";
+import { getSharedRedis } from "../../lib/redis";
 import { runWorkflowTest } from "../architect/workflow-runner";
 import {
   findCalendlyCredentialByOrganizationUri,
   getCalendlyOAuthRedirectPath,
   getCalendlySigningKeyFromCredential,
   handleCalendlyOAuthCallback,
+  normalizeCalendlyResourceId,
   verifyCalendlyWebhookSignature
 } from "./calendly-connector";
 
@@ -26,6 +29,14 @@ function eventToCalendlyEvent(event: string, isReschedule: boolean): CalendlyTri
     return isReschedule ? "meeting_rescheduled" : "meeting_booked";
   }
   return null;
+}
+
+/** Exported for unit tests. */
+export function mapCalendlyWebhookEventToTrigger(
+  event: string,
+  isReschedule: boolean
+): CalendlyTriggerEvent | null {
+  return eventToCalendlyEvent(event, isReschedule);
 }
 
 function nodeCalendlyEvent(node: unknown): CalendlyTriggerEvent | null {
@@ -59,6 +70,54 @@ function isReschedulePayload(payload: Record<string, unknown>): boolean {
   return Boolean(body?.old_invitee || body?.rescheduled);
 }
 
+const memoryIdempotency = new Map<string, number>();
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+
+function calendlyWebhookIdempotencyKey(payload: Record<string, unknown>, rawBody: string): string {
+  const body = asRecord(payload.payload) ?? {};
+  const event = String(payload.event ?? "");
+  const inviteeUri = typeof body.uri === "string" ? body.uri : "";
+  const scheduledUri =
+    typeof asRecord(body.scheduled_event)?.uri === "string"
+      ? String(asRecord(body.scheduled_event)?.uri)
+      : "";
+  const createdAt = typeof body.created_at === "string" ? body.created_at : "";
+  const material = [event, inviteeUri, scheduledUri, createdAt].filter(Boolean).join("|");
+  if (material) return `calendly:webhook:${material}`;
+  const hash = crypto.createHash("sha256").update(rawBody).digest("hex").slice(0, 32);
+  return `calendly:webhook:body:${hash}`;
+}
+
+/** Returns true if this delivery was already processed (skip). */
+export async function claimCalendlyWebhookDelivery(key: string): Promise<boolean> {
+  // Prefer Redis in non-test environments; vitest should stay offline-friendly.
+  const redis = env.NODE_ENV === "test" ? null : getSharedRedis();
+  if (redis) {
+    try {
+      const result = await redis.set(key, "1", "PX", IDEMPOTENCY_TTL_MS, "NX");
+      return result === null;
+    } catch (error) {
+      console.warn("[calendly] redis idempotency failed; using memory fallback", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  const now = Date.now();
+  for (const [k, expiresAt] of memoryIdempotency) {
+    if (expiresAt <= now) memoryIdempotency.delete(k);
+  }
+  const existing = memoryIdempotency.get(key);
+  if (existing && existing > now) return true;
+  memoryIdempotency.set(key, now + IDEMPOTENCY_TTL_MS);
+  return false;
+}
+
+/** Test helper — clear in-memory idempotency map. */
+export function resetCalendlyWebhookIdempotencyForTests() {
+  memoryIdempotency.clear();
+}
+
 function calendlyTriggerInput(args: {
   event: string;
   calendlyEvent: CalendlyTriggerEvent;
@@ -74,7 +133,10 @@ function calendlyTriggerInput(args: {
   calendarId?: string;
   timeZone?: string;
   services?: string[];
+  calendlyEventTypeUri?: string;
 }) {
+  const eventUuid = normalizeCalendlyResourceId(args.scheduledEvent.uri);
+  const inviteeUuid = normalizeCalendlyResourceId(args.invitee.uri);
   return {
     triggerType: CALENDLY_NODE_TYPES.trigger,
     ...(args.businessId ? { businessId: args.businessId } : {}),
@@ -86,6 +148,9 @@ function calendlyTriggerInput(args: {
     ...(args.calendarId ? { calendarId: args.calendarId } : {}),
     ...(args.timeZone ? { timeZone: args.timeZone } : {}),
     ...(args.services && args.services.length > 0 ? { services: args.services } : {}),
+    ...(args.calendlyEventTypeUri ? { calendlyEventTypeUri: args.calendlyEventTypeUri } : {}),
+    ...(eventUuid ? { calendlyEventUuid: eventUuid } : {}),
+    ...(inviteeUuid ? { calendlyInviteeUuid: inviteeUuid } : {}),
     calendly: {
       event: args.event,
       calendlyEvent: args.calendlyEvent,
@@ -143,7 +208,7 @@ export async function handleCalendlyOAuthMisdirectGet(c: Context) {
   // Calendly requires token exchange redirect_uri to equal the authorize redirect_uri.
   const misconfiguredRedirectUri = c.req.url.split("?")[0] ?? "";
   try {
-    await handleCalendlyOAuthCallback({
+    const { webhookSubscribed } = await handleCalendlyOAuthCallback({
       code,
       state,
       redirectUriOverride: misconfiguredRedirectUri
@@ -152,7 +217,8 @@ export async function handleCalendlyOAuthMisdirectGet(c: Context) {
       "[calendly] OAuth completed via misconfigured webhook redirect — fix CALENDLY_OAUTH_REDIRECT_URI",
       { misconfiguredRedirectUri }
     );
-    return c.redirect(`${env.FRONTEND_URL}${target}${separator}calendly=connected`);
+    const result = webhookSubscribed ? "connected" : "webhook_failed";
+    return c.redirect(`${env.FRONTEND_URL}${target}${separator}calendly=${result}`);
   } catch (error) {
     console.error("[calendly] OAuth misdirect callback failed", error);
     return c.redirect(`${env.FRONTEND_URL}${target}${separator}calendly=failed`);
@@ -206,10 +272,21 @@ export async function handleCalendlyWebhookPost(c: Context) {
       console.error("[calendly] webhook signature invalid", { userId: credential.userId });
       return c.json({ ok: false, error: "Invalid signature" }, 401);
     }
+  } else if (isProduction) {
+    console.error("[calendly] webhook missing signing key — rejected in production", {
+      userId: credential.userId
+    });
+    return c.json({ ok: false, error: "Webhook signing key missing — reconnect Calendly" }, 401);
   } else {
     console.warn("[calendly] webhook missing signing key — accepting without signature verify", {
       userId: credential.userId
     });
+  }
+
+  const idempotencyKey = calendlyWebhookIdempotencyKey(payload, rawBody);
+  if (await claimCalendlyWebhookDelivery(idempotencyKey)) {
+    console.info("[calendly] webhook duplicate delivery ignored", { event, organizationUri: lookupOrg });
+    return c.json({ ok: true, ignored: true, reason: "duplicate_delivery" });
   }
 
   const calendlyEvent = eventToCalendlyEvent(event, isReschedulePayload(payload));
@@ -276,6 +353,7 @@ export async function handleCalendlyWebhookPost(c: Context) {
       id: true,
       businessId: true,
       workflowId: true,
+      configJson: true,
       workflow: { select: { workflowJson: true } },
       business: {
         select: {
@@ -306,6 +384,18 @@ export async function handleCalendlyWebhookPost(c: Context) {
 
   for (const agent of matchingInstalled) {
     const profile = agent.business.profile;
+    const agentConfig =
+      agent.configJson && typeof agent.configJson === "object" && !Array.isArray(agent.configJson)
+        ? (agent.configJson as Record<string, unknown>)
+        : {};
+    const calendlyConfig =
+      typeof agentConfig.calendly === "object" &&
+      agentConfig.calendly !== null &&
+      !Array.isArray(agentConfig.calendly)
+        ? (agentConfig.calendly as Record<string, unknown>)
+        : {};
+    const calendlyEventTypeUri =
+      typeof calendlyConfig.eventTypeUri === "string" ? calendlyConfig.eventTypeUri.trim() : "";
     try {
       await runWorkflowTest({
         userId: credential.userId,
@@ -327,7 +417,8 @@ export async function handleCalendlyWebhookPost(c: Context) {
           businessPhoneNumber: agent.business.phoneNumbers[0]?.phoneNumber,
           calendarId: profile?.calendarId || undefined,
           timeZone: profile?.timeZone || undefined,
-          services: profile?.services ?? []
+          services: profile?.services ?? [],
+          ...(calendlyEventTypeUri ? { calendlyEventTypeUri } : {})
         })
       });
       results.push({ workflowId: agent.workflowId, installedAgentId: agent.id, ok: true });

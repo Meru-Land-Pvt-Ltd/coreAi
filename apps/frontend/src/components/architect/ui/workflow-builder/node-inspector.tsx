@@ -9,6 +9,8 @@ import {
   VOICE_NODE_TYPES,
   defaultLlmModelForProvider,
   findUnknownPromptVariables,
+  getCalendlyActionIo,
+  getCalendlyVariableGuide,
   getLlmModelsForProvider,
   getNodeDefinition,
   resolveLlmSelection
@@ -30,11 +32,18 @@ import { LlmNodeInspector } from "./llm-node-inspector";
 import { isProviderDisabled, useLlmAvailability } from "./use-llm-availability";
 import {
   useCalendlyAvailableTimeOptions,
+  useCalendlyContactOptions,
   useCalendlyEventOptions,
   useCalendlyEventTypeOptions,
-  useCalendlyInviteeOptions
+  useCalendlyInviteeOptions,
+  useCalendlyMeetingRecapOptions
 } from "./use-calendly-pickers";
 import type { CalendlyPickerOption } from "@/components/architect/features/types";
+import {
+  CalendlyAvailableSlotButtons,
+  CalendlyTeamsRangePicker,
+  CalendlyTimezoneSelect
+} from "./calendly-time-controls";
 
 export type ConnectorOwnership = "architect" | "buyer";
 
@@ -157,7 +166,7 @@ export function NodeInspector({
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-white scroll-thin">
+    <div className="builder-sidebar-scroll h-full overflow-y-auto overflow-x-hidden bg-white">
       <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
         <div className="flex items-center gap-2">
           <BuilderIcon name={selectedNode.data.icon} className="h-4 w-4 text-amber-600" />
@@ -1011,14 +1020,90 @@ function AdvancedVariableGroup({
   );
 }
 
+/** Easy-to-read variable rows: plain name + tip + copyable token. */
+function FriendlyVariableGroup({
+  title,
+  keys,
+  emptyText,
+  helper,
+  testId,
+  copiedKey,
+  onCopy,
+  guideFor
+}: {
+  title: string;
+  keys: string[];
+  emptyText: string;
+  helper?: string;
+  testId: string;
+  copiedKey: string | null;
+  onCopy: (key: string) => void;
+  guideFor: (key: string) => { label: string; tip: string };
+}) {
+  return (
+    <div data-testid={testId}>
+      <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">{title}</p>
+      {helper && keys.length > 0 ? <p className="mb-2 text-[11px] leading-4 text-slate-400">{helper}</p> : null}
+      {keys.length === 0 ? (
+        <p
+          data-testid={`${testId}-empty`}
+          className="rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-3 py-2 text-[11px] text-slate-400"
+        >
+          {emptyText}
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {keys.map((key) => {
+            const guide = guideFor(key);
+            return (
+              <button
+                type="button"
+                key={key}
+                data-testid={`${testId}-item-${key}`}
+                onClick={() => onCopy(key)}
+                title={`Click to copy {{${key}}}`}
+                className="flex w-full flex-col items-start gap-0.5 rounded-xl border border-gray-100 bg-white px-3 py-2 text-left transition hover:border-violet-200 hover:bg-violet-50/40"
+              >
+                <span className="text-[12px] font-semibold text-slate-700">{guide.label}</span>
+                <span className="text-[11px] leading-4 text-slate-400">{guide.tip}</span>
+                <span className="mt-0.5 font-mono text-[10px] text-violet-600">
+                  {copiedKey === key ? "Copied!" : `{{${key}}}`}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
   const [open, setOpen] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const type = String(node.data.type ?? "");
   const definition = getNodeDefinition(type);
-  const inputKeys = definition?.requiredVariables ?? [];
-  let outputKeys = definition?.producedVariables ?? [];
+  const connector = String(node.data.connector ?? "");
+  const connectorAction = String(node.data.connectorAction ?? "");
+  const isCalendlyAction = type === CALENDLY_NODE_TYPES.action || type.startsWith("action.calendly_");
+  const calendlyActionKey = (() => {
+    if (!isCalendlyAction) return "";
+    if (connectorAction) return connectorAction;
+    if (type.startsWith("action.calendly_")) {
+      const legacy = type.slice("action.calendly_".length);
+      const aliases: Record<string, string> = {
+        get_event_details: "get_event",
+        get_invitee_details: "get_invitee"
+      };
+      return aliases[legacy] ?? legacy;
+    }
+    return "get_my_profile";
+  })();
+  const calendlyIo = isCalendlyAction ? getCalendlyActionIo(calendlyActionKey) : null;
+
+  const inputKeys = calendlyIo?.requiredVariables ?? definition?.requiredVariables ?? [];
+  let outputKeys = calendlyIo?.producedVariables ?? definition?.producedVariables ?? [];
   if (type === "ai.llm_call") {
     const nodeLabel = String(node.data.title ?? node.data.label ?? node.id)
       .toLowerCase()
@@ -1031,8 +1116,6 @@ function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
     ];
   }
   const usedKeys = collectTemplateVariables(node);
-  const connector = String(node.data.connector ?? "");
-  const connectorAction = String(node.data.connectorAction ?? "");
 
   function handleCopy(key: string) {
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
@@ -1062,24 +1145,50 @@ function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
 
       {open ? (
         <div className="mt-3 space-y-4" data-testid="node-advanced-settings">
-          <AdvancedVariableGroup
-            title="Input mapping"
-            testId="node-advanced-input"
-            emptyText="This step does not require mapped variables."
-            keys={inputKeys}
-            copiedKey={copiedKey}
-            onCopy={handleCopy}
-          />
-
-          <AdvancedVariableGroup
-            title="Output mapping"
-            testId="node-advanced-output"
-            emptyText="This step does not publish variables."
-            helper="These values become available to the steps that run after this one."
-            keys={outputKeys}
-            copiedKey={copiedKey}
-            onCopy={handleCopy}
-          />
+          {isCalendlyAction ? (
+            <>
+              <FriendlyVariableGroup
+                title="Input mapping"
+                testId="node-advanced-input"
+                emptyText="This step does not need any values from earlier steps."
+                helper="What this Calendly action needs before it can run. Click to copy, then paste into a field."
+                keys={inputKeys}
+                copiedKey={copiedKey}
+                onCopy={handleCopy}
+                guideFor={getCalendlyVariableGuide}
+              />
+              <FriendlyVariableGroup
+                title="Output mapping"
+                testId="node-advanced-output"
+                emptyText="This step does not publish variables."
+                helper="What this action gives you after it runs. Paste these into later steps (SMS, AI, email, etc.)."
+                keys={outputKeys}
+                copiedKey={copiedKey}
+                onCopy={handleCopy}
+                guideFor={getCalendlyVariableGuide}
+              />
+            </>
+          ) : (
+            <>
+              <AdvancedVariableGroup
+                title="Input mapping"
+                testId="node-advanced-input"
+                emptyText="This step does not require mapped variables."
+                keys={inputKeys}
+                copiedKey={copiedKey}
+                onCopy={handleCopy}
+              />
+              <AdvancedVariableGroup
+                title="Output mapping"
+                testId="node-advanced-output"
+                emptyText="This step does not publish variables."
+                helper="These values become available to the steps that run after this one."
+                keys={outputKeys}
+                copiedKey={copiedKey}
+                onCopy={handleCopy}
+              />
+            </>
+          )}
 
           <AdvancedVariableGroup
             title="Variables"
@@ -2680,9 +2789,22 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
   const needsInviteeUuid =
     isCalendly &&
     (calendlyAction === "get_invitee" || calendlyAction === "mark_invitee_no_show");
+  const needsContactUuid =
+    isCalendly &&
+    (calendlyAction === "update_contact" ||
+      calendlyAction === "delete_contact" ||
+      calendlyAction === "find_contact");
+  const needsMeetingRecapUuid =
+    isCalendly &&
+    (calendlyAction === "find_meeting_recap" ||
+      calendlyAction === "find_meeting_recap_transcript");
   const eventTypePicker = useCalendlyEventTypeOptions(needsEventTypeUri);
-  const eventPicker = useCalendlyEventOptions(needsEventUuid);
+  const eventPicker = useCalendlyEventOptions(needsEventUuid, {
+    startedOnly: calendlyAction === "mark_invitee_no_show"
+  });
   const inviteePicker = useCalendlyInviteeOptions(needsInviteeUuid, str("calendlyEventUuid"));
+  const contactPicker = useCalendlyContactOptions(needsContactUuid);
+  const meetingRecapPicker = useCalendlyMeetingRecapOptions(needsMeetingRecapUuid);
   const availableTimePicker = useCalendlyAvailableTimeOptions(
     isCalendly && calendlyAction === "book_meeting_for_invitee",
     str("calendlyEventTypeUri")
@@ -2784,18 +2906,29 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
             {calendlyAction === "find_available_times" && (
               <>
                 <div className="mt-4">
-                  <Label>Start time (ISO)</Label>
-                  <TextInput mono value={str("calendlyStartTime")} onChange={set("calendlyStartTime")} />
-                </div>
-                <div className="mt-4">
-                  <Label>End time (ISO)</Label>
-                  <TextInput mono value={str("calendlyEndTime")} onChange={set("calendlyEndTime")} />
-                </div>
-                <div className="mt-4">
                   <Label>Timezone</Label>
-                  <TextInput
+                  <CalendlyTimezoneSelect
+                    variant="inspector"
                     value={str("calendlyTimezone", "America/New_York")}
                     onChange={set("calendlyTimezone")}
+                    testId="node-inspector-calendly-timezone"
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>Search window</Label>
+                  <CalendlyTeamsRangePicker
+                    variant="inspector"
+                    valueMode="iso"
+                    startValue={str("calendlyStartTime")}
+                    endValue={str("calendlyEndTime")}
+                    timeZone={str("calendlyTimezone", "America/New_York")}
+                    startLabel="Window start"
+                    durationLabel="Window length"
+                    testIdPrefix="node-inspector-calendly-window"
+                    onChange={({ start, end }) => {
+                      set("calendlyStartTime")(start);
+                      set("calendlyEndTime")(end);
+                    }}
                   />
                 </div>
               </>
@@ -2803,32 +2936,38 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
             {calendlyAction === "book_meeting_for_invitee" && (
               <>
                 <div className="mt-4">
-                  <Label>Start time</Label>
-                  <SelectBox
-                    value={str("calendlyStartTime")}
-                    onChange={set("calendlyStartTime")}
-                    options={calendlySelectBoxOptions(
-                      str("calendlyStartTime"),
-                      availableTimePicker.options,
-                      !str("calendlyEventTypeUri").trim()
-                        ? "Select an event type first"
-                        : availableTimePicker.loading
-                          ? "Loading available times…"
-                          : availableTimePicker.options.length === 0
-                            ? "No available times in the next 7 days"
-                            : "Select a start time"
-                    )}
-                    testId="node-inspector-calendly-start-time"
-                  />
-                  {availableTimePicker.error ? (
-                    <p className="mt-1.5 text-[11px] text-rose-600">{availableTimePicker.error}</p>
-                  ) : null}
-                </div>
-                <div className="mt-4">
                   <Label>Timezone</Label>
-                  <TextInput
+                  <CalendlyTimezoneSelect
+                    variant="inspector"
                     value={str("calendlyTimezone", "America/New_York")}
                     onChange={set("calendlyTimezone")}
+                    testId="node-inspector-calendly-book-timezone"
+                  />
+                </div>
+                <div className="mt-4">
+                  <Label>Start time</Label>
+                  <CalendlyAvailableSlotButtons
+                    options={
+                      str("calendlyStartTime").trim() &&
+                      !availableTimePicker.options.some((option) => option.value === str("calendlyStartTime"))
+                        ? [
+                            { value: str("calendlyStartTime"), label: str("calendlyStartTime") },
+                            ...availableTimePicker.options
+                          ]
+                        : availableTimePicker.options
+                    }
+                    value={str("calendlyStartTime")}
+                    onChange={set("calendlyStartTime")}
+                    timeZone={str("calendlyTimezone", "America/New_York")}
+                    loading={availableTimePicker.loading}
+                    disabled={!str("calendlyEventTypeUri").trim()}
+                    emptyHint={
+                      !str("calendlyEventTypeUri").trim()
+                        ? "Select an event type first"
+                        : "No available times in the next 7 days"
+                    }
+                    error={availableTimePicker.error}
+                    testIdPrefix="node-inspector-calendly-start-time"
                   />
                 </div>
                 <div className="mt-4">
@@ -2870,13 +3009,20 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
                     eventPicker.loading
                       ? "Loading events…"
                       : eventPicker.options.length === 0
-                        ? "No recent events found"
+                        ? calendlyAction === "mark_invitee_no_show"
+                          ? "No started meetings found"
+                          : "No recent events found"
                         : "Select an event"
                   )}
                   testId="node-inspector-calendly-scheduled-event"
                 />
                 {eventPicker.error ? (
                   <p className="mt-1.5 text-[11px] text-rose-600">{eventPicker.error}</p>
+                ) : null}
+                {calendlyAction === "mark_invitee_no_show" ? (
+                  <p className="mt-1.5 text-[11px] leading-4 text-slate-400">
+                    Only meetings that have already started are listed — Calendly blocks no-show before the start time.
+                  </p>
                 ) : null}
               </div>
             )}
@@ -2928,8 +3074,24 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
               <>
                 {calendlyAction === "update_contact" ? (
                   <div className="mt-4">
-                    <Label>Contact UUID</Label>
-                    <TextInput mono value={str("calendlyContactUuid")} onChange={set("calendlyContactUuid")} />
+                    <Label>Contact</Label>
+                    <SelectBox
+                      value={str("calendlyContactUuid")}
+                      onChange={set("calendlyContactUuid")}
+                      options={calendlySelectBoxOptions(
+                        str("calendlyContactUuid"),
+                        contactPicker.options,
+                        contactPicker.loading
+                          ? "Loading contacts…"
+                          : contactPicker.options.length === 0
+                            ? "No contacts found"
+                            : "Select a contact"
+                      )}
+                      testId="node-inspector-calendly-contact"
+                    />
+                    {contactPicker.error ? (
+                      <p className="mt-1.5 text-[11px] text-rose-600">{contactPicker.error}</p>
+                    ) : null}
                   </div>
                 ) : null}
                 <div className="mt-4">
@@ -2961,12 +3123,26 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
               </>
             )}
             {(calendlyAction === "delete_contact" || calendlyAction === "find_contact") && (
-              <>
-                <div className="mt-4">
-                  <Label>Contact UUID</Label>
-                  <TextInput mono value={str("calendlyContactUuid")} onChange={set("calendlyContactUuid")} />
-                </div>
-              </>
+              <div className="mt-4">
+                <Label>Contact</Label>
+                <SelectBox
+                  value={str("calendlyContactUuid")}
+                  onChange={set("calendlyContactUuid")}
+                  options={calendlySelectBoxOptions(
+                    str("calendlyContactUuid"),
+                    contactPicker.options,
+                    contactPicker.loading
+                      ? "Loading contacts…"
+                      : contactPicker.options.length === 0
+                        ? "No contacts found"
+                        : "Select a contact"
+                  )}
+                  testId="node-inspector-calendly-contact"
+                />
+                {contactPicker.error ? (
+                  <p className="mt-1.5 text-[11px] text-rose-600">{contactPicker.error}</p>
+                ) : null}
+              </div>
             )}
             {calendlyAction === "create_one_off_meeting_link" && (
               <>
@@ -2978,7 +3154,7 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
                   />
                 </div>
                 <div className="mt-4">
-                  <Label>Duration</Label>
+                  <Label>Meeting length</Label>
                   <SelectBox
                     value={str("calendlyDurationMinutes", "30")}
                     onChange={set("calendlyDurationMinutes")}
@@ -2994,33 +3170,32 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
                   />
                 </div>
                 <div className="mt-4">
-                  <Label>Start date/time</Label>
-                  <TextInput
-                    mono
-                    value={str("calendlyOneOffStartDate")}
-                    onChange={set("calendlyOneOffStartDate")}
-                    placeholder="2026-08-04T09:00"
-                  />
-                </div>
-                <div className="mt-4">
-                  <Label>End date/time</Label>
-                  <TextInput
-                    mono
-                    value={str("calendlyOneOffEndDate")}
-                    onChange={set("calendlyOneOffEndDate")}
-                    placeholder="2026-08-11T17:00"
+                  <Label>Availability window</Label>
+                  <CalendlyTeamsRangePicker
+                    variant="inspector"
+                    valueMode="local"
+                    startValue={str("calendlyOneOffStartDate")}
+                    endValue={str("calendlyOneOffEndDate")}
+                    timeZone={str("calendlyTimezone", "America/New_York")}
+                    startLabel="Window start"
+                    durationLabel="Window length"
+                    testIdPrefix="node-inspector-calendly-one-off-window"
+                    onChange={({ start, end }) => {
+                      set("calendlyOneOffStartDate")(start);
+                      set("calendlyOneOffEndDate")(end);
+                    }}
                   />
                 </div>
                 <div className="mt-4">
                   <Label>Location</Label>
                   <SelectBox
-                    value={str("calendlyLocationKind", "google_conference")}
+                    value={str("calendlyLocationKind", "ask_invitee")}
                     onChange={set("calendlyLocationKind")}
                     options={[
+                      { value: "ask_invitee", label: "Ask invitee" },
                       { value: "google_conference", label: "Google Meet" },
                       { value: "zoom_conference", label: "Zoom" },
                       { value: "microsoft_teams_conference", label: "Microsoft Teams" },
-                      { value: "ask_invitee", label: "Ask invitee" },
                       { value: "outbound_call", label: "Phone call (outbound)" },
                       { value: "inbound_call", label: "Phone call (inbound)" },
                       { value: "physical", label: "In person" },
@@ -3029,9 +3204,9 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
                     testId="node-inspector-calendly-location-kind"
                   />
                 </div>
-                {(str("calendlyLocationKind", "google_conference") === "physical" ||
-                  str("calendlyLocationKind", "google_conference") === "custom" ||
-                  str("calendlyLocationKind", "google_conference") === "outbound_call") && (
+                {(str("calendlyLocationKind", "ask_invitee") === "physical" ||
+                  str("calendlyLocationKind", "ask_invitee") === "custom" ||
+                  str("calendlyLocationKind", "ask_invitee") === "outbound_call") && (
                   <div className="mt-4">
                     <Label>Location details</Label>
                     <TextInput
@@ -3043,29 +3218,37 @@ function ConnectorProps({ selectedNode, onUpdateNodeData, calendar, ownership }:
                 )}
                 <div className="mt-4">
                   <Label>Timezone</Label>
-                  <TextInput
+                  <CalendlyTimezoneSelect
+                    variant="inspector"
                     value={str("calendlyTimezone", "America/New_York")}
                     onChange={set("calendlyTimezone")}
+                    testId="node-inspector-calendly-one-off-timezone"
                   />
-                  <p className="mt-1.5 text-[11px] text-slate-400">
-                    Host is taken from your connected Calendly account. Calendly uses the date part of
-                    the window; booking slots follow host availability.
-                  </p>
                 </div>
               </>
             )}
             {(calendlyAction === "find_meeting_recap" ||
               calendlyAction === "find_meeting_recap_transcript") && (
-              <>
-                <div className="mt-4">
-                  <Label>Meeting recap UUID</Label>
-                  <TextInput
-                    mono
-                    value={str("calendlyMeetingRecapUuid")}
-                    onChange={set("calendlyMeetingRecapUuid")}
-                  />
-                </div>
-              </>
+              <div className="mt-4">
+                <Label>Meeting recap</Label>
+                <SelectBox
+                  value={str("calendlyMeetingRecapUuid")}
+                  onChange={set("calendlyMeetingRecapUuid")}
+                  options={calendlySelectBoxOptions(
+                    str("calendlyMeetingRecapUuid"),
+                    meetingRecapPicker.options,
+                    meetingRecapPicker.loading
+                      ? "Loading meeting recaps…"
+                      : meetingRecapPicker.options.length === 0
+                        ? "No meeting recaps found"
+                        : "Select a meeting recap"
+                  )}
+                  testId="node-inspector-calendly-meeting-recap"
+                />
+                {meetingRecapPicker.error ? (
+                  <p className="mt-1.5 text-[11px] text-rose-600">{meetingRecapPicker.error}</p>
+                ) : null}
+              </div>
             )}
             {calendlyAction === "find_user" && (
               <>

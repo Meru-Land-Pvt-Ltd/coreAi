@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   addEdge,
@@ -109,6 +109,26 @@ const BUILDER_TABS: readonly BuilderTab[] = ["build", "test", "configure", "publ
 /** Tabs that require a single connected trigger workflow. */
 const TABS_REQUIRING_CONNECTED_FLOW: readonly BuilderTab[] = ["test", "configure", "publish"];
 
+const LIBRARY_WIDTH_KEY = "triven-builder-library-width";
+const INSPECTOR_WIDTH_KEY = "triven-builder-inspector-width";
+const LIBRARY_WIDTH_DEFAULT = 490;
+const INSPECTOR_WIDTH_DEFAULT = 320;
+const LIBRARY_WIDTH_MIN = 280;
+const LIBRARY_WIDTH_MAX = 560;
+const INSPECTOR_WIDTH_MIN = 280;
+const INSPECTOR_WIDTH_MAX = 480;
+
+function clampSidebarWidth(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function readStoredSidebarWidth(key: string, fallback: number, min: number, max: number): number {
+  if (typeof window === "undefined") return fallback;
+  const parsed = Number(window.localStorage.getItem(key));
+  if (!Number.isFinite(parsed)) return fallback;
+  return clampSidebarWidth(parsed, min, max);
+}
+
 function isBuilderTab(value: string | null): value is BuilderTab {
   return Boolean(value) && (BUILDER_TABS as readonly string[]).includes(value as string);
 }
@@ -153,6 +173,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [libraryWidth, setLibraryWidth] = useState(LIBRARY_WIDTH_DEFAULT);
+  const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_WIDTH_DEFAULT);
+  const [isResizingLibrary, setIsResizingLibrary] = useState(false);
+  const [isResizingInspector, setIsResizingInspector] = useState(false);
   const [runLogs, setRunLogs] = useState<WorkflowRunLog[]>([]);
   const [runContext, setRunContext] = useState<Record<string, unknown>>({});
   const [conversationMessages, setConversationMessages] = useState<ArchitectConversationMessage[]>([]);
@@ -175,7 +199,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [calendlyEndTime, setCalendlyEndTime] = useState("");
   const [calendlyInviteeName, setCalendlyInviteeName] = useState("");
   const [calendlyInviteeEmail, setCalendlyInviteeEmail] = useState("");
-  const [calendlyMeetingName, setCalendlyMeetingName] = useState("");
+  const [calendlyMeetingName, setCalendlyMeetingName] = useState("One-off meeting");
   const [calendlyTriggerEvent, setCalendlyTriggerEvent] = useState("meeting_booked");
   const [calendlyDurationMinutes, setCalendlyDurationMinutes] = useState("30");
   const [calendlyOneOffStartDate, setCalendlyOneOffStartDate] = useState(() => {
@@ -193,8 +217,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     return local.toISOString().slice(0, 16);
   });
   const [calendlyTimezone, setCalendlyTimezone] = useState("America/New_York");
-  const [calendlyLocationKind, setCalendlyLocationKind] = useState("google_conference");
+  const [calendlyLocationKind, setCalendlyLocationKind] = useState("ask_invitee");
   const [calendlyLocation, setCalendlyLocation] = useState("");
+  const [calendlyContactEmail, setCalendlyContactEmail] = useState("");
+  const [calendlyContactUuid, setCalendlyContactUuid] = useState("");
+  const [calendlyContactName, setCalendlyContactName] = useState("");
+  const [calendlyCancelReason, setCalendlyCancelReason] = useState("");
+  const [calendlyMeetingRecapUuid, setCalendlyMeetingRecapUuid] = useState("");
+  const [calendlyUserSearch, setCalendlyUserSearch] = useState("");
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
   const [whatsappConnected, setWhatsAppConnected] = useState(false);
@@ -253,6 +283,69 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   useEffect(() => {
     currentWorkflowIdRef.current = currentWorkflowId;
   }, [currentWorkflowId]);
+
+  useEffect(() => {
+    setLibraryWidth(readStoredSidebarWidth(LIBRARY_WIDTH_KEY, LIBRARY_WIDTH_DEFAULT, LIBRARY_WIDTH_MIN, LIBRARY_WIDTH_MAX));
+    setInspectorWidth(readStoredSidebarWidth(INSPECTOR_WIDTH_KEY, INSPECTOR_WIDTH_DEFAULT, INSPECTOR_WIDTH_MIN, INSPECTOR_WIDTH_MAX));
+  }, []);
+
+  useEffect(() => {
+    if (!isResizingLibrary && !isResizingInspector) return;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [isResizingLibrary, isResizingInspector]);
+
+  const startLibraryResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = libraryWidth;
+    setIsResizingLibrary(true);
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      setLibraryWidth(clampSidebarWidth(startWidth + (moveEvent.clientX - startX), LIBRARY_WIDTH_MIN, LIBRARY_WIDTH_MAX));
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      const nextWidth = clampSidebarWidth(startWidth + (upEvent.clientX - startX), LIBRARY_WIDTH_MIN, LIBRARY_WIDTH_MAX);
+      setLibraryWidth(nextWidth);
+      setIsResizingLibrary(false);
+      window.localStorage.setItem(LIBRARY_WIDTH_KEY, String(nextWidth));
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  }, [libraryWidth]);
+
+  const startInspectorResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = inspectorWidth;
+    setIsResizingInspector(true);
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      setInspectorWidth(clampSidebarWidth(startWidth + (startX - moveEvent.clientX), INSPECTOR_WIDTH_MIN, INSPECTOR_WIDTH_MAX));
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      const nextWidth = clampSidebarWidth(startWidth + (startX - upEvent.clientX), INSPECTOR_WIDTH_MIN, INSPECTOR_WIDTH_MAX);
+      setInspectorWidth(nextWidth);
+      setIsResizingInspector(false);
+      window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(nextWidth));
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  }, [inspectorWidth]);
 
   const flowInstanceRef = useRef<ReactFlowInstance<BuilderNode, Edge> | null>(null);
 
@@ -1616,19 +1709,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     if (
       capabilities.calendlyActions.some((action) => action.toLowerCase() === "create_one_off_meeting_link")
     ) {
-      if (!calendlyMeetingName.trim()) {
-        setActiveTab("test");
-        setMessage("Enter a meeting name for the one-off meeting link");
-        return;
-      }
       if (!calendlyOneOffStartDate.trim() || !calendlyOneOffEndDate.trim()) {
         setActiveTab("test");
-        setMessage("Select start and end dates for the one-off meeting link");
+        setMessage("Select a window start and length for the one-off meeting link");
         return;
       }
       if (!calendlyDurationMinutes.trim()) {
         setActiveTab("test");
-        setMessage("Select a duration for the one-off meeting link");
+        setMessage("Select a meeting length for the one-off meeting link");
         return;
       }
     }
@@ -1784,18 +1872,24 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               calendlyTriggerEvent: calendlyTriggerEvent.trim() || "meeting_booked",
               calendlyInviteeName: calendlyInviteeName.trim() || undefined,
               calendlyInviteeEmail: calendlyInviteeEmail.trim() || undefined,
-              calendlyMeetingName: calendlyMeetingName.trim() || undefined,
+              calendlyMeetingName: calendlyMeetingName.trim() || "One-off meeting",
               calendlyEventTypeUri: calendlyEventTypeUri.trim() || undefined,
               calendlyEventUuid: calendlyEventUuid.trim() || undefined,
               calendlyInviteeUuid: calendlyInviteeUuid.trim() || undefined,
               calendlyStartTime: calendlyStartTime.trim() || undefined,
               calendlyEndTime: calendlyEndTime.trim() || undefined,
-              calendlyDurationMinutes: calendlyDurationMinutes.trim() || undefined,
+              calendlyDurationMinutes: calendlyDurationMinutes.trim() || "30",
               calendlyOneOffStartDate: calendlyOneOffStartDate.trim() || undefined,
               calendlyOneOffEndDate: calendlyOneOffEndDate.trim() || undefined,
               calendlyTimezone: calendlyTimezone.trim() || timeZone.trim() || undefined,
-              calendlyLocationKind: calendlyLocationKind.trim() || undefined,
-              calendlyLocation: calendlyLocation.trim() || undefined
+              calendlyLocationKind: calendlyLocationKind.trim() || "ask_invitee",
+              calendlyLocation: calendlyLocation.trim() || undefined,
+              calendlyContactEmail: calendlyContactEmail.trim() || undefined,
+              calendlyContactUuid: calendlyContactUuid.trim() || undefined,
+              calendlyContactName: calendlyContactName.trim() || undefined,
+              calendlyCancelReason: calendlyCancelReason.trim() || undefined,
+              calendlyMeetingRecapUuid: calendlyMeetingRecapUuid.trim() || undefined,
+              calendlyUserSearch: calendlyUserSearch.trim() || undefined
             }
           : {}),
         attachments: effectiveAttachments
@@ -2054,8 +2148,41 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       <main className="fixed bottom-10 left-0 right-0 top-[6.5rem] overflow-hidden md:top-14">
         {activeTab === "build" ? (
           <section className="builder-view fade-enter flex min-w-0">
-            <aside className="hidden w-[22rem] shrink-0 overflow-y-auto border-r border-gray-100 bg-white scroll-thin xl:block">
-              {library}
+            <aside
+              className="relative hidden h-full shrink-0 overflow-hidden border-r border-gray-100 bg-white xl:block"
+              style={{ width: libraryWidth }}
+              data-testid="builder-library-sidebar"
+            >
+              <div className="h-full overflow-hidden">
+                {library}
+              </div>
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize components sidebar"
+                data-testid="builder-library-resize-handle"
+                title="Drag to resize"
+                onPointerDown={startLibraryResize}
+                className="group/resize absolute inset-y-0 right-0 z-30 flex w-2 -translate-x-1/2 cursor-col-resize touch-none items-center justify-center"
+              >
+                <span
+                  className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors ${
+                    isResizingLibrary ? "bg-amber-400" : "bg-transparent group-hover/resize:bg-slate-300"
+                  }`}
+                  aria-hidden="true"
+                />
+                <span
+                  data-testid="builder-library-resize-button"
+                  className={`pointer-events-none relative z-10 flex h-8 w-3.5 flex-col items-center justify-center gap-[3px] rounded-md border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.08)] transition ${
+                    isResizingLibrary
+                      ? "border-amber-400 text-amber-500"
+                      : "border-slate-200/90 text-slate-400 opacity-70 group-hover/resize:border-slate-300 group-hover/resize:opacity-100"
+                  }`}
+                >
+                  <span className="h-3 w-px rounded-full bg-current" aria-hidden="true" />
+                  <span className="h-3 w-px rounded-full bg-current" aria-hidden="true" />
+                </span>
+              </div>
             </aside>
 
             <div
@@ -2164,8 +2291,41 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               </div>
             </div>
 
-            <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-gray-100 bg-white scroll-thin xl:block">
-              {inspector}
+            <aside
+              className="relative hidden h-full shrink-0 overflow-hidden border-l border-gray-100 bg-white xl:block"
+              style={{ width: inspectorWidth }}
+              data-testid="builder-inspector-sidebar"
+            >
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize inspector sidebar"
+                data-testid="builder-inspector-resize-handle"
+                title="Drag to resize"
+                onPointerDown={startInspectorResize}
+                className="group/resize absolute inset-y-0 left-0 z-30 flex w-2 translate-x-1/2 cursor-col-resize touch-none items-center justify-center"
+              >
+                <span
+                  className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors ${
+                    isResizingInspector ? "bg-amber-400" : "bg-transparent group-hover/resize:bg-slate-300"
+                  }`}
+                  aria-hidden="true"
+                />
+                <span
+                  data-testid="builder-inspector-resize-button"
+                  className={`pointer-events-none relative z-10 flex h-8 w-3.5 flex-col items-center justify-center gap-[3px] rounded-md border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.08)] transition ${
+                    isResizingInspector
+                      ? "border-amber-400 text-amber-500"
+                      : "border-slate-200/90 text-slate-400 opacity-70 group-hover/resize:border-slate-300 group-hover/resize:opacity-100"
+                  }`}
+                >
+                  <span className="h-3 w-px rounded-full bg-current" aria-hidden="true" />
+                  <span className="h-3 w-px rounded-full bg-current" aria-hidden="true" />
+                </span>
+              </div>
+              <div className="h-full overflow-hidden">
+                {inspector}
+              </div>
             </aside>
           </section>
         ) : null}
@@ -2209,6 +2369,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             calendlyTimezone={calendlyTimezone}
             calendlyLocationKind={calendlyLocationKind}
             calendlyLocation={calendlyLocation}
+            calendlyContactEmail={calendlyContactEmail}
+            calendlyContactUuid={calendlyContactUuid}
+            calendlyContactName={calendlyContactName}
+            calendlyCancelReason={calendlyCancelReason}
+            calendlyMeetingRecapUuid={calendlyMeetingRecapUuid}
+            calendlyUserSearch={calendlyUserSearch}
             whatsappConnected={whatsappConnected}
             connectingWhatsApp={connectingWhatsApp}
             running={running}
@@ -2266,6 +2432,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onCalendlyTimezoneChange={setCalendlyTimezone}
             onCalendlyLocationKindChange={setCalendlyLocationKind}
             onCalendlyLocationChange={setCalendlyLocation}
+            onCalendlyContactEmailChange={setCalendlyContactEmail}
+            onCalendlyContactUuidChange={setCalendlyContactUuid}
+            onCalendlyContactNameChange={setCalendlyContactName}
+            onCalendlyCancelReasonChange={setCalendlyCancelReason}
+            onCalendlyMeetingRecapUuidChange={setCalendlyMeetingRecapUuid}
+            onCalendlyUserSearchChange={setCalendlyUserSearch}
             onRefreshConnections={() => void refreshConnections()}
             onRunTest={() => void runAgent()}
             onStartLiveTest={() => void startLiveTest()}

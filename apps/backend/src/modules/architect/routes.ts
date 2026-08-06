@@ -28,10 +28,12 @@ import {
   getCalendlyConnectionStatus,
   getCalendlyOAuthRedirectPath,
   handleCalendlyOAuthCallback,
+  listCalendlyContactOptions,
   listCalendlyEventOptions,
   listCalendlyEventTypeOptions,
   listCalendlyAvailableTimeOptions,
-  listCalendlyInviteeOptions
+  listCalendlyInviteeOptions,
+  listCalendlyMeetingRecapOptions
 } from "../calendly/calendly-connector";
 import { GOOGLE_CALENDAR_INTEGRATION } from "@coreai/shared";
 import {
@@ -206,10 +208,11 @@ architectRoutes.get("/connectors/calendly/callback", async (c) => {
       return c.redirect(`${env.FRONTEND_URL}${target}${separator}calendly=${result}`);
     }
 
-    const { redirectPath } = await handleCalendlyOAuthCallback({ code, state });
+    const { redirectPath, webhookSubscribed } = await handleCalendlyOAuthCallback({ code, state });
     const target = redirectPath ?? "/architect/agents";
     const separator = target.includes("?") ? "&" : "?";
-    return c.redirect(`${env.FRONTEND_URL}${target}${separator}calendly=connected`);
+    const result = webhookSubscribed ? "connected" : "webhook_failed";
+    return c.redirect(`${env.FRONTEND_URL}${target}${separator}calendly=${result}`);
   } catch (error) {
     console.error(error);
     const state = c.req.query("state");
@@ -1553,7 +1556,9 @@ architectRoutes.get("/connectors/calendly/available-times", async (c) => {
 architectRoutes.get("/connectors/calendly/events", async (c) => {
   try {
     const authUser = c.get("authUser");
-    const options = await listCalendlyEventOptions(authUser.id);
+    const startedOnly =
+      c.req.query("startedOnly") === "1" || c.req.query("startedOnly") === "true";
+    const options = await listCalendlyEventOptions(authUser.id, { startedOnly });
     return successResponse(c, { options });
   } catch (error) {
     return errorResponse(
@@ -1580,6 +1585,36 @@ architectRoutes.get("/connectors/calendly/events/:eventUuid/invitees", async (c)
       error instanceof Error ? error.message : "Could not load Calendly invitees",
       500,
       "CALENDLY_INVITEES_FAILED"
+    );
+  }
+});
+
+architectRoutes.get("/connectors/calendly/contacts", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const options = await listCalendlyContactOptions(authUser.id);
+    return successResponse(c, { options });
+  } catch (error) {
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not load Calendly contacts",
+      500,
+      "CALENDLY_CONTACTS_FAILED"
+    );
+  }
+});
+
+architectRoutes.get("/connectors/calendly/meeting-recaps", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const options = await listCalendlyMeetingRecapOptions(authUser.id);
+    return successResponse(c, { options });
+  } catch (error) {
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not load Calendly meeting recaps",
+      500,
+      "CALENDLY_MEETING_RECAPS_FAILED"
     );
   }
 });

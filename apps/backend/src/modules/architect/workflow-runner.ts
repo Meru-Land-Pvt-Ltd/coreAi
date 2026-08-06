@@ -5,6 +5,7 @@ import {
   MAX_WORKFLOW_CHAIN_DEPTH,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_TYPES,
+  calendlyActionPaidPlanNote,
   normalizeTimeZone,
   zonedWallClockToUtc
 } from "@coreai/shared";
@@ -53,7 +54,10 @@ import {
   calendlyListEvents,
   calendlyListInvitees,
   calendlyMarkInviteeNoShow,
-  calendlyUpdateContact
+  calendlyUpdateContact,
+  isCalendlyPlanRestrictionError,
+  isCalendlySampleResourceId,
+  normalizeCalendlyResourceId
 } from "../calendly/calendly-connector";
 import { MISSING_LLM_CREDENTIALS_MESSAGE } from "../ai-provider-engine/llm-credentials";
 import { smsAttributionPrefix } from "../notifications/sms-format";
@@ -1416,6 +1420,15 @@ function seedMissedCallContext(
       ...seededCalendly,
       ...(typeof input?.calendly === "object" && input.calendly ? input.calendly : {})
     };
+    // Prefer explicit input UUIDs; otherwise keep sample ids so action nodes can mock.
+    if (!context.calendlyEventUuid) {
+      context.calendlyEventUuid = eventUuid;
+      context.calendly_event_uuid = eventUuid;
+    }
+    if (!context.calendlyInviteeUuid) {
+      context.calendlyInviteeUuid = inviteeUuid;
+      context.calendly_invitee_uuid = inviteeUuid;
+    }
     context.triggerType = optionalString(input?.triggerType) || CALENDLY_NODE_TYPES.trigger;
     if (!context.latestMessage) {
       context.latestMessage =
@@ -2282,16 +2295,33 @@ async function runGmailConnectorNode({
   );
 }
 
+function calendlyNeedsInputLog(
+  node: RunnerNode,
+  logs: WorkflowRunLog[],
+  message: string,
+  details: { needed: string; howTo: string; example?: string }
+) {
+  logs.push(
+    createLog(node, "waiting", message, {
+      needed: details.needed,
+      howTo: details.howTo,
+      ...(details.example ? { example: details.example } : {})
+    })
+  );
+}
+
 async function runCalendlyConnectorNode({
   userId,
   node,
   context,
-  logs
+  logs,
+  mode = "test"
 }: {
   userId: string;
   node: RunnerNode;
   context: RunnerContext;
   logs: WorkflowRunLog[];
+  mode?: WorkflowRunMode;
 }) {
   const action = asString(node.data?.connectorAction, "get_my_profile");
   const eventTypeUri = firstNonEmptyString(
@@ -2299,15 +2329,34 @@ async function runCalendlyConnectorNode({
     context.calendlyEventTypeUri,
     context.calendly_event_type_uri
   );
-  const eventUuid = firstNonEmptyString(
-    node.data?.calendlyEventUuid,
-    context.calendlyEventUuid,
-    context.calendly_event_uuid
+  const seededScheduledEvent =
+    context.calendly && typeof context.calendly.scheduledEvent === "object"
+      ? (context.calendly.scheduledEvent as Record<string, unknown>)
+      : null;
+  const seededInvitee =
+    context.calendly && typeof context.calendly.invitee === "object"
+      ? (context.calendly.invitee as Record<string, unknown>)
+      : null;
+  const seededEventUri =
+    typeof seededScheduledEvent?.uri === "string" ? seededScheduledEvent.uri : "";
+  const seededInviteeUri = typeof seededInvitee?.uri === "string" ? seededInvitee.uri : "";
+  // Prefer runtime/webhook/test context over node-saved UUIDs so an architect's
+  // dry-test event id cannot break buyer "Try out your agent" or live webhooks.
+  const eventUuid = normalizeCalendlyResourceId(
+    firstNonEmptyString(
+      context.calendlyEventUuid,
+      context.calendly_event_uuid,
+      seededEventUri,
+      node.data?.calendlyEventUuid
+    )
   );
-  const inviteeUuid = firstNonEmptyString(
-    node.data?.calendlyInviteeUuid,
-    context.calendlyInviteeUuid,
-    context.calendly_invitee_uuid
+  const inviteeUuid = normalizeCalendlyResourceId(
+    firstNonEmptyString(
+      context.calendlyInviteeUuid,
+      context.calendly_invitee_uuid,
+      seededInviteeUri,
+      node.data?.calendlyInviteeUuid
+    )
   );
   const startTime = firstNonEmptyString(
     node.data?.calendlyStartTime,
@@ -2330,12 +2379,14 @@ async function runCalendlyConnectorNode({
   const inviteeName = firstNonEmptyString(
     node.data?.calendlyInviteeName,
     context.calendlyInviteeName,
-    context.calendly_invitee_name
+    context.calendly_invitee_name,
+    typeof seededInvitee?.name === "string" ? seededInvitee.name : undefined
   );
   const inviteeEmail = firstNonEmptyString(
     node.data?.calendlyInviteeEmail,
     context.calendlyInviteeEmail,
-    context.calendly_invitee_email
+    context.calendly_invitee_email,
+    typeof seededInvitee?.email === "string" ? seededInvitee.email : undefined
   );
   const cancelReason = firstNonEmptyString(
     node.data?.calendlyCancelReason,
@@ -2415,12 +2466,66 @@ async function runCalendlyConnectorNode({
     context.calendly_user_uuid
   );
 
+  const pickExampleEventLabel = async (): Promise<string | undefined> => {
+    try {
+      const listed = await calendlyListEvents(userId, { count: 5 });
+      const first = listed.collection?.[0];
+      if (!first || typeof first !== "object") return undefined;
+      const name =
+        typeof first.name === "string" && first.name.trim() ? first.name.trim() : "Meeting";
+      const when =
+        typeof first.start_time === "string" ? new Date(first.start_time).toLocaleString() : "";
+      return [name, when].filter(Boolean).join(" · ");
+    } catch {
+      return undefined;
+    }
+  };
+
+  const useSampleEventMock =
+    mode === "test" &&
+    (isCalendlySampleResourceId(eventUuid) ||
+      Boolean(context.calendly?.raw && (context.calendly.raw as { dryRun?: boolean }).dryRun));
+
+  const mockEventResult = () => ({
+    resource: {
+      ...(seededScheduledEvent ?? {}),
+      uri:
+        seededEventUri ||
+        `https://api.calendly.com/scheduled_events/${eventUuid || "SAMPLE_EVENT_UUID"}`,
+      name:
+        (typeof seededScheduledEvent?.name === "string" && seededScheduledEvent.name) ||
+        meetingName ||
+        "Sample consultation",
+      start_time: (typeof seededScheduledEvent?.start_time === "string" && seededScheduledEvent.start_time) || startTime,
+      end_time: (typeof seededScheduledEvent?.end_time === "string" && seededScheduledEvent.end_time) || endTime,
+      status: (typeof seededScheduledEvent?.status === "string" && seededScheduledEvent.status) || "active"
+    },
+    dryRun: true
+  });
+
+  const mockInviteeResult = () => ({
+    resource: {
+      ...(seededInvitee ?? {}),
+      uri:
+        seededInviteeUri ||
+        `https://api.calendly.com/scheduled_events/${eventUuid || "SAMPLE_EVENT_UUID"}/invitees/${inviteeUuid || "SAMPLE_INVITEE_UUID"}`,
+      name: inviteeName || "Alex Rivera",
+      email: inviteeEmail || "alex.rivera@example.com",
+      status: "active"
+    },
+    dryRun: true
+  });
+
   try {
     let result: unknown;
     switch (action) {
       case "find_available_times":
         if (!eventTypeUri || !startTime || !endTime) {
-          throw new Error("Calendly Find Available Times needs event type URI, start time, and end time");
+          calendlyNeedsInputLog(node, logs, "Select an event type and time range to find available times.", {
+            needed: "Event type, timezone, window start, and window end",
+            howTo: "In the Test panel, choose an Event type, timezone, and calendar window, then run again."
+          });
+          return;
         }
         result = await calendlyGetAvailability(userId, {
           eventTypeUri,
@@ -2431,38 +2536,94 @@ async function runCalendlyConnectorNode({
         break;
       case "get_event":
       case "find_event":
-        if (!eventUuid) throw new Error("Calendly Find Event needs an event UUID");
+        if (!eventUuid) {
+          const example = mode === "test" ? await pickExampleEventLabel() : undefined;
+          calendlyNeedsInputLog(node, logs, "Select a Calendly event to load its details.", {
+            needed: "Event (UUID or name from the Event dropdown)",
+            howTo: "In the Test panel, open Event and pick a meeting, then run again.",
+            example
+          });
+          return;
+        }
+        if (useSampleEventMock && isCalendlySampleResourceId(eventUuid)) {
+          result = mockEventResult();
+          break;
+        }
         result = await calendlyGetEvent(userId, eventUuid);
         break;
-      case "list_events":
+      case "list_events": {
+        // Do not reuse booking/test-panel start/end slots as list filters — that
+        // collapses the window to a single hour and returns no events.
+        const listMin = asString(node.data?.calendlyStartTime) || undefined;
+        const listMax = asString(node.data?.calendlyEndTime) || undefined;
+        const listStatus = asString(node.data?.calendlyStatus) || undefined;
         result = await calendlyListEvents(userId, {
-          minStartTime: startTime || undefined,
-          maxStartTime: endTime || undefined,
-          status: status || undefined
+          minStartTime: listMin,
+          maxStartTime: listMax,
+          status: listStatus
         });
         break;
+      }
       case "get_invitee":
         if (!eventUuid || !inviteeUuid) {
-          throw new Error("Calendly Get Invitee Details needs event UUID and invitee UUID");
+          const example = mode === "test" ? await pickExampleEventLabel() : undefined;
+          calendlyNeedsInputLog(node, logs, "Select an event and invitee to load invitee details.", {
+            needed: !eventUuid ? "Event and invitee" : "Invitee",
+            howTo: "In the Test panel, choose Event, then Invitee, then run again.",
+            example
+          });
+          return;
+        }
+        if (
+          useSampleEventMock &&
+          (isCalendlySampleResourceId(eventUuid) || isCalendlySampleResourceId(inviteeUuid))
+        ) {
+          result = mockInviteeResult();
+          break;
         }
         result = await calendlyGetInvitee(userId, eventUuid, inviteeUuid);
         break;
       case "list_invitees":
-        if (!eventUuid) throw new Error("Calendly List Invitees needs an event UUID");
+        if (!eventUuid) {
+          const example = mode === "test" ? await pickExampleEventLabel() : undefined;
+          calendlyNeedsInputLog(node, logs, "Select a Calendly event to list its invitees.", {
+            needed: "Event (UUID or name from the Event dropdown)",
+            howTo: "In the Test panel, open Event and pick a meeting, then run again.",
+            example
+          });
+          return;
+        }
+        if (useSampleEventMock && isCalendlySampleResourceId(eventUuid)) {
+          result = { collection: [mockInviteeResult().resource], dryRun: true };
+          break;
+        }
         result = await calendlyListInvitees(userId, eventUuid);
         break;
       case "get_event_types":
         result = await calendlyListEventTypes(userId);
         break;
       case "create_scheduling_link":
-        if (!eventTypeUri) throw new Error("Calendly Create Scheduling Link needs an event type URI");
+        if (!eventTypeUri) {
+          calendlyNeedsInputLog(node, logs, "Select an event type to create a scheduling link.", {
+            needed: "Event type",
+            howTo: "In the Test panel, choose an Event type, then run again."
+          });
+          return;
+        }
         result = await calendlyCreateSchedulingLink(userId, eventTypeUri);
         break;
       case "book_meeting_for_invitee":
         if (!eventTypeUri || !startTime || !inviteeName || !inviteeEmail) {
-          throw new Error(
-            "Calendly Book Meeting needs event type, start time, invitee name, and invitee email"
+          calendlyNeedsInputLog(
+            node,
+            logs,
+            "Add event type, start time, invitee name, and invitee email to book a meeting.",
+            {
+              needed: "Event type, start time, invitee name, invitee email",
+              howTo: "Fill those fields in the Test panel (or on the node), then run again."
+            }
           );
+          return;
         }
         result = await calendlyBookMeetingForInvitee(userId, {
           eventTypeUri,
@@ -2474,12 +2635,35 @@ async function runCalendlyConnectorNode({
         break;
       case "cancel_event":
       case "cancel_scheduled_event":
-        if (!eventUuid) throw new Error("Calendly Cancel Event needs an event UUID");
+        if (!eventUuid) {
+          const example = mode === "test" ? await pickExampleEventLabel() : undefined;
+          calendlyNeedsInputLog(node, logs, "Select a Calendly event to cancel.", {
+            needed: "Event (UUID or name from the Event dropdown)",
+            howTo: "In the Test panel, open Event and pick the meeting to cancel, then run again.",
+            example
+          });
+          return;
+        }
+        if (useSampleEventMock && isCalendlySampleResourceId(eventUuid)) {
+          result = {
+            resource: {
+              ...mockEventResult().resource,
+              status: "canceled",
+              cancellation: { canceled_by: "host", reason: cancelReason || "Dry-run cancel" }
+            },
+            dryRun: true
+          };
+          break;
+        }
         result = await calendlyCancelScheduledEvent(userId, eventUuid, cancelReason || undefined);
         break;
       case "create_contact":
         if (!contactEmail && !inviteeEmail) {
-          throw new Error("Calendly Create Contact needs an email");
+          calendlyNeedsInputLog(node, logs, "Enter an email to create a Calendly contact.", {
+            needed: "Contact email",
+            howTo: "In the Test panel, fill Contact email, then run again."
+          });
+          return;
         }
         result = await calendlyCreateContact(userId, {
           email: contactEmail || inviteeEmail,
@@ -2489,7 +2673,13 @@ async function runCalendlyConnectorNode({
         });
         break;
       case "update_contact":
-        if (!contactUuid) throw new Error("Calendly Update Contact needs a contact UUID");
+        if (!contactUuid) {
+          calendlyNeedsInputLog(node, logs, "Enter a contact UUID to update a Calendly contact.", {
+            needed: "Contact UUID",
+            howTo: "In the Test panel, paste Contact UUID, then run again."
+          });
+          return;
+        }
         result = await calendlyUpdateContact(userId, contactUuid, {
           email: contactEmail || undefined,
           firstName: contactFirstName || undefined,
@@ -2498,11 +2688,23 @@ async function runCalendlyConnectorNode({
         });
         break;
       case "delete_contact":
-        if (!contactUuid) throw new Error("Calendly Delete Contact needs a contact UUID");
+        if (!contactUuid) {
+          calendlyNeedsInputLog(node, logs, "Enter a contact UUID to delete a Calendly contact.", {
+            needed: "Contact UUID",
+            howTo: "In the Test panel, paste Contact UUID, then run again."
+          });
+          return;
+        }
         result = await calendlyDeleteContact(userId, contactUuid);
         break;
       case "find_contact":
-        if (!contactUuid) throw new Error("Calendly Find Contact needs a contact UUID");
+        if (!contactUuid) {
+          calendlyNeedsInputLog(node, logs, "Enter a contact UUID to find a Calendly contact.", {
+            needed: "Contact UUID",
+            howTo: "In the Test panel, paste Contact UUID, then run again."
+          });
+          return;
+        }
         result = await calendlyGetContact(userId, contactUuid);
         break;
       case "list_contacts":
@@ -2511,45 +2713,86 @@ async function runCalendlyConnectorNode({
       case "create_one_off_meeting_link": {
         const startDate = toCalendlyDateOnly(oneOffStartDate);
         const endDate = toCalendlyDateOnly(oneOffEndDate);
-        if (!meetingName || !startDate || !endDate) {
-          throw new Error(
-            "Calendly One-Off Meeting Link needs meeting name, start date/time, and end date/time"
+        const resolvedMeetingName = meetingName || "One-off meeting";
+        if (!startDate || !endDate) {
+          calendlyNeedsInputLog(
+            node,
+            logs,
+            "Pick a window start and length to create a one-off link.",
+            {
+              needed: "Window start and window length",
+              howTo: "In the Test panel, set Window start and Window length, then run again."
+            }
           );
+          return;
         }
         if (!Number.isFinite(durationMinutes) || durationMinutes < 1) {
-          throw new Error("Calendly One-Off Meeting Link needs a valid duration in minutes");
+          calendlyNeedsInputLog(node, logs, "Enter a valid meeting length in minutes.", {
+            needed: "Meeting length (minutes)",
+            howTo: "Set Meeting length in the Test panel or node inspector, then run again."
+          });
+          return;
         }
         result = await calendlyCreateOneOffMeetingLink(userId, {
-          name: meetingName,
+          name: resolvedMeetingName,
           durationMinutes,
           startDate,
           endDate,
           timezone,
-          locationKind: locationKind || "google_conference",
+          locationKind: locationKind || "ask_invitee",
           location: locationText || undefined
         });
         break;
       }
       case "mark_invitee_no_show":
         if (!eventUuid || !inviteeUuid) {
-          throw new Error("Calendly Mark No Show needs event UUID and invitee UUID");
+          const example = mode === "test" ? await pickExampleEventLabel() : undefined;
+          calendlyNeedsInputLog(node, logs, "Select an event and invitee to mark as no-show.", {
+            needed: !eventUuid ? "Event and invitee" : "Invitee",
+            howTo: "In the Test panel, choose Event, then Invitee, then run again.",
+            example
+          });
+          return;
+        }
+        if (
+          useSampleEventMock &&
+          (isCalendlySampleResourceId(eventUuid) || isCalendlySampleResourceId(inviteeUuid))
+        ) {
+          result = { ...mockInviteeResult(), noShow: true };
+          break;
         }
         result = await calendlyMarkInviteeNoShow(userId, eventUuid, inviteeUuid);
         break;
       case "find_invitee_by_email":
-        if (!inviteeEmail) throw new Error("Calendly Find Invitee by Email needs an email");
+        if (!inviteeEmail) {
+          calendlyNeedsInputLog(node, logs, "Enter an invitee email to search.", {
+            needed: "Invitee email",
+            howTo: "Enter invitee email in the Test panel or on the node, then run again."
+          });
+          return;
+        }
         result = await calendlyFindInviteeByEmail(userId, {
           email: inviteeEmail,
           eventTypeUri: eventTypeUri || undefined
         });
         break;
       case "find_meeting_recap":
-        if (!meetingRecapUuid) throw new Error("Calendly Find Meeting Recap needs a recap UUID");
+        if (!meetingRecapUuid) {
+          calendlyNeedsInputLog(node, logs, "Enter a meeting recap UUID to load the recap.", {
+            needed: "Meeting recap UUID",
+            howTo: "In the Test panel, paste Meeting recap UUID, then run again."
+          });
+          return;
+        }
         result = await calendlyGetMeetingRecap(userId, meetingRecapUuid);
         break;
       case "find_meeting_recap_transcript":
         if (!meetingRecapUuid) {
-          throw new Error("Calendly Find Meeting Recap Transcript needs a recap UUID");
+          calendlyNeedsInputLog(node, logs, "Enter a meeting recap UUID to load the transcript.", {
+            needed: "Meeting recap UUID",
+            howTo: "In the Test panel, paste Meeting recap UUID, then run again."
+          });
+          return;
         }
         result = await calendlyGetMeetingRecapTranscript(userId, meetingRecapUuid);
         break;
@@ -2557,7 +2800,11 @@ async function runCalendlyConnectorNode({
         const emailGuess = userSearch.includes("@") ? userSearch : contactEmail || inviteeEmail;
         const nameGuess = userSearch && !userSearch.includes("@") ? userSearch : contactName || inviteeName;
         if (!userUuid && !emailGuess && !nameGuess) {
-          throw new Error("Calendly Find User needs an email, name, or user UUID");
+          calendlyNeedsInputLog(node, logs, "Enter an email, name, or user UUID to find a Calendly user.", {
+            needed: "Email, name, or user UUID",
+            howTo: "In the Test panel, fill User email or name, then run again."
+          });
+          return;
         }
         result = await calendlyFindUser(userId, {
           userUuid: userUuid || undefined,
@@ -2580,6 +2827,95 @@ async function runCalendlyConnectorNode({
     logs.push(createLog(node, "success", `Calendly ${action} completed`, { result }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Calendly action failed";
+    const permissionDenied = /not allowed to view this event|permission|forbidden/i.test(message);
+    const paidNote = calendlyActionPaidPlanNote(action);
+    if (paidNote && isCalendlyPlanRestrictionError(message)) {
+      calendlyNeedsInputLog(node, logs, paidNote, {
+        needed: "A Calendly paid plan that includes this feature",
+        howTo:
+          "Upgrade the connected Calendly account, or switch this node to a free action (e.g. Create scheduling link / Get event details)."
+      });
+      return;
+    }
+    // Free accounts often get cryptic "organization: is not a supported query parameter"
+    // instead of an explicit upgrade message — still treat as plan restriction.
+    if (isCalendlyPlanRestrictionError(message)) {
+      calendlyNeedsInputLog(
+        node,
+        logs,
+        "This Calendly action needs a paid plan. Upgrade your Calendly account, or switch this step to a free action.",
+        {
+          needed: "A Calendly paid plan that includes this feature",
+          howTo:
+            "Upgrade the connected Calendly account, or switch this node to a free action (e.g. Create scheduling link / Get event details)."
+        }
+      );
+      return;
+    }
+    // Sample / seeded dry-runs (and permission errors against someone else's event)
+    // should complete with mock context instead of failing "Try out your agent".
+    if (
+      mode === "test" &&
+      permissionDenied &&
+      (seededScheduledEvent || isCalendlySampleResourceId(eventUuid))
+    ) {
+      const result =
+        action === "list_invitees"
+          ? { collection: [mockInviteeResult().resource], dryRun: true }
+          : action === "get_invitee" || action === "mark_invitee_no_show"
+            ? mockInviteeResult()
+            : mockEventResult();
+      context.calendly = {
+        ...(typeof context.calendly === "object" && context.calendly ? context.calendly : {}),
+        action,
+        result
+      };
+      logs.push(
+        createLog(node, "success", `Calendly ${action} completed (sample event — skipped live API)`, {
+          result
+        })
+      );
+      return;
+    }
+    if (permissionDenied) {
+      calendlyNeedsInputLog(
+        node,
+        logs,
+        "That Calendly event isn't on the connected account. Pick one of your own meetings.",
+        {
+          needed: "An event from your Calendly account",
+          howTo:
+            mode === "test"
+              ? "In the Test panel, open Event and choose a meeting you own, then run again."
+              : "Use the event from the Calendly webhook, or reconnect Calendly with the account that owns the meeting."
+        }
+      );
+      return;
+    }
+    // Calendly rejects no-show until the meeting's start time has passed.
+    if (/not started yet/i.test(message)) {
+      calendlyNeedsInputLog(
+        node,
+        logs,
+        "This meeting hasn't started yet — Calendly only allows marking a no-show after the start time.",
+        {
+          needed: "A meeting that has already started (or already ended)",
+          howTo:
+            mode === "test"
+              ? "In the Test panel, pick a past meeting from Event, then choose the invitee and run again."
+              : "Wait until the meeting start time, or use a past meeting from the Calendly webhook."
+        }
+      );
+      return;
+    }
+    // Config-style API messages should not look like a broken run in the dry-test UI.
+    if (/needs |required|missing|select /i.test(message)) {
+      calendlyNeedsInputLog(node, logs, message.replace(/^Calendly\s+/i, ""), {
+        needed: "Required Calendly fields",
+        howTo: "Fill the missing fields in the Test panel or node inspector, then run again."
+      });
+      return;
+    }
     logs.push(createLog(node, "error", message));
   }
 }
@@ -3450,7 +3786,8 @@ async function runConnectorNode({
       userId,
       node,
       context,
-      logs
+      logs,
+      mode
     });
     return;
   }

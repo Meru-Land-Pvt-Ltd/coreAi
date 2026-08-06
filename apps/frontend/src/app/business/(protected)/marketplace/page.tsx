@@ -1592,7 +1592,7 @@ function AgentDetailsModal({
       ? "Continue Setup"
       : "Manage Agent"
     : hasFreeTrial
-      ? `Start ${trialDays}-day Free Trial`
+      ? `Start ${trialDays}-Day Free Trial`
       : agent.pricingModel === "FREE"
         ? "Install Agent"
         : "Buy This Agent";

@@ -49,7 +49,8 @@ import {
 import {
   createCalendlyOAuthUrl,
   disconnectCalendly,
-  getCalendlyConnectionStatus
+  getCalendlyConnectionStatus,
+  listCalendlyEventTypeOptions
 } from "../calendly/calendly-connector";
 import { WhatsAppService } from "../whatsapp/service";
 import { WhatsAppServiceError } from "../whatsapp/types";
@@ -1153,7 +1154,10 @@ const businessSetupSchema = z.object({
   selectedPhoneNumber: z.string().trim().optional().or(z.literal("")),
   calendarId: z.string().trim().optional().or(z.literal("")),
   workflowId: z.string().trim().optional().or(z.literal("")),
-  listingId: z.string().trim().optional().or(z.literal(""))
+  listingId: z.string().trim().optional().or(z.literal("")),
+  calendlyEventTypeUri: z.string().trim().optional().or(z.literal("")),
+  calendlyEventTypeName: z.string().trim().optional().or(z.literal("")),
+  calendlySchedulingUrl: z.string().trim().url().optional().or(z.literal(""))
 });
 
 function normalizePhoneNumber(value: string) {
@@ -2648,7 +2652,13 @@ function buildSetupReadiness(
 
   const profileComplete = Boolean(business && profile && business.name && business.type);
   const calendarComplete = calendarConnected;
-  const calendlyComplete = calendlyConnected;
+  const calendlyConfig =
+    config && typeof config.calendly === "object" && config.calendly !== null && !Array.isArray(config.calendly)
+      ? (config.calendly as Record<string, unknown>)
+      : null;
+  const calendlyEventTypeUri =
+    typeof calendlyConfig?.eventTypeUri === "string" ? calendlyConfig.eventTypeUri.trim() : "";
+  const calendlyComplete = calendlyConnected && Boolean(calendlyEventTypeUri);
   const phoneComplete = Boolean(phone) && (answeringMode === "AI_FIRST" || Boolean(phone?.forwardToPhone));
   const smsComplete = Boolean(phone);
   const voiceComplete = Boolean(profile?.vapiAssistantId);
@@ -2700,7 +2710,9 @@ function buildSetupReadiness(
       complete: calendlyComplete,
       blocker:
         needs.has("calendly") && !calendlyComplete
-          ? "Connect Calendly before going live."
+          ? calendlyConnected
+            ? "Select your default Calendly event type before going live."
+            : "Connect Calendly before going live."
           : undefined
     },
     {
@@ -2833,7 +2845,22 @@ function serializeSetup(
           content: item.content
         })) ?? [],
     calendar: { connected: calendar.connected, email: calendar.email },
-    calendly: { connected: calendly.connected, email: calendly.email },
+    calendly: {
+      connected: calendly.connected,
+      email: calendly.email,
+      eventTypeUri:
+        typeof (config?.calendly as Record<string, unknown> | undefined)?.eventTypeUri === "string"
+          ? String((config?.calendly as Record<string, unknown>).eventTypeUri)
+          : null,
+      eventTypeName:
+        typeof (config?.calendly as Record<string, unknown> | undefined)?.eventTypeName === "string"
+          ? String((config?.calendly as Record<string, unknown>).eventTypeName)
+          : null,
+      schedulingUrl:
+        typeof (config?.calendly as Record<string, unknown> | undefined)?.schedulingUrl === "string"
+          ? String((config?.calendly as Record<string, unknown>).schedulingUrl)
+          : null
+    },
     webhooks: phone ? buildWebhookUrls() : null,
     requiredConnectors: readiness.requiredConnectors,
     checklist: readiness.checklist,
@@ -3358,6 +3385,24 @@ businessRoutes.post("/setup", async (c) => {
         ? { customFields: input.customFields.filter((field) => !isBuyerAnswerEmpty(field.value)) }
         : {}),
       ...(buyerSetupFields.length > 0 ? { buyerSetupSchema: buyerSetupFields } : {}),
+      ...(input.calendlyEventTypeUri?.trim()
+        ? {
+            calendly: {
+              ...(typeof existingAgentConfig.calendly === "object" &&
+              existingAgentConfig.calendly !== null &&
+              !Array.isArray(existingAgentConfig.calendly)
+                ? (existingAgentConfig.calendly as Record<string, unknown>)
+                : {}),
+              eventTypeUri: input.calendlyEventTypeUri.trim(),
+              ...(input.calendlyEventTypeName?.trim()
+                ? { eventTypeName: input.calendlyEventTypeName.trim() }
+                : {}),
+              ...(input.calendlySchedulingUrl?.trim()
+                ? { schedulingUrl: input.calendlySchedulingUrl.trim() }
+                : {})
+            }
+          }
+        : {}),
       businessDetails: {
         assistantName,
         businessName: input.businessName,
@@ -3897,6 +3942,113 @@ businessRoutes.get("/connectors/calendly/status", async (c) => {
   const authUser = c.get("authUser");
   const status = await getCalendlyConnectionStatus(authUser.id);
   return successResponse(c, status);
+});
+
+businessRoutes.get("/connectors/calendly/event-types", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const options = await listCalendlyEventTypeOptions(authUser.id);
+    return successResponse(c, { options });
+  } catch (error) {
+    return errorResponse(
+      c,
+      errorMessage(error, "Could not load Calendly event types"),
+      500,
+      "CALENDLY_EVENT_TYPES_FAILED"
+    );
+  }
+});
+
+const calendlyBuyerConfigSchema = z.object({
+  listingId: z.string().trim().optional().or(z.literal("")),
+  installedAgentId: z.string().trim().optional().or(z.literal("")),
+  eventTypeUri: z.string().trim().min(1),
+  eventTypeName: z.string().trim().optional().or(z.literal("")),
+  schedulingUrl: z.string().trim().url().optional().or(z.literal(""))
+});
+
+businessRoutes.put("/connectors/calendly/config", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const input = calendlyBuyerConfigSchema.parse(await c.req.json());
+    const business = await prisma.business.findFirst({
+      where: { ownerId: authUser.id },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        installedAgents: {
+          select: { id: true, listingId: true, configJson: true }
+        },
+        profile: { select: { bookingUrl: true } }
+      }
+    });
+    if (!business) {
+      return errorResponse(c, "Business not found", 404, "BUSINESS_NOT_FOUND");
+    }
+
+    const agent =
+      (input.installedAgentId
+        ? business.installedAgents.find((row) => row.id === input.installedAgentId)
+        : null) ??
+      (input.listingId
+        ? business.installedAgents.find((row) => row.listingId === input.listingId)
+        : null) ??
+      business.installedAgents[0] ??
+      null;
+
+    if (!agent) {
+      return errorResponse(c, "Installed agent not found", 404, "INSTALLED_AGENT_NOT_FOUND");
+    }
+
+    const prev =
+      agent.configJson && typeof agent.configJson === "object" && !Array.isArray(agent.configJson)
+        ? (agent.configJson as Record<string, unknown>)
+        : {};
+    const prevCalendly =
+      typeof prev.calendly === "object" && prev.calendly !== null && !Array.isArray(prev.calendly)
+        ? (prev.calendly as Record<string, unknown>)
+        : {};
+
+    const calendlyConfig = {
+      ...prevCalendly,
+      eventTypeUri: input.eventTypeUri.trim(),
+      ...(input.eventTypeName?.trim() ? { eventTypeName: input.eventTypeName.trim() } : {}),
+      ...(input.schedulingUrl?.trim() ? { schedulingUrl: input.schedulingUrl.trim() } : {})
+    };
+
+    await prisma.installedAgent.update({
+      where: { id: agent.id },
+      data: {
+        configJson: {
+          ...prev,
+          calendly: calendlyConfig
+        } as never
+      }
+    });
+
+    // Prefer Calendly scheduling URL as booking link when the buyer has none yet.
+    if (input.schedulingUrl?.trim() && !business.profile?.bookingUrl) {
+      await prisma.businessProfile.updateMany({
+        where: { businessId: business.id },
+        data: { bookingUrl: input.schedulingUrl.trim() }
+      });
+    }
+
+    return successResponse(c, {
+      installedAgentId: agent.id,
+      calendly: calendlyConfig
+    }, "Calendly preferences saved");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, error.issues[0]?.message ?? "Invalid Calendly config", 422, "VALIDATION_ERROR");
+    }
+    return errorResponse(
+      c,
+      errorMessage(error, "Could not save Calendly preferences"),
+      500,
+      "CALENDLY_CONFIG_FAILED"
+    );
+  }
 });
 
 businessRoutes.get("/connectors/calendly/oauth-url", async (c) => {
