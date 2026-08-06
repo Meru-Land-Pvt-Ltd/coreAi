@@ -592,7 +592,24 @@ export function resolveVapiVoice(input: {
       }
     };
   };
+
+  const platformDefault = () => {
+    const voiceId = resolvePresetVoiceId(PLATFORM_DEFAULT_VOICE_ID);
+
+    if (!looksLikeVoiceId(voiceId) || matchVapiBuiltinVoice(voiceId)) {
+      throw new Error(
+        "CARTESIA_DEFAULT_VOICE_ID is missing or invalid. Configure the Cartesia voice UUID before deploying a Triven Default voice."
+      );
+    }
+
+    return idBased(voiceId, "cartesia");
+  };
+
   if (isKnownPreset) {
+    if (voiceName === PLATFORM_DEFAULT_VOICE_ID || voiceName === "default") {
+      return platformDefault();
+    }
+
     return idBased(resolvePresetVoiceId(voiceName), voiceProviderForPreset(voiceName));
   }
 
@@ -611,8 +628,8 @@ export function resolveVapiVoice(input: {
     return vapiBuiltin(builtinMatch);
   }
 
-  // 4. Platform default preset, then the safe built-in fallback inside idBased.
-  return idBased(resolvePresetVoiceId(PLATFORM_DEFAULT_VOICE_ID));
+  // 4. No stored selection means the configured Triven Default Cartesia voice.
+  return platformDefault();
 }
 
 const TRANSCRIBER_LANGUAGES = ["en-US", "en-GB", "es", "hi"] as const;

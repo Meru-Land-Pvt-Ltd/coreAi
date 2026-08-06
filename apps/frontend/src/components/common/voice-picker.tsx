@@ -5,16 +5,17 @@ import { VOICE_PRESETS, type AgentVoicePreset } from "@coreai/shared";
 import { apiPost } from "@/lib/api";
 
 const PLATFORM_DEFAULT_VOICE_ID = "triven-default";
-const PREVIEW_FAIL_MESSAGE = "Preview unavailable. Add ElevenLabs API key or check the voice ID.";
+const PREVIEW_FAIL_MESSAGE = "Preview unavailable. Check the voice provider configuration or voice ID.";
 const CUSTOM_PREVIEW_TEXT = "Hello, this is a custom voice preview from Triven AI.";
 
 const TRIVEN_VOICE_PRESET = {
   id: PLATFORM_DEFAULT_VOICE_ID,
   name: "Triven Voice",
+  provider: "cartesia",
   voiceId: "",
   style: "Default",
   bestFor: "All business agents",
-  description: "Production default voice from ELEVENLABS_DEFAULT_VOICE_ID.",
+  description: "Production default voice from CARTESIA_DEFAULT_VOICE_ID.",
   previewText: "Hello, this is Triven Voice. How can I help you today?"
 } as AgentVoicePreset;
 
@@ -109,7 +110,7 @@ function buildVoicePresets(): AgentVoicePreset[] {
 }
 
 function failureMessage(res: { error?: string; status?: number }): string {
-  const base = res.error || "Voice preview failed. Check the ElevenLabs voice ID or API key.";
+  const base = res.error || "Voice preview failed. Check the voice ID or provider API key.";
   return res.status ? `Preview failed: ${base} (status ${res.status})` : `Preview failed: ${base}`;
 }
 

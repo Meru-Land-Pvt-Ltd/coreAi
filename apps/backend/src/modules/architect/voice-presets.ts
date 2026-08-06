@@ -8,10 +8,11 @@ export const FALLBACK_ELEVENLABS_VOICE_ID = "FD17pMswbbEnsVYS0L7P";
 const TRIVEN_DEFAULT_VOICE_PRESET = {
   id: PLATFORM_DEFAULT_VOICE_ID,
   name: "Triven Voice",
+  provider: "cartesia",
   voiceId: "",
   style: "Default",
   bestFor: "All business agents",
-  description: "Production default voice from ELEVENLABS_DEFAULT_VOICE_ID.",
+  description: "Production default voice from CARTESIA_DEFAULT_VOICE_ID.",
   previewText: "Hello, this is Triven Voice. How can I help you today?"
 } as AgentVoicePreset;
 
@@ -37,8 +38,8 @@ function allVoicePresets(): AgentVoicePreset[] {
 }
 
 const ENV_VOICE_OVERRIDES: Record<string, string | undefined> = {
-  [PLATFORM_DEFAULT_VOICE_ID]: env.ELEVENLABS_DEFAULT_VOICE_ID || env.VAPI_DEFAULT_VOICE_ID,
-  default: env.ELEVENLABS_DEFAULT_VOICE_ID || env.VAPI_DEFAULT_VOICE_ID,
+  [PLATFORM_DEFAULT_VOICE_ID]: env.CARTESIA_DEFAULT_VOICE_ID,
+  default: env.CARTESIA_DEFAULT_VOICE_ID,
   skylar: env.CARTESIA_VOICE_SKYLAR_ID,
   ella: env.CARTESIA_VOICE_ELLA_ID,
   jacqueline: env.CARTESIA_VOICE_JACQUELINE_ID,
@@ -49,6 +50,8 @@ const ENV_VOICE_OVERRIDES: Record<string, string | undefined> = {
 /** Which TTS provider a preset id belongs to. */
 export function voiceProviderForPreset(presetId?: string | null): "11labs" | "cartesia" {
   const id = clean(presetId).toLowerCase();
+  if (id === PLATFORM_DEFAULT_VOICE_ID || id === "default") return "cartesia";
+
   const preset = VOICE_PRESETS.find((entry) => entry.id === id);
   return preset?.provider === "cartesia" ? "cartesia" : "11labs";
 }
@@ -127,16 +130,20 @@ function parseElevenLabsMessage(bodyText: string): string {
   return bodyText.slice(0, 200) || "Unknown ElevenLabs error.";
 }
 
-export function isVoicePreviewConfigured(): boolean {
+function isElevenLabsPreviewConfigured(): boolean {
   return !isPlaceholder(env.ELEVENLABS_API_KEY);
 }
 
-export function defaultElevenLabsVoiceId(): string {
-  return (
-    clean(env.ELEVENLABS_DEFAULT_VOICE_ID) ||
-    clean(env.VAPI_DEFAULT_VOICE_ID) ||
-    FALLBACK_ELEVENLABS_VOICE_ID
-  );
+function isCartesiaPreviewConfigured(): boolean {
+  return !isPlaceholder(env.CARTESIA_API_KEY);
+}
+
+export function isVoicePreviewConfigured(): boolean {
+  return isCartesiaPreviewConfigured() || isElevenLabsPreviewConfigured();
+}
+
+export function defaultCartesiaVoiceId(): string {
+  return clean(env.CARTESIA_DEFAULT_VOICE_ID);
 }
 
 export function isKnownVoicePresetId(presetId?: string | null): boolean {
@@ -159,7 +166,7 @@ export function resolvePresetVoiceId(presetId?: string | null): string {
   }
 
   if (!id || id === "default" || id === PLATFORM_DEFAULT_VOICE_ID) {
-    return defaultElevenLabsVoiceId();
+    return defaultCartesiaVoiceId();
   }
 
   const envOverride = clean(ENV_VOICE_OVERRIDES[id]);
@@ -179,7 +186,7 @@ export function resolvePresetVoiceId(presetId?: string | null): string {
     return presetVoiceId;
   }
 
-  return defaultElevenLabsVoiceId();
+  return defaultCartesiaVoiceId();
 }
 
 export type VoicePresetView = AgentVoicePreset & {
@@ -208,7 +215,11 @@ export function listVoicePresets(): {
       resolvedVoiceId,
       resolvedLast4: resolvedVoiceId ? last4(resolvedVoiceId) : null,
       hasOwnVoiceId: Boolean(isDefault || envOverride || presetVoiceId),
-      previewAvailable: previewConfigured && Boolean(resolvedVoiceId)
+      previewAvailable:
+        Boolean(resolvedVoiceId) &&
+        (voiceProviderForPreset(preset.id) === "cartesia"
+          ? isCartesiaPreviewConfigured()
+          : isElevenLabsPreviewConfigured())
     };
   });
 
@@ -222,7 +233,7 @@ export function voicePreviewDiagnostics() {
   const previewConfigured = isVoicePreviewConfigured();
 
   const defaultVoiceConfigured = Boolean(
-    clean(env.ELEVENLABS_DEFAULT_VOICE_ID) || clean(env.VAPI_DEFAULT_VOICE_ID)
+    clean(env.CARTESIA_DEFAULT_VOICE_ID)
   );
 
   const presets = allVoicePresets().map((preset) => {
@@ -240,14 +251,18 @@ export function voicePreviewDiagnostics() {
       hasOwnVoiceId: Boolean(isDefault || envOverride || presetVoiceId),
       hasEnvOverride: Boolean(envOverride),
       resolvedLast4: resolved ? last4(resolved) : null,
-      previewAvailable: previewConfigured && Boolean(resolved)
+      previewAvailable:
+        Boolean(resolved) &&
+        (voiceProviderForPreset(preset.id) === "cartesia"
+          ? isCartesiaPreviewConfigured()
+          : isElevenLabsPreviewConfigured())
     };
   });
 
   return {
     previewConfigured,
     defaultVoiceConfigured,
-    defaultVoiceLast4: last4(defaultElevenLabsVoiceId()),
+    defaultVoiceLast4: last4(defaultCartesiaVoiceId()),
     presets
   };
 }
@@ -332,7 +347,7 @@ export async function generateVoicePreview(input: {
     return generateCartesiaPreview(voiceId, text);
   }
 
-  if (!configured) {
+  if (!isElevenLabsPreviewConfigured()) {
     throw new VoicePreviewError("Voice preview is not configured. Add ELEVENLABS_API_KEY.", 503);
   }
 

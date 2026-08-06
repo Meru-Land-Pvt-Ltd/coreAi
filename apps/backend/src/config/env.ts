@@ -206,6 +206,7 @@ const envSchema = z.object({
 
   /** Cartesia TTS — the provider behind the Skylar/Ronald voice presets. */
   CARTESIA_API_KEY: z.string().optional(),
+  CARTESIA_DEFAULT_VOICE_ID: z.string().optional(),
   CARTESIA_VERSION: z.string().default("2024-06-10"),
   CARTESIA_TTS_MODEL: z.string().default("sonic-2"),
   CARTESIA_VOICE_SKYLAR_ID: z.string().optional(),

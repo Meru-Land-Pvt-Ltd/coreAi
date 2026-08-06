@@ -267,11 +267,11 @@ export const VOICE_PRESETS: AgentVoicePreset[] = [
   {
     id: PLATFORM_DEFAULT_VOICE_ID,
     name: "Triven Default Voice",
-    provider: DEFAULT_VOICE_PROVIDER,
+    provider: "cartesia",
     voiceId: "",
     style: "Platform default",
     bestFor: "All agent templates",
-    description: "Uses ELEVENLABS_DEFAULT_VOICE_ID / VAPI_DEFAULT_VOICE_ID from production env.",
+    description: "Uses CARTESIA_DEFAULT_VOICE_ID from production env.",
     previewText: "Hello, this is your Triven AI agent. How can I help you today?",
     isDefault: true
   },

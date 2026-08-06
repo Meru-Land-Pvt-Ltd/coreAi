@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ADAM_MALE_ID = "pNInz6obpgDQGcFmaJgB";
 const FEMALE_DEFAULT_ID = "FD17pMswbbEnsVYS0L7P";
+const CARTESIA_DEFAULT_ID = "f786b574-daa5-4673-aa0c-cbe3e8534c02";
 const CUSTOM_ID = "CusTomVoice1234567890";
 
 // Static imports are hoisted, so the voice env ids (frozen at module load in
@@ -9,6 +10,7 @@ const CUSTOM_ID = "CusTomVoice1234567890";
 process.env.ELEVENLABS_VOICE_ADAM_ID = ADAM_MALE_ID;
 process.env.ELEVENLABS_VOICE_SARAH_ID = FEMALE_DEFAULT_ID;
 process.env.ELEVENLABS_DEFAULT_VOICE_ID = FEMALE_DEFAULT_ID;
+process.env.CARTESIA_DEFAULT_VOICE_ID = CARTESIA_DEFAULT_ID;
 
 const { env } = await import("../../config/env");
 const { deployVapiAssistant, extractCallRecordingUrls, isPresignedRecordingUrl, resolveVapiModel, resolveVapiVoice } =
@@ -73,8 +75,29 @@ describe("resolveVapiVoice", () => {
   it("resolves triven-default to the configured platform default voice", () => {
     const result = resolveVapiVoice({ voice: "triven-default", voiceProvider: "11labs", voiceId: "" });
 
-    expect(result.config.provider).toBe("11labs");
-    expect(result.config.voiceId).toBe(FEMALE_DEFAULT_ID);
+    expect(result.config.provider).toBe("cartesia");
+    expect(result.config.voiceId).toBe(CARTESIA_DEFAULT_ID);
+    expect(result.config.model).toBe(env.CARTESIA_TTS_MODEL);
+  });
+
+  it("uses the configured Cartesia default for the legacy default alias", () => {
+    const result = resolveVapiVoice({ voice: "default", voiceProvider: "11labs", voiceId: "" });
+
+    expect(result.config.provider).toBe("cartesia");
+    expect(result.config.voiceId).toBe(CARTESIA_DEFAULT_ID);
+  });
+
+  it("does not substitute another voice when the Cartesia default is missing", () => {
+    const configuredVoiceId = env.CARTESIA_DEFAULT_VOICE_ID;
+    env.CARTESIA_DEFAULT_VOICE_ID = "";
+
+    try {
+      expect(() =>
+        resolveVapiVoice({ voice: "triven-default", voiceProvider: "11labs", voiceId: "" })
+      ).toThrow("CARTESIA_DEFAULT_VOICE_ID is missing or invalid");
+    } finally {
+      env.CARTESIA_DEFAULT_VOICE_ID = configuredVoiceId;
+    }
   });
 
   it("keeps Vapi built-in voices on provider vapi", () => {
@@ -92,8 +115,9 @@ describe("resolveVapiVoice", () => {
   it("falls back to the platform default preset when nothing usable is given", () => {
     const result = resolveVapiVoice({ voice: "", voiceProvider: "", voiceId: "" });
 
-    expect(result.config.provider).toBe("11labs");
-    expect(result.config.voiceId).toBe(FEMALE_DEFAULT_ID);
+    expect(result.config.provider).toBe("cartesia");
+    expect(result.config.voiceId).toBe(CARTESIA_DEFAULT_ID);
+    expect(result.config.model).toBe(env.CARTESIA_TTS_MODEL);
   });
 });
 
