@@ -688,12 +688,25 @@ export async function handleArchitectTelegramTestWebhook(c: Context) {
     expectedSecret = "";
   }
   if (!connection || !connection.accessTokenEnc || !suppliedSecret || !expectedSecret || !secureEqual(suppliedSecret, expectedSecret)) {
+    console.warn("[architect-telegram-test-webhook] Unauthorized test webhook attempt:", {
+      connectionId,
+      connectionFound: Boolean(connection),
+      hasToken: Boolean(connection?.accessTokenEnc),
+      hasSuppliedSecret: Boolean(suppliedSecret)
+    });
     return c.json({ ok: false }, 401);
   }
 
   const raw = await c.req.json().catch(() => null);
   const parsed = telegramUpdateSchema.safeParse(raw);
-  if (!parsed.success) return c.json({ ok: true, ignored: true });
+  if (!parsed.success) {
+    console.warn("[architect-telegram-test-webhook] Test update schema validation failed:", {
+      connectionId,
+      errors: parsed.error.format(),
+      raw
+    });
+    return c.json({ ok: true, ignored: true });
+  }
   if (meta.lastUpdateId === String(parsed.data.update_id)) return c.json({ ok: true, duplicate: true });
 
   const workflowId = meta.activeWorkflowId;

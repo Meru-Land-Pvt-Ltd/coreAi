@@ -326,6 +326,25 @@ async function configureTelegramBot(options: {
     commands: telegramCommandList(data)
   });
   const webhookUrl = childWebhookUrl(connection.webhookConnectionId);
+  console.log("[telegram-connector] Registering webhook for Telegram bot:", {
+    connectionId: connection.id,
+    botUserId: options.botUser.id,
+    botUsername: options.botUser.username,
+    webhookUrl
+  });
+
+  await telegramApiRequest<boolean>(options.botToken, "setMyName", {
+    name: displayName.slice(0, 64)
+  });
+  await telegramApiRequest<boolean>(options.botToken, "setMyDescription", {
+    description: description.slice(0, 512)
+  });
+  await telegramApiRequest<boolean>(options.botToken, "setMyShortDescription", {
+    short_description: shortDescription.slice(0, 120)
+  });
+  await telegramApiRequest<boolean>(options.botToken, "setMyCommands", {
+    commands: telegramCommandList(data)
+  });
   await telegramApiRequest<boolean>(options.botToken, "setWebhook", {
     url: webhookUrl,
     secret_token: webhookSecret,
@@ -333,9 +352,29 @@ async function configureTelegramBot(options: {
     drop_pending_updates: false
   });
   const webhookInfo = await getTelegramWebhookInfo(options.botToken);
+  console.log("[telegram-connector] Webhook configuration verified:", {
+    connectionId: connection.id,
+    botUsername: options.botUser.username,
+    expectedUrl: webhookUrl,
+    registeredUrl: webhookInfo.url,
+    pendingUpdateCount: webhookInfo.pending_update_count,
+    lastErrorMessage: webhookInfo.last_error_message ?? null,
+    lastErrorDate: webhookInfo.last_error_date ? new Date(webhookInfo.last_error_date * 1000).toISOString() : null
+  });
+
+  if (webhookInfo.last_error_message) {
+    console.warn(
+      `[telegram-connector] Telegram reported previous webhook delivery error for @${options.botUser.username}: ${webhookInfo.last_error_message}`
+    );
+  }
+
   if (webhookInfo.url !== webhookUrl) {
+    console.error("[telegram-connector] Webhook URL mismatch after setWebhook:", {
+      expectedUrl: webhookUrl,
+      registeredUrl: webhookInfo.url
+    });
     throw new TelegramConnectorError(
-      "Telegram accepted setup but did not retain the expected webhook URL.",
+      `Telegram accepted setup but registered URL (${webhookInfo.url}) did not match expected URL (${webhookUrl}).`,
       "TELEGRAM_WEBHOOK_VERIFY_FAILED",
       502
     );
@@ -681,23 +720,36 @@ export async function refreshTelegramConnectionHealth(ownerId: string, installed
     ]);
     const expectedUrl = childWebhookUrl(connection.webhookConnectionId);
     const healthy = webhook.url === expectedUrl;
+    console.log("[telegram-health] Connection health check:", {
+      installedAgentId,
+      botUsername: identity.username,
+      expectedWebhookUrl: expectedUrl,
+      registeredWebhookUrl: webhook.url,
+      healthy,
+      pendingUpdateCount: webhook.pending_update_count,
+      lastErrorMessage: webhook.last_error_message ?? null
+    });
     await prisma.telegramBotConnection.update({
       where: { id: connection.id },
       data: {
         botUserId: String(identity.id),
         botUsername: identity.username,
         webhookStatus: healthy ? "HEALTHY" : "MISCONFIGURED",
-        lastError: healthy ? null : "Telegram webhook URL does not match the installed agent."
+        lastError: healthy
+          ? (webhook.last_error_message ? `Telegram delivery error: ${webhook.last_error_message}` : null)
+          : `Telegram webhook URL mismatch (expected: ${expectedUrl}, registered: ${webhook.url}).`
       }
     });
     return {
       ok: healthy,
       botUsername: identity.username,
+      expectedWebhookUrl: expectedUrl,
+      registeredWebhookUrl: webhook.url,
       webhookStatus: healthy ? "HEALTHY" : "MISCONFIGURED",
       pendingUpdateCount: webhook.pending_update_count,
       lastWebhookAt: connection.lastWebhookAt,
       lastSuccessfulSendAt: connection.lastSuccessfulSendAt,
-      lastError: webhook.last_error_message ?? null
+      lastError: webhook.last_error_message ?? (healthy ? null : "Telegram webhook URL mismatch.")
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Telegram health check failed.";
@@ -956,7 +1008,10 @@ function childSecretValid(c: Context, encryptedSecret: string): boolean {
 
 export async function handleTelegramBotWebhook(c: Context) {
   const webhookConnectionId = c.req.param("connectionId");
-  if (!webhookConnectionId) return c.json({ ok: false }, 404);
+  if (!webhookConnectionId) {
+    console.warn("[telegram-webhook] Missing connectionId path parameter");
+    return c.json({ ok: false }, 404);
+  }
   const connection = await prisma.telegramBotConnection.findUnique({
     where: { webhookConnectionId },
     select: {
@@ -971,12 +1026,30 @@ export async function handleTelegramBotWebhook(c: Context) {
       }
     }
   });
-  if (!connection || !childSecretValid(c, connection.webhookSecretEncrypted)) {
+  if (!connection) {
+    console.warn("[telegram-webhook] Connection not found for webhookConnectionId:", webhookConnectionId);
+    return c.json({ ok: false }, 401);
+  }
+  const hasSecretHeader = Boolean(c.req.header(TELEGRAM_SECRET_HEADER));
+  if (!childSecretValid(c, connection.webhookSecretEncrypted)) {
+    console.warn("[telegram-webhook] Secret token mismatch or missing header:", {
+      webhookConnectionId,
+      hasSecretHeader,
+      connectionId: connection.id
+    });
     return c.json({ ok: false }, 401);
   }
   const raw = await c.req.json().catch(() => null);
   const parsed = telegramUpdateSchema.safeParse(raw);
-  if (!parsed.success) return c.json({ ok: true });
+  if (!parsed.success) {
+    console.warn("[telegram-webhook] Update schema validation failed:", {
+      webhookConnectionId,
+      connectionId: connection.id,
+      errors: parsed.error.format(),
+      rawPayload: raw
+    });
+    return c.json({ ok: true });
+  }
 
   let stored;
   try {
@@ -984,6 +1057,12 @@ export async function handleTelegramBotWebhook(c: Context) {
       connection.status === "ACTIVE" &&
       connection.installedAgent.status === "ACTIVE" &&
       !connection.installedAgent.pausedAt;
+    console.log("[telegram-webhook] Received valid Telegram update:", {
+      webhookConnectionId,
+      updateId: parsed.data.update_id,
+      connectionId: connection.id,
+      active
+    });
     stored = await prisma.telegramProcessedUpdate.create({
       data: {
         telegramConnectionId: connection.id,
@@ -994,11 +1073,27 @@ export async function handleTelegramBotWebhook(c: Context) {
         processedAt: active ? null : new Date()
       }
     });
-    if (!active) return c.json({ ok: true, ignored: true });
+    if (!active) {
+      console.log("[telegram-webhook] Update ignored because connection/agent is not active:", {
+        webhookConnectionId,
+        connectionStatus: connection.status,
+        agentStatus: connection.installedAgent.status,
+        pausedAt: connection.installedAgent.pausedAt
+      });
+      return c.json({ ok: true, ignored: true });
+    }
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      console.log("[telegram-webhook] Duplicate update ignored:", {
+        webhookConnectionId,
+        updateId: parsed.data.update_id
+      });
       return c.json({ ok: true, duplicate: true });
     }
+    console.error("[telegram-webhook] Failed to store incoming update:", {
+      webhookConnectionId,
+      error: error instanceof Error ? error.message : String(error)
+    });
     throw error;
   }
   await enqueueTelegramUpdate(stored.id);

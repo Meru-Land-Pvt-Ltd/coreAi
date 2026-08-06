@@ -44,30 +44,49 @@ app.use(
 );
 
 app.route("/health", healthRoutes);
+app.route("/api/health", healthRoutes);
 app.route("/auth", authRoutes);
+app.route("/api/auth", authRoutes);
 app.route("/architect", architectRoutes);
+app.route("/api/architect", architectRoutes);
 app.route("/business", businessRoutes);
+app.route("/api/business", businessRoutes);
 app.route("/integrations", integrationsRoutes);
+app.route("/api/integrations", integrationsRoutes);
 app.route("/mail", mailRoutes);
+app.route("/api/mail", mailRoutes);
 app.route("/admin", adminRoutes);
+app.route("/api/admin", adminRoutes);
 app.route("/payments", paymentRoutes);
+app.route("/api/payments", paymentRoutes);
 app.route("/setup", setupRoutes);
+app.route("/api/setup", setupRoutes);
 app.route("/contact", contactRoutes);
+app.route("/api/contact", contactRoutes);
 // Public "Need Help" support submissions from the landing page (no session).
 app.route("/support", supportRoutes);
+app.route("/api/support", supportRoutes);
 app.route("/countries", countryRoutes);
+app.route("/api/countries", countryRoutes);
 app.route("/memory", memoryRoutes);
+app.route("/api/memory", memoryRoutes);
 // SES/SNS webhooks — public by design (no session), guarded by topic ARN match.
 app.route("/email", emailRoutes);
+app.route("/api/email", emailRoutes);
 app.route("/legal", legalRoutes);
+app.route("/api/legal", legalRoutes);
 // Public customer-facing booking/service-request endpoints (slug-addressed).
 app.route("/public", publicBookingRoutes);
+app.route("/api/public", publicBookingRoutes);
 app.route("/chatbot", chatbotRoutes);
+app.route("/api/chatbot", chatbotRoutes);
 
 // Meta WhatsApp Cloud API — public webhook (verify challenge + inbound events).
 // Meta dashboard Callback URL: https://triven.ai/api/webhook/meta/whatsapp
 app.get("/webhook/meta/whatsapp", verifyWhatsAppWebhookChallenge);
 app.post("/webhook/meta/whatsapp", handleWhatsAppWebhookPost);
+app.get("/api/webhook/meta/whatsapp", verifyWhatsAppWebhookChallenge);
+app.post("/api/webhook/meta/whatsapp", handleWhatsAppWebhookPost);
 
 // Calendly — public webhook (signature verified with per-connection signing key).
 // OAuth redirect URI must be /architect/connectors/calendly/callback (NOT this path).
@@ -79,6 +98,7 @@ app.get("/api/webhook/calendly", handleCalendlyOAuthMisdirectGet);
 app.post("/api/webhook/calendly", handleCalendlyWebhookPost);
 
 app.notFound((c) => {
+  console.warn(`[app] Route not found: ${c.req.method} ${c.req.url}`);
   return errorResponse(c, "Route not found", 404, "ROUTE_NOT_FOUND");
 });
 
