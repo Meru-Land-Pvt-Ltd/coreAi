@@ -1,0 +1,16 @@
+{
+  "name": "Triven.ai",
+  "short_name": "Triven",
+  "description": "AI agent marketplace for businesses and AI architects.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f59e0b",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}

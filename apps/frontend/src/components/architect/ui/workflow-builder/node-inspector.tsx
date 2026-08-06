@@ -166,7 +166,7 @@ export function NodeInspector({
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-white scroll-thin">
+    <div className="builder-sidebar-scroll h-full overflow-y-auto overflow-x-hidden bg-white">
       <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
         <div className="flex items-center gap-2">
           <BuilderIcon name={selectedNode.data.icon} className="h-4 w-4 text-amber-600" />

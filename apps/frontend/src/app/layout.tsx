@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
 import "./global.css";
+import { buildRootMetadata } from "@/lib/site-metadata";
 
-export const metadata: Metadata = {
-  title: "Your AI Workforce",
-  description: "AI Agent Marketplace for Businesses and AI Architects"
-};
+export const metadata: Metadata = buildRootMetadata();
 
 export default function RootLayout({
   children

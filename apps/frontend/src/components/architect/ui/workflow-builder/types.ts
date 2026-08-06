@@ -152,12 +152,15 @@ export type AccentStyle = {
   glow: string;
 };
 
+export type LibraryItemBadge = "NEW" | "POPULAR" | "BETA";
+
 export type LibraryItem = {
   nodeKind: NodeKind;
   label: string;
   helper: string;
   icon: string;
   accent: NodeAccent;
+  badge?: LibraryItemBadge;
   overrides?: Partial<BuilderNodeData>;
   testId?: string;
 };

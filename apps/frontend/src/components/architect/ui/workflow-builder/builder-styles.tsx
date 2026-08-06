@@ -2,11 +2,28 @@ export function WorkflowBuilderStyles() {
   return (
     <style>{`
       * { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
-      .scroll-thin { scrollbar-width: thin; scrollbar-color: #e2e8f0 transparent; }
-      .scroll-thin::-webkit-scrollbar { width: 10px; height: 10px; }
-      .scroll-thin::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 9999px; border: 3px solid #fff; }
-      .scroll-thin::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+      .scroll-thin { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+      .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+      .scroll-thin::-webkit-scrollbar-thumb {
+        background: #e2e8f0;
+        border-radius: 9999px;
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+      .scroll-thin::-webkit-scrollbar-thumb:hover { background: #cbd5e1; background-clip: padding-box; }
       .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+      .scroll-thin::-webkit-scrollbar-corner { background: transparent; }
+
+      /* Sidebar scroll: fully hidden scrollbar, still scrollable */
+      .builder-sidebar-scroll {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      .builder-sidebar-scroll::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+        display: none;
+      }
 
       .canvas-grid {
         background-color: #f7f8fa;
