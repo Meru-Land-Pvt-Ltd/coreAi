@@ -410,7 +410,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(await screen.findByTestId("business-setup-preview-call")).toBeTruthy();
     expect(screen.getByTestId("business-setup-preview-start")).toBeTruthy();
     expect(screen.getByTestId("business-setup-test-flow")).toBeTruthy();
-    expect(screen.getAllByTestId("business-setup-test-flow-step")).toHaveLength(4);
+    expect(screen.getAllByTestId("business-setup-test-flow-step")).toHaveLength(3);
     expect(screen.getByTestId("business-setup-preview-call")).toBeTruthy();
 
     // The missed-call text-back simulation is gone.
@@ -566,7 +566,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect((screen.getByTestId("business-setup-dot-4") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("marks the Test step complete after a successful Go live", async () => {
+  it("marks the Test step complete after a successful Go live and shows dedicated live confirmation screen without redeploy banner", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({ installedAgent: null, installedAgentId: null }) as never
     );
@@ -582,11 +582,21 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
       expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz");
     });
 
+    // Check that editing banner is NOT visible during first time setup
+    expect(screen.queryByTestId("business-setup-edit-badge-banner")).toBeNull();
+
     await user.click(screen.getByTestId("business-setup-dot-3"));
+    expect(screen.getByTestId("business-setup-submit").textContent).toBe("Go live");
     await user.click(screen.getByTestId("business-setup-submit"));
 
     await screen.findByTestId("business-setup-success");
     expect(screen.getByTestId("business-setup-dot-3").className).toContain("done");
+
+    // First-time setup confirmation screen checks
+    const titleText = screen.getByTestId("business-setup-success-title").textContent;
+    expect(titleText).not.toContain("Updated & Redeployed");
+    expect(screen.queryByTestId("business-setup-edit-badge-banner")).toBeNull();
+    expect(screen.getByTestId("business-setup-go-dashboard").textContent).toBe("Go to dashboard");
   });
 
   it("Configure shows a read-only timezone note pointing at Connect — never a second selector", async () => {

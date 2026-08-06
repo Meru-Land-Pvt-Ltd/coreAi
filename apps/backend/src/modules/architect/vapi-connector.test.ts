@@ -212,6 +212,34 @@ describe("deployVapiAssistant payload", () => {
     expect(body.model.provider).toBe("openai");
     expect(body.model.model).toBe("gpt-4o-mini");
   });
+
+  it("configures barge-in parameters so interrupted prompts are permanently cancelled with 0 backoff", async () => {
+    env.VAPI_API_KEY = "test-key";
+
+    const fetchMock = stubVapiCreate();
+
+    await deployVapiAssistant({
+      name: "Barge In Test Assistant",
+      firstMessage: "Hello",
+      systemPrompt: "test",
+      serverUrl: "https://example.com/webhook"
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
+    const body = JSON.parse(init.body) as {
+      interruptionsEnabled: boolean;
+      firstMessageInterruptionsEnabled: boolean;
+      stopSpeakingPlan: { backoffSeconds: number; numWords: number; voiceSeconds: number };
+    };
+
+    expect(body.interruptionsEnabled).toBe(true);
+    expect(body.firstMessageInterruptionsEnabled).toBe(true);
+    expect(body.stopSpeakingPlan).toMatchObject({
+      numWords: 0,
+      voiceSeconds: 0.2,
+      backoffSeconds: 0
+    });
+  });
 });
 
 const SIGNED_QS =

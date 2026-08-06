@@ -1,6 +1,7 @@
 import { cn } from "@/components/architect/ui/architect-ui";
+import { ChevronRight } from "lucide-react";
 import { accentStyles } from "./accent-styles";
-import { comingSoonItems, libraryGroups } from "./library";
+import { libraryGroups } from "./library";
 import { BuilderIcon } from "./icons";
 import type { BuilderNodeData, NodeKind } from "./types";
 
@@ -49,7 +50,7 @@ export function ComponentLibrary({
         </div>
       </div>
 
-      <div className="scroll-thin flex-1 overflow-y-auto px-4 pt-4">
+      <div className="scroll-thin flex-1 overflow-y-auto px-4 pb-6 pt-4">
         <button
           type="button"
           onClick={() => onUseTemplate("dental-ai-receptionist")}
@@ -72,11 +73,11 @@ export function ComponentLibrary({
           <span className="mt-0.5 block text-[11px] text-slate-500" data-testid="architect-ui-workflow-builder-component-library-load-exact-flow-text">Import the 3-node flow</span>
         </button>
 
-        <div className="space-y-5">
+        <div className="space-y-6">
           {filteredGroups.map((group) => (
             <div key={group.title}>
               <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-component-library-group-title-text">{group.title}</p>
-              <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2.5">
                 {group.items.map((item) => {
                   const styles = accentStyles[item.accent];
                   return (
@@ -96,17 +97,22 @@ export function ComponentLibrary({
                         );
                       }}
                       onClick={() => onAddNode(item.nodeKind, { ...item.overrides, accent: item.accent, icon: item.icon })}
+                      title={`${item.label}: ${item.helper}`}
                       className={cn(
-                        "comp flex w-full cursor-grab items-center gap-3 rounded-xl border bg-white p-3 text-left shadow-sm transition active:cursor-grabbing hover:-translate-y-0.5 hover:shadow-md",
-                        styles.border
+                        "comp group flex h-[102px] w-full cursor-grab flex-col justify-between overflow-hidden rounded-lg border p-3 text-left transition active:cursor-grabbing hover:-translate-y-0.5 hover:bg-white hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2",
+                        styles.border,
+                        styles.subtle
                       )}
                     >
-                      <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-xl ring-4", styles.icon, styles.ring)}>
-                        <BuilderIcon name={item.icon} className="h-5 w-5" />
+                      <span className={cn("flex w-full items-start justify-between gap-2", styles.text)}>
+                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-white/80 shadow-sm ring-1 ring-black/5">
+                          <BuilderIcon name={item.icon} className="h-[18px] w-[18px]" />
+                        </span>
+                        <ChevronRight className="mt-1 h-4 w-4 shrink-0 opacity-70 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                       </span>
                       <span className="min-w-0" data-testid="architect-ui-workflow-builder-component-library-label-text">
-                        <span className="block truncate text-sm font-semibold text-slate-900" data-testid="architect-ui-workflow-builder-component-library-label-text-2">{item.label}</span>
-                        <span className="mt-0.5 block truncate text-xs text-slate-500" data-testid="architect-ui-workflow-builder-component-library-helper-text">{item.helper}</span>
+                        <span className="block break-words text-[13px] font-semibold leading-[1.25] text-slate-800" data-testid="architect-ui-workflow-builder-component-library-label-text-2">{item.label}</span>
+                        <span className="sr-only" data-testid="architect-ui-workflow-builder-component-library-helper-text">{item.helper}</span>
                       </span>
                     </button>
                   );
@@ -116,7 +122,7 @@ export function ComponentLibrary({
           ))}
         </div>
 
-        <ComingSoonSection query={query} />
+        {/* Coming Soon nodes and their section are intentionally hidden. */}
       </div>
 
       {/* <div className="mt-4 border-t border-gray-100 px-4 py-4">
@@ -128,42 +134,6 @@ export function ComponentLibrary({
           </svg>
         </p>
       </div> */}
-    </div>
-  );
-}
-
-function ComingSoonSection({ query }: { query: string }) {
-  const items = !query
-    ? comingSoonItems
-    : comingSoonItems.filter(
-        (item) =>
-          item.label.toLowerCase().includes(query) || item.description.toLowerCase().includes(query)
-      );
-
-  if (items.length === 0) return null;
-
-  return (
-    <div className="mt-6" data-testid="builder-coming-soon">
-      <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-component-library-coming-soon-text">Coming soon</p>
-      <div className="space-y-2">
-        {items.map((item) => (
-          <div
-            key={item.type}
-            data-testid={item.testId}
-            aria-disabled="true"
-            title="Coming soon — not executable yet"
-            className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50 p-3 text-left opacity-70"
-          >
-            <span className="min-w-0" data-testid="architect-ui-workflow-builder-component-library-label-text-3">
-              <span className="block truncate text-sm font-semibold text-slate-500" data-testid="architect-ui-workflow-builder-component-library-label-text-4">{item.label}</span>
-              <span className="mt-0.5 block truncate text-xs text-slate-400" data-testid="architect-ui-workflow-builder-component-library-description-text">{item.description}</span>
-            </span>
-            <span className="ml-auto shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500" data-testid="architect-ui-workflow-builder-component-library-soon-text">
-              Soon
-            </span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

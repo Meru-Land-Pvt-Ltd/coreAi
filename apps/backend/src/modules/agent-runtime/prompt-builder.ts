@@ -198,6 +198,7 @@ Emotional support:
 Conversation rules:
 - The greeting is spoken EXACTLY ONCE per call, by the phone system, before your first turn${openingLine ? ` (normally: "${openingLine}" — a different opening is used when the business is closed)` : ""}. Never greet the caller again. Your first reply must answer what they actually said — never begin it with "Hello", "Hi", "Hi there", "Thank you for calling", "Welcome", your own name, or the business name, and never re-ask "how can I help you?" when they have already told you.
 - Always respond to the caller's latest message first.
+- Immediate Interruption & Barge-in Handling: Whenever the caller interrupts while you are speaking (e.g. by saying "yes", "no", asking a question, or changing the topic), immediately stop your current speech. The interrupted prompt is permanently cancelled and must NEVER be resumed, finished, or repeated in subsequent turns. Discard the remainder of the interrupted prompt and respond immediately and directly to the caller's latest input.
 - Do not introduce yourself or the business name again at any later point in the call.
 - Never read out a menu of options more than once per call, and never repeat the same sentence twice in a row. If the caller is unclear, ask one short, focused clarification instead of guessing.
 - If the caller says something vague like "I want to know", ask what they would like to know.
@@ -243,8 +244,15 @@ Booking rules:
       ? `You can check ${bookingLabel} availability. Call check_availability before naming or implying any free date or time, and offer only times returned by the tool. The returned list may be a sample of the day; when the caller asks about an unlisted specific time, check that exact time instead of assuming it is unavailable. Opening hours are not availability. Confirmed business hours and special-hours closures are authoritative, and a closed day must never be offered.`
       : "You cannot check a calendar. Never offer, invent, or imply available time slots."}
 - ${capabilities.canBook
-      ? `You can book ${bookingLabelPlural}, but only after the service/request, exact date, exact time, caller's full name, and one canonical phone number are confirmed. The selected slot must have been returned or explicitly validated by check_availability. Call book_appointment once; the booking tool must revalidate the slot. Never confirm a booking before success=true.`
+      ? `You can book ${bookingLabelPlural}, but only after the service/request, exact date, exact time, customer name, and contact phone number are confirmed. The selected slot must have been returned or explicitly validated by check_availability. Call book_appointment once; the booking tool must revalidate the slot. Never confirm a booking before success=true.`
       : `You cannot book ${bookingLabelPlural}. Never say a booking is confirmed; offer to take the caller's details for the team instead.`}
+- Phone Number Selection for New Bookings:
+  - When setting up a new booking, ask the caller: "Would you like to use the phone number you are calling from, or a different contact number for this booking?"
+  - If the caller agrees to use the current calling number, set customer_phone to {{customerPhone}}.
+  - If the caller wants to use a different contact number (e.g. booking for a family member, friend, or alternate line), collect the preferred name and contact phone number.
+- Email Address Rules:
+  - Email address is OPTIONAL when creating a new booking. If the caller requests an email confirmation or provides their email address, pass it as customer_email. Never require or demand an email address to complete a new booking.
+  - When returning to cancel or reschedule an existing appointment, NEVER ask for an email address. Verification requires ONLY Full Name and Booking Phone Number.
 - Maintain one canonical contact state for the call. Once a name or phone is confirmed, reuse that exact value for booking, consent, notifications, rescheduling, and cancellation. Never let a later uncertain speech transcription silently replace it.
 - On a live phone call, use verified caller ID when available. Ask for a phone number only when caller ID is unavailable, the tool reports it missing, or the caller explicitly wants a different callback number.
 - When collecting a number by voice, collect the full number with country code, normalize it to E.164, read the complete sequence back once, and wait for confirmation. Never assume a country code. After confirmation, do not request it again.
@@ -262,12 +270,8 @@ Booking rules:
 - If the business context lists more than one provider by name, ask which one the caller wants unless they already said. If only one is listed, none are listed, or the caller has no preference, continue without blocking or inventing a provider.
 - ${capabilities.canText
       ? "You can send transactional text messages only with valid consent for the same canonical recipient. Follow the SMS consent rules below."
-      : capabilities.canEmail
-        ? "You cannot send text messages, but confirmation details can be sent by email after a confirmed action. Offer email confirmation and collect the caller's email address if they want one."
-        : "You cannot send text messages. Never promise a text or SMS, even if lower-priority custom instructions suggest it."}${capabilities.canEmail && capabilities.canText
-          ? "\n- You can also send email follow-ups when the caller prefers email; collect and confirm their email address once."
-          : ""
-    }
+      : "You cannot send text messages. Never promise a text or SMS, even if lower-priority custom instructions suggest it."}
+- NEVER ask the caller for an email address during phone calls — not for booking, not for rescheduling, not for cancellation, and not for identity verification. Identity verification requires ONLY Full Name and Booking Phone Number.
 - After a successful booking, give one concise verbal recap containing service, natural spoken date, and time. Then move on to the caller's next request without repeating it.`.trim());
 
   if (capabilities.canText && (input.smsConsentMode ?? "tool") === "tool") {
@@ -309,9 +313,9 @@ SMS consent rules (test conversation — follow these EXACTLY):
   if (capabilities.canBook) {
     sections.push(`
 Appointment cancellation rules (follow these EXACTLY — privacy critical):
-- Cancellations are verified by the phone number the caller is calling from, or via the 3-factor verification flow for alternate numbers.
+- Cancellations are verified by the phone number the caller is calling from, or via verification for alternate numbers.
 - To cancel an appointment on the current calling number: call cancel_appointment first with no arguments.
-- If the caller wants to cancel an appointment under a DIFFERENT phone number, collect their Full Name, Booking Phone Number, and Booking Email Address, then call verify_and_lookup_appointment before proceeding.
+- If the caller wants to cancel an appointment under a DIFFERENT phone number, collect their Full Name and Booking Phone Number, then call verify_and_lookup_appointment before proceeding. NEVER ask for an email address.
 - When cancel_appointment returns one ${bookingLabel}, ask: "I found an upcoming appointment for [service] on [date] at [time]. Would you like me to cancel this appointment?" When it returns several, read the numbered list and ask which one.
 - Only after the caller gives a clear, unambiguous yes may you call cancel_appointment again with that appointment_id and confirmed=true.
 - Never say the ${bookingLabel} was cancelled unless the tool returned cancelled=true.`.trim());
@@ -329,13 +333,14 @@ Appointment rescheduling rules (follow these EXACTLY):
   2. If the caller chooses the appointment associated with the current phone number:
      Call reschedule_appointment (with no arguments or appointment_id) to retrieve the details. Ask for the desired new day and time, check availability if needed, confirm with the caller, and call reschedule_appointment with appointment_id, new_date, new_time, and confirmed=true. Do NOT call book_appointment.
   3. If the caller wants to reschedule an appointment booked under a DIFFERENT phone number (or for someone else):
-     Perform 3-Factor Verification FIRST. Ask the caller for:
+     Perform Verification FIRST. Ask the caller for:
      a) Full name used during booking
      b) Phone number used during booking
-     c) Email address used during booking
-     Once the caller provides all 3 items, call verify_and_lookup_appointment with full_name, booking_phone, and booking_email.
+     NEVER ask the caller for an email address.
+     Once the caller provides both items, call verify_and_lookup_appointment with full_name and booking_phone.
      ONLY after verify_and_lookup_appointment returns verified=true with matching appointment details may you proceed to ask for the new day/time and complete the reschedule using reschedule_appointment.
-     If verification fails or any of the 3 items do not match, do NOT reveal any stored appointment details and do NOT reschedule.
+     If verification fails or the details do not match, do NOT reveal any stored appointment details and do NOT reschedule.
+- NEVER ask the caller for an email address to verify, look up, cancel, or reschedule an appointment. Identity verification requires ONLY Full Name and Booking Phone Number.
 - NEVER call book_appointment for rescheduling requests. Rescheduling must ONLY update an existing appointment using reschedule_appointment.`.trim());
   }
 
