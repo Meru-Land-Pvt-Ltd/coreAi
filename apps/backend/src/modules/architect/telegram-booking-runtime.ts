@@ -754,9 +754,9 @@ function ownerCustomerDetails(
   return [
     `Customer: ${context.customerName || telegramName || "Not provided"}`,
     `Phone: ${context.customerPhone || event.contact.phoneNumber || "Not provided"}`,
-    `Email: ${context.customerEmail || "Not provided"}`,
     `Telegram: ${event.sender.username ? `@${event.sender.username}` : telegramName || "Not provided"}`,
-    `Notes: ${context.customerNotes || "None"}`
+    ...(context.customerEmail ? [`Email: ${context.customerEmail}`] : []),
+    ...(context.customerNotes ? [`Notes: ${context.customerNotes}`] : [])
   ];
 }
 
@@ -892,15 +892,11 @@ async function confirmManualBookingRequest(
       ? [`For assistance: ${connection.business.profile.teamPhone}`]
       : [])
   ].join("\n");
-  await sendText(connection, event, "booking-request-received", customerMessage);
   if (context.summaryMessageId) {
-    await editMessage(
-      connection,
-      event,
-      "booking-request-summary-sent",
-      context.summaryMessageId,
-      customerMessage
-    ).catch(() => null);
+    await editMessage(connection, event, "booking-request-summary-sent", context.summaryMessageId, customerMessage)
+      .catch(() => sendText(connection, event, "booking-request-received", customerMessage));
+  } else {
+    await sendText(connection, event, "booking-request-received", customerMessage);
   }
   await notifyOwner(
     connection,
