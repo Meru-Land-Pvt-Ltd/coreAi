@@ -257,6 +257,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [callerName, setCallerName] = useState("");
   const [triggerMessage, setTriggerMessage] = useState("");
   const [triggerAttachments, setTriggerAttachments] = useState<AIAttachment[]>([]);
+  const triggerAttachmentsRef = useRef<AIAttachment[]>([]);
   const [testDeployment, setTestDeployment] = useState<ArchitectTestDeploymentStatus | null>(null);
   const [startingLive, setStartingLive] = useState(false);
   const [stoppingLive, setStoppingLive] = useState(false);
@@ -265,6 +266,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [loadingLabel, setLoadingLabel] = useState("Loading Builder...");
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  const [dryRunConfigureHints, setDryRunConfigureHints] = useState<string[]>([]);
   const [message, setMessage] = useState("Unsaved changes");
   const [publishError, setPublishError] = useState("");
   const [publishSuccessName, setPublishSuccessName] = useState<string | null>(null);
@@ -761,7 +763,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           setTriggerMessage(triggerNode.data.input);
         }
         if (Array.isArray(triggerNode.data.attachments) && triggerNode.data.attachments.length > 0) {
-          setTriggerAttachments(triggerNode.data.attachments as AIAttachment[]);
+          const loadedAtts = triggerNode.data.attachments as AIAttachment[];
+          triggerAttachmentsRef.current = loadedAtts;
+          setTriggerAttachments(loadedAtts);
         }
       }
 
@@ -1286,7 +1290,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           if (field === "input") {
             setTriggerMessage(String(value ?? ""));
           } else if (field === "attachments") {
-            setTriggerAttachments((value as AIAttachment[]) ?? []);
+            const nextAtts = (value as AIAttachment[]) ?? [];
+            triggerAttachmentsRef.current = nextAtts;
+            setTriggerAttachments(nextAtts);
           }
         }
 
@@ -1632,8 +1638,20 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     );
   }, [setNodes]);
 
+  const isAudioAttachment = useCallback((att: AIAttachment): boolean => {
+    const mime = typeof att.mimeType === "string" ? att.mimeType.toLowerCase() : "";
+    const name = typeof att.name === "string" ? att.name.toLowerCase() : "";
+    return mime.startsWith("audio/") || /\.(wav|mp3|m4a|ogg|webm|flac)$/.test(name);
+  }, []);
+
   const handleTriggerAttachmentsChange = useCallback((newAtts: AIAttachment[]) => {
+    triggerAttachmentsRef.current = newAtts;
     setTriggerAttachments(newAtts);
+    if (newAtts.some(isAudioAttachment)) {
+      setDryRunConfigureHints((prev) =>
+        prev.filter((hint) => !/microphone|audio for the dry test|Audio saved/i.test(hint))
+      );
+    }
     setNodes((currentNodes) =>
       currentNodes.map((node) => {
         const isTriggerNode = isManualTriggerNode(node);
@@ -1649,82 +1667,48 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         return node;
       })
     );
-  }, [setNodes]);
+  }, [isAudioAttachment, setNodes]);
 
   async function runAgent() {
     if (blockIfUnderReview()) return;
 
     const normalizedCallerNumber = callerNumber.trim();
     const normalizedBusinessName = businessName.trim();
+    const hints: string[] = [];
 
     if (hasSmsFlow && !isManualTriggerWorkflow) {
-      if (!normalizedCallerNumber) {
-        setActiveTab("test");
-        setMessage("Enter a caller phone number first");
-        return;
-      }
-
-      if (!normalizedBusinessName) {
-        setActiveTab("test");
-        setMessage("Enter your business name first");
-        return;
-      }
+      if (!normalizedCallerNumber) hints.push("Enter a caller phone number in Trigger.");
+      if (!normalizedBusinessName) hints.push("Enter your business name in Trigger.");
     }
 
     if (hasGmailFlow && !gmailConnected) {
-      setActiveTab("test");
-      setMessage("Connect Google before running this agent");
-      return;
+      hints.push("Connect Google in Connections.");
     }
 
     if (needsCalendlyConnection && !calendlyConnected) {
-      setActiveTab("test");
-      setMessage("Connect Calendly before running this agent");
-      return;
+      hints.push("Connect Calendly in Connections.");
     }
 
     if (capabilities.calendlyActions.some((action) => action.toLowerCase() === "book_meeting_for_invitee")) {
-      if (!calendlyEventTypeUri.trim()) {
-        setActiveTab("test");
-        setMessage("Select a Calendly event type before booking a meeting");
-        return;
-      }
-      if (!calendlyStartTime.trim()) {
-        setActiveTab("test");
-        setMessage("Select a Calendly start time before booking a meeting");
-        return;
-      }
-      if (!calendlyInviteeName.trim()) {
-        setActiveTab("test");
-        setMessage("Enter an invitee name before booking a meeting");
-        return;
-      }
-      if (!calendlyInviteeEmail.trim()) {
-        setActiveTab("test");
-        setMessage("Enter an invitee email before booking a meeting");
-        return;
-      }
+      if (!calendlyEventTypeUri.trim()) hints.push("Select a Calendly event type.");
+      if (!calendlyStartTime.trim()) hints.push("Select a Calendly start time.");
+      if (!calendlyInviteeName.trim()) hints.push("Enter an invitee name.");
+      if (!calendlyInviteeEmail.trim()) hints.push("Enter an invitee email.");
     }
 
     if (
       capabilities.calendlyActions.some((action) => action.toLowerCase() === "create_one_off_meeting_link")
     ) {
       if (!calendlyOneOffStartDate.trim() || !calendlyOneOffEndDate.trim()) {
-        setActiveTab("test");
-        setMessage("Select a window start and length for the one-off meeting link");
-        return;
+        hints.push("Select a window start and length for the one-off meeting link.");
       }
       if (!calendlyDurationMinutes.trim()) {
-        setActiveTab("test");
-        setMessage("Select a meeting length for the one-off meeting link");
-        return;
+        hints.push("Select a meeting length for the one-off meeting link.");
       }
     }
 
     if (needsWhatsAppConnection && !whatsappConnected) {
-      setActiveTab("test");
-      setMessage("Connect WhatsApp before running this agent");
-      return;
+      hints.push("Connect WhatsApp in Connections.");
     }
 
     const whatsappTriggerNode = nodes.find((node) => {
@@ -1741,24 +1725,40 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     ).trim();
 
     if (needsWhatsAppConnection && !whatsappConnectionId) {
-      setActiveTab("test");
-      setMessage("Select a WhatsApp connection on the WhatsApp node before testing");
-      return;
+      hints.push("Select a WhatsApp connection on the WhatsApp node.");
     }
 
     if (hasWhatsAppTrigger) {
-      if (!normalizedCallerNumber) {
-        setActiveTab("test");
-        setMessage("Enter a sender phone number first");
-        return;
-      }
-      if (!triggerMessage.trim()) {
-        setActiveTab("test");
-        setMessage("Enter a WhatsApp message to simulate first");
-        return;
+      if (!normalizedCallerNumber) hints.push("Enter a sender phone number in Trigger.");
+      if (!triggerMessage.trim()) hints.push("Enter a WhatsApp message in Trigger.");
+    }
+
+    if (capabilities.hasDeepgramStt) {
+      const triggerNodeForAudio = nodes.find(isManualTriggerNode);
+      const nodeAttachmentsForAudio =
+        (triggerNodeForAudio?.data.attachments as AIAttachment[] | undefined) ?? [];
+      const pendingAttachments =
+        triggerAttachmentsRef.current.length > 0
+          ? triggerAttachmentsRef.current
+          : triggerAttachments.length > 0
+            ? triggerAttachments
+            : nodeAttachmentsForAudio;
+      const hasAudioAttachment = pendingAttachments.some(isAudioAttachment);
+      if (!hasAudioAttachment) {
+        hints.push(
+          "In Try transcription: Start microphone → speak → Stop. Wait until you see “Audio saved - ready for dry test”, then run again."
+        );
       }
     }
 
+    if (hints.length > 0) {
+      setActiveTab("test");
+      setDryRunConfigureHints(hints);
+      setMessage(hints[0] ?? "Complete the required setup before running the dry test");
+      return;
+    }
+
+    setDryRunConfigureHints([]);
     setRunning(true);
     setMessage("Running dry test...");
     setRunLogs([]);
@@ -1769,6 +1769,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
       if (!saved || !currentWorkflowIdRef.current) {
         setMessage("Could not save agent before running test.");
+        setDryRunConfigureHints(["Save the workflow, then run the dry test again."]);
         return;
       }
 
@@ -1781,10 +1782,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         nodeInput ||
         (isManualTriggerWorkflow ? "Hello, I would like to know more about your services." : undefined);
 
-      const effectiveAttachments = isManualTriggerWorkflow
-        ? undefined
-        : triggerAttachments.length > 0
-          ? triggerAttachments
+      const latestAttachments =
+        triggerAttachmentsRef.current.length > 0
+          ? triggerAttachmentsRef.current
+          : triggerAttachments;
+      const effectiveAttachments =
+        latestAttachments.length > 0
+          ? latestAttachments
           : nodeAttachments.length > 0
             ? nodeAttachments
             : undefined;
@@ -1900,15 +1904,19 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
       if (!result.success || !result.data) {
         setMessage(result.error ?? "Could not run test");
+        setDryRunConfigureHints([result.error ?? "Could not run the dry test. Check your setup and try again."]);
         return;
       }
 
       setRunLogs(result.data.run.logs);
       setRunContext(result.data.run.context);
       setMessage("Dry run complete");
+      setDryRunConfigureHints([]);
       setActiveTab("test");
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Could not run test");
+      const errorMessage = err instanceof Error ? err.message : "Could not run test";
+      setMessage(errorMessage);
+      setDryRunConfigureHints([errorMessage]);
     } finally {
       setRunning(false);
     }
@@ -2408,6 +2416,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             isMissedCallWorkflow={isMissedCallWorkflow}
             isSmsWorkflow={isSmsWorkflow}
             isTelegramWorkflow={isTelegramWorkflow}
+            hasDeepgram={capabilities.hasDeepgram}
+            hasDeepgramStt={capabilities.hasDeepgramStt}
+            hasDeepgramTts={capabilities.hasDeepgramTts}
+            workflowNodes={nodes}
+            dryRunConfigureHints={dryRunConfigureHints}
             telegramTestConnection={telegramTestConnection}
             connectingTelegramTest={connectingTelegramTest}
             syncingTelegramTest={syncingTelegramTest}

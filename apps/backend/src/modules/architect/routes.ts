@@ -97,6 +97,7 @@ import { deleteTestCalendarEvent } from "./test-calendar-events";
 import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-routes";
 import { architectSettingsRoutes } from "./settings-routes";
 import { getProviderRegistry } from "../ai-provider-engine/provider-engine";
+import { transcribeWithDeepgram, speakWithDeepgram } from "../ai-provider-engine/deepgram-stt";
 import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
 import {
   buildArchitectExecutionMetrics,
@@ -734,6 +735,74 @@ architectRoutes.get("/ai/providers", async (c) => {
   );
 
   return successResponse(c, { providers });
+});
+
+const deepgramTranscribeSchema = z.object({
+  audioBase64: z.string().min(1),
+  mimeType: z.string().trim().optional(),
+  model: z.string().trim().optional(),
+  language: z.string().trim().optional(),
+  smartFormat: z.boolean().optional(),
+  punctuate: z.boolean().optional(),
+  diarize: z.boolean().optional()
+});
+
+architectRoutes.post("/ai/deepgram/transcribe", async (c) => {
+  try {
+    const input = deepgramTranscribeSchema.parse(await c.req.json());
+    const result = await transcribeWithDeepgram(input);
+    if (result.status !== "success") {
+      return errorResponse(
+        c,
+        result.error ?? "Deepgram transcription failed.",
+        500,
+        "DEEPGRAM_TRANSCRIBE_FAILED"
+      );
+    }
+    return successResponse(c, result, "Audio transcribed.");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, "Invalid Deepgram transcription request.", 400, "INVALID_REQUEST");
+    }
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Deepgram transcription failed.",
+      500,
+      "DEEPGRAM_TRANSCRIBE_FAILED"
+    );
+  }
+});
+
+const deepgramSpeakSchema = z.object({
+  text: z.string().min(1).max(2000),
+  model: z.string().trim().optional(),
+  encoding: z.string().trim().optional()
+});
+
+architectRoutes.post("/ai/deepgram/speak", async (c) => {
+  try {
+    const input = deepgramSpeakSchema.parse(await c.req.json());
+    const result = await speakWithDeepgram(input);
+    if (result.status !== "success") {
+      return errorResponse(
+        c,
+        result.error ?? "Deepgram speech synthesis failed.",
+        500,
+        "DEEPGRAM_SPEAK_FAILED"
+      );
+    }
+    return successResponse(c, result, "Speech synthesized.");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, "Invalid Deepgram speak request.", 400, "INVALID_REQUEST");
+    }
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Deepgram speech synthesis failed.",
+      500,
+      "DEEPGRAM_SPEAK_FAILED"
+    );
+  }
 });
 
 architectRoutes.post("/media/upload", async (c) => {

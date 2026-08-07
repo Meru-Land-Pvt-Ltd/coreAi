@@ -3,6 +3,7 @@ import type { NodeAccent } from "./types";
 export const nodeIconAccent: Record<string, NodeAccent> = {
   phone: "amber",
   sparkles: "violet",
+  mic: "violet",
   diamond: "orange",
   message: "green",
   whatsapp: "green",

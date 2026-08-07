@@ -54,6 +54,21 @@ describe("deriveWorkflowCapabilities", () => {
     expect(caps.hasCalendar).toBe(false);
   });
 
+  it("detects Deepgram STT vs TTS modes", () => {
+    const sttCaps = deriveWorkflowCapabilities([
+      { data: { type: "ai.deepgram_stt" } }
+    ]);
+    expect(sttCaps.hasDeepgram).toBe(true);
+    expect(sttCaps.hasDeepgramStt).toBe(true);
+    expect(sttCaps.hasDeepgramTts).toBe(false);
+
+    const ttsCaps = deriveWorkflowCapabilities([
+      { data: { type: "ai.deepgram_tts" } }
+    ]);
+    expect(ttsCaps.hasDeepgramTts).toBe(true);
+    expect(ttsCaps.hasDeepgramStt).toBe(false);
+  });
+
   it("detects WhatsApp trigger and action", () => {
     const caps = deriveWorkflowCapabilities([
       { data: { type: "trigger.whatsapp_message_received", connector: "WhatsApp" } },

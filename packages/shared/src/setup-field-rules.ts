@@ -16,6 +16,7 @@ export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
     calendly: false,
     mail: false,
     telegram: false,
+    deepgram: false,
     smsNote: false,
     businessProfile: false,
     knowledge: false,
@@ -26,7 +27,8 @@ export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
     agentBehaviorVoice: false,
     callTest: false,
     calendarTest: false,
-    voicePreview: false
+    voicePreview: false,
+    deepgramTest: false
   },
   nodes: {
     "trigger.twilio_missed_call": {
@@ -81,6 +83,19 @@ export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
     "trigger.telegram_message": {
       telegram: true,
       businessProfile: true
+    },
+    "ai.image_generation": {},
+    "ai.deepgram": {
+      deepgram: true,
+      deepgramTest: true
+    },
+    "ai.deepgram_stt": {
+      deepgram: true,
+      deepgramTest: true
+    },
+    "ai.deepgram_tts": {
+      deepgram: true,
+      deepgramTest: true
     },
     "trigger.manual": {},
     "ai.memory": {},

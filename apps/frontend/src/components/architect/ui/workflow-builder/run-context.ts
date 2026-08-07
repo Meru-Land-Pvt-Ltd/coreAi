@@ -321,6 +321,70 @@ export function getCalendlyResult(context: Record<string, unknown>): CalendlyRes
   };
 }
 
+export type DeepgramSttResultView = {
+  nodeId: string;
+  label: string;
+  transcript: string;
+  model: string;
+  language: string;
+  confidence: number | null;
+};
+
+export type DeepgramTtsResultView = {
+  nodeId: string;
+  label: string;
+  text: string;
+  model: string;
+  audioUrl: string;
+  audioMimeType: string;
+};
+
+export function getDeepgramSttResults(context: Record<string, unknown>): DeepgramSttResultView[] {
+  const pipeline = getRunRecord(context, "sttPipeline");
+  if (!pipeline) return [];
+  return Object.entries(pipeline).flatMap(([nodeId, value]) => {
+    if (!value || typeof value !== "object") return [];
+    const entry = value as Record<string, unknown>;
+    const transcript = getRunTextFromRecord(entry, "transcript");
+    if (!transcript) return [];
+    const confidenceRaw = entry.confidence;
+    const confidence =
+      typeof confidenceRaw === "number" && Number.isFinite(confidenceRaw) ? confidenceRaw : null;
+    return [
+      {
+        nodeId,
+        label: getRunTextFromRecord(entry, "label") || "Deepgram STT",
+        transcript,
+        model: getRunTextFromRecord(entry, "model"),
+        language: getRunTextFromRecord(entry, "language"),
+        confidence
+      }
+    ];
+  });
+}
+
+export function getDeepgramTtsResults(context: Record<string, unknown>): DeepgramTtsResultView[] {
+  const pipeline = getRunRecord(context, "ttsPipeline");
+  if (!pipeline) return [];
+  return Object.entries(pipeline).flatMap(([nodeId, value]) => {
+    if (!value || typeof value !== "object") return [];
+    const entry = value as Record<string, unknown>;
+    const text = getRunTextFromRecord(entry, "text");
+    const audioUrl = getRunTextFromRecord(entry, "audioUrl");
+    if (!text && !audioUrl) return [];
+    return [
+      {
+        nodeId,
+        label: getRunTextFromRecord(entry, "label") || "Deepgram TTS",
+        text,
+        model: getRunTextFromRecord(entry, "model"),
+        audioUrl,
+        audioMimeType: getRunTextFromRecord(entry, "audioMimeType") || "audio/mpeg"
+      }
+    ];
+  });
+}
+
 export type NodeResultField = { label: string; value: string };
 
 function isIdLikeKey(key: string): boolean {

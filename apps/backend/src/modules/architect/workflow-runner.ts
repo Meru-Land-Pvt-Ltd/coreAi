@@ -2,6 +2,8 @@ import {
   CALENDLY_LEGACY_TRIGGER_TYPES,
   CALENDLY_NODE_TYPES,
   CORE_CONNECTOR_ACTIONS,
+  DEEPGRAM_NODE_TYPES,
+  resolveDeepgramMode,
   MAX_WORKFLOW_CHAIN_DEPTH,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_TYPES,
@@ -10,6 +12,7 @@ import {
   zonedWallClockToUtc
 } from "@coreai/shared";
 import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
+import { transcribeWithDeepgram, speakWithDeepgram } from "../ai-provider-engine/deepgram-stt";
 import { createTestCalendarEvent } from "./test-calendar-events";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -330,6 +333,13 @@ type RunnerNodeData = {
   llmMaxTokens?: unknown;
   llmOutputFormat?: unknown;
   llmOutputKey?: unknown;
+  audioSource?: unknown;
+  smartFormat?: unknown;
+  punctuate?: unknown;
+  diarize?: unknown;
+  textSource?: unknown;
+  text?: unknown;
+  mode?: unknown;
   telegramRecipientSource?: unknown;
   telegramChatIdExpression?: unknown;
   telegramMessageIdExpression?: unknown;
@@ -1065,6 +1075,9 @@ function shouldUseProviderEngine(node: RunnerNode, mode: WorkflowRunMode): boole
   if (type === "ai.brain") return true;
   if (type === "ai.llm_call") return true;
   if (type === "ai.image_generation") return true;
+  if (type === DEEPGRAM_NODE_TYPES.speech) return false;
+  if (type === DEEPGRAM_NODE_TYPES.stt) return false;
+  if (type === DEEPGRAM_NODE_TYPES.tts) return false;
   if (type === "ai.context_reply") return mode === "test";
   if (Boolean(asString(node.data?.provider))) return true;
   return false;
@@ -1269,6 +1282,20 @@ function seedMissedCallContext(
       body: optionalString(input?.inboundSmsBody) || "",
       attachments: input?.attachments
     };
+  }
+
+  if (Array.isArray(input?.attachments) && input.attachments.length > 0) {
+    context.attachments = input.attachments;
+    const audioAtt = input.attachments.find((att) => {
+      const mime = typeof att.mimeType === "string" ? att.mimeType.toLowerCase() : "";
+      const name = typeof att.name === "string" ? att.name.toLowerCase() : "";
+      return mime.startsWith("audio/") || /\.(wav|mp3|m4a|ogg|webm|flac)$/.test(name);
+    });
+    if (audioAtt?.data) {
+      context.audio = audioAtt.data;
+      context.audioData = audioAtt.data;
+      if (audioAtt.mimeType) context.audioMimeType = audioAtt.mimeType;
+    }
   }
 
   if (input?.appointmentStartAt) context.appointmentStartAt = input.appointmentStartAt;
@@ -4596,6 +4623,274 @@ async function executeSingleNodeInRunner(params: {
         });
         const hasErr = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
         return { logs: nodeLogs, runFailed: hasErr };
+      }
+
+      if (resolveDeepgramMode(asString(node.data?.type), asString(node.data?.mode)) === "stt") {
+        const model = asString(node.data?.model) || "nova-3";
+        const language = asString(node.data?.language) || "en";
+        const outputKey = asString(node.data?.outputKey) || "transcript";
+        const audioSource = asString(node.data?.audioSource);
+        const smartFormat = asString(node.data?.smartFormat, "true") !== "false";
+        const punctuate = asString(node.data?.punctuate, "true") !== "false";
+        const diarize = asString(node.data?.diarize, "false") === "true";
+
+        let audioBase64 = "";
+        let mimeType = "audio/wav";
+
+        const resolveAudioValue = (val: unknown): { data: string; mimeType?: string } | null => {
+          if (typeof val === "string" && val.trim()) {
+            return { data: val.trim() };
+          }
+          if (Buffer.isBuffer(val)) {
+            return { data: val.toString("base64") };
+          }
+          if (val && typeof val === "object") {
+            const rec = val as Record<string, unknown>;
+            if (typeof rec.data === "string" && rec.data.trim()) {
+              return {
+                data: rec.data.trim(),
+                mimeType: typeof rec.mimeType === "string" ? rec.mimeType : undefined
+              };
+            }
+            if (rec.type === "Buffer" && Array.isArray(rec.data)) {
+              return { data: Buffer.from(rec.data as number[]).toString("base64") };
+            }
+          }
+          return null;
+        };
+
+        if (audioSource) {
+          const resolvedKey = renderTemplate(audioSource, context).replace(/^\{\{|\}\}$/g, "").trim();
+          const fromSource =
+            resolveAudioValue(context[resolvedKey]) ??
+            resolveAudioValue(context[audioSource]) ??
+            resolveAudioValue(context[`node.${resolvedKey}`]);
+          if (fromSource) {
+            audioBase64 = fromSource.data;
+            if (fromSource.mimeType) mimeType = fromSource.mimeType;
+          }
+        }
+
+        if (!audioBase64) {
+          const fromContext =
+            resolveAudioValue(context.audio) ??
+            resolveAudioValue(context.audioData) ??
+            resolveAudioValue(context.audioBase64);
+          if (fromContext) {
+            audioBase64 = fromContext.data;
+            if (fromContext.mimeType) mimeType = fromContext.mimeType;
+          }
+        }
+
+        if (!audioBase64) {
+          const attachments = Array.isArray(context.attachments)
+            ? (context.attachments as Array<Record<string, unknown>>)
+            : Array.isArray((context.inboundSms as Record<string, unknown> | undefined)?.attachments)
+              ? ((context.inboundSms as Record<string, unknown>).attachments as Array<Record<string, unknown>>)
+              : [];
+          const audioAtt = attachments.find((att) => {
+            const mime = typeof att.mimeType === "string" ? att.mimeType.toLowerCase() : "";
+            const name = typeof att.name === "string" ? att.name.toLowerCase() : "";
+            return mime.startsWith("audio/") || /\.(wav|mp3|m4a|ogg|webm|flac)$/.test(name);
+          });
+          if (audioAtt && typeof audioAtt.data === "string") {
+            audioBase64 = audioAtt.data;
+            if (typeof audioAtt.mimeType === "string" && audioAtt.mimeType) {
+              mimeType = audioAtt.mimeType;
+            }
+          }
+        }
+
+        if (!audioBase64) {
+          // Buyer/architect text tests (Calendly sample run, chat, etc.) have no mic
+          // audio. Skip STT instead of failing the whole graph so later steps still run.
+          if (mode === "test") {
+            const fallbackText = (
+              asString(context.latestMessage) ||
+              asString(context.message) ||
+              asString(input?.latestMessage) ||
+              asString(input?.message) ||
+              asString(context.transcript) ||
+              ""
+            ).trim();
+            context.transcript = fallbackText;
+            context.confidence = null;
+            context.model = model;
+            context.language = language;
+            context[outputKey] = fallbackText;
+            context[`node.${node.id}.transcript`] = fallbackText;
+            if (fallbackText) {
+              context.lastOutput = fallbackText;
+              context.ai = { output: fallbackText };
+            }
+            if (!context.sttPipeline || typeof context.sttPipeline !== "object") {
+              context.sttPipeline = {};
+            }
+            (context.sttPipeline as Record<string, unknown>)[node.id] = {
+              label: asString(node.data?.title ?? node.data?.label, node.id),
+              transcript: fallbackText,
+              confidence: null,
+              model,
+              language,
+              skipped: true,
+              reason: "no_audio_in_test"
+            };
+            nodeLogs.push(
+              createLog(
+                node,
+                "success",
+                fallbackText
+                  ? "Skipped speech transcription (no audio in this test). Continued with the text message."
+                  : "Skipped speech transcription (no audio in this test).",
+                { model, language, outputKey, skipped: true, transcript: fallbackText }
+              )
+            );
+            return { logs: nodeLogs, runFailed: false };
+          }
+
+          nodeLogs.push(
+            createLog(
+              node,
+              "error",
+              "Deepgram STT needs audio. Upload an audio file in Test, or set Audio source to a prior step variable.",
+              { model, language, outputKey }
+            )
+          );
+          return { logs: nodeLogs, runFailed: true };
+        }
+
+        const sttResult = await transcribeWithDeepgram({
+          audioBase64,
+          mimeType,
+          model,
+          language,
+          smartFormat,
+          punctuate,
+          diarize
+        });
+
+        const transcript = sttResult.transcript;
+        context.transcript = transcript;
+        context.confidence = sttResult.confidence;
+        context.model = sttResult.model;
+        context.language = sttResult.language;
+        context[outputKey] = transcript;
+        context[`node.${node.id}.transcript`] = transcript;
+        context.lastOutput = transcript;
+        context.ai = { output: transcript };
+
+        if (!context.sttPipeline || typeof context.sttPipeline !== "object") {
+          context.sttPipeline = {};
+        }
+        (context.sttPipeline as Record<string, unknown>)[node.id] = {
+          label: asString(node.data?.title ?? node.data?.label, node.id),
+          transcript,
+          confidence: sttResult.confidence,
+          model: sttResult.model,
+          language: sttResult.language,
+          audioDurationSeconds: sttResult.audioDurationSeconds
+        };
+
+        nodeLogs.push(
+          createLog(
+            node,
+            sttResult.status === "success" ? "success" : "error",
+            sttResult.status === "success"
+              ? `Transcribed audio with Deepgram ${sttResult.model}.`
+              : sttResult.error ?? "Deepgram transcription failed.",
+            {
+              transcript,
+              confidence: sttResult.confidence,
+              model: sttResult.model,
+              language: sttResult.language,
+              outputKey
+            }
+          )
+        );
+        return { logs: nodeLogs, runFailed: sttResult.status !== "success" };
+      }
+
+      if (resolveDeepgramMode(asString(node.data?.type), asString(node.data?.mode)) === "tts") {
+        const model = asString(node.data?.model) || "aura-2-thalia-en";
+        const outputKey = asString(node.data?.outputKey) || "audio";
+        const textSource = asString(node.data?.textSource);
+        let text = renderTemplate(asString(node.data?.text), context).trim();
+
+        if (!text && textSource) {
+          const resolvedKey = renderTemplate(textSource, context).replace(/^\{\{|\}\}$/g, "").trim();
+          const fromSource =
+            asString(context[resolvedKey]) ||
+            asString(context[textSource]) ||
+            asString(context[`node.${resolvedKey}`]);
+          if (fromSource.trim()) text = fromSource.trim();
+        }
+
+        if (!text) {
+          text =
+            asString(context.transcript) ||
+            asString(context.lastOutput) ||
+            asString((context.ai as Record<string, unknown> | undefined)?.output) ||
+            asString(context.message) ||
+            asString(context.text) ||
+            "";
+          text = text.trim();
+        }
+
+        if (!text) {
+          nodeLogs.push(
+            createLog(
+              node,
+              "error",
+              "Deepgram TTS needs text. Set the Text field, text source, or feed transcript from a prior STT step.",
+              { model, outputKey }
+            )
+          );
+          return { logs: nodeLogs, runFailed: true };
+        }
+
+        const speakResult = await speakWithDeepgram({ text, model, encoding: "mp3" });
+        const dataUri = speakResult.audioBase64
+          ? `data:${speakResult.audioMimeType};base64,${speakResult.audioBase64}`
+          : "";
+
+        context.audio = speakResult.audioBase64;
+        context.audioData = speakResult.audioBase64;
+        context.audioMimeType = speakResult.audioMimeType;
+        context.audio_url = dataUri;
+        context.model = speakResult.model;
+        context.text = text;
+        context[outputKey] = speakResult.audioBase64;
+        context[`node.${node.id}.audio`] = speakResult.audioBase64;
+        context.lastOutput = text;
+
+        if (!context.ttsPipeline || typeof context.ttsPipeline !== "object") {
+          context.ttsPipeline = {};
+        }
+        (context.ttsPipeline as Record<string, unknown>)[node.id] = {
+          label: asString(node.data?.title ?? node.data?.label, node.id),
+          text,
+          model: speakResult.model,
+          audioUrl: dataUri,
+          audioMimeType: speakResult.audioMimeType
+        };
+
+        nodeLogs.push(
+          createLog(
+            node,
+            speakResult.status === "success" ? "success" : "error",
+            speakResult.status === "success"
+              ? `Synthesized speech with Deepgram ${speakResult.model}.`
+              : speakResult.error ?? "Deepgram speech synthesis failed.",
+            {
+              text,
+              model: speakResult.model,
+              audioMimeType: speakResult.audioMimeType,
+              outputKey,
+              audio: speakResult.audioBase64 ? "[Binary Audio Data]" : ""
+            }
+          )
+        );
+        return { logs: nodeLogs, runFailed: speakResult.status !== "success" };
       }
 
       if (asString(node.data?.type) === "ai.image_generation") {

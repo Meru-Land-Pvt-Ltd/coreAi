@@ -1,31 +1,13 @@
 /**
- * Deepgram Speech-to-Text Adapter
+ * Deepgram Speech Adapter (STT + TTS)
  *
- * Capability : "stt"
- * Models     : nova-3 (default), nova-2, nova-2-general, nova-2-meeting,
- *              nova-2-phonecall, nova-2-medical, enhanced, base
- * API        : https://api.deepgram.com/v1/listen  (pre-recorded, multipart/octet-stream)
- * Auth       : Authorization: Token <DEEPGRAM_API_KEY>
- *
- * Pricing (as of 2025-07) – charged per second of audio, not per token.
- *   nova-3          : $0.0059 / min
- *   nova-2-general  : $0.0043 / min
- *   base            : $0.0025 / min
- *
- * How to enable:
- *   Add DEEPGRAM_API_KEY=<your-key> to your .env file.
- *   The ProviderRegistry auto-discovers this file via the *.adapter.ts glob —
- *   no other code changes are needed.
- *
- * Supported AIExecuteRequest fields (capability = "stt"):
- *   audioData  – Buffer or base64 string (with or without data URI prefix)
- *   model      – Deepgram model ID (default: nova-3)
- *   language   – BCP-47 language tag, e.g. "en", "es", "fr" (optional)
- *   metadata   – { smart_format?: boolean; diarize?: boolean; punctuate?: boolean;
- *                  utterances?: boolean; paragraphs?: boolean; filler_words?: boolean;
- *                  mimeType?: string; }
+ * Capabilities : "stt" | "tts"
+ * STT API      : https://api.deepgram.com/v1/listen
+ * TTS API      : https://api.deepgram.com/v1/speak  (Aura / Aura-2)
+ * Auth         : Authorization: Token <DEEPGRAM_API_KEY>
  */
 
+import { DEEPGRAM_STT_MODELS, DEEPGRAM_TTS_VOICES } from "@coreai/shared";
 import type {
   AIProviderAdapter,
   AIExecuteRequest,
@@ -39,10 +21,11 @@ import type {
 import { checkEnvKey, retryOnTransient, errorResponse } from "./base-adapter";
 
 const PRICE_PER_MIN_USD: Record<string, number> = {
+  "flux-general-en": 0.0077,
+  "flux-general-multi": 0.0077,
   "nova-3": 0.0059,
   "nova-3-general": 0.0059,
   "nova-3-medical": 0.0059,
-  "nova-3-phonecall": 0.0059,
   "nova-2": 0.0043,
   "nova-2-general": 0.0043,
   "nova-2-meeting": 0.0043,
@@ -50,13 +33,42 @@ const PRICE_PER_MIN_USD: Record<string, number> = {
   "nova-2-medical": 0.0043,
   "nova-2-finance": 0.0043,
   "nova-2-conversationalai": 0.0043,
+  "nova-2-voicemail": 0.0043,
+  "nova-2-video": 0.0043,
+  "nova-2-drivethru": 0.0043,
+  "nova-2-automotive": 0.0043,
+  "nova-2-atc": 0.0043,
+  nova: 0.0043,
+  "nova-general": 0.0043,
+  "nova-phonecall": 0.0043,
+  "nova-medical": 0.0043,
   enhanced: 0.0043,
+  "enhanced-general": 0.0043,
+  "enhanced-meeting": 0.0043,
+  "enhanced-phonecall": 0.0043,
+  "enhanced-finance": 0.0043,
   base: 0.0025,
+  "base-general": 0.0025,
+  "base-meeting": 0.0025,
+  "base-phonecall": 0.0025,
+  "base-finance": 0.0025,
+  "base-conversationalai": 0.0025,
+  "base-voicemail": 0.0025,
+  "base-video": 0.0025,
+  whisper: 0.0048,
+  "whisper-tiny": 0.0048,
+  "whisper-base": 0.0048,
+  "whisper-small": 0.0048,
+  "whisper-medium": 0.0048,
+  "whisper-large": 0.0048
 };
 
 const DEFAULT_MODEL = "nova-3";
+const DEFAULT_TTS_MODEL = "aura-2-thalia-en";
 const DEEPGRAM_LISTEN_URL = "https://api.deepgram.com/v1/listen";
+const DEEPGRAM_SPEAK_URL = "https://api.deepgram.com/v1/speak";
 const BYTES_PER_SECOND = 32_000;
+const TTS_PRICE_PER_1K_CHARS_USD = 0.015;
 
 function toAudioBuffer(audioData: Buffer | string): Buffer {
   if (Buffer.isBuffer(audioData)) return audioData;
@@ -131,22 +143,13 @@ interface DeepgramListenResponse {
 
 class DeepgramAdapter implements AIProviderAdapter {
   readonly providerId = "deepgram";
-  readonly displayName = "Deepgram STT";
-  readonly capabilities: ProviderCapability[] = ["stt"];
+  readonly displayName = "Deepgram Speech";
+  readonly capabilities: ProviderCapability[] = ["stt", "tts"];
   readonly scores = {};
 
   readonly models: string[] = [
-    "nova-3",
-    "nova-3-general",
-    "nova-3-medical",
-    "nova-3-phonecall",
-    "nova-2",
-    "nova-2-general",
-    "nova-2-meeting",
-    "nova-2-phonecall",
-    "nova-2-medical",
-    "enhanced",
-    "base",
+    ...DEEPGRAM_STT_MODELS,
+    ...DEEPGRAM_TTS_VOICES
   ];
 
   async validate(): Promise<ValidationResult> {
@@ -154,6 +157,13 @@ class DeepgramAdapter implements AIProviderAdapter {
   }
 
   async execute(request: AIExecuteRequest): Promise<AIExecuteResponse> {
+    if (request.capability === "tts") {
+      return this.executeTts(request);
+    }
+    return this.executeStt(request);
+  }
+
+  private async executeStt(request: AIExecuteRequest): Promise<AIExecuteResponse> {
     const startMs = Date.now();
     const model = request.model ?? DEFAULT_MODEL;
     const meta = (request.metadata ?? {}) as Record<string, unknown>;
@@ -250,12 +260,107 @@ class DeepgramAdapter implements AIProviderAdapter {
     }
   }
 
-  // STT is stateless; just re-transcribe
+  private async executeTts(request: AIExecuteRequest): Promise<AIExecuteResponse> {
+    const startMs = Date.now();
+    const model = request.model ?? request.voice ?? DEFAULT_TTS_MODEL;
+    const text = (request.inputText ?? "").trim();
+
+    try {
+      if (!text) {
+        throw new Error("No inputText provided for Deepgram TTS.");
+      }
+
+      const apiKey = process.env["DEEPGRAM_API_KEY"]?.trim();
+      if (!apiKey) {
+        throw new Error("DEEPGRAM_API_KEY is not set.");
+      }
+
+      const meta = (request.metadata ?? {}) as Record<string, unknown>;
+      const encoding =
+        typeof meta["encoding"] === "string" ? meta["encoding"] : "mp3";
+      const params = new URLSearchParams({
+        model,
+        encoding,
+        mip_opt_out: "true",
+      });
+      const url = `${DEEPGRAM_SPEAK_URL}?${params.toString()}`;
+
+      const audioBuffer = await retryOnTransient(async () => {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Token ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ text }),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => res.statusText);
+          throw new Error(`Deepgram TTS API error ${res.status}: ${errText}`);
+        }
+
+        return Buffer.from(await res.arrayBuffer());
+      });
+
+      const mimeType =
+        encoding === "linear16" || encoding === "wav"
+          ? "audio/wav"
+          : encoding === "opus"
+            ? "audio/ogg"
+            : "audio/mpeg";
+      const totalCostUsd = (text.length / 1000) * TTS_PRICE_PER_1K_CHARS_USD;
+
+      return {
+        status: "success",
+        capability: "tts",
+        text: null,
+        structuredOutput: null,
+        audioData: audioBuffer,
+        audioMimeType: mimeType,
+        attachments: [],
+        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        cost: {
+          inputCostUsd: totalCostUsd,
+          outputCostUsd: 0,
+          totalCostUsd,
+          model,
+        },
+        conversationId: null,
+        providerMetadata: {
+          model,
+          characterCount: text.length,
+          encoding,
+        },
+        providerId: this.providerId,
+        modelName: model,
+        durationMs: Date.now() - startMs,
+        error: null,
+      };
+    } catch (err) {
+      return errorResponse(
+        this.providerId,
+        model,
+        err instanceof Error ? err.message : String(err),
+        Date.now() - startMs,
+        "tts"
+      );
+    }
+  }
+
+  // STT/TTS are stateless; re-run execute
   async continueConversation(request: AIContinueRequest): Promise<AIExecuteResponse> {
     return this.execute(request);
   }
 
   async estimateCost(request: AIExecuteRequest): Promise<CostEstimate> {
+    if (request.capability === "tts") {
+      const model = request.model ?? request.voice ?? DEFAULT_TTS_MODEL;
+      const chars = (request.inputText ?? "").length || 100;
+      const totalCostUsd = (chars / 1000) * TTS_PRICE_PER_1K_CHARS_USD;
+      return { inputCostUsd: totalCostUsd, outputCostUsd: 0, totalCostUsd, model };
+    }
+
     const model = request.model ?? DEFAULT_MODEL;
     const pricePerMin = PRICE_PER_MIN_USD[model] ?? PRICE_PER_MIN_USD[DEFAULT_MODEL]!;
 

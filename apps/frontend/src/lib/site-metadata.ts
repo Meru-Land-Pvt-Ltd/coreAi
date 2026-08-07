@@ -66,7 +66,7 @@ export function buildRootMetadata(): Metadata {
   return {
     metadataBase: siteUrl,
     title: {
-      default: `${SITE_NAME} — ${SITE_TAGLINE}`,
+      default: `${SITE_NAME} - ${SITE_TAGLINE}`,
       template: `%s | ${SITE_NAME}`
     },
     description: SITE_DESCRIPTION,
@@ -94,12 +94,12 @@ export function buildRootMetadata(): Metadata {
       locale: "en_US",
       url: siteUrl,
       siteName: SITE_NAME,
-      title: `${SITE_NAME} — ${SITE_TAGLINE}`,
+      title: `${SITE_NAME} - ${SITE_TAGLINE}`,
       description: SITE_DESCRIPTION
     },
     twitter: {
       card: "summary",
-      title: `${SITE_NAME} — ${SITE_TAGLINE}`,
+      title: `${SITE_NAME} - ${SITE_TAGLINE}`,
       description: SITE_DESCRIPTION
     },
     robots: {

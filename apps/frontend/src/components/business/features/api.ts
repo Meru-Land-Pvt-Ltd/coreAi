@@ -879,6 +879,47 @@ export function sendBusinessTestSms(body: { to: string; message?: string }) {
   return apiPost<TestSmsResult>("/business/setup/test-sms", body);
 }
 
+export type BusinessDeepgramTranscribeResult = {
+  status: "success" | "error";
+  transcript: string;
+  confidence: number | null;
+  model: string;
+  language: string;
+  audioDurationSeconds: number | null;
+  error: string | null;
+  providerId: string;
+};
+
+export function testBusinessDeepgramTranscription(body: {
+  audioBase64: string;
+  mimeType?: string;
+  model?: string;
+  language?: string;
+  smartFormat?: boolean;
+  punctuate?: boolean;
+  diarize?: boolean;
+}) {
+  return apiPost<BusinessDeepgramTranscribeResult>("/business/setup/test-deepgram", body);
+}
+
+export type BusinessDeepgramSpeakResult = {
+  status: "success" | "error";
+  audioBase64: string;
+  audioMimeType: string;
+  model: string;
+  characterCount: number;
+  error: string | null;
+  providerId: string;
+};
+
+export function testBusinessDeepgramSpeak(body: {
+  text: string;
+  model?: string;
+  encoding?: string;
+}) {
+  return apiPost<BusinessDeepgramSpeakResult>("/business/setup/test-deepgram-speak", body);
+}
+
 /** Browser preview call session for the setup wizard's Test step. */
 export type BusinessPreviewCallSession = {
   publicKey: string;
