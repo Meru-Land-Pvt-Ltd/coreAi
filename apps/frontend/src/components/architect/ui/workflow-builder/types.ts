@@ -76,6 +76,12 @@ export type BuilderNodeData = Record<string, unknown> & {
   llmMaxTokens?: string;
   llmOutputFormat?: string;
   llmOutputKey?: string;
+  audioSource?: string;
+  smartFormat?: string;
+  punctuate?: string;
+  diarize?: string;
+  textSource?: string;
+  mode?: string;
   telegramBotNameTemplate?: string;
   telegramBotDescription?: string;
   telegramBotShortDescription?: string;

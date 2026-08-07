@@ -570,6 +570,9 @@ const INCLUDED_FEATURE_BY_NODE_TYPE: Record<string, string> = {
   "ai.llm_call": "Custom AI text generation & reasoning",
   "ai.memory": "Long-term conversation memory",
   "ai.image_generation": "AI image generation",
+  "ai.deepgram": "Speech transcription & voice (Deepgram)",
+  "ai.deepgram_stt": "Speech-to-text transcription (Deepgram)",
+  "ai.deepgram_tts": "Text-to-speech voice (Deepgram Aura)",
   "calendar.availability": "Real-time calendar availability check",
   "action.google_calendar_availability": "Real-time Google Calendar slot checking",
   "calendar.book_appointment": "Automated appointment booking",
@@ -604,6 +607,9 @@ const INCLUDED_FEATURE_BY_NODE_TYPE: Record<string, string> = {
 /** Keyword fallback for node types/connectors without an exact mapping. */
 function includedFeatureFallback(nodeType: string, connector: string, title?: string, label?: string): string | null {
   const haystack = `${nodeType} ${connector} ${title ?? ""} ${label ?? ""}`.toLowerCase();
+  if (haystack.includes("deepgram") || haystack.includes("speech_to_text") || haystack.includes("stt")) {
+    return "Speech-to-text transcription";
+  }
   if (haystack.includes("whatsapp")) return "Automated WhatsApp messaging & engagement";
   if (haystack.includes("sms")) return "Automated SMS confirmation & updates";
   if (haystack.includes("telegram")) return "Telegram customer service & messaging";
@@ -1232,6 +1238,9 @@ export function getConnectorIncludedItem(connector: string): string {
   }
   if (key === "elevenlabs") {
     return "Realistic voice generation";
+  }
+  if (key === "deepgram") {
+    return "Speech transcription & Deepgram voice";
   }
 
   const formatted = connector

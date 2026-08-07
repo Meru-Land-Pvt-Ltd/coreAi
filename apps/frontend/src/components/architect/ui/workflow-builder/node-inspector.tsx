@@ -3,6 +3,7 @@ import {
   CALENDLY_NODE_TYPES,
   CALENDLY_TRIGGER_EVENTS,
   calendlyActionPaidPlanNote,
+  DEEPGRAM_NODE_TYPES,
   EMAIL_TEMPLATE_VARIABLES,
   LLM_PROVIDERS,
   TELEGRAM_NODE_TYPES,
@@ -29,6 +30,8 @@ import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppI
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
 import { LlmNodeInspector } from "./llm-node-inspector";
+import { DeepgramNodeInspector } from "./deepgram-node-inspector";
+import { DeepgramTtsNodeInspector } from "./deepgram-tts-node-inspector";
 import { isProviderDisabled, useLlmAvailability } from "./use-llm-availability";
 import {
   useCalendlyAvailableTimeOptions,
@@ -132,6 +135,11 @@ export function NodeInspector({
   let panel: ReactNode;
 
   if (type === "ai.image_generation") panel = <ImageGenNodeProps {...base} />;
+  else if (type === DEEPGRAM_NODE_TYPES.stt || (type === DEEPGRAM_NODE_TYPES.speech && String(selectedNode.data.mode ?? "stt") !== "tts")) {
+    panel = <DeepgramNodeInspector {...base} />;
+  } else if (type === DEEPGRAM_NODE_TYPES.tts || (type === DEEPGRAM_NODE_TYPES.speech && String(selectedNode.data.mode ?? "") === "tts")) {
+    panel = <DeepgramTtsNodeInspector {...base} />;
+  }
   else if (type === "ai.llm_call") panel = <LlmNodeInspector {...base} />;
   else if (type === "ai.memory") panel = <MemoryNodeProps {...base} />;
   else if (type === TELEGRAM_NODE_TYPES.trigger) panel = <TelegramTriggerProps {...base} />;

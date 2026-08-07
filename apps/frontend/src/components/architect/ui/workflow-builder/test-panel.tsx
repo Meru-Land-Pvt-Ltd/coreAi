@@ -1,4 +1,7 @@
-import { COMMON_TIMEZONES, calendlyActionPaidPlanNote, describeZonedTime, isValidTimeZone } from "@coreai/shared";
+import { COMMON_TIMEZONES, calendlyActionPaidPlanNote, describeZonedTime, isValidTimeZone, resolveDeepgramMode } from "@coreai/shared";
+import { DeepgramSttTestCard } from "@/components/common/deepgram-stt-test-card";
+import { DeepgramTtsTestCard } from "@/components/common/deepgram-tts-test-card";
+import { speakArchitectDeepgram } from "@/components/architect/features/api";
 import type {
   ArchitectConversationMessage,
   ArchitectConversationToolCall,
@@ -7,10 +10,10 @@ import type {
   ArchitectVapiBrowserTestSession,
   WorkflowRunLog
 } from "@/components/architect/features/types";
-import type { AIAttachment } from "./types";
+import type { AIAttachment, BuilderNode } from "./types";
 import { BuilderIcon } from "./icons";
 import { logColor, formatRunLogOutputFields } from "./run-context";
-import { getCalendarAppointment, getCalendlyResult, getCapturedLead, getDraftEmail, getGmailRead, getSentEmail, getSentSms, getVapiCall } from "./run-context";
+import { getCalendarAppointment, getCalendlyResult, getCapturedLead, getDeepgramSttResults, getDeepgramTtsResults, getDraftEmail, getGmailRead, getSentEmail, getSentSms, getVapiCall } from "./run-context";
 import { BrowserVoiceCallTest } from "./browser-voice-call-test";
 import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
 import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
@@ -30,7 +33,58 @@ import {
 import { marked } from "marked";
 import type { CalendlyPickerOption } from "@/components/architect/features/types";
 import type { ArchitectTelegramTestConnection } from "@/components/architect/features/api";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+
+type TestPanelSectionKey = "trigger" | "stt" | "tts" | "calendly" | "llm" | "image" | "voice" | "email" | "sms" | "vapi";
+
+function nodeTypeOf(node: BuilderNode): string {
+  return String(node.data?.type ?? node.type ?? "").toLowerCase();
+}
+
+function isTriggerLikeNode(node: BuilderNode): boolean {
+  const type = nodeTypeOf(node);
+  const kind = String(node.data?.nodeKind ?? "").toLowerCase();
+  return kind === "trigger" || type.startsWith("trigger.") || type === "manual_trigger" || type === "manual";
+}
+
+/** Canvas order: top-to-bottom, then left-to-right. */
+function sortNodesByCanvas(nodes: BuilderNode[]): BuilderNode[] {
+  return [...nodes].sort((a, b) => {
+    const dy = (a.position?.y ?? 0) - (b.position?.y ?? 0);
+    if (Math.abs(dy) > 8) return dy;
+    return (a.position?.x ?? 0) - (b.position?.x ?? 0);
+  });
+}
+
+function buildTestSectionOrder(nodes: BuilderNode[]): TestPanelSectionKey[] {
+  const ordered = sortNodesByCanvas(nodes);
+  const sections: TestPanelSectionKey[] = [];
+  const pushUnique = (key: TestPanelSectionKey) => {
+    if (!sections.includes(key)) sections.push(key);
+  };
+
+  // Always start with trigger when any trigger-like node exists (or always for dry-test inputs).
+  if (ordered.some(isTriggerLikeNode) || ordered.length > 0) {
+    pushUnique("trigger");
+  }
+
+  for (const node of ordered) {
+    if (isTriggerLikeNode(node)) continue;
+    const type = nodeTypeOf(node);
+    const mode = typeof node.data?.mode === "string" ? node.data.mode : undefined;
+    const deepgramMode = resolveDeepgramMode(type, mode);
+    if (deepgramMode === "stt") pushUnique("stt");
+    else if (deepgramMode === "tts") pushUnique("tts");
+    else if (type.includes("calendly")) pushUnique("calendly");
+    else if (type === "ai.llm_call" || type.includes("llm")) pushUnique("llm");
+    else if (type.includes("image")) pushUnique("image");
+    else if (type.includes("email") || type.includes("gmail")) pushUnique("email");
+    else if (type.includes("sms") || type.includes("twilio")) pushUnique("sms");
+    else if (type.includes("voice") || type.includes("vapi") || type.includes("phone")) pushUnique("voice");
+  }
+
+  return sections.length > 0 ? sections : ["trigger"];
+}
 
 export type TelegramCommandField =
   | "telegramBookingMode"
@@ -210,11 +264,15 @@ export function TestPanel({
   conversationToolCalls,
   chatting,
   triggerMessage,
-  triggerAttachments,
   isManualTriggerWorkflow = false,
   isMissedCallWorkflow = false,
   isSmsWorkflow = false,
   isTelegramWorkflow = false,
+  hasDeepgram = false,
+  hasDeepgramStt = false,
+  hasDeepgramTts = false,
+  workflowNodes = [],
+  dryRunConfigureHints = [],
   telegramTestConnection = null,
   connectingTelegramTest = false,
   syncingTelegramTest = false,
@@ -352,6 +410,11 @@ export function TestPanel({
   isMissedCallWorkflow?: boolean;
   isSmsWorkflow?: boolean;
   isTelegramWorkflow?: boolean;
+  hasDeepgram?: boolean;
+  hasDeepgramStt?: boolean;
+  hasDeepgramTts?: boolean;
+  workflowNodes?: BuilderNode[];
+  dryRunConfigureHints?: string[];
   telegramTestConnection?: ArchitectTelegramTestConnection | null;
   connectingTelegramTest?: boolean;
   syncingTelegramTest?: boolean;
@@ -436,6 +499,8 @@ export function TestPanel({
   const vapiCall = getVapiCall(runContext);
   const calendarAppointment = getCalendarAppointment(runContext);
   const calendlyResult = getCalendlyResult(runContext);
+  const deepgramSttResults = getDeepgramSttResults(runContext);
+  const deepgramTtsResults = getDeepgramTtsResults(runContext);
 
   // Voice booking workflow results (set by the runner from node capabilities).
   const voiceConversation = runContext.voiceConversation as
@@ -471,12 +536,19 @@ export function TestPanel({
       gmailRead ||
       vapiCall ||
       calendarAppointment ||
+      (needsCalendlyConnection && calendlyResult) ||
+      (hasDeepgramStt && deepgramSttResults.length > 0) ||
+      (hasDeepgramTts && deepgramTtsResults.length > 0) ||
       hasVoiceResult ||
       hasImagePipeline ||
       hasLlmPipeline
   );
 
   const sandboxReady = testDeployment?.status === "READY";
+  const testSectionOrder = useMemo(
+    () => buildTestSectionOrder(workflowNodes),
+    [workflowNodes]
+  );
 
   // Exact interpreted date/time preview in the selected test timezone —
   // computed with the same shared conversion the backend uses.
@@ -518,8 +590,8 @@ export function TestPanel({
             ? "Test Telegram Agent"
             : needsWhatsAppConnection
               ? "Test WhatsApp Agent"
-              : needsCalendlyConnection
-                ? "Test Calendly Agent"
+              : needsCalendlyConnection || hasDeepgramStt || hasDeepgramTts
+                ? "Test agent"
                 : "Test console";
 
   // Field visibility driven by live canvas node capabilities (no theme changes).
@@ -713,6 +785,23 @@ export function TestPanel({
           </div>
         </div>
 
+        {dryRunConfigureHints.length > 0 ? (
+          <div
+            className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4"
+            data-testid="builder-test-configure-hints"
+          >
+            <p className="text-sm font-bold text-amber-900">Complete this before running the dry test</p>
+            <ul className="mt-2 space-y-1.5">
+              {dryRunConfigureHints.map((hint) => (
+                <li key={hint} className="flex items-start gap-2 text-sm text-amber-900/90">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+                  <span>{hint}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         {sandboxReady ? (
           <div className="shadow-soft mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 sm:p-6" data-testid="builder-test-live-sandbox-ready">
             <p className="text-sm font-bold text-emerald-800" data-testid="builder-test-live-sandbox-ready-title">Live sandbox ready</p>
@@ -730,21 +819,21 @@ export function TestPanel({
           </div>
         ) : null}
 
-        <div className="shadow-soft mt-5 rounded-2xl border border-gray-100 bg-white p-5 sm:p-6">
+        <div className="shadow-soft mt-5 rounded-2xl border border-gray-100 bg-white p-5 sm:p-6" data-testid="builder-test-trigger-section">
           <h3 className="mb-5 text-[13px] font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-simulate-a-missed-call-heading">
             {isVoiceWorkflow
-              ? "Simulate an inbound call"
+              ? "Trigger — inbound call"
               : isMissedCallWorkflow
-                ? "Simulate a missed call"
+                ? "Trigger — missed call"
                 : isSmsWorkflow
-                  ? "Simulate an inbound SMS"
+                  ? "Trigger — inbound SMS"
                   : isTelegramWorkflow
-                    ? "Live Telegram test context"
+                    ? "Trigger — Telegram"
                     : hasWhatsAppTrigger
-                      ? "Simulate a WhatsApp message"
+                      ? "Trigger — WhatsApp"
                       : needsCalendlyConnection
-                        ? "Calendly request data"
-                        : "Simulate a customer event"}
+                        ? "Trigger — Calendly"
+                        : "Trigger"}
           </h3>
           {isTelegramWorkflow ? (
             <div className="mb-5 rounded-xl border border-sky-100 bg-sky-50/70 px-4 py-3 text-sm leading-6 text-sky-900" data-testid="builder-test-telegram-live-instructions">
@@ -1447,6 +1536,52 @@ export function TestPanel({
           </div>
         </div>
 
+        {testSectionOrder
+          .filter((section) => section === "stt" || section === "tts")
+          .map((section) => {
+            if (section === "stt" && hasDeepgramStt) {
+              return (
+                <div key="test-section-stt" className="mt-5" data-testid="builder-test-deepgram-stt-section">
+                  <DeepgramSttTestCard
+                    testIdPrefix="architect-deepgram"
+                    title="Try transcription"
+                    description="Tap the microphone and speak. Your words appear live as you talk."
+                    livePath="/architect/ai/deepgram/live"
+                    onAudioCaptured={(audio) => {
+                      onTriggerAttachmentsChange([
+                        {
+                          name: audio.name,
+                          mimeType: audio.mimeType,
+                          data: audio.data
+                        }
+                      ]);
+                    }}
+                  />
+                </div>
+              );
+            }
+            if (section === "tts" && hasDeepgramTts) {
+              return (
+                <div key="test-section-tts" className="mt-5" data-testid="builder-test-deepgram-tts-section">
+                  <DeepgramTtsTestCard
+                    testIdPrefix="architect-deepgram"
+                    title="Try voice"
+                    description="Enter a short message and play how it sounds."
+                    onSpeak={async (input) => {
+                      const response = await speakArchitectDeepgram(input);
+                      return {
+                        success: response.success,
+                        data: response.data ?? null,
+                        error: response.error
+                      };
+                    }}
+                  />
+                </div>
+              );
+            }
+            return null;
+          })}
+
         {needsAnyTestConnection ? (
           <div className="shadow-soft mt-5 rounded-2xl border border-gray-100 bg-white p-5 sm:p-6" data-testid="builder-test-connections">
             <div className="mb-1 flex items-center justify-between gap-3">
@@ -2078,324 +2213,381 @@ export function TestPanel({
         ) : null}
 
         {hasResult ? (
-          <div className="mt-5 pb-2">
-            <h3 className="mb-3 text-[13px] font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-has-gmail-flow-email-result-message-the-heading">
-              {hasImagePipeline
-                ? "Generated Image Results"
-                : hasLlmPipeline
-                  ? "LLM Pipeline Results"
-                  : hasVoiceResult
-                    ? "Voice booking result"
-                    : hasGmailFlow
-                      ? "Email result"
-                      : calendlyResult
-                        ? "Calendly result"
-                        : "Message preview"}
+          <div className="mt-5 space-y-5 pb-2" data-testid="test-panel-results-by-node">
+            <h3
+              className="text-[13px] font-bold uppercase tracking-wider text-slate-400"
+              data-testid="architect-ui-workflow-builder-test-panel-has-gmail-flow-email-result-message-the-heading"
+            >
+              Results
             </h3>
-            <div className="shadow-soft flex items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 sm:p-6 min-w-0 max-w-full overflow-hidden">
+
+            {needsCalendlyConnection && calendlyResult ? (
               <div
-                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                  hasImagePipeline || hasLlmPipeline
-                    ? "bg-violet-50 text-violet-600"
-                    : calendlyResult
-                      ? "bg-sky-50 text-[#006BFF]"
-                      : "bg-green-50 text-green-600"
-                }`}
+                className="shadow-soft rounded-2xl border border-gray-100 bg-white p-5 sm:p-6"
+                data-testid="test-panel-calendly-result"
               >
-                <BuilderIcon
-                  name={
-                    hasImagePipeline
-                      ? "image"
-                      : hasLlmPipeline
-                        ? "sparkles"
-                        : hasVoiceResult
-                          ? "phone-call"
-                          : hasGmailFlow
-                            ? "mail"
-                            : calendlyResult
-                              ? "calendly"
-                              : "message"
-                  }
-                  className="h-5 w-5"
-                />
-              </div>
-              <div className="flex-1 min-w-0 max-w-full">
-                {hasImagePipeline ? (
-                  <div className="space-y-4 min-w-0 max-w-full" data-testid="test-panel-image-pipeline-results">
-                    <div className="min-w-0 max-w-full">
-                      {(() => {
-                        const rawPipeline = runContext.imagePipeline && typeof runContext.imagePipeline === "object"
-                          ? Object.values(runContext.imagePipeline as Record<string, any>)
-                          : [];
-
-                        const steps = rawPipeline.length > 0
-                          ? rawPipeline
-                          : [{
-                              label: "Image Generation",
-                              imageUrl: typeof runContext.image_url === "string"
-                                ? runContext.image_url
-                                : typeof runContext.image === "string"
-                                  ? runContext.image
-                                  : (runContext.image && (runContext.image as any)?.type === "Buffer" && Array.isArray((runContext.image as any)?.data))
-                                    ? `data:image/png;base64,${Buffer.from((runContext.image as any).data).toString("base64")}`
-                                    : "",
-                              prompt: typeof runContext.prompt === "string" ? runContext.prompt : "",
-                              model: typeof runContext.model === "string" ? runContext.model : ""
-                            }];
-
-                        return steps.map((step, idx) => {
-                          const imgSrc = step.imageUrl || (typeof step.image === "string" ? step.image : "");
-                          return (
-                            <div key={idx} className="mb-4 last:mb-0 rounded-2xl border border-violet-100 bg-violet-50/10 p-5 min-w-0 max-w-full overflow-hidden shadow-xs">
-                              <div className="flex items-center justify-between border-b border-violet-100 pb-3 gap-2 flex-wrap sm:flex-nowrap">
-                                <span className="text-xs font-bold text-violet-950 truncate min-w-0">{step.label || "Generated Image"}</span>
-                                {step.model ? (
-                                  <span className="font-mono text-[10px] font-semibold text-violet-700 bg-violet-100/80 px-2.5 py-1 rounded-full shrink-0">
-                                    {step.model}
-                                  </span>
-                                ) : null}
-                              </div>
-
-                              {imgSrc ? (
-                                <div className="mt-4 space-y-3">
-                                  <div className="relative group max-w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-900/5 p-1 shadow-sm flex items-center justify-center">
-                                    <img
-                                      src={imgSrc}
-                                      alt={step.prompt || "Generated image preview"}
-                                      className="max-h-80 w-auto rounded-lg object-contain"
-                                    />
-                                  </div>
-
-                                  <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap pt-1">
-                                    {step.prompt ? (
-                                      <p className="text-xs text-slate-600 italic flex-1 min-w-0 break-words">&ldquo;{step.prompt}&rdquo;</p>
-                                    ) : <span className="flex-1" />}
-
-                                    <a
-                                      href={imgSrc}
-                                      download={`generated-image-${idx + 1}.png`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      data-testid="test-panel-download-image-btn"
-                                      className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-violet-700 shadow-sm shrink-0"
-                                    >
-                                      <BuilderIcon name="image" className="h-3.5 w-3.5" />
-                                      Download Image
-                                    </a>
-                                  </div>
-                                </div>
-                              ) : (
-                                <p className="mt-3 text-xs text-slate-500">Image buffer generated successfully.</p>
-                              )}
-                            </div>
-                          );
-                        });
-                      })()}
-                    </div>
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-[#006BFF]">
+                    <BuilderIcon name="calendly" className="h-5 w-5" />
                   </div>
-                ) : hasLlmPipeline ? (
-                  <div className="space-y-4 min-w-0 max-w-full" data-testid="test-panel-llm-pipeline-results">
-                    {Object.values(runContext.llmPipeline as Record<string, any>).map((step, idx) => (
-                      <div
-                        key={idx}
-                        className="mb-3 last:mb-0 overflow-hidden rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50/60 to-white p-4 shadow-xs min-w-0 max-w-full"
-                      >
-                        <div className="flex items-center justify-between gap-2 border-b border-violet-100 pb-3 flex-wrap sm:flex-nowrap">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
-                              <BuilderIcon name="sparkles" className="h-4 w-4" />
-                            </span>
-                            <span className="truncate text-sm font-bold text-violet-950">
-                              {step.label || "LLM Step"}
-                            </span>
-                          </div>
-                          {step.providerId || step.modelName ? (
-                            <span className="shrink-0 rounded-full bg-violet-100/80 px-2.5 py-1 font-mono text-[10px] font-semibold text-violet-700">
-                              {[step.providerId, step.modelName].filter(Boolean).join(" · ")}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="mt-3 rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-relaxed text-slate-700 shadow-sm ring-1 ring-violet-100/80 min-w-0 max-w-full overflow-x-auto break-words [overflow-wrap:anywhere]">
-                          <Markdown content={typeof step.output === "string" ? step.output : String(step.output ?? "")} />
-                        </div>
-                      </div>
-                    ))}
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Calendly</p>
+                    <p className="text-xs text-slate-500">
+                      {calendlyResult.actionLabel || "Scheduling"}
+                    </p>
                   </div>
-                ) : hasVoiceResult ? (
-                  <div className="space-y-2" data-testid="test-panel-voice-result">
-                    {voiceConversation ? (
-                      <div data-testid="test-panel-voice-conversation-preview">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-600">Voice conversation preview</p>
-                        <p className="mt-0.5 text-sm leading-relaxed text-slate-700">&ldquo;{voiceConversation.firstMessage}&rdquo;</p>
-                        <p className="mt-1 font-mono text-[11px] text-slate-400">
-                          {[voiceConversation.practiceName, voiceConversation.doctorName].filter(Boolean).join(" · ")}
-                          {voiceConversation.voice ? ` · ${voiceConversation.voice}/${voiceConversation.model}` : ""}
-                        </p>
-                      </div>
-                    ) : null}
-                    {calendarAvailability ? (
-                      <p className="font-mono text-xs text-blue-500" data-testid="test-panel-calendar-result">
-                        Calendar result: {calendarAvailability.source === "calendar" ? "checked Google Calendar" : "demo slots"}
-                        {calendarAvailability.slots?.length ? ` — ${calendarAvailability.slots.join(", ")}` : ""}
-                        {calendarAvailability.calendar_status ? ` (${calendarAvailability.calendar_status})` : ""}
-                      </p>
-                    ) : null}
-                    {calendarAppointment ? (
-                      <div data-testid="test-panel-appointment-result">
-                        <p className={`font-mono text-xs ${calendarAppointment.status === "FAILED" ? "text-rose-500" : "text-blue-500"}`}>
-                          Appointment result:{" "}
-                          {calendarAppointment.status === "CREATED"
-                            ? "test event created on your calendar"
-                            : calendarAppointment.status === "DELETED"
-                              ? "test event deleted"
-                              : calendarAppointment.status === "FAILED"
-                                ? `failed (${calendarAppointment.errorCode || "calendar error"})`
-                                : calendarAppointment.id
-                                  ? "booked"
-                                  : "simulated (no live calendar write)"}{" "}
-                          — {calendarAppointment.summary}
-                        </p>
-                        {calendarAppointment.status === "FAILED" && calendarAppointment.remediation ? (
-                          <p className="mt-1 font-mono text-xs text-rose-400" data-testid="test-panel-appointment-remediation">
-                            {calendarAppointment.remediation}
-                          </p>
+                </div>
+                <div className="space-y-3 min-w-0 max-w-full">
+                  {(calendlyResult.calendlyEvent || calendlyResult.inviteeName || calendlyResult.meetingName) ? (
+                    <div className="rounded-xl border border-sky-100 bg-sky-50/30 p-4" data-testid="test-panel-calendly-trigger-preview">
+                      <p className="text-sm font-semibold text-slate-800">
+                        {calendlyResult.meetingName || "Calendly meeting"}
+                        {calendlyResult.calendlyEvent ? (
+                          <span className="ml-2 text-xs font-medium text-slate-500">
+                            ({calendlyResult.calendlyEvent.replace(/_/g, " ")})
+                          </span>
                         ) : null}
-                        {calendarAppointment.htmlLink || calendarAppointment.testEventId ? (
-                          <span className="mt-1.5 flex items-center gap-2">
-                            {calendarAppointment.htmlLink ? (
-                              <a
-                                href={calendarAppointment.htmlLink}
-                                target="_blank"
-                                rel="noreferrer"
-                                data-testid="test-panel-appointment-link"
-                                className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-gray-50"
-                              >
-                                Open in Google Calendar
-                              </a>
-                            ) : null}
-                            {calendarAppointment.testEventId && calendarAppointment.status === "CREATED" ? (
-                              <button
-                                type="button"
-                                onClick={() => onDeleteTestEvent?.(calendarAppointment.testEventId!)}
-                                disabled={deletingTestEvent}
-                                data-testid="test-panel-appointment-delete"
-                                className="rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-60"
-                              >
-                                {deletingTestEvent ? "Deleting..." : "Delete test event"}
-                              </button>
-                            ) : null}
+                      </p>
+                      {calendlyResult.inviteeName || calendlyResult.inviteeEmail ? (
+                        <p className="mt-1 text-[13px] text-slate-600">
+                          Invitee: {[calendlyResult.inviteeName, calendlyResult.inviteeEmail].filter(Boolean).join(" · ")}
+                        </p>
+                      ) : null}
+                      {calendlyResult.startTime ? (
+                        <p className="mt-1 text-[13px] text-slate-500">
+                          {formatCalendlyPreviewTime(calendlyResult.startTime)}
+                          {calendlyResult.endTime
+                            ? ` → ${formatCalendlyPreviewTime(calendlyResult.endTime)}`
+                            : ""}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {calendlyResult.action ||
+                  calendlyResult.fields.length > 0 ||
+                  calendlyResult.items.length > 0 ||
+                  calendlyResult.summary ? (
+                    <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4" data-testid="test-panel-calendly-action-preview">
+                      <p className="text-sm font-semibold text-slate-800" data-testid="test-panel-calendly-action-summary">
+                        {calendlyResult.summary || "Calendly action completed."}
+                      </p>
+                      {calendlyResult.fields.length > 0 ? (
+                        <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                          {calendlyResult.fields.map((field) => (
+                            <div key={`${field.label}-${field.value}`} className="rounded-lg bg-white px-3 py-2 ring-1 ring-slate-100">
+                              <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{field.label}</dt>
+                              <dd className="mt-0.5 break-words text-[13px] text-slate-700">{field.value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      ) : null}
+                      {calendlyResult.items.length > 0 ? (
+                        <ul className="mt-3 space-y-2" data-testid="test-panel-calendly-action-items">
+                          {calendlyResult.items.map((item, index) => (
+                            <li
+                              key={`${item.title}-${index}`}
+                              className="rounded-lg border border-gray-100 bg-white px-3 py-2"
+                            >
+                              <p className="text-[13px] font-medium text-slate-800">{item.title}</p>
+                              {item.detail ? (
+                                <p className="mt-0.5 text-[12px] text-slate-500">{item.detail}</p>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {hasDeepgramStt && deepgramSttResults.length > 0 ? (
+              <div
+                className="shadow-soft rounded-2xl border border-gray-100 bg-white p-5 sm:p-6"
+                data-testid="test-panel-deepgram-stt-results"
+              >
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                    <BuilderIcon name="mic" className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Transcription</p>
+                    <p className="text-xs text-slate-500">From speech-to-text</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {deepgramSttResults.map((result) => (
+                    <div
+                      key={`stt-${result.nodeId}`}
+                      className="rounded-xl border border-slate-100 bg-slate-50/80 p-4"
+                      data-testid={`test-panel-deepgram-stt-result-${result.nodeId}`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-800">{result.label}</p>
+                        {result.model ? (
+                          <span className="rounded-full bg-white px-2.5 py-1 font-mono text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200">
+                            {result.model}
                           </span>
                         ) : null}
                       </div>
-                    ) : null}
-                    {smsNotification ? (
-                      <p className="font-mono text-xs text-green-500" data-testid="test-panel-sms-notification-result">
-                        SMS notification result: dry run — {[smsNotification.sendToPatient ? "customer" : null, smsNotification.sendToDentist ? "team" : null].filter(Boolean).join(" + ") || "no recipients"}
+                      <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">
+                        {result.transcript}
                       </p>
-                    ) : null}
-                  </div>
-                ) : hasGmailFlow ? (
-                  <EmailResult draftEmail={draftEmail} sentEmail={sentEmail} gmailRead={gmailRead} />
-                ) : calendlyResult ? (
-                  <div className="space-y-3 min-w-0 max-w-full" data-testid="test-panel-calendly-result">
-                    {(calendlyResult.calendlyEvent || calendlyResult.inviteeName || calendlyResult.meetingName) ? (
-                      <div className="rounded-xl border border-sky-100 bg-sky-50/30 p-4" data-testid="test-panel-calendly-trigger-preview">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#006BFF]">
-                          Trigger
-                        </p>
-                        <p className="mt-1 text-sm font-semibold text-slate-800">
-                          {calendlyResult.meetingName || "Calendly meeting"}
-                          {calendlyResult.calendlyEvent ? (
-                            <span className="ml-2 text-xs font-medium text-slate-500">
-                              ({calendlyResult.calendlyEvent.replace(/_/g, " ")})
-                            </span>
-                          ) : null}
-                        </p>
-                        {calendlyResult.inviteeName || calendlyResult.inviteeEmail ? (
-                          <p className="mt-1 text-[13px] text-slate-600">
-                            Invitee: {[calendlyResult.inviteeName, calendlyResult.inviteeEmail].filter(Boolean).join(" · ")}
-                          </p>
-                        ) : null}
-                        {calendlyResult.startTime ? (
-                          <p className="mt-1 text-[13px] text-slate-500">
-                            {formatCalendlyPreviewTime(calendlyResult.startTime)}
-                            {calendlyResult.endTime
-                              ? ` → ${formatCalendlyPreviewTime(calendlyResult.endTime)}`
-                              : ""}
-                          </p>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {calendlyResult.action ||
-                    calendlyResult.fields.length > 0 ||
-                    calendlyResult.items.length > 0 ||
-                    calendlyResult.summary ? (
-                      <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-4" data-testid="test-panel-calendly-action-preview">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          {calendlyResult.actionLabel || "Action result"}
-                        </p>
-                        <p className="mt-1 text-sm font-semibold text-slate-800" data-testid="test-panel-calendly-action-summary">
-                          {calendlyResult.summary || "Calendly action completed."}
-                        </p>
-                        {calendlyResult.fields.length > 0 ? (
-                          <dl className="mt-3 space-y-2" data-testid="test-panel-calendly-action-fields">
-                            {calendlyResult.fields.map((field) => (
-                              <div key={`${field.label}-${field.value}`} className="flex gap-3 text-[13px]">
-                                <dt className="w-24 shrink-0 font-medium text-slate-500">{field.label}</dt>
-                                <dd className="min-w-0 break-words text-slate-800">
-                                  {looksLikeUrl(field.value) ? (
-                                    <a
-                                      href={field.value}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="text-[#006BFF] underline-offset-2 hover:underline"
-                                    >
-                                      {field.value}
-                                    </a>
-                                  ) : (
-                                    field.value
-                                  )}
-                                </dd>
-                              </div>
-                            ))}
-                          </dl>
-                        ) : null}
-                        {calendlyResult.items.length > 0 ? (
-                          <ul className="mt-3 space-y-2" data-testid="test-panel-calendly-action-items">
-                            {calendlyResult.items.map((item, index) => (
-                              <li
-                                key={`${item.title}-${index}`}
-                                className="rounded-lg border border-gray-100 bg-white px-3 py-2"
-                              >
-                                <p className="text-[13px] font-medium text-slate-800">{item.title}</p>
-                                {item.detail ? (
-                                  <p className="mt-0.5 text-[12px] text-slate-500">{item.detail}</p>
-                                ) : null}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <>
-                    <div className="inline-block max-w-md rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
-                      {sentSms?.body ? (
-                        <Markdown content={sentSms.body} />
-                      ) : (
-                        "Run a test to preview the outgoing message."
-                      )}
                     </div>
-                    <p className="mt-2 font-mono text-xs text-slate-400" data-testid="architect-ui-workflow-builder-test-panel-sent-sms-provider-called-sent-sms-twilio-text">
-                      {sentSms?.providerCalled ? (sentSms.twilioTestMode ? "Twilio test accepted" : "Delivered") : "Dry run"} - {sentSms?.body?.length ?? 142} characters - est. cost $0.15
-                    </p>
-                    {vapiCall ? <p className="mt-2 font-mono text-xs text-violet-500" data-testid="architect-ui-workflow-builder-test-panel-vapi-voice-vapi-call-provider-called-started-text">Vapi voice: {vapiCall.providerCalled ? "Started" : "Dry run"} {vapiCall.status ? `- ${vapiCall.status}` : ""}</p> : null}
-                    {calendarAppointment ? <p className="mt-2 font-mono text-xs text-blue-500" data-testid="architect-ui-workflow-builder-test-panel-calendar-appointment-booked-dry-run-calendar-appointmen">Calendar: {calendarAppointment.id ? "Booked" : "Dry run"} - {calendarAppointment.summary}</p> : null}
-                  </>
-                )}
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : null}
+
+            {hasDeepgramTts && deepgramTtsResults.length > 0 ? (
+              <div
+                className="shadow-soft rounded-2xl border border-gray-100 bg-white p-5 sm:p-6"
+                data-testid="test-panel-deepgram-tts-results"
+              >
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                    <BuilderIcon name="sparkles" className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Voice</p>
+                    <p className="text-xs text-slate-500">From text-to-speech</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {deepgramTtsResults.map((result) => (
+                    <div
+                      key={`tts-${result.nodeId}`}
+                      className="rounded-xl border border-slate-100 bg-slate-50/80 p-4"
+                      data-testid={`test-panel-deepgram-tts-result-${result.nodeId}`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-800">{result.label}</p>
+                        {result.model ? (
+                          <span className="rounded-full bg-white px-2.5 py-1 font-mono text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200">
+                            {result.model}
+                          </span>
+                        ) : null}
+                      </div>
+                      {result.text ? (
+                        <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">
+                          {result.text}
+                        </p>
+                      ) : null}
+                      {result.audioUrl ? (
+                        <audio
+                          className="mt-3 w-full"
+                          controls
+                          src={result.audioUrl}
+                          data-testid={`test-panel-deepgram-tts-audio-${result.nodeId}`}
+                        />
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+
+            {hasLlmPipeline ? (
+              <div
+                className="shadow-soft rounded-2xl border border-gray-100 bg-white p-5 sm:p-6"
+                data-testid="test-panel-llm-pipeline-results"
+              >
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                    <BuilderIcon name="sparkles" className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">AI reply</p>
+                    <p className="text-xs text-slate-500">From AI nodes</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {Object.values(runContext.llmPipeline as Record<string, LlmPipelineStep>).map((step, idx) => (
+                    <div
+                      key={idx}
+                      className="overflow-hidden rounded-xl border border-violet-100 bg-gradient-to-br from-violet-50/60 to-white p-4"
+                    >
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="truncate text-sm font-bold text-violet-950">
+                          {step.label || "LLM Step"}
+                        </span>
+                        {step.providerId || step.modelName ? (
+                          <span className="shrink-0 rounded-full bg-violet-100/80 px-2.5 py-1 font-mono text-[10px] font-semibold text-violet-700">
+                            {[step.providerId, step.modelName].filter(Boolean).join(" · ")}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-3 rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-700 shadow-sm ring-1 ring-violet-100/80 break-words [overflow-wrap:anywhere]">
+                        <Markdown content={typeof step.output === "string" ? step.output : String(step.output ?? "")} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {hasImagePipeline ? (
+              <div
+                className="shadow-soft rounded-2xl border border-gray-100 bg-white p-5 sm:p-6"
+                data-testid="test-panel-image-pipeline-results"
+              >
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                    <BuilderIcon name="image" className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Generated images</p>
+                    <p className="text-xs text-slate-500">From image nodes</p>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  {(() => {
+                    const rawPipeline = runContext.imagePipeline && typeof runContext.imagePipeline === "object"
+                      ? Object.values(runContext.imagePipeline as Record<string, any>)
+                      : [];
+                    const steps = rawPipeline.length > 0
+                      ? rawPipeline
+                      : [{
+                          label: "Image Generation",
+                          imageUrl: typeof runContext.image_url === "string"
+                            ? runContext.image_url
+                            : typeof runContext.image === "string"
+                              ? runContext.image
+                              : "",
+                          prompt: typeof runContext.prompt === "string" ? runContext.prompt : "",
+                          model: typeof runContext.model === "string" ? runContext.model : ""
+                        }];
+                    return steps.map((step, idx) => {
+                      const imgSrc = step.imageUrl || (typeof step.image === "string" ? step.image : "");
+                      return (
+                        <div key={idx} className="rounded-xl border border-violet-100 bg-violet-50/10 p-4">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-violet-950">{step.label || "Generated Image"}</span>
+                            {step.model ? (
+                              <span className="font-mono text-[10px] font-semibold text-violet-700 bg-violet-100/80 px-2.5 py-1 rounded-full">
+                                {step.model}
+                              </span>
+                            ) : null}
+                          </div>
+                          {imgSrc ? (
+                            <div className="mt-3 space-y-3">
+                              <img
+                                src={imgSrc}
+                                alt={step.prompt || "Generated image preview"}
+                                className="max-h-80 w-auto rounded-lg object-contain"
+                              />
+                              <a
+                                href={imgSrc}
+                                download={`generated-image-${idx + 1}.png`}
+                                target="_blank"
+                                rel="noreferrer"
+                                data-testid="test-panel-download-image-btn"
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-violet-700"
+                              >
+                                Download Image
+                              </a>
+                            </div>
+                          ) : (
+                            <p className="mt-3 text-xs text-slate-500">Image generated successfully.</p>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+            ) : null}
+
+            {hasVoiceResult ? (
+              <div
+                className="shadow-soft rounded-2xl border border-gray-100 bg-white p-5 sm:p-6"
+                data-testid="test-panel-voice-result"
+              >
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                    <BuilderIcon name="phone-call" className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Voice booking</p>
+                    <p className="text-xs text-slate-500">From voice workflow</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {voiceConversation ? (
+                    <div data-testid="test-panel-voice-conversation-preview">
+                      <p className="text-sm leading-relaxed text-slate-700">&ldquo;{voiceConversation.firstMessage}&rdquo;</p>
+                    </div>
+                  ) : null}
+                  {calendarAvailability ? (
+                    <p className="text-xs text-slate-500" data-testid="test-panel-calendar-result">
+                      Calendar: {calendarAvailability.source === "calendar" ? "checked Google Calendar" : "demo slots"}
+                      {calendarAvailability.slots?.length ? ` — ${calendarAvailability.slots.join(", ")}` : ""}
+                    </p>
+                  ) : null}
+                  {calendarAppointment ? (
+                    <div data-testid="test-panel-appointment-result">
+                      <p className={`text-sm ${calendarAppointment.status === "FAILED" ? "text-rose-600" : "text-slate-700"}`}>
+                        Appointment: {calendarAppointment.summary}
+                      </p>
+                    </div>
+                  ) : null}
+                  {smsNotification ? (
+                    <p className="text-xs text-slate-500" data-testid="test-panel-sms-notification-result">
+                      SMS notification prepared
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {(draftEmail || sentEmail || gmailRead) ? (
+              <div
+                className="shadow-soft rounded-2xl border border-gray-100 bg-white p-5 sm:p-6"
+                data-testid="test-panel-email-result"
+              >
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-50 text-green-600">
+                    <BuilderIcon name="mail" className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Email</p>
+                    <p className="text-xs text-slate-500">From email nodes</p>
+                  </div>
+                </div>
+                <EmailResult draftEmail={draftEmail} sentEmail={sentEmail} gmailRead={gmailRead} />
+              </div>
+            ) : null}
+
+            {sentSms && !hasVoiceResult ? (
+              <div
+                className="shadow-soft rounded-2xl border border-gray-100 bg-white p-5 sm:p-6"
+                data-testid="test-panel-sms-result"
+              >
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-50 text-green-600">
+                    <BuilderIcon name="message" className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Message</p>
+                    <p className="text-xs text-slate-500">From SMS nodes</p>
+                  </div>
+                </div>
+                <div className="inline-block max-w-md rounded-2xl rounded-tl-md bg-gray-100 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
+                  {sentSms.body ? <Markdown content={sentSms.body} /> : "No message body."}
+                </div>
+              </div>
+            ) : null}
+
+            {vapiCall && !hasVoiceResult ? (
+              <div className="shadow-soft rounded-2xl border border-gray-100 bg-white p-5 sm:p-6">
+                <p className="text-sm text-slate-700">
+                  Voice call: {vapiCall.providerCalled ? "Started" : "Dry run"}
+                  {vapiCall.status ? ` — ${vapiCall.status}` : ""}
+                </p>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>

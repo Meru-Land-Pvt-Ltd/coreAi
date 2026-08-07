@@ -1,6 +1,7 @@
 import {
   getNodeDefinition,
   CALENDLY_NODE_TYPES,
+  DEEPGRAM_NODE_TYPES,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_PRESENTATION,
   VOICE_NODE_TYPES
@@ -67,8 +68,16 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem("ai.context_reply", { icon: "sparkles", accent: "violet" }),
       paletteItem("ai.memory", { icon: "database", accent: "violet" }),
       {
-        ...paletteItem("ai.image_generation", { icon: "image", accent: "violet" }),
+        ...      paletteItem("ai.image_generation", { icon: "image", accent: "violet" }),
         badge: "BETA"
+      },
+      {
+        ...paletteItem(DEEPGRAM_NODE_TYPES.stt, { icon: "mic", accent: "violet", kind: "DEEPGRAM STT" }),
+        badge: "NEW"
+      },
+      {
+        ...paletteItem(DEEPGRAM_NODE_TYPES.tts, { icon: "mic", accent: "violet", kind: "DEEPGRAM TTS" }),
+        badge: "NEW"
       },
       {
         nodeKind: "ai",

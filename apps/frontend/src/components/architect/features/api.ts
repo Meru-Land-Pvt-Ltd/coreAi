@@ -70,6 +70,47 @@ export function getArchitectAiProviders() {
   return apiGet<{ providers: ArchitectAiProvider[] }>("/architect/ai/providers");
 }
 
+export type DeepgramTranscribeResult = {
+  status: "success" | "error";
+  transcript: string;
+  confidence: number | null;
+  model: string;
+  language: string;
+  audioDurationSeconds: number | null;
+  error: string | null;
+  providerId: string;
+};
+
+export function transcribeArchitectDeepgram(body: {
+  audioBase64: string;
+  mimeType?: string;
+  model?: string;
+  language?: string;
+  smartFormat?: boolean;
+  punctuate?: boolean;
+  diarize?: boolean;
+}) {
+  return apiPost<DeepgramTranscribeResult>("/architect/ai/deepgram/transcribe", body);
+}
+
+export type DeepgramSpeakResult = {
+  status: "success" | "error";
+  audioBase64: string;
+  audioMimeType: string;
+  model: string;
+  characterCount: number;
+  error: string | null;
+  providerId: string;
+};
+
+export function speakArchitectDeepgram(body: {
+  text: string;
+  model?: string;
+  encoding?: string;
+}) {
+  return apiPost<DeepgramSpeakResult>("/architect/ai/deepgram/speak", body);
+}
+
 export function getArchitectProfile() {
   return apiGet<{ profile: ArchitectProfile | null }>("/architect/profile");
 }

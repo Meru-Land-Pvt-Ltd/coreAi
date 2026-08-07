@@ -26,6 +26,16 @@ describe("setup-visibility engine", () => {
     expect(visibility.businessProfile).toBe(false);
   });
 
+  it("derives Deepgram STT setup + setup test flags", () => {
+    const workflow = {
+      nodes: [{ data: { type: "ai.deepgram_stt" } }]
+    };
+    const visibility = deriveSetupVisibility(workflow);
+    expect(visibility.deepgram).toBe(true);
+    expect(visibility.deepgramTest).toBe(true);
+    expect(visibility.phone).toBe(false);
+  });
+
   it("derives flags correctly for Resume Analyzer graph (trigger.manual + ai.memory)", () => {
     const workflow = {
       nodes: [

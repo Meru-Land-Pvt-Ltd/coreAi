@@ -99,6 +99,303 @@ export const CALENDLY_NODE_TYPES = {
   action: "action.calendly"
 } as const;
 
+/** Deepgram speech nodes — separate STT and TTS canvas nodes. */
+export const DEEPGRAM_NODE_TYPES = {
+  stt: "ai.deepgram_stt",
+  tts: "ai.deepgram_tts",
+  /** Legacy unified node (older canvases). Prefer stt/tts. */
+  speech: "ai.deepgram"
+} as const;
+
+export type DeepgramNodeMode = "stt" | "tts";
+
+export function resolveDeepgramMode(
+  type: string | null | undefined,
+  mode?: string | null
+): DeepgramNodeMode | null {
+  const t = (type ?? "").toLowerCase();
+  if (t === DEEPGRAM_NODE_TYPES.tts) return "tts";
+  if (t === DEEPGRAM_NODE_TYPES.stt) return "stt";
+  if (t === DEEPGRAM_NODE_TYPES.speech) {
+    return mode === "tts" ? "tts" : "stt";
+  }
+  if (t.includes("deepgram")) {
+    return mode === "tts" ? "tts" : "stt";
+  }
+  return null;
+}
+
+export function isDeepgramNodeType(type: string | null | undefined): boolean {
+  const t = (type ?? "").toLowerCase();
+  return (
+    t === DEEPGRAM_NODE_TYPES.stt ||
+    t === DEEPGRAM_NODE_TYPES.tts ||
+    t === DEEPGRAM_NODE_TYPES.speech
+  );
+}
+
+/** Deepgram Listen model IDs — display as-is (no friendly labels). */
+export const DEEPGRAM_STT_MODELS = [
+  // Flux
+  "flux-general-en",
+  "flux-general-multi",
+  // Nova-3
+  "nova-3",
+  "nova-3-general",
+  "nova-3-medical",
+  // Nova-2
+  "nova-2",
+  "nova-2-general",
+  "nova-2-meeting",
+  "nova-2-phonecall",
+  "nova-2-finance",
+  "nova-2-conversationalai",
+  "nova-2-voicemail",
+  "nova-2-video",
+  "nova-2-medical",
+  "nova-2-drivethru",
+  "nova-2-automotive",
+  "nova-2-atc",
+  // Nova (legacy)
+  "nova",
+  "nova-general",
+  "nova-phonecall",
+  "nova-medical",
+  // Enhanced
+  "enhanced",
+  "enhanced-general",
+  "enhanced-meeting",
+  "enhanced-phonecall",
+  "enhanced-finance",
+  // Base
+  "base",
+  "base-general",
+  "base-meeting",
+  "base-phonecall",
+  "base-finance",
+  "base-conversationalai",
+  "base-voicemail",
+  "base-video",
+  // Whisper Cloud (batch / pre-recorded only)
+  "whisper",
+  "whisper-tiny",
+  "whisper-base",
+  "whisper-small",
+  "whisper-medium",
+  "whisper-large"
+] as const;
+
+/** Models that support live microphone streaming. Whisper is batch-only. */
+export const DEEPGRAM_LIVE_STT_MODELS = DEEPGRAM_STT_MODELS.filter(
+  (model) => !model.startsWith("whisper")
+);
+
+export function isDeepgramLiveSttModel(model: string | null | undefined): boolean {
+  const normalized = (model ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.startsWith("whisper")) return false;
+  return (DEEPGRAM_STT_MODELS as readonly string[]).includes(normalized);
+}
+
+export function buildDeepgramLiveListenUrl(model: string, language: string): string {
+  const resolvedModel = model.trim() || "nova-3";
+  const resolvedLanguage = language.trim() || "en";
+  const isFlux = resolvedModel.startsWith("flux-");
+
+  if (isFlux) {
+    // Flux /v2/listen only accepts a small param set (no channels, interim_results, etc.).
+    const params = new URLSearchParams({
+      model: resolvedModel,
+      encoding: "linear16",
+      sample_rate: "16000"
+    });
+    // Flux English model encodes language in the model id.
+    // Multilingual Flux uses language_hint instead of language=.
+    if (resolvedModel === "flux-general-multi" && resolvedLanguage && resolvedLanguage !== "multi") {
+      params.append("language_hint", resolvedLanguage);
+    }
+    return `wss://api.deepgram.com/v2/listen?${params.toString()}`;
+  }
+
+  const params = new URLSearchParams({
+    model: resolvedModel,
+    encoding: "linear16",
+    sample_rate: "16000",
+    channels: "1",
+    interim_results: "true",
+    punctuate: "true",
+    smart_format: "true",
+    endpointing: "300",
+    mip_opt_out: "true"
+  });
+  if (resolvedLanguage && resolvedLanguage !== "multi") {
+    params.set("language", resolvedLanguage);
+  } else if (resolvedLanguage === "multi") {
+    params.set("language", "multi");
+  }
+  return `wss://api.deepgram.com/v1/listen?${params.toString()}`;
+}
+
+export function describeDeepgramLiveError(raw: string, model?: string | null): string {
+  const text = (raw ?? "").trim();
+  const modelId = (model ?? "").trim().toLowerCase();
+  if (/whisper/i.test(modelId) || /whisper/i.test(text)) {
+    return "Whisper models are for file transcription only. Choose nova-3 for live microphone.";
+  }
+  if (/Unknown query parameters/i.test(text)) {
+    return "This speech model rejected a live setting. Try nova-3, or pick another Flux model.";
+  }
+  if (/Unexpected server response:\s*400/i.test(text) || /\b400\b/.test(text)) {
+    if (modelId.startsWith("flux-")) {
+      return "Live transcription could not start with this Flux model. Try nova-3, or confirm Flux is enabled on your Deepgram plan.";
+    }
+    return "Live transcription could not start with this model. Try nova-3.";
+  }
+  if (/Unexpected server response:\s*401/i.test(text) || /unauthorized/i.test(text)) {
+    return "Speech service authorization failed. Please try again or contact support.";
+  }
+  if (/Unexpected server response:\s*503/i.test(text) || /not set|api key/i.test(text)) {
+    return "Speech service is temporarily unavailable. Please try again shortly.";
+  }
+  if (/permission|notallowed|denied/i.test(text)) {
+    return "Microphone access was denied. Allow microphone permission and try again.";
+  }
+  if (text) return text;
+  return "Could not start live transcription. Try again.";
+}
+
+export const DEEPGRAM_STT_LANGUAGES = [
+  { value: "en", label: "English" },
+  { value: "en-US", label: "English (US)" },
+  { value: "en-GB", label: "English (UK)" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "de", label: "German" },
+  { value: "hi", label: "Hindi" },
+  { value: "pt", label: "Portuguese" },
+  { value: "it", label: "Italian" },
+  { value: "ja", label: "Japanese" },
+  { value: "ko", label: "Korean" },
+  { value: "zh", label: "Chinese" },
+  { value: "nl", label: "Dutch" },
+  { value: "multi", label: "Multilingual (auto)" }
+] as const;
+
+/** Deepgram Speak model IDs — display as-is (no friendly labels). */
+export const DEEPGRAM_TTS_VOICES = [
+  // Aura-2 English
+  "aura-2-amalthea-en",
+  "aura-2-andromeda-en",
+  "aura-2-apollo-en",
+  "aura-2-arcas-en",
+  "aura-2-aries-en",
+  "aura-2-asteria-en",
+  "aura-2-athena-en",
+  "aura-2-atlas-en",
+  "aura-2-aurora-en",
+  "aura-2-callista-en",
+  "aura-2-cora-en",
+  "aura-2-cordelia-en",
+  "aura-2-delia-en",
+  "aura-2-draco-en",
+  "aura-2-electra-en",
+  "aura-2-harmonia-en",
+  "aura-2-helena-en",
+  "aura-2-hera-en",
+  "aura-2-hermes-en",
+  "aura-2-hyperion-en",
+  "aura-2-iris-en",
+  "aura-2-janus-en",
+  "aura-2-juno-en",
+  "aura-2-jupiter-en",
+  "aura-2-luna-en",
+  "aura-2-mars-en",
+  "aura-2-minerva-en",
+  "aura-2-neptune-en",
+  "aura-2-odysseus-en",
+  "aura-2-ophelia-en",
+  "aura-2-orion-en",
+  "aura-2-orpheus-en",
+  "aura-2-pandora-en",
+  "aura-2-phoebe-en",
+  "aura-2-pluto-en",
+  "aura-2-saturn-en",
+  "aura-2-selene-en",
+  "aura-2-thalia-en",
+  "aura-2-theia-en",
+  "aura-2-vesta-en",
+  "aura-2-zeus-en",
+  // Aura-2 Spanish
+  "aura-2-agustina-es",
+  "aura-2-alvaro-es",
+  "aura-2-antonia-es",
+  "aura-2-aquila-es",
+  "aura-2-carina-es",
+  "aura-2-celeste-es",
+  "aura-2-diana-es",
+  "aura-2-estrella-es",
+  "aura-2-gloria-es",
+  "aura-2-javier-es",
+  "aura-2-luciano-es",
+  "aura-2-nestor-es",
+  "aura-2-olivia-es",
+  "aura-2-selena-es",
+  "aura-2-silvia-es",
+  "aura-2-sirio-es",
+  "aura-2-valerio-es",
+  // Aura-2 Dutch
+  "aura-2-beatrix-nl",
+  "aura-2-cornelia-nl",
+  "aura-2-daphne-nl",
+  "aura-2-hestia-nl",
+  "aura-2-lars-nl",
+  "aura-2-leda-nl",
+  "aura-2-rhea-nl",
+  "aura-2-roman-nl",
+  "aura-2-sander-nl",
+  // Aura-2 French
+  "aura-2-agathe-fr",
+  "aura-2-hector-fr",
+  // Aura-2 German
+  "aura-2-aurelia-de",
+  "aura-2-elara-de",
+  "aura-2-fabian-de",
+  "aura-2-julius-de",
+  "aura-2-kara-de",
+  "aura-2-lara-de",
+  "aura-2-viktoria-de",
+  // Aura-2 Italian
+  "aura-2-cesare-it",
+  "aura-2-cinzia-it",
+  "aura-2-demetra-it",
+  "aura-2-dionisio-it",
+  "aura-2-elio-it",
+  "aura-2-flavio-it",
+  "aura-2-livia-it",
+  "aura-2-maia-it",
+  "aura-2-melia-it",
+  "aura-2-perseo-it",
+  // Aura-2 Japanese
+  "aura-2-ama-ja",
+  "aura-2-ebisu-ja",
+  "aura-2-fujin-ja",
+  "aura-2-izanami-ja",
+  "aura-2-uzume-ja",
+  // Aura 1 English
+  "aura-asteria-en",
+  "aura-luna-en",
+  "aura-stella-en",
+  "aura-athena-en",
+  "aura-hera-en",
+  "aura-orion-en",
+  "aura-arcas-en",
+  "aura-perseus-en",
+  "aura-angus-en",
+  "aura-orpheus-en",
+  "aura-helios-en",
+  "aura-zeus-en"
+] as const;
+
 /** Webhook / trigger event options for `trigger.calendly` (`data.calendlyEvent`). */
 export const CALENDLY_TRIGGER_EVENTS = [
   {
@@ -1205,6 +1502,77 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     producedVariables: ["image", "prompt", "model", "revised_prompt"]
   }),
   def({
+    type: DEEPGRAM_NODE_TYPES.stt,
+    label: "Deepgram STT",
+    category: "ai",
+    description:
+      "Transcribes audio to text with Deepgram (nova-3 by default). Use the microphone in Test, or audio from a prior step.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "ai" },
+    defaultConfig: {
+      mode: "stt",
+      model: "nova-3",
+      language: "en",
+      audioSource: "",
+      smartFormat: "true",
+      punctuate: "true",
+      diarize: "false",
+      outputKey: "transcript"
+    },
+    capability: "ai.speech_to_text",
+    producedVariables: ["transcript", "confidence", "model", "language"]
+  }),
+  def({
+    type: DEEPGRAM_NODE_TYPES.tts,
+    label: "Deepgram TTS",
+    category: "ai",
+    description:
+      "Converts text to speech with Deepgram Aura. Outputs playable audio for confirmations, IVR prompts, or follow-ups.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "ai" },
+    defaultConfig: {
+      mode: "tts",
+      model: "aura-2-thalia-en",
+      text: "",
+      textSource: "",
+      outputKey: "audio"
+    },
+    capability: "ai.text_to_speech",
+    producedVariables: ["audio", "audioMimeType", "model", "text"]
+  }),
+  // Legacy unified node — still executable for older canvases.
+  def({
+    type: DEEPGRAM_NODE_TYPES.speech,
+    label: "Deepgram",
+    category: "ai",
+    description: "Legacy unified Deepgram node. Prefer separate Deepgram STT / Deepgram TTS nodes.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "ai" },
+    defaultConfig: {
+      mode: "stt",
+      model: "nova-3",
+      language: "en",
+      audioSource: "",
+      smartFormat: "true",
+      punctuate: "true",
+      diarize: "false",
+      text: "",
+      textSource: "",
+      outputKey: "transcript"
+    },
+    capability: "ai.speech",
+    producedVariables: ["transcript", "confidence", "model", "language", "audio", "audioMimeType", "text"]
+  }),
+  def({
     type: "action.send_sms",
     label: "Send SMS",
     category: "action",
@@ -1857,6 +2225,12 @@ const REQ = {
     label: "Calendly",
     ownedBy: "buyer",
     note: "Business connects Calendly during agent setup; webhooks start meeting workflows for that account."
+  },
+  deepgram: {
+    connector: "deepgram",
+    label: "Deepgram speech-to-text",
+    ownedBy: "platform",
+    note: "Speech transcription and Aura text-to-speech run on Triven's Deepgram account — nothing for the buyer to connect."
   }
 } satisfies Record<string, ConnectorRequirement>;
 
@@ -1899,6 +2273,9 @@ export const REQUIRED_CONNECTORS_BY_TYPE: Record<string, ConnectorRequirement[]>
   [VOICE_NODE_TYPES.sendEmail]: [REQ.trivenMail],
   [CALENDLY_NODE_TYPES.trigger]: [REQ.calendly],
   [CALENDLY_NODE_TYPES.action]: [REQ.calendly],
+  [DEEPGRAM_NODE_TYPES.speech]: [REQ.deepgram],
+  [DEEPGRAM_NODE_TYPES.stt]: [REQ.deepgram],
+  [DEEPGRAM_NODE_TYPES.tts]: [REQ.deepgram],
   // Legacy Calendly node types (older canvases)
   "trigger.calendly_meeting_booked": [REQ.calendly],
   "trigger.calendly_meeting_cancelled": [REQ.calendly],

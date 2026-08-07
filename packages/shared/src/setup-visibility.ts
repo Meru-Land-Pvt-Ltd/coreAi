@@ -9,6 +9,7 @@ export type SetupFieldKey =
   | "calendly"
   | "mail"
   | "telegram"
+  | "deepgram"
   | "smsNote"
   | "businessProfile"
   | "knowledge"
@@ -19,7 +20,8 @@ export type SetupFieldKey =
   | "agentBehaviorVoice"
   | "callTest"
   | "calendarTest"
-  | "voicePreview";
+  | "voicePreview"
+  | "deepgramTest";
 
 export type SetupVisibility = Record<SetupFieldKey, boolean>;
 
@@ -125,6 +127,10 @@ export function deriveSetupVisibility(
     if (lower === "telegram") {
       flags.telegram = true;
       flags.businessProfile = true;
+    }
+    if (lower === "deepgram") {
+      flags.deepgram = true;
+      flags.deepgramTest = true;
     }
     if (lower === "sms") {
       flags.phone = true;

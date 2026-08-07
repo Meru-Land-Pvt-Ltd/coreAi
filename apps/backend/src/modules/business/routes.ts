@@ -82,6 +82,7 @@ import {
   recordDisclosureConsent
 } from "../compliance/disclosure-consent";
 import { canBusinessRunSetup, hasAnyAgentAcquisition } from "./purchase-access";
+import { transcribeWithDeepgram, speakWithDeepgram } from "../ai-provider-engine/deepgram-stt";
 import { extractHoursFromDocuments, resolveScheduleForBusiness } from "./scheduling";
 import { addressesMateriallyDiffer, extractAddressFromDocuments, loadBusinessFacts } from "./business-facts";
 import { extractProfileFromDocuments, invalidateDocumentProfileCache } from "./document-profile-extractor";
@@ -2451,7 +2452,8 @@ businessRoutes.post("/setup/workflows/:workflowId/run-test", async (c) => {
       workflowId,
       workflowJson: workflow.workflowJson,
       input: sanitizedInput,
-      mode: "test"
+      mode: "test",
+      executionMode: "BUSINESS_TEST"
     });
 
     return successResponse(c, { run }, "Workflow test completed");
@@ -2681,6 +2683,86 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
     resolveReason: diagnostics.resolveReason,
     checks
   });
+});
+
+businessRoutes.post("/setup/test-deepgram", async (c) => {
+  const authUser = c.get("authUser");
+
+  if (!(await hasAnyAgentAcquisition(authUser.id))) {
+    return errorResponse(c, "Purchase an agent before using setup test tools.", 403, "PURCHASE_REQUIRED");
+  }
+
+  const bodySchema = z.object({
+    audioBase64: z.string().min(1),
+    mimeType: z.string().trim().optional(),
+    model: z.string().trim().optional(),
+    language: z.string().trim().optional(),
+    smartFormat: z.boolean().optional(),
+    punctuate: z.boolean().optional(),
+    diarize: z.boolean().optional()
+  });
+
+  try {
+    const input = bodySchema.parse(await c.req.json());
+    const result = await transcribeWithDeepgram(input);
+    if (result.status !== "success") {
+      return errorResponse(
+        c,
+        result.error ?? "Deepgram transcription failed.",
+        500,
+        "DEEPGRAM_TRANSCRIBE_FAILED"
+      );
+    }
+    return successResponse(c, result, "Audio transcribed.");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, "Invalid Deepgram transcription request.", 400, "INVALID_REQUEST");
+    }
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Deepgram transcription failed.",
+      500,
+      "DEEPGRAM_TRANSCRIBE_FAILED"
+    );
+  }
+});
+
+businessRoutes.post("/setup/test-deepgram-speak", async (c) => {
+  const authUser = c.get("authUser");
+
+  if (!(await hasAnyAgentAcquisition(authUser.id))) {
+    return errorResponse(c, "Purchase an agent before using setup test tools.", 403, "PURCHASE_REQUIRED");
+  }
+
+  const bodySchema = z.object({
+    text: z.string().min(1).max(2000),
+    model: z.string().trim().optional(),
+    encoding: z.string().trim().optional()
+  });
+
+  try {
+    const input = bodySchema.parse(await c.req.json());
+    const result = await speakWithDeepgram(input);
+    if (result.status !== "success") {
+      return errorResponse(
+        c,
+        result.error ?? "Deepgram speech synthesis failed.",
+        500,
+        "DEEPGRAM_SPEAK_FAILED"
+      );
+    }
+    return successResponse(c, result, "Speech synthesized.");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, "Invalid Deepgram speak request.", 400, "INVALID_REQUEST");
+    }
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Deepgram speech synthesis failed.",
+      500,
+      "DEEPGRAM_SPEAK_FAILED"
+    );
+  }
 });
 
 businessRoutes.post("/setup/test-sms", async (c) => {

@@ -56,6 +56,76 @@ export function defaultNodeData(
       };
     }
 
+    if (overrides?.type === "ai.deepgram_stt") {
+      return {
+        ...base,
+        label: "Deepgram STT",
+        title: "Deepgram STT",
+        kind: "DEEPGRAM STT",
+        icon: "mic",
+        accent: "violet",
+        subtitle: "Transcribe audio to text with Deepgram",
+        model: "nova-3",
+        language: "en",
+        audioSource: "",
+        smartFormat: "true",
+        punctuate: "true",
+        diarize: "false",
+        outputKey: "transcript",
+        ...overrides,
+        type: "ai.deepgram_stt",
+        mode: "stt"
+      };
+    }
+
+    if (overrides?.type === "ai.deepgram_tts") {
+      return {
+        ...base,
+        label: "Deepgram TTS",
+        title: "Deepgram TTS",
+        kind: "DEEPGRAM TTS",
+        icon: "mic",
+        accent: "violet",
+        subtitle: "Convert text to speech with Deepgram Aura",
+        model: "aura-2-thalia-en",
+        text: "",
+        textSource: "",
+        outputKey: "audio",
+        ...overrides,
+        type: "ai.deepgram_tts",
+        mode: "tts"
+      };
+    }
+
+    // Legacy unified node
+    if (overrides?.type === "ai.deepgram") {
+      const mode = overrides?.mode === "tts" ? "tts" : "stt";
+      return {
+        ...base,
+        label: "Deepgram",
+        title: mode === "tts" ? "Deepgram TTS" : "Deepgram STT",
+        kind: mode === "tts" ? "DEEPGRAM TTS" : "DEEPGRAM STT",
+        icon: "mic",
+        accent: "violet",
+        subtitle:
+          mode === "tts"
+            ? "Convert text to speech with Deepgram Aura"
+            : "Transcribe audio to text with Deepgram",
+        model: mode === "tts" ? "aura-2-thalia-en" : "nova-3",
+        language: "en",
+        audioSource: "",
+        smartFormat: "true",
+        punctuate: "true",
+        diarize: "false",
+        text: "",
+        textSource: "",
+        outputKey: mode === "tts" ? "audio" : "transcript",
+        ...overrides,
+        type: "ai.deepgram",
+        mode
+      };
+    }
+
     return {
       ...base,
       label: "AI Step",

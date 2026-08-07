@@ -3,6 +3,7 @@ import { env } from "./config/env";
 import { app } from "./app";
 import { prisma } from "./lib/prisma";
 import { initProviderEngine } from "./modules/ai-provider-engine/provider-engine";
+import { attachDeepgramLiveProxy } from "./modules/ai-provider-engine/deepgram-live-proxy";
 import { startBillingScheduler, stopBillingScheduler } from "./modules/business/billing-cycle";
 import { startEarningReleaseWorker, stopEarningReleaseWorker } from "./modules/payouts/release-worker";
 import {
@@ -35,6 +36,8 @@ const server = serve(
     }
   }
 );
+
+attachDeepgramLiveProxy(server as Parameters<typeof attachDeepgramLiveProxy>[0]);
 
 async function shutdown(signal: string) {
   console.log(`${signal} received. Shutting down gracefully...`);

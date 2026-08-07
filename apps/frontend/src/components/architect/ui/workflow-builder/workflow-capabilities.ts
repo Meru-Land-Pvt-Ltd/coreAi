@@ -1,4 +1,4 @@
-import { TELEGRAM_NODE_TYPES, VOICE_NODE_TYPES } from "@coreai/shared";
+import { DEEPGRAM_NODE_TYPES, resolveDeepgramMode, TELEGRAM_NODE_TYPES, VOICE_NODE_TYPES } from "@coreai/shared";
 
 /** Minimal node shape used to derive Test / Configure capabilities from the canvas. */
 export type CapabilityNode = {
@@ -7,6 +7,7 @@ export type CapabilityNode = {
     connector?: unknown;
     title?: unknown;
     label?: unknown;
+    mode?: unknown;
     [key: string]: unknown;
   };
   type?: unknown;
@@ -28,6 +29,9 @@ export type WorkflowCapabilities = {
   hasInboundSms: boolean;
   hasManualTrigger: boolean;
   hasLlm: boolean;
+  hasDeepgram: boolean;
+  hasDeepgramStt: boolean;
+  hasDeepgramTts: boolean;
 };
 
 function nodeType(node: CapabilityNode): string {
@@ -188,6 +192,28 @@ export function deriveWorkflowCapabilities(nodes: CapabilityNode[]): WorkflowCap
     return type === "ai.llm_call" || type.includes("llm");
   });
 
+  const hasDeepgram = nodes.some((node) => {
+    const type = nodeType(node);
+    return (
+      type === DEEPGRAM_NODE_TYPES.speech ||
+      type === DEEPGRAM_NODE_TYPES.stt ||
+      type === DEEPGRAM_NODE_TYPES.tts ||
+      type.includes("deepgram")
+    );
+  });
+
+  const hasDeepgramStt = nodes.some((node) => {
+    const type = nodeType(node);
+    const mode = typeof node.data?.mode === "string" ? node.data.mode : undefined;
+    return resolveDeepgramMode(type, mode) === "stt";
+  });
+
+  const hasDeepgramTts = nodes.some((node) => {
+    const type = nodeType(node);
+    const mode = typeof node.data?.mode === "string" ? node.data.mode : undefined;
+    return resolveDeepgramMode(type, mode) === "tts";
+  });
+
   return {
     hasGmail,
     hasSmsSendOrTwilioConnector,
@@ -203,7 +229,10 @@ export function deriveWorkflowCapabilities(nodes: CapabilityNode[]): WorkflowCap
     hasMissedCall,
     hasInboundSms,
     hasManualTrigger,
-    hasLlm
+    hasLlm,
+    hasDeepgram,
+    hasDeepgramStt,
+    hasDeepgramTts
   };
 }
 

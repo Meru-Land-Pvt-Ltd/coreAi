@@ -15,6 +15,7 @@ import {
   isBuyerAnswerEmpty,
   normalizeBuyerSetupFields,
   normalizeTimeZone,
+  resolveDeepgramMode,
   validateBuyerSetupAnswers,
   VOICE_PRESETS,
   type WorkflowTriggerKind
@@ -32,6 +33,7 @@ import { AgentBehaviorSection } from "@/components/business/setup/agent-behavior
 import { HoursAvailabilitySection } from "@/components/business/setup/hours-availability-section";
 import { TelegramSetupSection } from "@/components/business/setup/telegram-setup-section";
 import { CalendlySetupSection } from "@/components/business/setup/calendly-setup-section";
+import { DeepgramSetupSection } from "@/components/business/setup/deepgram-setup-section";
 import { type ApptNumberField } from "@/components/business/setup/appointment-hours-editor";
 import { validateBookingRules } from "@/components/business/setup/booking-rules-panel";
 import {
@@ -1640,6 +1642,21 @@ function SetupWizard() {
   const showMail = setupVisibility.mail;
   const showVoice = setupVisibility.voiceIdentity;
   const showTelegram = setupVisibility.telegram;
+  const showDeepgram = setupVisibility.deepgram;
+  const deepgramModes = useMemo(() => {
+    const nodes = Array.isArray(workflowJson?.nodes) ? workflowJson.nodes : [];
+    let stt = false;
+    let tts = false;
+    for (const node of nodes) {
+      const data = node?.data ?? {};
+      const type = typeof data.type === "string" ? data.type : "";
+      const mode = typeof data.mode === "string" ? data.mode : undefined;
+      const resolved = resolveDeepgramMode(type, mode);
+      if (resolved === "stt") stt = true;
+      if (resolved === "tts") tts = true;
+    }
+    return { stt, tts };
+  }, [workflowJson]);
 
   const needsCalendar = setupVisibility.calendar;
   const needsCalendly = setupVisibility.calendly;
@@ -1697,6 +1714,7 @@ function SetupWizard() {
     setupVisibility.aiCallCoverage ||
     setupVisibility.voiceIdentity ||
     setupVisibility.agentBehaviorVoice ||
+    setupVisibility.deepgram ||
     buyerSetupFields.length > 0;
 
   const configureComplete =
@@ -2153,6 +2171,14 @@ function SetupWizard() {
                   />
                 </ConfigureSectionCard>
               )}
+
+              {showDeepgram ? (
+                <DeepgramSetupSection
+                  showTest
+                  showSttTest={deepgramModes.stt || (!deepgramModes.stt && !deepgramModes.tts)}
+                  showTtsTest={deepgramModes.tts || (!deepgramModes.stt && !deepgramModes.tts)}
+                />
+              ) : null}
 
               {setupVisibility.voiceIdentity && (
                 <ConfigureSectionCard
