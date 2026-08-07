@@ -126,6 +126,7 @@ describe("usage invoice rate formatting", () => {
   it("orders the phone-call breakdown like the configured workflow", () => {
     const codes = [
       "elevenlabs_flash_v25",
+      "cartesia_sonic_2",
       "openai_gpt4o_mini",
       "twilio_voice",
       "deepgram_nova3"
@@ -139,6 +140,7 @@ describe("usage invoice rate formatting", () => {
       "twilio_voice",
       "deepgram_nova3",
       "openai_gpt4o_mini",
+      "cartesia_sonic_2",
       "elevenlabs_flash_v25"
     ]);
   });

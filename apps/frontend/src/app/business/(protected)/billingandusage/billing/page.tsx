@@ -31,6 +31,7 @@ const PHONE_CALL_MINUTE_SERVICE_CODES = new Set([
     "twilio_voice",
     "deepgram_nova3",
     "openai_gpt4o_mini",
+    "cartesia_sonic_2",
     "elevenlabs_flash_v25"
 ]);
 

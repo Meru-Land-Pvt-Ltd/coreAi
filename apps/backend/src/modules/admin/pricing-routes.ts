@@ -255,3 +255,23 @@ adminPricingRoutes.patch("/services/:id", async (c) => {
     throw error;
   }
 });
+
+adminPricingRoutes.delete("/services/:id", async (c) => {
+  const id = c.req.param("id");
+  const existing = await prisma.platformUsageService.findUnique({ where: { id } });
+
+  if (!existing) {
+    return errorResponse(c, "Service not found", 404, "PRICING_SERVICE_NOT_FOUND");
+  }
+
+  const deleted = await prisma.platformUsageService.deleteMany({ where: { id } });
+  if (deleted.count === 0) {
+    return errorResponse(c, "Service not found", 404, "PRICING_SERVICE_NOT_FOUND");
+  }
+
+  return successResponse(
+    c,
+    { service: serializeUsageService(existing) },
+    "Service deleted"
+  );
+});

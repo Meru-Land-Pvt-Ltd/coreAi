@@ -29,7 +29,6 @@ import {
 } from "./stripe";
 import { describeStripeError, finalizePaidAgentPurchase } from "./purchase-finalize";
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
-import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
 import {
   buyerExecutionPricingView,
   loadActiveUsageServicePricing
@@ -963,9 +962,39 @@ paymentRoutes.get("/my-agents", async (c) => {
   ]);
 
   const installedAgents = business?.installedAgents ?? [];
-  const runStatsByAgentId = business
-    ? await buildInstalledAgentRunStats(business.id, installedAgents, { start: currentMonthStart() })
-    : new Map<string, { runs: number; costMicroUsd: number }>();
+  // My Agents must show the exact same current-month executions as Billing &
+  // Usage: canonical ledger rows already attached to an invoice. Raw Vapi
+  // calls and missed-call leads are intentionally excluded.
+  const canonicalExecutions =
+    business && installedAgents.length > 0
+      ? await prisma.agentUsageExecution.findMany({
+          where: {
+            businessId: business.id,
+            installedAgentId: { in: installedAgents.map((agent) => agent.id) },
+            billingMonth: currentMonthStart().toISOString().slice(0, 7),
+            usageInvoiceId: { not: null }
+          },
+          select: {
+            installedAgentId: true,
+            amountMicroUsd: true,
+            legacyBilledCostMicroUsd: true
+          }
+        })
+      : [];
+  const canonicalStatsByAgentId = new Map<
+    string,
+    { runs: number; costMicroUsd: number }
+  >();
+  for (const execution of canonicalExecutions) {
+    const current = canonicalStatsByAgentId.get(execution.installedAgentId) ?? {
+      runs: 0,
+      costMicroUsd: 0
+    };
+    current.runs += 1;
+    current.costMicroUsd +=
+      execution.amountMicroUsd + execution.legacyBilledCostMicroUsd;
+    canonicalStatsByAgentId.set(execution.installedAgentId, current);
+  }
 
   const buyerPricing = buyerExecutionPricingView(await loadActiveUsageServicePricing());
   const phoneNumberBilling = await getPhoneNumberBillingState();
@@ -1090,31 +1119,14 @@ paymentRoutes.get("/my-agents", async (c) => {
     );
 
     const stats = installedAgent
-      ? runStatsByAgentId.get(installedAgent.id) ?? { runs: 0, costMicroUsd: 0 }
+      ? canonicalStatsByAgentId.get(installedAgent.id) ?? { runs: 0, costMicroUsd: 0 }
       : { runs: 0, costMicroUsd: 0 };
 
-    let totalExecutions = 0;
+    const totalExecutions = stats.runs;
     let totalBookings = 0;
 
     if (installedAgent && business) {
-      const vapiExecutions = await prisma.vapiCall.count({
-        where: {
-          businessId: business.id,
-          installedAgentId: installedAgent.id,
-          executionMode: "LIVE"
-        }
-      });
-      totalExecutions = vapiExecutions;
-
       if (installedAgents.length === 1) {
-        const missedCalls = await prisma.lead.count({
-          where: {
-            businessId: business.id,
-            source: { contains: "MISSED_CALL" }
-          }
-        });
-        totalExecutions += missedCalls;
-
         totalBookings = await prisma.appointment.count({
           where: { businessId: business.id, executionMode: "LIVE" }
         });

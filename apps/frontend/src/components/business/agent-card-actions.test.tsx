@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import BusinessMyAgentsPage from "@/app/business/(protected)/agents/page";
 import BusinessDashboardPage from "@/app/business/(protected)/dashboard/page";
@@ -163,6 +163,94 @@ describe("business agent action menus", () => {
       expect(
         screen.getAllByTestId("business-protected-dashboard-metric-text")[0]?.textContent
       ).toBe("17")
+    );
+  });
+
+  it("does not flash the dashboard API's raw call count while invoice usage loads", async () => {
+    const pendingUsage: Array<{
+      path: string;
+      resolve: (value: unknown) => void;
+    }> = [];
+    apiGetMock.mockImplementation(async (path: string) => {
+      if (path === "/payments/my-agents") {
+        return { success: true, data: { agents: [] } };
+      }
+      if (path.startsWith("/business/billing/usage?month=")) {
+        return await new Promise((resolve) => {
+          pendingUsage.push({ path, resolve });
+        });
+      }
+      if (path === "/business/dashboard") {
+        return {
+          success: true,
+          data: {
+            subscription: { status: "active", active: true },
+            counts: { leads: 0, conversations: 0, appointments: 0 },
+            monthlyMetrics: {
+              callsHandled: 19,
+              callsHandledPrevMonth: 8,
+              bookings: 4,
+              bookingsPrevMonth: 2
+            },
+            recentMissedCalls: [],
+            calendarConnected: false,
+            activities: []
+          }
+        };
+      }
+      return { success: false, error: "Unexpected API path" };
+    });
+
+    render(<BusinessDashboardPage />);
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId("business-protected-dashboard-metric-text")[1]
+          ?.textContent
+      ).toBe("4")
+    );
+    expect(
+      screen.getAllByTestId("business-protected-dashboard-metric-text")[0]
+        ?.textContent
+    ).toBe("—");
+    await waitFor(() => expect(pendingUsage).toHaveLength(2));
+
+    await act(async () => {
+      for (const request of pendingUsage) {
+        const currentMonth = new Date().toISOString().slice(0, 7);
+        const requestedMonth = decodeURIComponent(
+          request.path.split("month=")[1] ?? ""
+        );
+        request.resolve({
+          success: true,
+          data: {
+            totalExecutions: requestedMonth === currentMonth ? 17 : 7,
+            totalCalls: requestedMonth === currentMonth ? 19 : 8,
+            agentRollup: []
+          }
+        });
+      }
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId("business-protected-dashboard-metric-text")[0]
+          ?.textContent
+      ).toBe("17")
+    );
+  });
+
+  it("shows the invoice-backed execution total on the My Agents card", async () => {
+    mockApiAgents([
+      purchasedAgent({
+        totalExecutions: 17,
+        stats: { runsThisMonth: 17, costThisMonthMicroUsd: 1_843_000 }
+      })
+    ]);
+    render(<BusinessMyAgentsPage />);
+
+    expect((await screen.findByTestId("business-my-agent-stats-text")).textContent).toContain(
+      "17 Executions"
     );
   });
 

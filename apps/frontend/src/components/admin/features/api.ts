@@ -519,6 +519,10 @@ export function updateAdminPricingService(
   return apiPatch<{ service: AdminUsageService }>(`/admin/pricing/services/${id}`, body);
 }
 
+export function deleteAdminPricingService(id: string) {
+  return apiDelete<{ service: AdminUsageService }>(`/admin/pricing/services/${id}`);
+}
+
 /* ------------------------------- Platform mail ------------------------------- */
 
 export type AdminEmailAliasStatus = "ACTIVE" | "DISABLED" | "ARCHIVED";

@@ -307,7 +307,7 @@ beforeAll(async () => {
     issuedAt: new Date(),
     dueAt: new Date()
   };
-  await prisma.businessUsageInvoice.create({
+  const openUsageInvoice = await prisma.businessUsageInvoice.create({
     data: {
       ...usageInvoiceBase,
       invoiceNumber: `${RUN}-usage-open`,
@@ -316,6 +316,13 @@ beforeAll(async () => {
       subtotalMicroUsd: 100_000,
       totalMicroUsd: 100_000
     }
+  });
+  await prisma.agentUsageExecution.updateMany({
+    where: {
+      businessId: businessA.id,
+      dedupeKey: { in: [`${RUN}-exec-1`, `${RUN}-exec-2`] }
+    },
+    data: { usageInvoiceId: openUsageInvoice.id }
   });
   await prisma.businessUsageInvoice.create({
     data: {
@@ -489,6 +496,11 @@ describe("GET /payments/my-agents serialization", () => {
     expect(pausedEntry.purchaseStatus).toBe(PaymentStatus.TRIALING);
     expect(pausedEntry.pricing.agentPrice.amountCents).toBe(4900);
     expect(pausedEntry.pricing.executionPricing).toBeDefined();
+    expect(pausedEntry.totalExecutions).toBe(2);
+    expect(pausedEntry.stats).toEqual({
+      runsThisMonth: 2,
+      costThisMonthMicroUsd: 500_000
+    });
 
     const activeEntry = body.data.agents.find(
       (agent: { listing: { id: string } }) => agent.listing.id === listingPaidId

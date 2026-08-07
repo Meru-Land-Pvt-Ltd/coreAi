@@ -458,12 +458,15 @@ export default function BusinessDashboardPage() {
         const totalSpendCents = overview?.totalSpendCents ?? 0;
         const monthly = overview?.monthlyMetrics;
         const bookingsThisMonth = monthly?.bookings ?? overview?.bookings?.total ?? 0;
+        // Never flash the dashboard API's broader raw-call count while the
+        // invoice-backed usage request is loading. Billing & Usage is the one
+        // canonical source displayed everywhere.
         const callsHandled = canonicalUsage
             ? canonicalTotalExecutionCount(canonicalUsage)
-            : monthly?.callsHandled ?? 0;
+            : null;
         const callsHandledPrevMonth = previousCanonicalUsage
             ? canonicalTotalExecutionCount(previousCanonicalUsage)
-            : monthly?.callsHandledPrevMonth ?? 0;
+            : null;
 
         return metrics.map((metric) => {
             if (metric.label === "Total Spend") {
@@ -479,8 +482,11 @@ export default function BusinessDashboardPage() {
             if (metric.label === "Calls Handled") {
                 return {
                     ...metric,
-                    value: String(callsHandled),
-                    trend: formatTrend(callsHandled, callsHandledPrevMonth)
+                    value: callsHandled === null ? "—" : String(callsHandled),
+                    trend:
+                        callsHandled === null || callsHandledPrevMonth === null
+                            ? undefined
+                            : formatTrend(callsHandled, callsHandledPrevMonth)
                 };
             }
             return metric;

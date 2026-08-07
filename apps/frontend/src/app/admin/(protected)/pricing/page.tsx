@@ -14,11 +14,13 @@ import {
   PhoneCall,
   Plus,
   Save,
+  Trash2,
   X,
   type LucideIcon
 } from "lucide-react";
 import {
   createAdminPricingService,
+  deleteAdminPricingService,
   getAdminPricingServices,
   updateAdminPricingService,
   type AdminPricingServicesResponse,
@@ -94,6 +96,7 @@ export default function AdminPricingPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState<AddForm>(EMPTY_ADD_FORM);
   const [adding, setAdding] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -271,6 +274,55 @@ export default function AdminPricingPage() {
     await load();
   }
 
+  async function deleteService(service: AdminUsageService) {
+    if (deletingId) return;
+    if (!window.confirm(`Delete ${service.name}? This cannot be undone.`)) return;
+
+    setDeletingId(service.id);
+    setMessage("");
+    const result = await deleteAdminPricingService(service.id);
+
+    if (!result.success) {
+      setMessage(result.error ?? "Could not delete service.");
+      setDeletingId(null);
+      return;
+    }
+
+    setData((current) => {
+      if (!current) return current;
+      const services = current.services.filter((row) => row.id !== service.id);
+      const activePerMinuteServices = services.filter(
+        (row) => row.unit === "PER_MINUTE" && row.isActive
+      );
+
+      return {
+        services,
+        totals: {
+          perMinuteActualUsd: activePerMinuteServices.reduce(
+            (sum, service) => sum + service.actualCostUsd,
+            0
+          ),
+          perMinuteUpdatedUsd: activePerMinuteServices.reduce(
+            (sum, service) => sum + service.updatedCostUsd,
+            0
+          )
+        }
+      };
+    });
+    setDrafts((current) => {
+      const next = { ...current };
+      delete next[service.id];
+      return next;
+    });
+    setEditingIds((current) => {
+      const next = new Set(current);
+      next.delete(service.id);
+      return next;
+    });
+    setDeletingId(null);
+    setMessage(`${service.name} deleted.`);
+  }
+
   return (
     <div className="w-full max-w-full">
       <header className="mb-6 flex flex-col gap-5 border-b border-gray-200 pb-6 lg:flex-row lg:items-center lg:justify-between">
@@ -384,8 +436,10 @@ export default function AdminPricingPage() {
             dirtyIds={dirtyIds}
             editingIds={editingIds}
             saving={saving}
+            deletingId={deletingId}
             onEdit={beginEditing}
             onCancel={cancelEditing}
+            onDelete={(service) => void deleteService(service)}
             onDraftChange={updateDraft}
             testId="admin-pricing-usage-table"
           />
@@ -397,8 +451,10 @@ export default function AdminPricingPage() {
             dirtyIds={dirtyIds}
             editingIds={editingIds}
             saving={saving}
+            deletingId={deletingId}
             onEdit={beginEditing}
             onCancel={cancelEditing}
+            onDelete={(service) => void deleteService(service)}
             onDraftChange={updateDraft}
             testId="admin-pricing-phone-call-minutes-table"
           />
@@ -410,8 +466,10 @@ export default function AdminPricingPage() {
             dirtyIds={dirtyIds}
             editingIds={editingIds}
             saving={saving}
+            deletingId={deletingId}
             onEdit={beginEditing}
             onCancel={cancelEditing}
+            onDelete={(service) => void deleteService(service)}
             onDraftChange={updateDraft}
             testId="admin-pricing-platform-table"
           />
@@ -602,6 +660,7 @@ export default function AdminPricingPage() {
           </form>
         </div>
       ) : null}
+
     </div>
   );
 }
@@ -614,8 +673,10 @@ function PricingServiceTable({
   dirtyIds,
   editingIds,
   saving,
+  deletingId,
   onEdit,
   onCancel,
+  onDelete,
   onDraftChange,
   testId
 }: {
@@ -626,8 +687,10 @@ function PricingServiceTable({
   dirtyIds: string[];
   editingIds: Set<string>;
   saving: boolean;
+  deletingId: string | null;
   onEdit: (service: AdminUsageService) => void;
   onCancel: (service: AdminUsageService) => void;
+  onDelete: (service: AdminUsageService) => void;
   onDraftChange: <K extends keyof DraftRow>(id: string, field: K, value: DraftRow[K]) => void;
   testId: string;
 }) {
@@ -848,6 +911,21 @@ function PricingServiceTable({
                             Unsaved
                           </span>
                         ) : null}
+                        <button
+                          type="button"
+                          disabled={saving || deletingId !== null}
+                          aria-label={`Delete ${service.name}`}
+                          title={`Delete ${service.name}`}
+                          data-testid={`admin-pricing-delete-${service.code}`}
+                          onClick={() => onDelete(service)}
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-red-200 bg-white text-red-600 transition hover:border-red-300 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {deletingId === service.id ? (
+                            <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 aria-hidden="true" className="h-4 w-4" />
+                          )}
+                        </button>
                       </div>
                     </td>
                   </tr>

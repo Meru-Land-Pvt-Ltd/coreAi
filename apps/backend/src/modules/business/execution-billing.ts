@@ -1,6 +1,10 @@
 import type { AgentUsageSource, Prisma } from "@prisma/client";
 import { env } from "../../config/env";
-import { isPlatformMailConfigured, sendPlatformEmail } from "../../lib/mailer";
+import {
+  buildSpendingAlertEmailHtml,
+  isPlatformMailConfigured,
+  sendPlatformEmail
+} from "../../lib/mailer";
 import { prisma } from "../../lib/prisma";
 import {
   sumLineItems,
@@ -21,15 +25,6 @@ export function invoiceAttachedExecutions<
   T extends { usageInvoiceId: string | null }
 >(executions: T[]) {
   return executions.filter((execution) => execution.usageInvoiceId !== null);
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 export function billingMonthFor(date: Date) {
@@ -186,8 +181,6 @@ export async function sendSpendingAlertIfNeeded(businessId: string, billingMonth
   const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
   const recipient = business.billingEmail || business.owner.email;
   const displayName = business.owner.fullName || business.name;
-  const safeDisplayName = escapeHtml(displayName);
-  const safeBillingUrl = escapeHtml(billingUrl);
 
   try {
     await sendPlatformEmail({
@@ -195,7 +188,13 @@ export async function sendSpendingAlertIfNeeded(businessId: string, billingMonth
       to: recipient,
       subject: `Monthly execution spending alert: $${totalUsd}`,
       text: `Hi ${displayName}, your ${monthLabel(billingMonth)} agent execution costs are $${totalUsd}, which reached your $${thresholdUsd} alert threshold. Review usage: ${billingUrl}`,
-      html: `<p>Hi ${safeDisplayName},</p><p>Your <strong>${monthLabel(billingMonth)}</strong> agent execution costs are now <strong>$${totalUsd}</strong>, which reached your <strong>$${thresholdUsd}</strong> alert threshold.</p><p><a href="${safeBillingUrl}">Review detailed usage</a></p>`
+      html: buildSpendingAlertEmailHtml({
+        name: displayName,
+        billingPeriod: monthLabel(billingMonth),
+        totalUsd,
+        thresholdUsd,
+        billingUrl
+      })
     });
   } catch (error) {
     // Release this month's claim when delivery failed so the next qualifying

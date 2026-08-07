@@ -104,11 +104,14 @@ describe("resolveApplicableUsageServiceCodes — unknown hops fail closed", () =
     expect(resolution.unknownHops.some((hop) => hop.hop === "llm" && hop.provider === "anthropic")).toBe(true);
   });
 
-  it("unknown voice provider (cartesia) is UNKNOWN", () => {
-    const resolution = resolve(standardPipeline({ voiceProvider: "cartesia", voiceModel: "sonic" }));
-    expect(resolution.state).toBe("UNKNOWN");
-    if (resolution.state !== "UNKNOWN") return;
-    expect(resolution.unknownHops.some((hop) => hop.hop === "voice" && hop.provider === "cartesia")).toBe(true);
+  it("maps Cartesia Sonic 2 to the configured Cartesia pricing service", () => {
+    const resolution = resolve(
+      standardPipeline({ voiceProvider: "cartesia", voiceModel: "sonic-2" })
+    );
+    expect(resolution.state).toBe("RESOLVED");
+    if (resolution.state !== "RESOLVED") return;
+    expect(resolution.codes).toContain(USAGE_SERVICE_CODES.CARTESIA_SONIC_2);
+    expect(resolution.codes).not.toContain(USAGE_SERVICE_CODES.ELEVENLABS_FLASH_V25);
   });
 
   it("missing voiceModel (vapi built-in voice) is UNKNOWN — never guessed", () => {

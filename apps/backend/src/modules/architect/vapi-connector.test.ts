@@ -13,7 +13,7 @@ process.env.ELEVENLABS_DEFAULT_VOICE_ID = FEMALE_DEFAULT_ID;
 process.env.CARTESIA_DEFAULT_VOICE_ID = CARTESIA_DEFAULT_ID;
 
 const { env } = await import("../../config/env");
-const { deployVapiAssistant, extractCallRecordingUrls, isPresignedRecordingUrl, resolveVapiModel, resolveVapiVoice } =
+const { deployVapiAssistant, extractCallRecordingUrls, extractVapiCallVoicePipeline, isPresignedRecordingUrl, resolveVapiModel, resolveVapiVoice } =
   await import("./vapi-connector");
 
 const originalEnv = {
@@ -32,6 +32,28 @@ afterEach(() => {
 
 const SKYLAR_FEMALE_ID = "db6b0ed5-d5d3-463d-ae85-518a07d3c2b4";
 const RONALD_MALE_ID = "5ee9feff-1265-424a-9d7f-8e4d431a12c7";
+
+describe("extractVapiCallVoicePipeline", () => {
+  it("reads the actual Cartesia pipeline embedded in the completed Vapi call", () => {
+    expect(
+      extractVapiCallVoicePipeline({
+        assistant: {
+          model: { provider: "openai", model: "gpt-4o-mini" },
+          transcriber: { provider: "deepgram", model: "nova-3" },
+          voice: { provider: "cartesia", model: "sonic-2", voiceId: CARTESIA_DEFAULT_ID }
+        }
+      })
+    ).toEqual({
+      orchestrator: "vapi",
+      llmProvider: "openai",
+      llmModel: "gpt-4o-mini",
+      transcriberProvider: "deepgram",
+      transcriberModel: "nova-3",
+      voiceProvider: "cartesia",
+      voiceModel: "sonic-2"
+    });
+  });
+});
 
 describe("resolveVapiVoice", () => {
   it("resolves the ronald preset to its Cartesia id with no explicit id", () => {
@@ -235,6 +257,10 @@ describe("deployVapiAssistant payload", () => {
     });
     expect(body.model.provider).toBe("openai");
     expect(body.model.model).toBe("gpt-4o-mini");
+    expect(result.pipeline).toMatchObject({
+      voiceProvider: "cartesia",
+      voiceModel: env.CARTESIA_TTS_MODEL
+    });
   });
 
   it("configures barge-in parameters so interrupted prompts are permanently cancelled with 0 backoff", async () => {

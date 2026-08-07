@@ -14,13 +14,14 @@ import type { ResolvedVoicePipeline } from "../modules/compliance/workspace-ai-g
 export const UNKNOWN_USAGE_SERVICE_MAPPING = "UNKNOWN_USAGE_SERVICE_MAPPING";
 
 /** Bump when mapping semantics change — stored in every pricing snapshot. */
-export const USAGE_SERVICE_RESOLVER_VERSION = "2026-07.v1";
+export const USAGE_SERVICE_RESOLVER_VERSION = "2026-08.v2";
 
 export const USAGE_SERVICE_CODES = {
   TWILIO_VOICE: "twilio_voice",
   DEEPGRAM_NOVA3: "deepgram_nova3",
   OPENAI_GPT4O_MINI: "openai_gpt4o_mini",
   ELEVENLABS_FLASH_V25: "elevenlabs_flash_v25",
+  CARTESIA_SONIC_2: "cartesia_sonic_2",
   SMS_CONFIRMATION: "sms_confirmation",
   DATABASE_STORAGE: "database_storage",
   GOOGLE_CALENDAR: "google_calendar"
@@ -90,6 +91,11 @@ const HOP_MATCHERS: Record<Exclude<PipelineHop, "telephony">, HopMatcher[]> = {
       provider: "elevenlabs",
       modelPrefixes: ["elevenflashv25"],
       serviceCode: USAGE_SERVICE_CODES.ELEVENLABS_FLASH_V25
+    },
+    {
+      provider: "cartesia",
+      modelPrefixes: ["sonic2"],
+      serviceCode: USAGE_SERVICE_CODES.CARTESIA_SONIC_2
     }
   ]
 };

@@ -261,6 +261,36 @@ describe("customer-facing usage invoice lines", () => {
     });
   });
 
+  it("reprices the Cartesia invoice line from Admin Pricing", () => {
+    const [repriced] = repriceUsageInvoiceLineItems(
+      [
+        line(
+          "cartesia_sonic_2",
+          "Cartesia Sonic 2",
+          "Text-to-speech voice output",
+          90_000,
+          45_000
+        )
+      ],
+      new Map([
+        [
+          "cartesia_sonic_2",
+          {
+            unit: "PER_MINUTE",
+            billingCostMicroUsd: 45_000
+          }
+        ]
+      ])
+    );
+
+    expect(repriced).toMatchObject({
+      serviceCode: "cartesia_sonic_2",
+      quantity: 2,
+      billingRateMicroUsd: 45_000,
+      billedCostMicroUsd: 90_000
+    });
+  });
+
   it("keeps an issued monthly phone-number fee at its recorded rate", () => {
     const [phoneFee] = repriceUsageInvoiceLineItems(
       [

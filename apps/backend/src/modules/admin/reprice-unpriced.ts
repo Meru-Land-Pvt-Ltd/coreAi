@@ -14,6 +14,7 @@ import {
 } from "../compliance/workspace-ai-guard";
 import { loadActiveUsageServicePricing } from "./usage-pricing-service";
 import { monthBounds, recordVapiExecutionUsage } from "../business/execution-billing";
+import { fetchVapiCallById } from "../architect/vapi-connector";
 
 export type RepriceUnpricedInput = {
   executionIds?: string[];
@@ -140,17 +141,47 @@ export async function repriceUnpricedExecutions(
           : false);
 
       const install = call.installedAgentId ? installsById.get(call.installedAgentId) : undefined;
-      const pipeline =
+      let pipeline =
         pipelineFromSnapshot(call.pricingSnapshotJson) ??
         parseStoredVoicePipeline(install?.configJson) ??
         resolveDefaultLiveVoicePipeline();
 
-      const resolution = resolveApplicableUsageServiceCodes({
-        execution: { calendarUsed },
-        installedAgent: install ? { id: install.id } : null,
-        voicePipeline: pipeline,
-        providerMetadata: { telephonyProvider: "twilio" }
+      // Repricing must use the provider that handled this exact call. This
+      // keeps ElevenLabs calls on the ElevenLabs rate and Cartesia calls on the
+      // Cartesia rate even when an older installation snapshot is stale.
+      const vapiCall = await fetchVapiCallById(call.callId).catch((error) => {
+        console.error("[admin-reprice] Vapi call lookup failed (non-fatal)", {
+          callId: call.callId,
+          error
+        });
+        return null;
       });
+      if (vapiCall?.voicePipeline) pipeline = vapiCall.voicePipeline;
+
+      const resolvePipeline = (voicePipeline: ResolvedVoicePipeline) =>
+        resolveApplicableUsageServiceCodes({
+          execution: { calendarUsed },
+          installedAgent: install ? { id: install.id } : null,
+          voicePipeline,
+          providerMetadata: { telephonyProvider: "twilio" }
+        });
+      const priceResolution = (serviceCodes: string[]) =>
+        priceExecutionUsage(
+          pricingServices,
+          { durationMinutes, smsCount, callCount: durationMinutes > 0 ? 1 : 0 },
+          {
+            applicableServiceCodes: new Set(serviceCodes),
+            requiredServiceCodes: requiredServiceCodesForUsage(serviceCodes, {
+              durationMinutes,
+              smsCount,
+              calendarUsed
+            })
+          }
+        );
+
+      const resolution = resolvePipeline(pipeline);
+      const pricingResult =
+        resolution.state === "RESOLVED" ? priceResolution(resolution.codes) : null;
 
       if (resolution.state === "UNKNOWN") {
         skipped += 1;
@@ -163,30 +194,19 @@ export async function repriceUnpricedExecutions(
         continue;
       }
 
-      const pricingResult = priceExecutionUsage(
-        pricingServices,
-        { durationMinutes, smsCount, callCount: durationMinutes > 0 ? 1 : 0 },
-        {
-          applicableServiceCodes: new Set(resolution.codes),
-          requiredServiceCodes: requiredServiceCodesForUsage(resolution.codes, {
-            durationMinutes,
-            smsCount,
-            calendarUsed
-          })
-        }
-      );
-
-      if (pricingResult.state === "UNPRICED") {
+      if (!pricingResult || pricingResult.state === "UNPRICED") {
         skipped += 1;
         items.push({
           id: call.id,
           callId: call.callId,
           outcome: "skipped",
-          reason: `${pricingResult.code}${
-            pricingResult.missingServiceCodes?.length
-              ? `:${pricingResult.missingServiceCodes.join(",")}`
-              : ""
-          }`
+          reason: pricingResult
+            ? `${pricingResult.code}${
+                pricingResult.missingServiceCodes?.length
+                  ? `:${pricingResult.missingServiceCodes.join(",")}`
+                  : ""
+              }`
+            : UNKNOWN_USAGE_SERVICE_MAPPING
         });
         continue;
       }

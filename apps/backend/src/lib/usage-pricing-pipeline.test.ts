@@ -41,6 +41,7 @@ function fixtureServices(): PricingServiceRecordInput[] {
     svc("openai_gpt4o_mini", "PER_MINUTE", 5_000, 6_000),
     svc("other_llm", "PER_MINUTE", 50_000, 60_000),
     svc("elevenlabs_flash_v25", "PER_MINUTE", 30_000, 40_000),
+    svc("cartesia_sonic_2", "PER_MINUTE", 45_000, 45_000),
     svc("other_voice", "PER_MINUTE", 70_000, 80_000),
     svc("sms_confirmation", "PER_SMS", 8_000, 10_000),
     svc("database_storage", "PER_CALL", 100, 200)
@@ -57,6 +58,44 @@ const STANDARD_APPLICABLE = new Set([
 ]);
 
 describe("pipeline-aware selection — no stacking", () => {
+  it("prices Cartesia at $0.045/min without stacking ElevenLabs", () => {
+    const applicable = new Set([
+      "twilio_voice",
+      "deepgram_nova3",
+      "openai_gpt4o_mini",
+      "cartesia_sonic_2",
+      "database_storage"
+    ]);
+    const result = priceExecutionUsage(
+      fixtureServices(),
+      { durationMinutes: 2, callCount: 1 },
+      {
+        applicableServiceCodes: applicable,
+        requiredServiceCodes: requiredServiceCodesForUsage([...applicable], {
+          durationMinutes: 2,
+          smsCount: 0,
+          calendarUsed: false
+        })
+      }
+    );
+
+    expect(result.state).toBe("PRICED");
+    if (result.state !== "PRICED") return;
+    const cartesia = result.lineItems.find(
+      (item) => item.serviceCode === "cartesia_sonic_2"
+    );
+    expect(cartesia).toMatchObject({
+      quantity: 2,
+      actualRateMicroUsd: 45_000,
+      billingRateMicroUsd: 45_000,
+      actualCostMicroUsd: 90_000,
+      billedCostMicroUsd: 90_000
+    });
+    expect(result.lineItems.map((item) => item.serviceCode)).not.toContain(
+      "elevenlabs_flash_v25"
+    );
+  });
+
   it("bills only the applicable LLM: other_llm produces NO line item", () => {
     const result = priceExecutionUsage(
       fixtureServices(),

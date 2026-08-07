@@ -100,6 +100,7 @@ export function phoneCallBreakdownOrder(serviceCode: string) {
   if (serviceCode === "twilio_voice") return 0;
   if (serviceCode === "deepgram_nova3") return 1;
   if (serviceCode === "openai_gpt4o_mini") return 2;
-  if (serviceCode === "elevenlabs_flash_v25") return 3;
-  return 4;
+  if (serviceCode === "cartesia_sonic_2") return 3;
+  if (serviceCode === "elevenlabs_flash_v25") return 4;
+  return 5;
 }

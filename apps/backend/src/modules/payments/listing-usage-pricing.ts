@@ -1,4 +1,5 @@
 import type { UsageServiceUnit } from "@prisma/client";
+import { env } from "../../config/env";
 import {
   resolveDefaultLiveVoicePipeline,
   type ResolvedVoicePipeline
@@ -9,9 +10,17 @@ import {
   USAGE_SERVICE_CODES
 } from "../../lib/usage-service-resolver";
 
-const VOICE_CONNECTORS = new Set(["vapi", "elevenlabs"]);
+const VOICE_CONNECTORS = new Set(["vapi", "elevenlabs", "cartesia"]);
 const SMS_CONNECTORS = new Set(["twilio"]);
 const CALENDAR_CONNECTORS = new Set(["google_calendar"]);
+
+function currentPlatformUsagePipeline(): ResolvedVoicePipeline {
+  return {
+    ...resolveDefaultLiveVoicePipeline(),
+    voiceProvider: "cartesia",
+    voiceModel: env.CARTESIA_TTS_MODEL
+  };
+}
 
 export type ListingUsageRate = {
   code: string;
@@ -48,7 +57,7 @@ export function buildListingUsagePricing({
   requiredConnectors,
   needsPhoneNumber: _needsPhoneNumber,
   phoneNumberBillingEnabled: _phoneNumberBillingEnabled,
-  voicePipeline = resolveDefaultLiveVoicePipeline()
+  voicePipeline = currentPlatformUsagePipeline()
 }: ListingUsagePricingInput): ListingUsagePricing {
   const connectors = new Set(
     requiredConnectors.map((connector) => connector.trim().toLowerCase()).filter(Boolean)

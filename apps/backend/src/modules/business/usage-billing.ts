@@ -16,7 +16,8 @@ import {
 } from "../../lib/usage-service-resolver";
 import {
   parseStoredVoicePipeline,
-  resolveDefaultLiveVoicePipeline
+  resolveDefaultLiveVoicePipeline,
+  type ResolvedVoicePipeline
 } from "../compliance/workspace-ai-guard";
 import { fetchVapiCallById } from "../architect/vapi-connector";
 import { loadActiveUsageServicePricing } from "../admin/usage-pricing-service";
@@ -58,6 +59,46 @@ function parseDurationMinutes(payload: Record<string, unknown>): number {
   if (Number.isFinite(ms) && ms > 0) return ms / 60_000;
 
   return 0;
+}
+
+export function mergeVapiCallPipeline(
+  vapiPipeline: ResolvedVoicePipeline | null,
+  fallback: ResolvedVoicePipeline
+): ResolvedVoicePipeline {
+  if (!vapiPipeline) return fallback;
+
+  const sameProviderModel = (
+    actualProvider: string,
+    actualModel: string | undefined,
+    fallbackProvider: string,
+    fallbackModel: string | undefined
+  ) => actualModel ?? (actualProvider === fallbackProvider ? fallbackModel : undefined);
+
+  const llmModel = sameProviderModel(
+    vapiPipeline.llmProvider,
+    vapiPipeline.llmModel,
+    fallback.llmProvider,
+    fallback.llmModel
+  );
+  const transcriberModel = sameProviderModel(
+    vapiPipeline.transcriberProvider,
+    vapiPipeline.transcriberModel,
+    fallback.transcriberProvider,
+    fallback.transcriberModel
+  );
+  const voiceModel = sameProviderModel(
+    vapiPipeline.voiceProvider,
+    vapiPipeline.voiceModel,
+    fallback.voiceProvider,
+    fallback.voiceModel
+  );
+
+  return {
+    ...vapiPipeline,
+    ...(llmModel ? { llmModel } : {}),
+    ...(transcriberModel ? { transcriberModel } : {}),
+    ...(voiceModel ? { voiceModel } : {})
+  };
 }
 
 /**
@@ -387,11 +428,15 @@ export async function recordVapiCallUsage({
     ? (await prisma.appointment.count({ where: { conversationId: callRow.conversationId } })) > 0
     : false;
 
-  // Pipeline-aware service selection: only the services this execution's
-  // deployed pipeline actually used may bill. The pipeline snapshot was frozen
-  // on InstalledAgent.configJson at deploy; assistants deployed before
-  // pipelines were recorded fall back to the env-derived default pipeline.
-  const voicePipeline = parseStoredVoicePipeline(agentConfig) ?? resolveDefaultLiveVoicePipeline();
+  // Prefer the assistant configuration returned by Vapi for this exact call.
+  // Stored deployment configuration fills only fields Vapi omitted, while
+  // legacy assistants fall back to the current platform default.
+  const fallbackVoicePipeline =
+    parseStoredVoicePipeline(agentConfig) ?? resolveDefaultLiveVoicePipeline();
+  const voicePipeline = mergeVapiCallPipeline(
+    vapiCall?.voicePipeline ?? null,
+    fallbackVoicePipeline
+  );
   const resolution = resolveApplicableUsageServiceCodes({
     execution: { calendarUsed },
     installedAgent: installedAgent ? { id: installedAgent.id } : null,
@@ -440,6 +485,10 @@ export async function recordVapiCallUsage({
   const vapiCostUsd = vapiCall?.costUsd ?? Number(message.cost);
   const vapiCostMicroUsd =
     Number.isFinite(vapiCostUsd) && vapiCostUsd >= 0 ? Math.round(vapiCostUsd * 1_000_000) : null;
+  const vapiCostDetails =
+    vapiCall?.costs ??
+    vapiCall?.costBreakdown ??
+    (Array.isArray(message.costs) ? message.costs : message.costBreakdown ?? null);
 
   const endedAt = new Date();
   if (endedAt < acquiredAt) return;
@@ -467,7 +516,7 @@ export async function recordVapiCallUsage({
         durationMinutes: durationMinutes > 0 ? durationMinutes : undefined,
         smsCount,
         vapiCostMicroUsd: vapiCostMicroUsd ?? undefined,
-        vapiCostBreakdownJson: (vapiCall?.costBreakdown ?? message.costBreakdown ?? null) as never,
+        vapiCostBreakdownJson: vapiCostDetails as never,
         pricingSnapshotJson: pricingSnapshot as never,
         pricingState: "UNPRICED",
         endedAt
@@ -484,7 +533,7 @@ export async function recordVapiCallUsage({
         durationMinutes: durationMinutes > 0 ? durationMinutes : undefined,
         smsCount,
         vapiCostMicroUsd: vapiCostMicroUsd ?? undefined,
-        vapiCostBreakdownJson: (vapiCall?.costBreakdown ?? message.costBreakdown ?? null) as never,
+        vapiCostBreakdownJson: vapiCostDetails as never,
         pricingSnapshotJson: pricingSnapshot as never,
         pricingState: "UNPRICED",
         endedAt,
@@ -511,7 +560,7 @@ export async function recordVapiCallUsage({
       actualCostMicroUsd: totals.actualCostMicroUsd,
       billedCostMicroUsd: totals.billedCostMicroUsd,
       usageLineItemsJson: lineItems as never,
-      vapiCostBreakdownJson: (vapiCall?.costBreakdown ?? message.costBreakdown ?? null) as never,
+      vapiCostBreakdownJson: vapiCostDetails as never,
       pricingSnapshotJson: pricingSnapshot as never,
       pricingState: "PRICED",
       billingMonth,
@@ -534,7 +583,7 @@ export async function recordVapiCallUsage({
       actualCostMicroUsd: totals.actualCostMicroUsd,
       billedCostMicroUsd: totals.billedCostMicroUsd,
       usageLineItemsJson: lineItems as never,
-      vapiCostBreakdownJson: (vapiCall?.costBreakdown ?? message.costBreakdown ?? null) as never,
+      vapiCostBreakdownJson: vapiCostDetails as never,
       pricingSnapshotJson: pricingSnapshot as never,
       pricingState: "PRICED",
       billingMonth,

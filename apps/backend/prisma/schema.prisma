@@ -882,6 +882,9 @@ model Payment {
   /// Set only after the buyer's trial-ended lifecycle email is accepted by SES.
   /// A null value lets the hourly billing cycle safely retry failed delivery.
   trialEndedEmailSentAt DateTime?
+  /// One-time gentle reminder for a pending agent invoice.
+  pendingReminderSentAt DateTime?
+  pendingReminderCount  Int       @default(0)
   paymentAttemptCount Int                @default(0)
   paymentPendingAt    DateTime?
   /// Buyer-facing fee breakdown: [{ label, amountCents }].

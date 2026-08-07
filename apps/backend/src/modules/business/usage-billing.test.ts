@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractRecordingUrl } from "./usage-billing";
+import { extractRecordingUrl, mergeVapiCallPipeline } from "./usage-billing";
 
 const RECORDING_URL = "https://storage.vapi.ai/recordings/abc123.wav";
 
@@ -31,5 +31,60 @@ describe("extractRecordingUrl", () => {
     expect(extractRecordingUrl({ recordingUrl: "javascript:alert(1)" })).toBeNull();
     expect(extractRecordingUrl({ recordingUrl: "http://insecure.example.com/a.wav" })).toBeNull();
     expect(extractRecordingUrl({ recordingUrl: 42 })).toBeNull();
+  });
+});
+
+describe("mergeVapiCallPipeline", () => {
+  it("uses Vapi's Cartesia provider and model for the completed call", () => {
+    expect(
+      mergeVapiCallPipeline(
+        {
+          orchestrator: "vapi",
+          llmProvider: "openai",
+          llmModel: "gpt-4o-mini",
+          transcriberProvider: "deepgram",
+          transcriberModel: "nova-3",
+          voiceProvider: "cartesia",
+          voiceModel: "sonic-2"
+        },
+        {
+          orchestrator: "vapi",
+          llmProvider: "openai",
+          llmModel: "gpt-4o-mini",
+          transcriberProvider: "deepgram",
+          transcriberModel: "nova-3",
+          voiceProvider: "elevenlabs",
+          voiceModel: "eleven_flash_v2_5"
+        }
+      )
+    ).toMatchObject({ voiceProvider: "cartesia", voiceModel: "sonic-2" });
+  });
+
+  it("uses Vapi's ElevenLabs provider when that completed call used ElevenLabs", () => {
+    expect(
+      mergeVapiCallPipeline(
+        {
+          orchestrator: "vapi",
+          llmProvider: "openai",
+          llmModel: "gpt-4o-mini",
+          transcriberProvider: "deepgram",
+          transcriberModel: "nova-3",
+          voiceProvider: "elevenlabs",
+          voiceModel: "eleven_flash_v2_5"
+        },
+        {
+          orchestrator: "vapi",
+          llmProvider: "openai",
+          llmModel: "gpt-4o-mini",
+          transcriberProvider: "deepgram",
+          transcriberModel: "nova-3",
+          voiceProvider: "cartesia",
+          voiceModel: "sonic-2"
+        }
+      )
+    ).toMatchObject({
+      voiceProvider: "elevenlabs",
+      voiceModel: "eleven_flash_v2_5"
+    });
   });
 });

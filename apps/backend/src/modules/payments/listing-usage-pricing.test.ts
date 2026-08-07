@@ -44,6 +44,7 @@ const records = [
   service("deepgram_nova3", "Speech transcription", "PER_MINUTE", 7_700, true),
   service("openai_gpt4o_mini", "Conversation intelligence", "PER_MINUTE", 10_000, true),
   service("elevenlabs_flash_v25", "Voice output", "PER_MINUTE", 40_000, true),
+  service("cartesia_sonic_2", "Voice output", "PER_MINUTE", 45_000, true),
   service("database_storage", "Call records", "PER_CALL", 200),
   service("sms_confirmation", "SMS confirmation", "PER_SMS", 10_000),
   service("google_calendar", "Appointment booking", "PER_UNIT", 0),
@@ -54,6 +55,20 @@ const records = [
 ];
 
 describe("listing checkout usage pricing", () => {
+  it("uses the current Cartesia pipeline and admin rate by default", () => {
+    const pricing = buildListingUsagePricing({
+      records,
+      requiredConnectors: ["phone_provider", "vapi", "cartesia"],
+      needsPhoneNumber: true,
+      phoneNumberBillingEnabled: true
+    });
+
+    expect(pricing.available).toBe(true);
+    expect(pricing.services.map((row) => row.code)).toContain("cartesia_sonic_2");
+    expect(pricing.services.map((row) => row.code)).not.toContain("elevenlabs_flash_v25");
+    expect(pricing.perMinuteUsd).toBeCloseTo(0.0712, 8);
+  });
+
   it("returns only services used by the listing with invoice labels and billing rates", () => {
     const pricing = buildListingUsagePricing({
       records,

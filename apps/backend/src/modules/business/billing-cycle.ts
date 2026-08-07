@@ -1,7 +1,10 @@
 import type { Prisma } from "@prisma/client";
 import { env } from "../../config/env";
 import {
+  buildPendingInvoiceReminderEmailHtml,
+  buildSubscriptionRenewalReminderEmailHtml,
   buildTrialEndedEmailHtml,
+  buildUsageOverdueEmailHtml,
   isPlatformMailConfigured,
   sendPlatformEmail
 } from "../../lib/mailer";
@@ -53,6 +56,14 @@ function reminderAlreadySentToday(lastReminderAt: Date | null, now: Date) {
     lastReminderAt &&
       lastReminderAt.toISOString().slice(0, 10) === now.toISOString().slice(0, 10)
   );
+}
+
+export function subscriptionInvoiceStatusForCreation(
+  now: Date,
+  periodStart: Date
+): "PENDING" | "OVERDUE" | null {
+  if (now.getTime() + DAY_MS < periodStart.getTime()) return null;
+  return now < periodStart ? "PENDING" : "OVERDUE";
 }
 
 async function suspendPhones(
@@ -806,7 +817,8 @@ async function createDueSubscriptionInvoices(now: Date) {
       start: periodStart,
       end: periodEnd
     } = nextSubscriptionInvoicePeriod(latestPaid, billingAnchorAt);
-    if (now < periodStart) continue;
+    const invoiceStatus = subscriptionInvoiceStatusForCreation(now, periodStart);
+    if (!invoiceStatus) continue;
     const renewalDate = periodStart.toISOString().slice(0, 10);
     const invoiceKey = `subscription:${agent.id}:${renewalDate}`;
     const legacyInvoiceKey =
@@ -837,7 +849,7 @@ async function createDueSubscriptionInvoices(now: Date) {
           installedAgentId: agent.id,
           amountCents: pinnedPlanCents,
           currency: latestPaid.currency,
-          status: "OVERDUE",
+          status: invoiceStatus,
           invoiceKind: "SUBSCRIPTION_RENEWAL",
           invoiceKey,
           periodStart,
@@ -876,6 +888,213 @@ async function createDueSubscriptionInvoices(now: Date) {
     }
   }
   return { billingPeriod, created };
+}
+
+function billingReminderDate(date: Date) {
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC"
+  });
+}
+
+async function sendPendingAgentInvoiceReminders(now: Date) {
+  const reminderWindowEnd = new Date(now.getTime() + DAY_MS);
+  const invoices = await prisma.payment.findMany({
+    where: {
+      status: "PENDING",
+      invoiceKind: { in: ["POST_TRIAL", "SUBSCRIPTION_RENEWAL"] },
+      dueAt: { gt: now, lte: reminderWindowEnd },
+      paymentPendingAt: null,
+      pendingReminderSentAt: null
+    },
+    orderBy: { dueAt: "asc" },
+    take: 100,
+    include: {
+      user: { select: { email: true, fullName: true } },
+      business: { select: { name: true, billingEmail: true } },
+      listing: { select: { name: true } }
+    }
+  });
+
+  if (!isPlatformMailConfigured()) {
+    if (invoices.length > 0) {
+      console.warn(
+        `[billing-cycle] ${invoices.length} pending agent reminder(s) waiting; platform SES is not configured`
+      );
+    }
+    return { considered: invoices.length, sent: 0 };
+  }
+
+  const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
+  let sent = 0;
+
+  for (const invoice of invoices) {
+    if (!invoice.dueAt) continue;
+    const claimed = await prisma.payment.updateMany({
+      where: {
+        id: invoice.id,
+        status: "PENDING",
+        paymentPendingAt: null,
+        pendingReminderSentAt: null
+      },
+      data: {
+        pendingReminderSentAt: now,
+        pendingReminderCount: { increment: 1 }
+      }
+    });
+    if (claimed.count !== 1) continue;
+
+    const to =
+      invoice.billingEmail?.trim() ||
+      invoice.business?.billingEmail?.trim() ||
+      invoice.user.email;
+    const recipientName =
+      invoice.billingName?.trim() ||
+      invoice.user.fullName?.trim() ||
+      invoice.business?.name?.trim() ||
+      "there";
+    const agentName = invoice.listing?.name?.trim() || "your AI agent";
+    const amountUsd = (invoice.amountCents / 100).toFixed(2);
+    const dueDate = billingReminderDate(invoice.dueAt);
+    const isRenewal = invoice.invoiceKind === "SUBSCRIPTION_RENEWAL";
+
+    try {
+      await sendPlatformEmail({
+        purpose: "billing",
+        to,
+        subject: isRenewal
+          ? `Your ${agentName} subscription renews tomorrow`
+          : `Payment reminder for ${agentName}`,
+        text: isRenewal
+          ? `Hi ${recipientName}, your 30-day subscription for ${agentName} renews on ${dueDate} for $${amountUsd}. Review the renewal invoice to continue service: ${billingUrl}`
+          : `Hi ${recipientName}, your pending invoice for ${agentName} is due on ${dueDate}. Please clear the $${amountUsd} balance to continue service: ${billingUrl}`,
+        html: isRenewal
+          ? buildSubscriptionRenewalReminderEmailHtml({
+              name: recipientName,
+              agentName,
+              renewalDate: dueDate,
+              amountUsd,
+              billingUrl
+            })
+          : buildPendingInvoiceReminderEmailHtml({
+              name: recipientName,
+              invoiceNumber: invoice.invoiceKey || invoice.id,
+              description: invoice.description || `${agentName} subscription`,
+              amountUsd,
+              dueDate,
+              billingUrl
+            })
+      });
+      sent += 1;
+    } catch (error) {
+      await prisma.payment.updateMany({
+        where: { id: invoice.id, pendingReminderSentAt: now },
+        data: {
+          pendingReminderSentAt: null,
+          pendingReminderCount: { decrement: 1 }
+        }
+      });
+      console.error("[billing-cycle] pending agent invoice reminder failed", {
+        paymentId: invoice.id,
+        error
+      });
+    }
+  }
+
+  return { considered: invoices.length, sent };
+}
+
+async function sendPendingUsageInvoiceReminders(now: Date) {
+  const reminderWindowEnd = new Date(now.getTime() + DAY_MS);
+  const invoices = await prisma.businessUsageInvoice.findMany({
+    where: {
+      status: "PENDING",
+      dueAt: { gt: now, lte: reminderWindowEnd },
+      paymentPendingAt: null,
+      reminderCount: 0,
+      lastReminderAt: null
+    },
+    orderBy: { dueAt: "asc" },
+    take: 100,
+    include: {
+      business: {
+        select: {
+          name: true,
+          billingEmail: true,
+          owner: { select: { email: true, fullName: true } }
+        }
+      }
+    }
+  });
+
+  if (!isPlatformMailConfigured()) {
+    if (invoices.length > 0) {
+      console.warn(
+        `[billing-cycle] ${invoices.length} pending usage reminder(s) waiting; platform SES is not configured`
+      );
+    }
+    return { considered: invoices.length, sent: 0 };
+  }
+
+  const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
+  let sent = 0;
+
+  for (const invoice of invoices) {
+    const claimed = await prisma.businessUsageInvoice.updateMany({
+      where: {
+        id: invoice.id,
+        status: "PENDING",
+        paymentPendingAt: null,
+        reminderCount: 0,
+        lastReminderAt: null
+      },
+      data: {
+        reminderCount: { increment: 1 },
+        lastReminderAt: now
+      }
+    });
+    if (claimed.count !== 1) continue;
+
+    const to = invoice.business.billingEmail || invoice.business.owner.email;
+    const recipientName =
+      invoice.business.owner.fullName || invoice.business.name || "there";
+    const amountUsd = (invoice.totalMicroUsd / 1_000_000).toFixed(2);
+    const dueDate = billingReminderDate(invoice.dueAt);
+
+    try {
+      await sendPlatformEmail({
+        purpose: "billing",
+        to,
+        subject: `Reminder: usage invoice ${invoice.invoiceNumber} is due soon`,
+        text: `Hi ${recipientName}, your ${monthLabel(invoice.billingMonth)} execution invoice ${invoice.invoiceNumber} for $${amountUsd} is due on ${dueDate}. Please clear it to continue service: ${billingUrl}`,
+        html: buildPendingInvoiceReminderEmailHtml({
+          name: recipientName,
+          invoiceNumber: invoice.invoiceNumber,
+          description: `${monthLabel(invoice.billingMonth)} agent execution usage`,
+          amountUsd,
+          dueDate,
+          billingUrl
+        })
+      });
+      sent += 1;
+    } catch (error) {
+      await prisma.businessUsageInvoice.updateMany({
+        where: { id: invoice.id, lastReminderAt: now },
+        data: {
+          reminderCount: { decrement: 1 },
+          lastReminderAt: null
+        }
+      });
+      console.error("[billing-cycle] pending usage invoice reminder failed", {
+        invoiceId: invoice.id,
+        error
+      });
+    }
+  }
+
+  return { considered: invoices.length, sent };
 }
 
 async function reconcileOpenSubscriptionInvoicePeriods(now: Date) {
@@ -1160,12 +1379,26 @@ async function sendUsageReminder(invoice: {
   const amount = (invoice.totalMicroUsd / 1_000_000).toFixed(2);
   const to = invoice.business.billingEmail || invoice.business.owner.email;
   const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
+  const recipientName = invoice.business.owner.fullName || invoice.business.name;
+  const gracePeriodEnd = graceEndFor(invoice.dueAt).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC"
+  });
   await sendPlatformEmail({
     purpose: "billing",
     to,
     subject: `Usage invoice ${invoice.invoiceNumber} is overdue`,
     text: `Your ${monthLabel(invoice.billingMonth)} execution invoice is $${amount}. Pay before the end of the 7-day grace period to avoid service suspension. ${billingUrl}`,
-    html: `<p>Hi ${invoice.business.owner.fullName || invoice.business.name},</p><p>Your execution invoice <strong>${invoice.invoiceNumber}</strong> is <strong>$${amount}</strong>.</p><p>Please pay before the end of the 7-day grace period to avoid service suspension.</p><p><a href="${billingUrl}">View and pay invoice</a></p>`
+    html: buildUsageOverdueEmailHtml({
+      name: recipientName,
+      invoiceNumber: invoice.invoiceNumber,
+      billingPeriod: monthLabel(invoice.billingMonth),
+      amountUsd: amount,
+      gracePeriodEnd,
+      billingUrl
+    })
   });
   return true;
 }
@@ -1334,6 +1567,10 @@ export async function runBillingCycle(now = new Date()) {
     );
   }
   const subscriptionInvoices = await createDueSubscriptionInvoices(now);
+  const pendingAgentInvoiceReminders =
+    await sendPendingAgentInvoiceReminders(now);
+  const pendingUsageInvoiceReminders =
+    await sendPendingUsageInvoiceReminders(now);
   const coveredAgentInvoices = await reconcileCoveredAgentInvoices({ now });
   for (const businessId of coveredAgentInvoices.businessIds) {
     await restoreBusinessAfterBillingPayment(businessId);
@@ -1352,6 +1589,8 @@ export async function runBillingCycle(now = new Date()) {
     trialEndEmails,
     subscriptionInvoicePeriods,
     subscriptionInvoices,
+    pendingAgentInvoiceReminders,
+    pendingUsageInvoiceReminders,
     coveredAgentInvoices,
     usageInvoices,
     agentSuspensions

@@ -1379,6 +1379,185 @@ function secondaryButton(href: string, label: string) {
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;"><tr><td align="center" bgcolor="#ffffff" style="border-radius:8px;border:1px solid #fcd34d;"><a href="${href}" target="_blank" style="display:inline-block;padding:11px 28px;${emailBodyStyle}font-size:15px;font-weight:600;color:#b45309;text-decoration:none;border-radius:8px;">${label}</a></td></tr></table>`;
 }
 
+function billingEmailDetailRow(label: string, value: string, valueColor = "#111827") {
+  return `<tr>
+<td valign="top" style="padding:10px 14px;background-color:#f8fafc;${emailBodyStyle}font-size:13px;line-height:1.5;color:#64748b;">${escapeHtml(label)}</td>
+<td valign="top" align="right" style="padding:10px 14px;${emailBodyStyle}font-size:14px;font-weight:600;line-height:1.5;color:${valueColor};">${escapeHtml(value)}</td>
+</tr>`;
+}
+
+export function buildUsageOverdueEmailHtml({
+  name,
+  invoiceNumber,
+  billingPeriod,
+  amountUsd,
+  gracePeriodEnd,
+  billingUrl
+}: {
+  name: string;
+  invoiceNumber: string;
+  billingPeriod: string;
+  amountUsd: string;
+  gracePeriodEnd: string;
+  billingUrl: string;
+}) {
+  const safeName = escapeHtml(name.trim() || "there");
+  const safeBillingUrl = escapeHtml(billingUrl);
+  const amount = `$${amountUsd}`;
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<span style="display:inline-block;margin:0 0 12px 0;padding:5px 10px;border-radius:9999px;background-color:#fee2e2;${emailBodyStyle}font-size:12px;font-weight:700;letter-spacing:0.04em;color:#b91c1c;">PAYMENT OVERDUE</span>
+<p style="margin:0 0 8px 0;${emailBodyStyle}font-size:20px;font-weight:700;line-height:1.4;color:#111827;">Your usage invoice is overdue</p>
+<p style="margin:0 0 18px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Hi ${safeName}, we have not yet received payment for your ${escapeHtml(billingPeriod)} execution usage.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;border-collapse:separate;">
+${billingEmailDetailRow("Invoice", invoiceNumber)}
+${billingEmailDetailRow("Billing period", billingPeriod)}
+${billingEmailDetailRow("Balance due", amount, "#dc2626")}
+${billingEmailDetailRow("Grace period ends", gracePeriodEnd)}
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #fecaca;border-radius:8px;overflow:hidden;background-color:#fef2f2;">
+<tr><td width="4" style="width:4px;background-color:#dc2626;font-size:0;line-height:0;">&nbsp;</td><td style="padding:12px 16px;${emailBodyStyle}font-size:14px;line-height:1.6;color:#991b1b;">Please pay before the grace period ends to avoid interruption to your agents.</td></tr>
+</table>
+${primaryButton(safeBillingUrl, "View and pay invoice")}
+<p style="margin:0 0 12px 0;${emailBodyStyle}font-size:13px;line-height:1.6;color:#94a3b8;">If you have already paid, no further action is needed. Your billing status will update after the payment is processed.</p>
+</td>
+</tr>`;
+
+  return emailShell(
+    `Invoice ${escapeHtml(invoiceNumber)} has an outstanding balance of ${escapeHtml(amount)}.`,
+    "Usage invoice overdue",
+    inner
+  );
+}
+
+export function buildSpendingAlertEmailHtml({
+  name,
+  billingPeriod,
+  totalUsd,
+  thresholdUsd,
+  billingUrl
+}: {
+  name: string;
+  billingPeriod: string;
+  totalUsd: string;
+  thresholdUsd: string;
+  billingUrl: string;
+}) {
+  const safeName = escapeHtml(name.trim() || "there");
+  const safeBillingUrl = escapeHtml(billingUrl);
+  const total = `$${totalUsd}`;
+  const threshold = `$${thresholdUsd}`;
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<span style="display:inline-block;margin:0 0 12px 0;padding:5px 10px;border-radius:9999px;background-color:#fef3c7;${emailBodyStyle}font-size:12px;font-weight:700;letter-spacing:0.04em;color:#b45309;">SPENDING ALERT</span>
+<p style="margin:0 0 8px 0;${emailBodyStyle}font-size:20px;font-weight:700;line-height:1.4;color:#111827;">Your spending threshold was reached</p>
+<p style="margin:0 0 18px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Hi ${safeName}, your agent execution usage for ${escapeHtml(billingPeriod)} has reached the alert amount you configured.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;border-collapse:separate;">
+${billingEmailDetailRow("Billing period", billingPeriod)}
+${billingEmailDetailRow("Current execution cost", total, "#d97706")}
+${billingEmailDetailRow("Alert threshold", threshold)}
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #fde68a;border-radius:8px;overflow:hidden;background-color:#fffbeb;">
+<tr><td width="4" style="width:4px;background-color:#f59e0b;font-size:0;line-height:0;">&nbsp;</td><td style="padding:12px 16px;${emailBodyStyle}font-size:14px;line-height:1.6;color:#92400e;">This is an informational alert. Your services remain active and usage may continue to increase during this billing period.</td></tr>
+</table>
+${primaryButton(safeBillingUrl, "Review detailed usage")}
+<p style="margin:0 0 12px 0;${emailBodyStyle}font-size:13px;line-height:1.6;color:#94a3b8;">You can change or disable this alert at any time from Billing &amp; Usage.</p>
+</td>
+</tr>`;
+
+  return emailShell(
+    `${escapeHtml(billingPeriod)} execution usage reached ${escapeHtml(total)}.`,
+    "Spending alert reached",
+    inner
+  );
+}
+
+export function buildSubscriptionRenewalReminderEmailHtml({
+  name,
+  agentName,
+  renewalDate,
+  amountUsd,
+  billingUrl
+}: {
+  name: string;
+  agentName: string;
+  renewalDate: string;
+  amountUsd: string;
+  billingUrl: string;
+}) {
+  const safeName = escapeHtml(name.trim() || "there");
+  const safeAgentName = escapeHtml(agentName);
+  const safeBillingUrl = escapeHtml(billingUrl);
+  const amount = `$${amountUsd}`;
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<span style="display:inline-block;margin:0 0 12px 0;padding:5px 10px;border-radius:9999px;background-color:#fef3c7;${emailBodyStyle}font-size:12px;font-weight:700;letter-spacing:0.04em;color:#b45309;">RENEWAL REMINDER</span>
+<p style="margin:0 0 8px 0;${emailBodyStyle}font-size:20px;font-weight:700;line-height:1.4;color:#111827;">Your agent subscription renews tomorrow</p>
+<p style="margin:0 0 18px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Hi ${safeName}, your current 30-day subscription for <strong>${safeAgentName}</strong> is almost complete. Please review the renewal invoice to continue service without interruption.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;border-collapse:separate;">
+${billingEmailDetailRow("Agent", agentName)}
+${billingEmailDetailRow("Renewal date", renewalDate)}
+${billingEmailDetailRow("Renewal amount", amount, "#d97706")}
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #fde68a;border-radius:8px;overflow:hidden;background-color:#fffbeb;">
+<tr><td width="4" style="width:4px;background-color:#f59e0b;font-size:0;line-height:0;">&nbsp;</td><td style="padding:12px 16px;${emailBodyStyle}font-size:14px;line-height:1.6;color:#92400e;">Please clear the renewal invoice by the renewal date so your agent can continue serving customers without interruption.</td></tr>
+</table>
+${primaryButton(safeBillingUrl, "Review renewal invoice")}
+<p style="margin:0 0 12px 0;${emailBodyStyle}font-size:13px;line-height:1.6;color:#94a3b8;">This reminder was sent one day before your current subscription period ends.</p>
+</td>
+</tr>`;
+
+  return emailShell(
+    `${safeAgentName} renews on ${escapeHtml(renewalDate)}.`,
+    "Subscription renewal reminder",
+    inner
+  );
+}
+
+export function buildPendingInvoiceReminderEmailHtml({
+  name,
+  invoiceNumber,
+  description,
+  amountUsd,
+  dueDate,
+  billingUrl
+}: {
+  name: string;
+  invoiceNumber: string;
+  description: string;
+  amountUsd: string;
+  dueDate: string;
+  billingUrl: string;
+}) {
+  const safeName = escapeHtml(name.trim() || "there");
+  const safeBillingUrl = escapeHtml(billingUrl);
+  const amount = `$${amountUsd}`;
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<span style="display:inline-block;margin:0 0 12px 0;padding:5px 10px;border-radius:9999px;background-color:#dbeafe;${emailBodyStyle}font-size:12px;font-weight:700;letter-spacing:0.04em;color:#1d4ed8;">PAYMENT REMINDER</span>
+<p style="margin:0 0 8px 0;${emailBodyStyle}font-size:20px;font-weight:700;line-height:1.4;color:#111827;">A gentle reminder about your pending invoice</p>
+<p style="margin:0 0 18px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Hi ${safeName}, this is a friendly reminder that the invoice below is approaching its due date.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;border-collapse:separate;">
+${billingEmailDetailRow("Invoice", invoiceNumber)}
+${billingEmailDetailRow("Description", description)}
+${billingEmailDetailRow("Amount due", amount, "#d97706")}
+${billingEmailDetailRow("Due date", dueDate)}
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #dbeafe;border-radius:8px;overflow:hidden;background-color:#eff6ff;">
+<tr><td width="4" style="width:4px;background-color:#3b82f6;font-size:0;line-height:0;">&nbsp;</td><td style="padding:12px 16px;${emailBodyStyle}font-size:14px;line-height:1.6;color:#1e40af;">Please clear the invoice by its due date to keep your services running without interruption.</td></tr>
+</table>
+${primaryButton(safeBillingUrl, "Review and pay invoice")}
+<p style="margin:0 0 12px 0;${emailBodyStyle}font-size:13px;line-height:1.6;color:#94a3b8;">If payment is already in progress, no action is required.</p>
+</td>
+</tr>`;
+
+  return emailShell(
+    `Invoice ${escapeHtml(invoiceNumber)} is due on ${escapeHtml(dueDate)}.`,
+    "Pending invoice reminder",
+    inner
+  );
+}
+
 export function buildTrialEndedEmailHtml({
   agentName,
   trialEndDate,

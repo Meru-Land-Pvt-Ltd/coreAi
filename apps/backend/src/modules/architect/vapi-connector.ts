@@ -135,9 +135,39 @@ export type VapiCallDetails = {
   durationMs: number | null;
   costUsd: number | null;
   costBreakdown: Record<string, unknown> | null;
+  costs: Array<Record<string, unknown>> | null;
+  voicePipeline: ResolvedVoicePipeline | null;
   recordingUrl: string | null;
   recordingUrls: string[];
 };
+
+export function extractVapiCallVoicePipeline(
+  payload: Record<string, unknown>
+): ResolvedVoicePipeline | null {
+  const assistant = recordOrEmpty(payload.assistant);
+  const model = recordOrEmpty(assistant.model);
+  const transcriber = recordOrEmpty(assistant.transcriber);
+  const voice = recordOrEmpty(assistant.voice);
+  const llmProvider = stringField(model, "provider");
+  const transcriberProvider = stringField(transcriber, "provider");
+  const voiceProvider = stringField(voice, "provider");
+
+  if (!llmProvider || !transcriberProvider || !voiceProvider) return null;
+
+  const llmModel = stringField(model, "model");
+  const transcriberModel = stringField(transcriber, "model");
+  const voiceModel = stringField(voice, "model");
+
+  return {
+    orchestrator: "vapi",
+    llmProvider: normalizeAiProvider(llmProvider),
+    transcriberProvider: normalizeAiProvider(transcriberProvider),
+    voiceProvider: normalizeAiProvider(voiceProvider),
+    ...(llmModel ? { llmModel } : {}),
+    ...(transcriberModel ? { transcriberModel } : {}),
+    ...(voiceModel ? { voiceModel } : {})
+  };
+}
 
 export function isPresignedRecordingUrl(url: string): boolean {
   return /[?&]X-Amz-(?:Signature|Credential|Algorithm)=/i.test(url);
@@ -223,6 +253,13 @@ export async function fetchVapiCallById(callId: string): Promise<VapiCallDetails
       typeof payload.costBreakdown === "object" && payload.costBreakdown !== null
         ? (payload.costBreakdown as Record<string, unknown>)
         : null,
+    costs: Array.isArray(payload.costs)
+      ? payload.costs.filter(
+          (cost): cost is Record<string, unknown> =>
+            typeof cost === "object" && cost !== null && !Array.isArray(cost)
+        )
+      : null,
+    voicePipeline: extractVapiCallVoicePipeline(payload),
     recordingUrl: recordingUrls[0] ?? null,
     recordingUrls
   };
@@ -1321,10 +1358,9 @@ export async function deployVapiAssistant({
   // The Limited Use guard validates the EXACT providers this assistant runs
   // on, so capture them from the payload we just sent — not from env guesses.
   // Model identifiers ride along for usage-service pricing resolution; a
-  // vapi-built-in voice has no ElevenLabs model, so voiceModel stays unset
-  // there and pricing treats it as an unknown mapping instead of guessing.
-  const voiceModel =
-    voiceResolution.config.provider === "11labs" ? env.VAPI_ELEVENLABS_MODEL : undefined;
+  // Vapi-built-in voice has no provider model, so voiceModel stays unset there
+  // and pricing treats it as an unknown mapping instead of guessing.
+  const voiceModel = voiceResolution.config.model;
   const pipeline: ResolvedVoicePipeline = {
     orchestrator: "vapi",
     llmProvider: normalizeAiProvider(resolvedModel.provider),
