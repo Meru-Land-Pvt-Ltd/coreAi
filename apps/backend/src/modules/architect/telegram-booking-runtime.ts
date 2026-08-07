@@ -48,6 +48,7 @@ import {
 import { telegramCommandList, telegramCustomCommands } from "./telegram-command-config";
 import { parseRunnerWorkflowJson, runWorkflowTest } from "./workflow-runner";
 import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/agent-knowledge";
+import { addressFromProfile, formatAddressOneLine } from "../business/business-facts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -1144,7 +1145,7 @@ async function deliverConfiguredBookingMessages(options: {
         actionType: TELEGRAM_ACTION_TYPES.sendMessage,
         text: message,
         parseMode:
-          parseModeValue === "HTML" || parseModeValue === "MarkdownV2"
+          parseModeValue === "HTML" || parseModeValue === "MarkdownV2" || parseModeValue === "Markdown"
             ? parseModeValue
             : undefined,
         disableNotification: boolValue(node.data?.telegramDisableNotification, false),
@@ -2393,68 +2394,84 @@ async function workflowFallback(
 ) {
   const text = event.message.text || event.message.caption || `[${event.eventType}]`;
   const profile = connection.business.profile;
-  const contactName = profile?.contactName || "";
-  const doctorArray = contactName.split(",").map((s) => s.trim()).filter(Boolean);
-  const doctorCount = doctorArray.length;
-  const doctorList = doctorArray.join(", ");
-  const addressFormatted = profile?.addressFormatted || "";
+
+  // ── Business facts ──────────────────────────────────────────────────────────
+  const agentConfig = record(connection.installedAgent.configJson);
+  const contactName = stringValue(agentConfig.contactName);
+  // contactName may be comma-separated (e.g. "Dr. A, Dr. B, Dr. C")
+  const staffList = contactName
+    .split(",")
+    .map((s: string) => s.trim())
+    .filter(Boolean);
+  const staffCount = staffList.length;
+
+  const addressFormatted = formatAddressOneLine(addressFromProfile(profile)) || "";
   const servicesList = (profile?.services ?? []).join(", ");
-  const faqsFormatted = Array.isArray(profile?.faqs)
-    ? (profile.faqs as Array<{ question?: string; answer?: string }>)
-        .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
-        .join("\n\n")
-    : "";
+  const rawFaqs = profile?.faqsJson;
+  const faqsArray = Array.isArray(rawFaqs) ? (rawFaqs as Array<{ question?: string; answer?: string }>) : [];
+  const faqsText = faqsArray
+    .map((f: { question?: string; answer?: string }) => `Q: ${f.question ?? ""}\nA: ${f.answer ?? ""}`)
+    .filter((line: string) => line.length > 6)
+    .join("\n\n");
 
-  const businessContextSummary = [
-    `Business Name: ${connection.business.name}`,
-    `Business Type: ${connection.business.type || "Business"}`,
-    doctorList ? `Doctors / Practitioners on Staff (${doctorCount}): ${doctorList}` : null,
-    addressFormatted ? `Location / Address: ${addressFormatted}` : null,
-    servicesList ? `Offered Services: ${servicesList}` : null,
-    faqsFormatted ? `Frequently Asked Questions:\n${faqsFormatted}` : null
-  ].filter(Boolean).join("\n\n");
-
-  const systemPromptGuardrails = `You are the official Telegram AI assistant for ${connection.business.name}.
-Use the following business details to answer user queries accurately:
-${businessContextSummary}
-
-DOCTORS & TEAM MEMBERS ON STAFF:
-${doctorList ? `The business has ${doctorCount} licensed doctor(s)/practitioner(s): ${doctorList}.` : "No specific doctors listed."}
-
-STRICT GUARDRAILS:
-1. When asked about doctors, dentists, or staff members, state the EXACT names (${doctorList || "our staff"}) and number of doctors (${doctorCount > 0 ? `${doctorCount} doctor(s)` : "our team"}). NEVER make up or hallucinate arbitrary numbers of doctors (such as 8 dentists).
-2. ONLY answer questions related to ${connection.business.name}, its staff/doctors (${doctorList || "the team"}), services, location, hours, and appointments.
-3. If a customer asks questions completely unrelated to ${connection.business.name} (e.g. general trivia, coding, off-topic math), politely decline and remind them that you are here to assist with ${connection.business.name}.`;
-
-  const effectiveMessage = customInstructions && customInstructions.trim()
-    ? `[AI Action Instructions for command /${telegramCommand(event) || "action"}: "${customInstructions.trim()}"]\n[Business Knowledge Context]:\n${businessContextSummary}\n\nCustomer message: ${text}`
-    : `[Business Knowledge & Context]:\n${businessContextSummary}\n\n[System Rules]:\n${systemPromptGuardrails}\n\nCustomer Message: ${text}`;
-
-  /* The runner only ever reads knowledge from its input — it never loads from
-     the database itself. Without this, a Telegram bot answers from the prompt
-     and the services list alone and cannot see anything the buyer uploaded,
-     while the voice path answers the same question correctly via
-     lookup_knowledge. Retrieval is query-aware, so only the sections relevant
-     to THIS message are sent. */
-  const knowledge = await retrieveRelevantKnowledge({
+  // ── Retrieve knowledge sections relevant to this specific message ────────────
+  const knowledgeSections = await retrieveRelevantKnowledge({
     businessId: connection.businessId,
     installedAgentId: connection.installedAgentId,
     query: text
-  })
-    .then((sections) => formatKnowledgeEntries(sections))
-    .catch((error) => {
-      // Knowledge is an enhancement — never fail the reply because of it.
-      console.warn("[telegram] knowledge retrieval failed", {
-        businessId: connection.businessId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return [] as string[];
+  }).catch((error) => {
+    console.warn("[telegram] knowledge retrieval failed", {
+      businessId: connection.businessId,
+      error: error instanceof Error ? error.message : String(error)
     });
+    return [] as Awaited<ReturnType<typeof retrieveRelevantKnowledge>>;
+  });
 
-  const history = await loadTelegramHistory(connection, event);
+  const knowledgeLines = formatKnowledgeEntries(knowledgeSections);
+
+  // ── Build a single well-structured context block the AI can read reliably ────
+  // We prepend this before the user's message so even a generic AI Brain node
+  // (whose system prompt might not reference any variables) still has all the
+  // business data in the conversation context it receives.
+  const contextParts: string[] = [
+    `[BUSINESS CONTEXT]`,
+    `Business Name: ${connection.business.name}`,
+    ...(connection.business.type ? [`Business Type: ${connection.business.type}`] : []),
+    ...(staffList.length > 0
+      ? [`Staff / Practitioners (${staffCount} total): ${staffList.join(", ")}`]
+      : []),
+    ...(addressFormatted ? [`Location: ${addressFormatted}`] : []),
+    ...(servicesList ? [`Services Offered: ${servicesList}`] : []),
+    ...(faqsText ? [`\nFrequently Asked Questions:\n${faqsText}`] : [])
+  ];
+
+  if (knowledgeLines.length > 0) {
+    contextParts.push(`\n[KNOWLEDGE BASE]`);
+    for (const line of knowledgeLines) {
+      contextParts.push(line);
+    }
+  }
+
+  contextParts.push("");
+
+  const contextBlock = contextParts.join("\n");
+
+  // When a custom action instruction is set (from a dynamic command), wrap it
+  // so the AI understands it should follow that specific action.
+  const effectiveUserMessage = customInstructions?.trim()
+    ? `[Custom Action for /${telegramCommand(event) || "action"}: ${customInstructions.trim()}]\n\nCustomer message: ${text}`
+    : text;
+
+  const latestMessage = `${contextBlock}[CUSTOMER MESSAGE]\n${effectiveUserMessage}`;
+
   const userFirstName = event.sender.firstName || event.sender.username || "there";
   const userLastName = event.sender.lastName || "";
-  const fullName = [event.sender.firstName, event.sender.lastName].filter(Boolean).join(" ") || event.sender.username || "there";
+  const fullName =
+    [event.sender.firstName, event.sender.lastName].filter(Boolean).join(" ") ||
+    event.sender.username ||
+    "there";
+
+  const history = await loadTelegramHistory(connection, event);
 
   const run = await runWorkflowTest({
     userId: connection.business.ownerId,
@@ -2465,61 +2482,46 @@ STRICT GUARDRAILS:
     callProvider: `TELEGRAM:${connection.id}`,
     externalCallId: event.updateId,
     input: {
+      // Core IDs
       businessId: connection.businessId,
       installedAgentId: connection.installedAgentId,
       businessOwnerId: connection.business.ownerId,
-      businessName: connection.business.name,
-      businessType: connection.business.type,
-      businessPhoneNumber: connection.business.phoneNumbers[0]?.phoneNumber,
+      // Business facts — structured object (the canonical form nodes should use)
       business: {
         id: connection.businessId,
         name: connection.business.name,
         type: connection.business.type,
         contactName,
-        doctorName: doctorList,
-        doctorNames: doctorArray,
-        doctorCount,
-        doctors: doctorList,
+        staff: staffList,
+        staffCount,
         address: addressFormatted,
-        addressFormatted,
         services: profile?.services ?? [],
         servicesList,
-        faqs: faqsFormatted,
-        businessContextSummary,
-        profile: {
-          contactName,
-          doctorName: doctorList,
-          doctorNames: doctorArray,
-          doctorCount,
-          addressFormatted,
-          services: profile?.services ?? [],
-          faqs: profile?.faqs ?? []
-        }
+        faqs: faqsText
       },
+      // Flat scalars kept for backward compat with older workflow templates
+      businessName: connection.business.name,
+      businessType: connection.business.type,
+      businessPhoneNumber: connection.business.phoneNumbers[0]?.phoneNumber,
       contactName,
-      doctorName: doctorList,
-      doctorNames: doctorArray,
-      doctorCount,
-      doctors: doctorList,
-      businessContactName: contactName,
       address: addressFormatted,
-      businessAddress: addressFormatted,
-      calendarId: profile?.calendarId || "primary",
-      timeZone: profile?.timeZone || "UTC",
       services: profile?.services ?? [],
       servicesList,
-      faqs: faqsFormatted,
-      knowledge,
-      businessContextSummary,
-      systemPromptGuardrails,
+      calendarId: profile?.calendarId || "primary",
+      timeZone: profile?.timeZone || "UTC",
+      // Knowledge — the sections retrieved for this specific query
+      knowledge: knowledgeLines,
+      // Conversation
       userName: fullName,
       customerName: fullName,
       customerFirstName: userFirstName,
       customerLastName: userLastName,
       history,
       messages: history,
-      latestMessage: effectiveMessage,
-      inboundSmsBody: effectiveMessage,
+      // The well-structured message the AI Brain node will read
+      latestMessage,
+      inboundSmsBody: latestMessage,
+      // Telegram event context
       telegramConnectionId: connection.id,
       telegramUpdateId: event.updateId,
       telegramChatId: event.chat.id,
@@ -2532,39 +2534,48 @@ STRICT GUARDRAILS:
       telegramEvent: event
     }
   });
-  const context = record(run.context);
-  const telegramAction = record(context.telegramAction);
+
+  const ctx = record(run.context);
+
+  // 1. Workflow sent a Telegram message directly via a Telegram action node
+  const telegramAction = record(ctx.telegramAction);
   if (telegramAction.success === true) return run.workflowRunId ?? null;
-  const ai = record(context.ai);
-  const aiOutput = stringValue(ai.output);
+
+  // 2. AI Brain node returned text — render and send it
+  const aiOutput = stringValue(record(ctx.ai).output);
   if (aiOutput) {
     const reply = renderBusinessTemplate(aiOutput, connection.business.name, event.sender);
     await sendTextOrButtonsIfList(connection, event, "workflow-reply", reply);
     return run.workflowRunId ?? null;
   }
-  if (
-    /\b(services?|offerings?|options?|treatments?)\b/i.test(text) ||
-    /\bwhat\b.*\b(do you|provide|offer|have|available|do)\b/i.test(text)
-  ) {
-    await saveTelegramConversationState(identity(connection, event), "SHOWING_SERVICES", {});
-    await showServices(connection, event, false);
+
+  // 3. No AI output — answer directly from retrieved knowledge if available
+  //    (handles the case where the workflow has no AI Brain node, or LLM credentials
+  //     are not configured, but the business has uploaded relevant documents)
+  if (knowledgeLines.length > 0) {
+    const knowledgeAnswer = knowledgeLines.slice(0, 4).join("\n\n");
+    await sendText(connection, event, "knowledge-direct-answer", knowledgeAnswer);
     return run.workflowRunId ?? null;
   }
+
+  // 4. Final fallback — generic welcome / help message
   const fallbackMessage = stringValue(triggerData.telegramFallbackMessage);
-  const isGreetingMsg = /\b(hi|hello|hey|greetings|hola)\b/i.test(text.trim());
+  const isGreeting = /^\s*(hi|hello|hey|greetings|hola|howdy)\s*[!.,]?\s*$/i.test(text.trim());
   const rawReply =
-    (isGreetingMsg ? fallbackMessage : null) ||
-    `Hello ${userFirstName}! 👋 I'm here to assist you with ${connection.business.name}. You can type /services to view our services, /book to schedule an appointment, or ask me any question!`;
+    (isGreeting && fallbackMessage ? fallbackMessage : null) ||
+    `Hello ${userFirstName}! 👋 I'm here to assist you with ${connection.business.name}. How can I help you today?`;
   const reply = renderBusinessTemplate(rawReply, connection.business.name, event.sender);
   await sendText(connection, event, "workflow-reply", reply);
   return run.workflowRunId ?? null;
 }
+
 
 async function processEvent(
   connection: LoadedConnection,
   event: NormalizedTelegramEvent,
   triggerData: JsonRecord
 ): Promise<string | null> {
+
   if (event.message.text && event.eventType !== "callback_query") {
     await recordTelegramTurn(connection, event, "INBOUND", event.message.text);
   }

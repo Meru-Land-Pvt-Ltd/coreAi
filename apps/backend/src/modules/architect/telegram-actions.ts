@@ -47,7 +47,7 @@ export type TelegramActionInput = {
   callbackQueryId?: string;
   text?: string;
   caption?: string;
-  parseMode?: "HTML" | "MarkdownV2";
+  parseMode?: "HTML" | "MarkdownV2" | "Markdown";
   buttons?: TelegramButton[][];
   source?: string;
   latitude?: number;

@@ -1246,6 +1246,7 @@ const businessSetupSchema = z.object({
     })
     .optional(),
   contactName: z.string().trim().optional().or(z.literal("")),
+  allContactNames: z.array(z.string().trim()).optional(),
   customInstructions: z.string().trim().optional().or(z.literal("")),
 
   silenceRepromptCount: z.coerce.number().int().min(0).max(3).optional(),
@@ -1325,6 +1326,25 @@ function cleanOptional(value?: string | null): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 }
+
+/**
+ * Merge all extracted names (e.g. from a document) into a single comma-separated
+ * string so none are lost when multiple doctors/staff are detected.
+ * Falls back to the plain `contactName` field when no array is supplied.
+ */
+function resolveContactName(
+  contactName?: string | null,
+  allContactNames?: string[] | null
+): string | null {
+  const names = (allContactNames ?? [])
+    .map((n) => n.trim())
+    .filter(Boolean);
+  if (names.length > 0) {
+    return names.join(", ");
+  }
+  return cleanOptional(contactName);
+}
+
 
 function cleanAssistantName(value?: string | null): string {
   const trimmed = value?.trim();
@@ -3528,7 +3548,7 @@ businessRoutes.post("/setup", async (c) => {
         ...(coverage ? { coverage: coverage.kind } : {}),
         ...(coverageAnsweringHours ? { answeringHours: coverageAnsweringHours } : {})
       },
-      contactName: cleanOptional(input.contactName),
+      contactName: resolveContactName(input.contactName, input.allContactNames),
       customInstructions: cleanOptional(input.customInstructions),
       ...(emailRecipients ? { emailRecipients } : {}),
       ...(input.scheduling ? { scheduling: input.scheduling } : {}),
@@ -3564,7 +3584,7 @@ businessRoutes.post("/setup", async (c) => {
         assistantName,
         businessName: input.businessName,
         businessType: input.businessType,
-        contactName: cleanOptional(input.contactName),
+        contactName: resolveContactName(input.contactName, input.allContactNames),
         services: input.services
       },
       silence: {

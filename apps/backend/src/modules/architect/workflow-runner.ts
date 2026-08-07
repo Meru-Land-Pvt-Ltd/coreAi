@@ -106,6 +106,10 @@ export type WorkflowRunInput = {
   businessOwnerId?: string;
   businessName?: string;
   businessType?: string;
+  business?: unknown;
+  contactName?: string;
+  address?: string;
+  servicesList?: string;
   businessPhoneNumber?: string;
   calendarId?: string;
   timeZone?: string;
@@ -3642,7 +3646,9 @@ async function runTelegramConnectorNode({
   );
   const parseModeValue = asString(node.data?.telegramParseMode);
   const parseMode =
-    parseModeValue === "HTML" || parseModeValue === "MarkdownV2" ? parseModeValue : undefined;
+    parseModeValue === "HTML" || parseModeValue === "MarkdownV2" || parseModeValue === "Markdown"
+      ? parseModeValue
+      : undefined;
   const source =
     nodeType === TELEGRAM_NODE_TYPES.sendPhoto
       ? renderTemplate(node.data?.telegramPhotoSource, context)

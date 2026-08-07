@@ -194,20 +194,40 @@ export function BusinessProfileSection({
               <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold shrink-0">
                 ✨ Detected Doctors ({profileSuggestion.doctorNames.length}):
               </span>
-              {profileSuggestion.doctorNames.map((docName, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => onContactName(docName)}
-                  className={`text-[11px] font-semibold rounded-full px-2.5 py-0.5 border transition-all cursor-pointer ${
-                    contactName.trim() === docName
-                      ? "bg-amber-500 border-amber-500 text-white shadow-2xs"
-                      : "bg-white border-amber-200 text-amber-800 hover:bg-amber-100 hover:border-amber-400"
-                  }`}
-                >
-                  {contactName.trim() === docName ? "✓ " : "+ "}{docName}
-                </button>
-              ))}
+              <button
+                type="button"
+                onClick={() => onContactName(profileSuggestion.doctorNames.join(", "))}
+                className="text-[11px] font-bold rounded-full px-2.5 py-0.5 border transition-all cursor-pointer bg-amber-600 border-amber-600 text-white hover:bg-amber-700 shadow-2xs"
+              >
+                + Add All ({profileSuggestion.doctorNames.length})
+              </button>
+              {profileSuggestion.doctorNames.map((docName, idx) => {
+                const currentList = contactName.split(",").map((s) => s.trim()).filter(Boolean);
+                const isSelected = currentList.includes(docName);
+                const toggle = () => {
+                  if (isSelected) {
+                    const next = currentList.filter((name) => name !== docName);
+                    onContactName(next.join(", "));
+                  } else {
+                    const next = [...currentList, docName];
+                    onContactName(next.join(", "));
+                  }
+                };
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={toggle}
+                    className={`text-[11px] font-semibold rounded-full px-2.5 py-0.5 border transition-all cursor-pointer ${
+                      isSelected
+                        ? "bg-amber-500 border-amber-500 text-white shadow-2xs"
+                        : "bg-white border-amber-200 text-amber-800 hover:bg-amber-100 hover:border-amber-400"
+                    }`}
+                  >
+                    {isSelected ? "✓ " : "+ "}{docName}
+                  </button>
+                );
+              })}
             </div>
           ) : null}
         </div>
