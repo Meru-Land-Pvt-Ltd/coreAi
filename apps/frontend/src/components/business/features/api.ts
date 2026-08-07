@@ -157,6 +157,7 @@ export type BusinessSetupInput = {
     answeringHours?: BusinessHoursItem[];
   };
   contactName?: string;
+  allContactNames?: string[];
   customInstructions?: string;
   silenceRepromptCount?: number;
   silenceRepromptMessage1?: string;

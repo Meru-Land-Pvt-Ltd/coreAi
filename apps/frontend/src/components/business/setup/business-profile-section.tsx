@@ -30,10 +30,12 @@ export function BusinessProfileSection({
   businessName,
   businessType,
   contactName,
+  allContactNames = [],
   servicesText,
   onBusinessName,
   onBusinessType,
   onContactName,
+  onAllContactNames,
   onServices,
   onAddressDirtyChange,
   onAddressValidChange,
@@ -51,10 +53,12 @@ export function BusinessProfileSection({
   businessName: string;
   businessType: string;
   contactName: string;
+  allContactNames?: string[];
   servicesText: string;
   onBusinessName: (v: string) => void;
   onBusinessType: (v: string) => void;
   onContactName: (v: string) => void;
+  onAllContactNames?: (names: string[]) => void;
   onServices: (v: string) => void;
   onAddressDirtyChange?: (dirty: boolean) => void;
   onAddressValidChange?: (valid: boolean) => void;
@@ -117,8 +121,15 @@ export function BusinessProfileSection({
         installedAgentId={installedAgentId}
         onSummaryChange={onSummaryChange}
         onKnowledgeChanged={onKnowledgeChanged}
-        onApplyContactName={(name) => {
-          onContactName(name);
+        currentContactName={contactName}
+        currentBusinessName={businessName}
+        currentServices={servicesText}
+        onApplyContactName={(rawNames) => {
+          const names = rawNames.split(",").map((s) => s.trim()).filter(Boolean);
+          if (names.length > 0) {
+            onContactName(names[0]); // Primary doctor ONLY in input box
+            onAllContactNames?.(names);
+          }
           setShowDoctorChips(true);
         }}
         onApplyBusinessName={(name) => onBusinessName(name)}
@@ -137,14 +148,21 @@ export function BusinessProfileSection({
         <div className="grid sm:grid-cols-3 gap-3">
           <div>
             <label htmlFor="biz-contact-name" className={LABEL}>
-              Your name <span className="text-slate-400 font-normal">(optional)</span>
+              Your name / Primary Contact <span className="text-slate-400 font-normal">(optional)</span>
             </label>
             <input
               id="biz-contact-name"
               data-testid="business-setup-input-contact"
               type="text"
               value={contactName}
-              onChange={(e) => onContactName(e.target.value)}
+              onChange={(e) => {
+                const newName = e.target.value;
+                onContactName(newName);
+                if (newName.trim()) {
+                  const existingOther = allContactNames.filter((n) => n !== newName.trim());
+                  onAllContactNames?.([newName.trim(), ...existingOther]);
+                }
+              }}
               placeholder="Dr. John Doe"
               className={FIELD}
             />
@@ -188,48 +206,99 @@ export function BusinessProfileSection({
             </select>
           </div>
 
-          {/* Full-width Doctor Roster Chips (Revealed only when Add Doctors is clicked) */}
-          {showDoctorChips && profileSuggestion?.doctorNames && profileSuggestion.doctorNames.length > 0 ? (
-            <div className="col-span-full flex flex-wrap items-center gap-1.5 bg-amber-50/50 border border-amber-100/80 rounded-xl p-2.5">
-              <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold shrink-0">
-                ✨ Detected Doctors ({profileSuggestion.doctorNames.length}):
-              </span>
-              <button
-                type="button"
-                onClick={() => onContactName(profileSuggestion.doctorNames.join(", "))}
-                className="text-[11px] font-bold rounded-full px-2.5 py-0.5 border transition-all cursor-pointer bg-amber-600 border-amber-600 text-white hover:bg-amber-700 shadow-2xs"
-              >
-                + Add All ({profileSuggestion.doctorNames.length})
-              </button>
-              {profileSuggestion.doctorNames.map((docName, idx) => {
-                const currentList = contactName.split(",").map((s) => s.trim()).filter(Boolean);
-                const isSelected = currentList.includes(docName);
-                const toggle = () => {
-                  if (isSelected) {
-                    const next = currentList.filter((name) => name !== docName);
-                    onContactName(next.join(", "));
-                  } else {
-                    const next = [...currentList, docName];
-                    onContactName(next.join(", "));
-                  }
-                };
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={toggle}
-                    className={`text-[11px] font-semibold rounded-full px-2.5 py-0.5 border transition-all cursor-pointer ${
-                      isSelected
-                        ? "bg-amber-500 border-amber-500 text-white shadow-2xs"
-                        : "bg-white border-amber-200 text-amber-800 hover:bg-amber-100 hover:border-amber-400"
-                    }`}
-                  >
-                    {isSelected ? "✓ " : "+ "}{docName}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
+          {/* Clean & Minimal Doctor Roster Section */}
+          {(() => {
+            const primaryDoctor = contactName.trim();
+            const detectedList = (profileSuggestion?.doctorNames ?? []).filter((d) => Boolean(d.trim()));
+            const combinedList = Array.from(
+              new Set([primaryDoctor, ...allContactNames, ...detectedList].filter(Boolean))
+            );
+
+            if (combinedList.length === 0 && !showDoctorChips) return null;
+
+            const activeRoster =
+              allContactNames.length > 0
+                ? allContactNames
+                : combinedList;
+
+            const currentPrimary = primaryDoctor || activeRoster[0] || "";
+
+            const setAsPrimary = (docName: string) => {
+              onContactName(docName);
+              const remaining = activeRoster.filter((n) => n !== docName);
+              onAllContactNames?.([docName, ...remaining]);
+            };
+
+            const toggleInRoster = (docName: string) => {
+              if (activeRoster.includes(docName)) {
+                if (activeRoster.length <= 1) return; // Keep at least one
+                const next = activeRoster.filter((n) => n !== docName);
+                onAllContactNames?.(next);
+                if (currentPrimary === docName && next.length > 0) {
+                  onContactName(next[0]);
+                }
+              } else {
+                const next = [...activeRoster, docName];
+                onAllContactNames?.(next);
+              }
+            };
+
+            return (
+              <div className="col-span-full border-t border-gray-100 pt-3.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider inline-flex items-center gap-1.5">
+                    Practicing Doctors <span className="text-[11px] font-normal text-slate-400 normal-case">({activeRoster.length})</span>
+                  </span>
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    All selected stay in agent knowledge
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {combinedList.map((docName, idx) => {
+                    const isSelected = activeRoster.includes(docName);
+                    const isPrimary = currentPrimary === docName;
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`inline-flex items-center gap-2 text-xs rounded-full px-3 py-1 border transition-all ${
+                          isPrimary
+                            ? "bg-amber-500 border-amber-500 text-white font-semibold shadow-2xs"
+                            : isSelected
+                            ? "bg-white border-amber-300 text-slate-800 font-medium hover:border-amber-400"
+                            : "bg-gray-50 border-gray-200 text-slate-400 hover:border-slate-300 opacity-60"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleInRoster(docName)}
+                          className="cursor-pointer font-medium hover:opacity-80"
+                        >
+                          {isSelected ? "✓ " : "+ "}{docName}
+                        </button>
+
+                        {isPrimary ? (
+                          <span className="text-[9px] bg-amber-700/90 text-amber-50 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                            Primary
+                          </span>
+                        ) : isSelected ? (
+                          <button
+                            type="button"
+                            onClick={() => setAsPrimary(docName)}
+                            className="text-[10px] text-amber-600 hover:text-amber-700 font-semibold cursor-pointer border-l border-amber-200 pl-1.5"
+                            title="Make Primary Doctor"
+                          >
+                            Make Primary
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         <div className="border-t border-gray-100 pt-3.5">

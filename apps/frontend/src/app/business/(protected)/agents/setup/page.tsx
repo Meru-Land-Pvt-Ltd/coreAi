@@ -585,6 +585,7 @@ function SetupWizard() {
   const [connectStepValidated, setConnectStepValidated] = useState(false);
   const [telegramConnected, setTelegramConnected] = useState(false);
   const [contactName, setContactName] = useState("");
+  const [allContactNames, setAllContactNames] = useState<string[]>([]);
   const [servicesText, setServicesText] = useState("");
   const [faqs, setFaqs] = useState<BusinessFaq[]>([]);
   const [bookingUrl, setBookingUrl] = useState("");
@@ -854,7 +855,15 @@ function SetupWizard() {
         setKnowledge(data.knowledge);
       }
 
-      setContactName(data.contactName ?? "");
+      const rawContact = data.contactName ?? "";
+      const contactParts = rawContact.split(",").map((s) => s.trim()).filter(Boolean);
+      if (contactParts.length > 0) {
+        setContactName(contactParts[0]);
+        setAllContactNames(contactParts);
+      } else {
+        setContactName("");
+        setAllContactNames([]);
+      }
       setCustomInstructions(data.customInstructions ?? "");
 
       if (data.silence) {
@@ -1151,42 +1160,22 @@ function SetupWizard() {
       if (!saved.ok) sectionFailures.push(`Telegram configuration: ${saved.error ?? "could not be saved."}`);
     }
 
-    if (!deploy && liveVapiAssistantId) {
-      if (tzValue !== savedTimeZoneRef.current) {
-        const hoursRes = await getBusinessHours();
-        if (hoursRes.success && hoursRes.data && (hoursRes.data.hours?.length ?? 0) > 0) {
-          const saved = await putBusinessHours({
-            hours: hoursRes.data.hours ?? [],
-            timeZone: tzValue,
-            specialDates: hoursRes.data.specialDates ?? []
-          });
-          if (saved.success) {
-            savedTimeZoneRef.current = tzValue;
-            setTzEdited(false);
-          }
-          else sectionFailures.push(`Timezone: ${saved.error ?? "could not be saved."}`);
-        } else if (!hoursRes.success) {
-          sectionFailures.push("Timezone: could not be saved — please try again.");
-        } else {
-          sectionFailures.push(
-            "Timezone: could not be saved for your live agent — set your Business Hours in Configure, then save again."
-          );
+    if (tzValue !== savedTimeZoneRef.current) {
+      const hoursRes = await getBusinessHours();
+      if (hoursRes.success && hoursRes.data && (hoursRes.data.hours?.length ?? 0) > 0) {
+        const saved = await putBusinessHours({
+          hours: hoursRes.data.hours ?? [],
+          timeZone: tzValue,
+          specialDates: hoursRes.data.specialDates ?? []
+        });
+        if (saved.success) {
+          savedTimeZoneRef.current = tzValue;
+          setTzEdited(false);
         }
+        else sectionFailures.push(`Timezone: ${saved.error ?? "could not be saved."}`);
+      } else if (!hoursRes.success) {
+        sectionFailures.push("Timezone: could not be saved — please try again.");
       }
-
-      if (sectionFailures.length > 0) {
-        setError(sectionFailures.join(" "));
-      } else {
-        setStatusMsg("Live agent is already deployed. Click Go live to apply new changes.");
-      }
-
-      return {
-        ok: sectionFailures.length === 0,
-        mainSaveSkipped: true,
-        number: assignedNumber ?? "",
-        vapiAssistantId: liveVapiAssistantId,
-        installedAgentId: liveInstalledAgentId
-      };
     }
 
     const payload = {
@@ -1216,6 +1205,7 @@ function SetupWizard() {
       voiceId: voiceFields.voiceId,
       answeringMode,
       contactName: contactName.trim(),
+      allContactNames: allContactNames.length > 0 ? allContactNames : [contactName.trim()].filter(Boolean),
       customInstructions: customInstructions.trim(),
       silenceRepromptCount,
       silenceRepromptMessage1: silenceMessage1.trim(),
@@ -2139,10 +2129,12 @@ function SetupWizard() {
                     businessName={businessName}
                     businessType={businessType}
                     contactName={contactName}
+                    allContactNames={allContactNames}
                     servicesText={servicesText}
                     onBusinessName={dirtyWrap(setBusinessName)}
                     onBusinessType={dirtyWrap(setBusinessType)}
                     onContactName={dirtyWrap(setContactName)}
+                    onAllContactNames={dirtyWrap(setAllContactNames)}
                     onServices={setServicesText}
                     onAddressDirtyChange={setAddressDirty}
                     onAddressValidChange={setIsAddressValid}

@@ -49,7 +49,10 @@ export function DocumentUploadSection({
   onApplyServices,
   onProfileSuggestionFetched,
   hoursSuggestionReady = false,
-  onReviewHours
+  onReviewHours,
+  currentContactName,
+  currentBusinessName,
+  currentServices
 }: {
   listingId?: string;
   installedAgentId?: string | null;
@@ -61,6 +64,9 @@ export function DocumentUploadSection({
   onProfileSuggestionFetched?: (suggestion: NonNullable<BusinessFactsData["profileSuggestion"]>) => void;
   hoursSuggestionReady?: boolean;
   onReviewHours?: () => void;
+  currentContactName?: string;
+  currentBusinessName?: string;
+  currentServices?: string;
 }) {
   const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFileSummary[]>([]);
   const [pendingUploads, setPendingUploads] = useState<{ key: string; name: string; size: number }[]>([]);
@@ -94,7 +100,7 @@ export function DocumentUploadSection({
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set();
     try {
-      const stored = window.sessionStorage.setItem ? window.sessionStorage.getItem("knowledge_dismissed_keys") : null;
+      const stored = typeof window !== "undefined" && window.sessionStorage ? window.sessionStorage.getItem("knowledge_dismissed_keys") : null;
       return stored ? new Set(JSON.parse(stored)) : new Set();
     } catch {
       return new Set();
@@ -137,13 +143,31 @@ export function DocumentUploadSection({
     }
   }
 
+  const showDoctorSuggestion =
+    !dismissedKeys.has("doctor") &&
+    Boolean(facts?.profileSuggestion?.doctorNames && facts.profileSuggestion.doctorNames.length > 0);
+
+  const showBusinessNameSuggestion =
+    !dismissedKeys.has("businessName") &&
+    Boolean(facts?.profileSuggestion?.businessName);
+
+  const showServicesSuggestion =
+    !dismissedKeys.has("services") &&
+    Boolean(facts?.profileSuggestion?.services && facts.profileSuggestion.services.length > 0);
+
+  const showAddressSuggestion =
+    !dismissedKeys.has("address") &&
+    Boolean(facts?.documentSuggestion);
+
+  const showHoursSuggestion = !dismissedKeys.has("hours") && hoursSuggestionReady;
+
   const hasSuggestionsToShow =
-    (!dismissedKeys.has("doctor") && facts?.profileSuggestion?.doctorNames && facts.profileSuggestion.doctorNames.length > 0) ||
-    (!dismissedKeys.has("businessName") && facts?.profileSuggestion?.businessName) ||
-    (!dismissedKeys.has("services") && facts?.profileSuggestion?.services && facts.profileSuggestion.services.length > 0) ||
-    facts?.profileSuggestion?.registrationNumber ||
-    (!dismissedKeys.has("address") && facts?.documentSuggestion) ||
-    (!dismissedKeys.has("hours") && hoursSuggestionReady);
+    showDoctorSuggestion ||
+    showBusinessNameSuggestion ||
+    showServicesSuggestion ||
+    Boolean(facts?.profileSuggestion?.registrationNumber) ||
+    showAddressSuggestion ||
+    showHoursSuggestion;
 
   function applyLiveSync(sync: KnowledgeLiveSync | undefined) {
     if (!sync) return;
@@ -233,6 +257,8 @@ export function DocumentUploadSection({
           return Array.from(byId.values());
         });
         applyLiveSync(res.data.liveSync);
+        setDismissedKeys(new Set());
+        try { window.sessionStorage?.removeItem("knowledge_dismissed_keys"); } catch {}
         void refreshKnowledgeFiles();
         await refreshFacts(true);
         onKnowledgeChanged?.();

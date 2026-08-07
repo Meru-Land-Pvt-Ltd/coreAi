@@ -131,7 +131,7 @@ describe("Business Telegram setup", () => {
     });
     vi.mocked(disconnectBusinessTelegram).mockResolvedValue({
       success: true,
-      data: { status: "DISCONNECTED" }
+      data: { disconnected: true }
     });
 
     render(

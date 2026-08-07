@@ -344,11 +344,19 @@ Appointment rescheduling rules (follow these EXACTLY):
 - NEVER call book_appointment for rescheduling requests. Rescheduling must ONLY update an existing appointment using reschedule_appointment.`.trim());
   }
 
+  const doctorList = input.contactName ? input.contactName.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  const doctorContextLines =
+    doctorList.length > 1
+      ? `\n- Primary / Lead Doctor: ${doctorList[0]}\n- Practicing Doctors & Specialists at this hospital: ${doctorList.join(", ")}\n- Doctors Roster Rule: All listed doctors work at ${businessName}. Callers may ask questions about or request appointments with ANY of these doctors (${doctorList.join(", ")}). Recognize all of them as active practitioners at this hospital.`
+      : input.contactName
+      ? `\n- Contact / doctor / owner: ${input.contactName}`
+      : "";
+
   sections.push(`
 Business context:
 - Assistant name: ${assistantName}
 - Business name: ${businessName}
-- Business type / industry: ${businessType}${input.contactName ? `\n- Contact / owner: ${input.contactName}` : ""}
+- Business type / industry: ${businessType}${doctorContextLines}
 - Services: ${input.services.length ? input.services.join(", ") : "not provided"}
 - Address / location: ${clean(input.address) || "not provided"}
 - Business hours: ${clean(input.businessHours) || "not provided"}
