@@ -556,24 +556,10 @@ async function showServices(
     );
     return;
   }
-  if (!forBooking) {
-    const list = services.slice(0, 20).map((service) =>
-      service.priceVisible && service.priceCents !== null
-        ? `• ${service.name} - $${(service.priceCents / 100).toFixed(2)}`
-        : `• ${service.name}`
-    );
-    await sendText(
-      connection,
-      event,
-      "show-services",
-      [`Services at ${connection.business.name}:`, ...list].join("\n")
-    );
-    return;
-  }
   const rows = services.slice(0, 20).map((service) => [
     {
       text: service.priceVisible && service.priceCents !== null
-        ? `${service.name} - $${(service.priceCents / 100).toFixed(2)}`
+        ? `${service.name} • $${(service.priceCents / 100).toFixed(2)}`
         : service.name,
       callbackData: `service:${service.slug}`
     }
@@ -582,9 +568,44 @@ async function showServices(
     connection,
     event,
     forBooking ? "book-services" : "show-services",
-    forBooking ? "Choose the service you want to book:" : `Services at ${connection.business.name}:`,
+    forBooking
+      ? "Select a service to proceed with booking:"
+      : `Services available at ${connection.business.name} (tap a service to select):`,
     rows
   );
+}
+
+async function sendTextOrButtonsIfList(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  stepKey: string,
+  rawText: string
+) {
+  const lines = rawText.split("\n").map((l) => l.trim()).filter(Boolean);
+  const listItems: string[] = [];
+  const headerLines: string[] = [];
+
+  for (const line of lines) {
+    const listMatch = line.match(/^(?:\d+[\.\)]|•|\-|\*)\s+(.+)$/);
+    if (listMatch) {
+      listItems.push(listMatch[1].trim());
+    } else if (listItems.length === 0) {
+      headerLines.push(line);
+    }
+  }
+
+  if (listItems.length >= 2 && listItems.length <= 10) {
+    const headerText = headerLines.join("\n") || "Select an option below:";
+    const rows = listItems.map((item) => [
+      {
+        text: item.slice(0, 64),
+        callbackData: `opt:${item.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 32)}`
+      }
+    ]);
+    return sendButtons(connection, event, stepKey, headerText, rows);
+  }
+
+  return sendText(connection, event, stepKey, rawText);
 }
 
 async function availableDates(connection: LoadedConnection, serviceName: string): Promise<string[]> {
@@ -1752,17 +1773,25 @@ async function handleCommand(
     await sendMainMenu(connection, event, triggerData);
     return true;
   }
+  if (command === "help" || command === "commands") {
+    await sendHelpMenu(connection, event, triggerData);
+    return true;
+  }
   const commandSetting = {
     services: "telegramServicesCommand",
     book: "telegramBookCommand",
     mybookings: "telegramMyBookingsCommand",
     reschedule: "telegramRescheduleCommand",
-    cancel: "telegramCancelCommand",
-    help: "telegramHelpCommand"
+    cancel: "telegramCancelCommand"
   }[command];
   if (commandSetting && !commandEnabled(triggerData, commandSetting)) return false;
   if (["book", "mybookings", "reschedule", "cancel"].includes(command) && !bookingMode(triggerData)) {
     return false;
+  }
+  if (command === "services") {
+    await saveTelegramConversationState(stateIdentity, "SHOWING_SERVICES", context);
+    await showServices(connection, event, false);
+    return true;
   }
   const customCommand = telegramCustomCommands(triggerData).find((item) => item.command === command);
   if (customCommand) {
@@ -1772,6 +1801,16 @@ async function handleCommand(
       return true;
     }
     if (customCommand.action === "book") {
+      if (customCommand.response && customCommand.response.trim()) {
+        const nextContext = {
+          ...context,
+          activeCustomCommand: customCommand.command,
+          activeCustomInstruction: customCommand.response
+        };
+        await saveTelegramConversationState(stateIdentity, "STARTED", nextContext);
+        await workflowFallback(connection, event, triggerData, customCommand.response);
+        return true;
+      }
       if (!bookingMode(triggerData)) {
         await sendText(connection, event, "custom-booking-disabled", "Booking is not enabled for this bot.");
         return true;
@@ -1784,7 +1823,7 @@ async function handleCommand(
       await sendHelpMenu(connection, event, triggerData);
       return true;
     }
-    await sendText(
+    await sendTextOrButtonsIfList(
       connection,
       event,
       `custom-command:${customCommand.command}`,
@@ -2349,10 +2388,47 @@ async function naturalLanguageRoute(
 async function workflowFallback(
   connection: LoadedConnection,
   event: NormalizedTelegramEvent,
-  triggerData: JsonRecord
+  triggerData: JsonRecord,
+  customInstructions?: string
 ) {
   const text = event.message.text || event.message.caption || `[${event.eventType}]`;
   const profile = connection.business.profile;
+  const contactName = profile?.contactName || "";
+  const doctorArray = contactName.split(",").map((s) => s.trim()).filter(Boolean);
+  const doctorCount = doctorArray.length;
+  const doctorList = doctorArray.join(", ");
+  const addressFormatted = profile?.addressFormatted || "";
+  const servicesList = (profile?.services ?? []).join(", ");
+  const faqsFormatted = Array.isArray(profile?.faqs)
+    ? (profile.faqs as Array<{ question?: string; answer?: string }>)
+        .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
+        .join("\n\n")
+    : "";
+
+  const businessContextSummary = [
+    `Business Name: ${connection.business.name}`,
+    `Business Type: ${connection.business.type || "Business"}`,
+    doctorList ? `Doctors / Practitioners on Staff (${doctorCount}): ${doctorList}` : null,
+    addressFormatted ? `Location / Address: ${addressFormatted}` : null,
+    servicesList ? `Offered Services: ${servicesList}` : null,
+    faqsFormatted ? `Frequently Asked Questions:\n${faqsFormatted}` : null
+  ].filter(Boolean).join("\n\n");
+
+  const systemPromptGuardrails = `You are the official Telegram AI assistant for ${connection.business.name}.
+Use the following business details to answer user queries accurately:
+${businessContextSummary}
+
+DOCTORS & TEAM MEMBERS ON STAFF:
+${doctorList ? `The business has ${doctorCount} licensed doctor(s)/practitioner(s): ${doctorList}.` : "No specific doctors listed."}
+
+STRICT GUARDRAILS:
+1. When asked about doctors, dentists, or staff members, state the EXACT names (${doctorList || "our staff"}) and number of doctors (${doctorCount > 0 ? `${doctorCount} doctor(s)` : "our team"}). NEVER make up or hallucinate arbitrary numbers of doctors (such as 8 dentists).
+2. ONLY answer questions related to ${connection.business.name}, its staff/doctors (${doctorList || "the team"}), services, location, hours, and appointments.
+3. If a customer asks questions completely unrelated to ${connection.business.name} (e.g. general trivia, coding, off-topic math), politely decline and remind them that you are here to assist with ${connection.business.name}.`;
+
+  const effectiveMessage = customInstructions && customInstructions.trim()
+    ? `[AI Action Instructions for command /${telegramCommand(event) || "action"}: "${customInstructions.trim()}"]\n[Business Knowledge Context]:\n${businessContextSummary}\n\nCustomer message: ${text}`
+    : `[Business Knowledge & Context]:\n${businessContextSummary}\n\n[System Rules]:\n${systemPromptGuardrails}\n\nCustomer Message: ${text}`;
 
   /* The runner only ever reads knowledge from its input — it never loads from
      the database itself. Without this, a Telegram bot answers from the prompt
@@ -2395,18 +2471,55 @@ async function workflowFallback(
       businessName: connection.business.name,
       businessType: connection.business.type,
       businessPhoneNumber: connection.business.phoneNumbers[0]?.phoneNumber,
+      business: {
+        id: connection.businessId,
+        name: connection.business.name,
+        type: connection.business.type,
+        contactName,
+        doctorName: doctorList,
+        doctorNames: doctorArray,
+        doctorCount,
+        doctors: doctorList,
+        address: addressFormatted,
+        addressFormatted,
+        services: profile?.services ?? [],
+        servicesList,
+        faqs: faqsFormatted,
+        businessContextSummary,
+        profile: {
+          contactName,
+          doctorName: doctorList,
+          doctorNames: doctorArray,
+          doctorCount,
+          addressFormatted,
+          services: profile?.services ?? [],
+          faqs: profile?.faqs ?? []
+        }
+      },
+      contactName,
+      doctorName: doctorList,
+      doctorNames: doctorArray,
+      doctorCount,
+      doctors: doctorList,
+      businessContactName: contactName,
+      address: addressFormatted,
+      businessAddress: addressFormatted,
       calendarId: profile?.calendarId || "primary",
       timeZone: profile?.timeZone || "UTC",
       services: profile?.services ?? [],
+      servicesList,
+      faqs: faqsFormatted,
       knowledge,
+      businessContextSummary,
+      systemPromptGuardrails,
       userName: fullName,
       customerName: fullName,
       customerFirstName: userFirstName,
       customerLastName: userLastName,
       history,
       messages: history,
-      latestMessage: text,
-      inboundSmsBody: text,
+      latestMessage: effectiveMessage,
+      inboundSmsBody: effectiveMessage,
       telegramConnectionId: connection.id,
       telegramUpdateId: event.updateId,
       telegramChatId: event.chat.id,
@@ -2426,7 +2539,7 @@ async function workflowFallback(
   const aiOutput = stringValue(ai.output);
   if (aiOutput) {
     const reply = renderBusinessTemplate(aiOutput, connection.business.name, event.sender);
-    await sendText(connection, event, "workflow-reply", reply);
+    await sendTextOrButtonsIfList(connection, event, "workflow-reply", reply);
     return run.workflowRunId ?? null;
   }
   if (
@@ -2473,7 +2586,7 @@ async function processEvent(
     await handleCollectedInput(connection, event, triggerData, stateIdentity, stateName, context)
   ) return null;
   if (bookingMode(triggerData) && await naturalLanguageRoute(connection, event, stateIdentity, context)) return null;
-  return workflowFallback(connection, event, triggerData);
+  return workflowFallback(connection, event, triggerData, context.activeCustomInstruction);
 }
 
 export async function processTelegramStoredUpdate(processedUpdateId: string): Promise<void> {

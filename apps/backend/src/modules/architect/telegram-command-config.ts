@@ -9,15 +9,7 @@ export type TelegramCustomCommand = {
   response: string;
 };
 
-const BUILT_IN_COMMANDS = new Set([
-  "start",
-  "services",
-  "book",
-  "mybookings",
-  "reschedule",
-  "cancel",
-  "help"
-]);
+const BUILT_IN_COMMANDS = new Set(["start"]);
 
 function text(value: unknown, fallback = ""): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
@@ -45,7 +37,7 @@ export function telegramCustomCommands(triggerData: JsonRecord): TelegramCustomC
       .replace(/^\/+/, "")
       .replace(/[^a-z0-9_]/g, "")
       .slice(0, 32);
-    if (!command || BUILT_IN_COMMANDS.has(command) || seen.has(command)) continue;
+    if (!command || command === "start" || seen.has(command)) continue;
     const actionValue = text(item.action, "reply");
     const action: TelegramCustomCommandAction = ["services", "book", "help"].includes(actionValue)
       ? actionValue as TelegramCustomCommandAction
@@ -62,26 +54,37 @@ export function telegramCustomCommands(triggerData: JsonRecord): TelegramCustomC
 
 export function telegramCommandList(triggerData: JsonRecord) {
   const commands = [{ command: "start", description: "Start the assistant" }];
+  const added = new Set<string>(["start"]);
+
+  if (flag(triggerData.telegramHelpCommand, true)) {
+    commands.push({ command: "help", description: "Show available commands" });
+    added.add("help");
+  }
+
+  for (const custom of telegramCustomCommands(triggerData)) {
+    commands.push({ command: custom.command, description: custom.description });
+    added.add(custom.command);
+  }
+
   const optional = [
     ["telegramServicesCommand", "services", "View available services"],
     ["telegramBookCommand", "book", "Book an appointment"],
     ["telegramMyBookingsCommand", "mybookings", "View your bookings"],
     ["telegramRescheduleCommand", "reschedule", "Reschedule a booking"],
-    ["telegramCancelCommand", "cancel", "Cancel a booking"],
-    ["telegramHelpCommand", "help", "Show available commands"]
+    ["telegramCancelCommand", "cancel", "Cancel a booking"]
   ] as const;
+
   for (const [field, command, description] of optional) {
     const bookingCommand = ["book", "mybookings", "reschedule", "cancel"].includes(command);
-    const enabledByDefault = command === "help";
     if (
-      flag(triggerData[field], enabledByDefault) &&
+      !added.has(command) &&
+      flag(triggerData[field], false) &&
       (!bookingCommand || flag(triggerData.telegramBookingMode, false))
     ) {
       commands.push({ command, description });
+      added.add(command);
     }
   }
-  for (const custom of telegramCustomCommands(triggerData)) {
-    commands.push({ command: custom.command, description: custom.description });
-  }
+
   return commands;
 }

@@ -1000,10 +1000,14 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
   );
   const telegramDefaultTask = context.telegram && !hasAuthoredTask
     ? [
-        `Write one concise, friendly Telegram reply for ${asString(context.business?.name, "the business")}.`,
+        `You are a natural, helpful AI assistant for ${asString(context.business?.name, "the business")}.`,
         `Customer message: ${JSON.stringify(asString(context.latestMessage) || asString(context.telegram.text))}`,
-        "Use only the supplied business context and knowledge. Do not invent services, prices, hours, availability, policies, or confirmations.",
-        "Return only the customer-facing reply in plain text."
+        `Conversational Guidelines:`,
+        `- Be warm, natural, helpful, and concise.`,
+        `- Interactive Workflows & Validation: When collecting details (such as Product ID, issue description, warranty date, or phone number), guide the user conversationally. Validate inputs politely if anything is missing or unclear.`,
+        `- Handling Refusal / Cancellation: If the user says "nope", "no", "cancel", "not now", or declines to share information, acknowledge politely and warmly without being pushy (e.g. "No problem at all! Whenever you're ready, feel free to reach back out or type /issue again. Is there anything else I can help you with today?"). Never reply with flat single-word answers like "Got it!".`,
+        `- Use only the supplied business context, services, and knowledge. Do not invent details or fake confirmations.`,
+        `- Return only the customer-facing reply in plain text.`
       ].join("\n")
     : "";
 

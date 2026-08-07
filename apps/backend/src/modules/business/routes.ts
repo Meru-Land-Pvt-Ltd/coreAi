@@ -375,15 +375,15 @@ const telegramBusinessSettingsSchema = z.object({
   telegramHelpCommand: z.boolean(),
   telegramCustomCommands: z.array(z.object({
     command: z.string().trim().toLowerCase().regex(/^[a-z0-9_]{1,32}$/, "Use 1-32 lowercase letters, numbers, or underscores for a custom command"),
-    description: z.string().trim().min(1, "Custom command description is required").max(256),
+    description: z.string().trim().max(256).default(""),
     action: z.enum(["reply", "services", "book", "help"]),
     response: z.string().trim().max(4096)
   }).superRefine((command, context) => {
     if (command.action === "reply" && !command.response) {
       context.addIssue({ code: "custom", message: `Add the bot reply for /${command.command}.`, path: ["response"] });
     }
-    if (["start", "services", "book", "mybookings", "reschedule", "cancel", "help"].includes(command.command)) {
-      context.addIssue({ code: "custom", message: `/${command.command} is already a built-in command.`, path: ["command"] });
+    if (command.command === "start") {
+      context.addIssue({ code: "custom", message: `/${command.command} is a fixed Telegram command and cannot be re-defined.`, path: ["command"] });
     }
   })).max(20).superRefine((commands, context) => {
     const seen = new Set<string>();

@@ -271,6 +271,12 @@ export function architectTelegramTestInteraction(options: {
     };
   }
   if (command === "book" || customCommand?.action === "book") {
+    if (customCommand?.response && customCommand.response.trim()) {
+      return {
+        text: renderArchitectTelegramTestTemplate(customCommand.response, businessName),
+        nextSession: null
+      };
+    }
     if (!flag(options.triggerData.telegramBookingMode, false)) {
       return { text: "Booking features are not enabled for this test bot.", nextSession: null };
     }

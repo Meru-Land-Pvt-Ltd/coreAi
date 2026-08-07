@@ -91,10 +91,24 @@ export function DocumentUploadSection({
     }
   }, []);
 
-  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const stored = window.sessionStorage.setItem ? window.sessionStorage.getItem("knowledge_dismissed_keys") : null;
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
 
   function dismissRow(key: string) {
-    setDismissedKeys((prev) => new Set(prev).add(key));
+    setDismissedKeys((prev) => {
+      const next = new Set(prev).add(key);
+      try {
+        window.sessionStorage.setItem("knowledge_dismissed_keys", JSON.stringify(Array.from(next)));
+      } catch {}
+      return next;
+    });
   }
 
   async function handleApplyAddress(suggestion: NonNullable<BusinessFactsData["documentSuggestion"]>) {
@@ -459,7 +473,7 @@ export function DocumentUploadSection({
       ) : null}
 
       {/* Unified minimalist confirmation card for extracted details */}
-      {(facts?.documentSuggestion || facts?.profileSuggestion || hoursSuggestionReady) ? (
+      {hasSuggestionsToShow ? (
         <div className="mt-4 border-t border-gray-200/60 pt-4 animate-fade-in space-y-3.5">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
@@ -492,7 +506,7 @@ export function DocumentUploadSection({
                       type="button"
                       onClick={() => {
                         onApplyContactName(
-                          facts.profileSuggestion!.primaryDoctor ?? facts.profileSuggestion!.doctorNames[0]
+                          facts.profileSuggestion!.doctorNames.join(", ")
                         );
                         dismissRow("doctor");
                       }}

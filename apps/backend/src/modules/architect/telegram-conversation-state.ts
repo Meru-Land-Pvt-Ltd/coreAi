@@ -46,6 +46,8 @@ export type TelegramBookingContext = {
   reschedulingAppointmentId?: string;
   cancellingAppointmentId?: string;
   pendingIntent?: "mybookings" | "reschedule" | "cancel";
+  activeCustomCommand?: string;
+  activeCustomInstruction?: string;
 };
 
 export type TelegramConversationIdentity = {
