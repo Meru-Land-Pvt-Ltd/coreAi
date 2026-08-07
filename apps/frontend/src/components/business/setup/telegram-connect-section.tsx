@@ -394,13 +394,6 @@ export function TelegramConnectSection({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setRotatingToken(true)}
-                  className="btn inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  <KeyRound className="h-3.5 w-3.5" /> Change key
-                </button>
-                <button
-                  type="button"
                   onClick={() => setShowDisconnectModal(true)}
                   disabled={busy}
                   className="btn inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 ml-auto"
