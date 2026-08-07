@@ -1,11 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  disconnectBusinessTelegram,
   getBusinessTelegramStatus,
   startBusinessTelegramOwnerAuthorization,
   updateBusinessTelegramSettings
 } from "@/components/business/features/api";
-import { TelegramSetupSection } from "./telegram-setup-section";
+import { TelegramConnectSection, TelegramConfigSection } from "./telegram-setup-section";
 
 vi.mock("@/components/business/features/api", () => ({
   connectBusinessTelegramManualBot: vi.fn(),
@@ -38,7 +39,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Business Telegram owner setup", () => {
+describe("Business Telegram setup", () => {
   it("connects the owner through a private one-time link without asking for a chat ID", async () => {
     vi.mocked(getBusinessTelegramStatus).mockResolvedValue({
       success: true,
@@ -78,7 +79,7 @@ describe("Business Telegram owner setup", () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
 
     render(
-      <TelegramSetupSection
+      <TelegramConnectSection
         installedAgentId="installed-agent"
         businessName="Example Business"
         onConnectedChange={vi.fn()}
@@ -86,7 +87,7 @@ describe("Business Telegram owner setup", () => {
     );
 
     const connect = await screen.findByTestId("business-setup-telegram-owner-connect");
-    expect(screen.getByText(/No phone number or manual chat ID is required/i)).toBeTruthy();
+    expect(screen.getByText(/Pair your personal Telegram account to receive instant private booking alerts/i)).toBeTruthy();
     fireEvent.click(connect);
 
     await waitFor(() => {
@@ -100,14 +101,71 @@ describe("Business Telegram owner setup", () => {
     expect(await screen.findByText(/press Start within 15 minutes/i)).toBeTruthy();
   });
 
-  it("lets the business edit services and define what a custom command does", async () => {
+  it("opens custom disconnect modal when disconnect is clicked and calls disconnect endpoint on confirm", async () => {
+    vi.mocked(getBusinessTelegramStatus).mockResolvedValue({
+      success: true,
+      data: {
+        connection: {
+          id: "telegram-connection",
+          status: "ACTIVE",
+          provisioningMode: "MANUAL",
+          provisioningStatus: "READY",
+          webhookStatus: "HEALTHY",
+          ownerNotificationStatus: "CONNECTED",
+          requestedUsername: "business_bot",
+          botUsername: "business_bot",
+          botDisplayName: "Business Bot",
+          botUrl: "https://t.me/business_bot",
+          lastWebhookAt: null,
+          lastSuccessfulSendAt: null,
+          lastProviderErrorCode: null,
+          lastError: null,
+          credentialRotatedAt: null,
+          createdAt: "2026-08-05T00:00:00.000Z",
+          updatedAt: "2026-08-05T00:00:00.000Z"
+        },
+        manualProvisioningAvailable: true,
+        settings,
+        services: ["Consultation"]
+      }
+    });
+    vi.mocked(disconnectBusinessTelegram).mockResolvedValue({
+      success: true,
+      data: { disconnected: true }
+    });
+
+    render(
+      <TelegramConnectSection
+        installedAgentId="installed-agent"
+        businessName="Example Business"
+        onConnectedChange={vi.fn()}
+      />
+    );
+
+    const disconnectBtn = await screen.findByTestId("business-setup-telegram-disconnect-trigger");
+    fireEvent.click(disconnectBtn);
+
+    // Modal should open
+    expect(await screen.findByTestId("business-setup-telegram-disconnect-modal")).toBeTruthy();
+    expect(screen.getByText(/Disconnect Telegram Bot\?/i)).toBeTruthy();
+
+    // Click confirm in modal
+    const confirmBtn = screen.getByTestId("business-setup-telegram-disconnect-confirm");
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(disconnectBusinessTelegram).toHaveBeenCalledWith("installed-agent");
+    });
+  });
+
+  it("lets the business define custom commands in configuration step", async () => {
     vi.mocked(getBusinessTelegramStatus).mockResolvedValue({
       success: true,
       data: {
         connection: null,
         manualProvisioningAvailable: true,
         settings,
-        services: ["Consultation", "Follow-up"]
+        services: ["Strategy call", "Follow-up"]
       }
     });
     vi.mocked(updateBusinessTelegramSettings).mockResolvedValue({
@@ -118,8 +176,8 @@ describe("Business Telegram owner setup", () => {
           telegramCustomCommands: [{
             command: "pricing",
             description: "View pricing",
-            action: "services",
-            response: ""
+            action: "reply",
+            response: "Standard rates start at $50"
           }]
         },
         services: ["Strategy call", "Follow-up"],
@@ -128,24 +186,25 @@ describe("Business Telegram owner setup", () => {
     });
 
     render(
-      <TelegramSetupSection
+      <TelegramConfigSection
         installedAgentId="installed-agent"
         businessName="Example Business"
-        onConnectedChange={vi.fn()}
+        services={["Strategy call", "Follow-up"]}
       />
     );
 
-    const firstService = await screen.findByTestId("business-setup-telegram-service-0");
-    fireEvent.change(firstService, { target: { value: "Strategy call" } });
-    fireEvent.click(screen.getByTestId("business-setup-telegram-add-command"));
-    fireEvent.change(screen.getByTestId("business-setup-telegram-command-name-0"), {
+    fireEvent.click(await screen.findByTestId("business-setup-telegram-add-command"));
+    fireEvent.change(screen.getByTestId("business-setup-telegram-command-name-1"), {
       target: { value: "/Pricing" }
     });
-    fireEvent.change(screen.getByTestId("business-setup-telegram-command-description-0"), {
+    fireEvent.change(screen.getByTestId("business-setup-telegram-command-description-1"), {
       target: { value: "View pricing" }
     });
-    fireEvent.change(screen.getByTestId("business-setup-telegram-command-action-0"), {
-      target: { value: "services" }
+    fireEvent.change(screen.getByTestId("business-setup-telegram-command-action-1"), {
+      target: { value: "reply" }
+    });
+    fireEvent.change(screen.getByTestId("business-setup-telegram-command-response-1"), {
+      target: { value: "Standard rates start at $50" }
     });
     fireEvent.click(screen.getByTestId("business-setup-telegram-save-settings"));
 
@@ -154,12 +213,14 @@ describe("Business Telegram owner setup", () => {
         "installed-agent",
         expect.objectContaining({
           services: ["Strategy call", "Follow-up"],
-          telegramCustomCommands: [{
-            command: "pricing",
-            description: "View pricing",
-            action: "services",
-            response: ""
-          }]
+          telegramCustomCommands: expect.arrayContaining([
+            expect.objectContaining({
+              command: "pricing",
+              description: "View pricing",
+              action: "reply",
+              response: "Standard rates start at $50"
+            })
+          ])
         })
       );
     });

@@ -30,7 +30,7 @@ import { AgentIdentitySection } from "@/components/business/setup/agent-identity
 import { KnowledgeSection } from "@/components/business/setup/knowledge-section";
 import { AgentBehaviorSection } from "@/components/business/setup/agent-behavior-section";
 import { HoursAvailabilitySection } from "@/components/business/setup/hours-availability-section";
-import { TelegramSetupSection } from "@/components/business/setup/telegram-setup-section";
+import { TelegramConnectSection, TelegramConfigSection } from "@/components/business/setup/telegram-setup-section";
 import { CalendlySetupSection } from "@/components/business/setup/calendly-setup-section";
 import { type ApptNumberField } from "@/components/business/setup/appointment-hours-editor";
 import { validateBookingRules } from "@/components/business/setup/booking-rules-panel";
@@ -585,6 +585,7 @@ function SetupWizard() {
   const [connectStepValidated, setConnectStepValidated] = useState(false);
   const [telegramConnected, setTelegramConnected] = useState(false);
   const [contactName, setContactName] = useState("");
+  const [allContactNames, setAllContactNames] = useState<string[]>([]);
   const [servicesText, setServicesText] = useState("");
   const [faqs, setFaqs] = useState<BusinessFaq[]>([]);
   const [bookingUrl, setBookingUrl] = useState("");
@@ -611,6 +612,7 @@ function SetupWizard() {
   const [addressDirty, setAddressDirty] = useState(false);
   const bhApiRef = useRef<EmbeddedSectionApi | null>(null);
   const addressApiRef = useRef<EmbeddedSectionApi | null>(null);
+  const telegramApiRef = useRef<EmbeddedSectionApi | null>(null);
   const savedTimeZoneRef = useRef("");
 
   const [apptLoaded, setApptLoaded] = useState(false);
@@ -853,7 +855,15 @@ function SetupWizard() {
         setKnowledge(data.knowledge);
       }
 
-      setContactName(data.contactName ?? "");
+      const rawContact = data.contactName ?? "";
+      const contactParts = rawContact.split(",").map((s) => s.trim()).filter(Boolean);
+      if (contactParts.length > 0) {
+        setContactName(contactParts[0]);
+        setAllContactNames(contactParts);
+      } else {
+        setContactName("");
+        setAllContactNames([]);
+      }
       setCustomInstructions(data.customInstructions ?? "");
 
       if (data.silence) {
@@ -1145,43 +1155,27 @@ function SetupWizard() {
       if (!saved.ok) sectionFailures.push(`Business address: ${saved.error ?? "could not be saved."}`);
       else setAddressDirty(false);
     }
+    if (telegramApiRef.current?.isDirty()) {
+      const saved = await telegramApiRef.current.save();
+      if (!saved.ok) sectionFailures.push(`Telegram configuration: ${saved.error ?? "could not be saved."}`);
+    }
 
-    if (!deploy && liveVapiAssistantId) {
-      if (tzValue !== savedTimeZoneRef.current) {
-        const hoursRes = await getBusinessHours();
-        if (hoursRes.success && hoursRes.data && (hoursRes.data.hours?.length ?? 0) > 0) {
-          const saved = await putBusinessHours({
-            hours: hoursRes.data.hours ?? [],
-            timeZone: tzValue,
-            specialDates: hoursRes.data.specialDates ?? []
-          });
-          if (saved.success) {
-            savedTimeZoneRef.current = tzValue;
-            setTzEdited(false);
-          }
-          else sectionFailures.push(`Timezone: ${saved.error ?? "could not be saved."}`);
-        } else if (!hoursRes.success) {
-          sectionFailures.push("Timezone: could not be saved — please try again.");
-        } else {
-          sectionFailures.push(
-            "Timezone: could not be saved for your live agent — set your Business Hours in Configure, then save again."
-          );
+    if (tzValue !== savedTimeZoneRef.current) {
+      const hoursRes = await getBusinessHours();
+      if (hoursRes.success && hoursRes.data && (hoursRes.data.hours?.length ?? 0) > 0) {
+        const saved = await putBusinessHours({
+          hours: hoursRes.data.hours ?? [],
+          timeZone: tzValue,
+          specialDates: hoursRes.data.specialDates ?? []
+        });
+        if (saved.success) {
+          savedTimeZoneRef.current = tzValue;
+          setTzEdited(false);
         }
+        else sectionFailures.push(`Timezone: ${saved.error ?? "could not be saved."}`);
+      } else if (!hoursRes.success) {
+        sectionFailures.push("Timezone: could not be saved — please try again.");
       }
-
-      if (sectionFailures.length > 0) {
-        setError(sectionFailures.join(" "));
-      } else {
-        setStatusMsg("Live agent is already deployed. Click Go live to apply new changes.");
-      }
-
-      return {
-        ok: sectionFailures.length === 0,
-        mainSaveSkipped: true,
-        number: assignedNumber ?? "",
-        vapiAssistantId: liveVapiAssistantId,
-        installedAgentId: liveInstalledAgentId
-      };
     }
 
     const payload = {
@@ -1211,6 +1205,7 @@ function SetupWizard() {
       voiceId: voiceFields.voiceId,
       answeringMode,
       contactName: contactName.trim(),
+      allContactNames: allContactNames.length > 0 ? allContactNames : [contactName.trim()].filter(Boolean),
       customInstructions: customInstructions.trim(),
       silenceRepromptCount,
       silenceRepromptMessage1: silenceMessage1.trim(),
@@ -1697,6 +1692,7 @@ function SetupWizard() {
     setupVisibility.aiCallCoverage ||
     setupVisibility.voiceIdentity ||
     setupVisibility.agentBehaviorVoice ||
+    setupVisibility.telegram ||
     buyerSetupFields.length > 0;
 
   const configureComplete =
@@ -2133,10 +2129,12 @@ function SetupWizard() {
                     businessName={businessName}
                     businessType={businessType}
                     contactName={contactName}
+                    allContactNames={allContactNames}
                     servicesText={servicesText}
                     onBusinessName={dirtyWrap(setBusinessName)}
                     onBusinessType={dirtyWrap(setBusinessType)}
                     onContactName={dirtyWrap(setContactName)}
+                    onAllContactNames={dirtyWrap(setAllContactNames)}
                     onServices={setServicesText}
                     onAddressDirtyChange={setAddressDirty}
                     onAddressValidChange={setIsAddressValid}
@@ -2288,6 +2286,30 @@ function SetupWizard() {
                     onSilence2={dirtyWrap(setSilenceMessage2)}
                     onGoodbye={dirtyWrap(setGoodbyeMessage)}
                     onCustomField={setCustomFieldValue}
+                  />
+                </ConfigureSectionCard>
+              )}
+
+              {setupVisibility.telegram && (
+                <ConfigureSectionCard
+                  id="telegram-config"
+                  title="Telegram Bot Configuration"
+                  icon={
+                    <svg className="h-5 w-5 text-[#229ED9]" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path d="M21.4 2.6 2.8 9.8c-1.3.5-1.3 1.3-.2 1.6l4.8 1.5 1.8 5.7c.2.7.1.9.8.9.5 0 .8-.2 1.1-.5l2.3-2.2 4.8 3.5c.9.5 1.5.2 1.8-.8l3.1-14.9c.3-1.3-.5-1.9-1.7-1.4ZM9.3 12.6l9.3-5.9c.5-.3.9-.1.5.2l-7.7 7-.3 3.2-1.8-4.5Z" />
+                    </svg>
+                  }
+                  status="complete"
+                  open={Boolean(openSections["telegram-config"])}
+                  onToggle={(open) => toggleSection("telegram-config", open)}
+                >
+                  <TelegramConfigSection
+                    installedAgentId={liveInstalledAgentId}
+                    businessName={businessName}
+                    services={parseLines(servicesText)}
+                    registerTelegramApi={(api) => {
+                      telegramApiRef.current = api;
+                    }}
                   />
                 </ConfigureSectionCard>
               )}
@@ -2937,7 +2959,7 @@ function StepConnect({
       {showMail ? <MailSetupSection businessName={businessName} onAliasChange={onMailAliasChange} /> : null}
 
       {showTelegram ? (
-        <TelegramSetupSection
+        <TelegramConnectSection
           installedAgentId={installedAgentIdForPhone}
           businessName={businessName}
           onConnectedChange={onTelegramConnectedChange}

@@ -17,7 +17,7 @@ describe("Telegram command menu", () => {
       telegramHelpCommand: true
     }).map((item) => item.command);
 
-    expect(commands).toEqual(["start", "services", "help"]);
+    expect(commands).toEqual(["start", "help", "services"]);
   });
 
   it("publishes only the booking commands selected by the business", () => {
@@ -31,7 +31,7 @@ describe("Telegram command menu", () => {
       telegramHelpCommand: true
     }).map((item) => item.command);
 
-    expect(commands).toEqual(["start", "book", "reschedule", "help"]);
+    expect(commands).toEqual(["start", "help", "book", "reschedule"]);
   });
 
   it("adds valid custom commands with their feature description", () => {

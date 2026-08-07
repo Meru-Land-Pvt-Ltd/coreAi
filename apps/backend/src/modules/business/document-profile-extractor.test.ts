@@ -96,7 +96,7 @@ describe("document-profile-extractor", () => {
     expect(result!.businessType).toBe("dental");
     expect(result!.services).toContain("Root Canal Therapy");
     expect(result!.phone).toBe("(555) 234-5678");
-  });
+  }, 40000);
 
   it("handles single-doctor documents gracefully", async () => {
     if (!dbAvailable) return;
@@ -108,5 +108,16 @@ describe("document-profile-extractor", () => {
     expect(result!.primaryDoctor).toBe("Dr. Robert Vance");
     expect(result!.registrationNumber).toBe("MD-123456");
     expect(result!.services).toContain("General Checkup");
-  });
+  }, 40000);
+
+  it("deduplicates concurrent extraction requests for the same businessId", async () => {
+    if (!dbAvailable) return;
+
+    const [res1, res2] = await Promise.all([
+      extractProfileFromDocuments({ businessId: businessId1 }),
+      extractProfileFromDocuments({ businessId: businessId1 })
+    ]);
+
+    expect(res1).toEqual(res2);
+  }, 40000);
 });

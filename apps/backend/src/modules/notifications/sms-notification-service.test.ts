@@ -4,7 +4,9 @@ import { prisma } from "../../lib/prisma";
 import {
   applyTwilioMessageStatus,
   appointmentConfirmationDedupeKey,
+  renderAppointmentCancellationSms,
   renderAppointmentConfirmationSms,
+  renderAppointmentRescheduleSms,
   sendAppointmentConfirmationSms,
   sendTrackedSms
 } from "./sms-notification-service";
@@ -143,6 +145,44 @@ describe("renderAppointmentConfirmationSms", () => {
     });
     expect(body).not.toContain("For assistance call");
     expect(body).toContain("Reply STOP to opt out or HELP for assistance.");
+  });
+});
+
+describe("renderAppointmentCancellationSms", () => {
+  it("matches the booked confirmation template shape", () => {
+    const body = renderAppointmentCancellationSms({
+      customerName: "Jane Smith",
+      businessName: "Smile Dental",
+      serviceName: "Cleaning",
+      appointmentDate: "Tue, Jul 14, 2026",
+      appointmentTime: "3:00 PM",
+      businessPhone: "+15557654321"
+    });
+
+    expect(body).toContain(smsAttributionPrefix("Smile Dental").trim());
+    expect(body).toContain("Hi Jane Smith");
+    expect(body).toContain("Cleaning appointment has been cancelled for Tue, Jul 14, 2026 at 3:00 PM");
+    expect(body).toContain("For assistance call +15557654321.");
+    expect(body).toContain("Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.");
+  });
+});
+
+describe("renderAppointmentRescheduleSms", () => {
+  it("matches the booked confirmation template shape", () => {
+    const body = renderAppointmentRescheduleSms({
+      customerName: "Jane Smith",
+      businessName: "Smile Dental",
+      serviceName: "Cleaning",
+      appointmentDate: "Wed, Jul 15, 2026",
+      appointmentTime: "10:00 AM",
+      businessPhone: "+15557654321"
+    });
+
+    expect(body).toContain(smsAttributionPrefix("Smile Dental").trim());
+    expect(body).toContain("Hi Jane Smith");
+    expect(body).toContain("Cleaning appointment has been rescheduled for Wed, Jul 15, 2026 at 10:00 AM");
+    expect(body).toContain("For assistance call +15557654321.");
+    expect(body).toContain("Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.");
   });
 });
 

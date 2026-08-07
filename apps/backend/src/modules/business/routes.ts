@@ -162,6 +162,154 @@ const businessPhoneNumberLegacySelect = {
   updatedAt: true
 } as const;
 
+const WEEKDAY_INDEX_BY_NAME: Record<string, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6
+};
+
+/** Machine marker written into appointment notes on reschedule. */
+const PREV_WINDOW_MARKER_RE = /\[prevWindow:([^/\]]+)\/([^\]]+)\]/i;
+
+function formatScheduleLabel(startAt: Date, endAt: Date, timeZone?: string | null): string {
+  const optionsBase: Intl.DateTimeFormatOptions = timeZone ? { timeZone } : {};
+  const dateLabel = new Intl.DateTimeFormat("en-US", {
+    ...optionsBase,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  }).format(startAt);
+  const startClock = new Intl.DateTimeFormat("en-US", {
+    ...optionsBase,
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(startAt);
+  const endClock = new Intl.DateTimeFormat("en-US", {
+    ...optionsBase,
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(endAt);
+  return `${dateLabel} · ${startClock} – ${endClock}`;
+}
+
+function extractMarkedPreviousWindow(notes: string | null): { previousStartAt: Date; previousEndAt: Date } | null {
+  if (!notes) return null;
+  const match = notes.match(PREV_WINDOW_MARKER_RE);
+  if (!match) return null;
+  const previousStartAt = new Date(match[1]!);
+  const previousEndAt = new Date(match[2]!);
+  if (Number.isNaN(previousStartAt.getTime()) || Number.isNaN(previousEndAt.getTime())) return null;
+  return { previousStartAt, previousEndAt };
+}
+
+function extractPreviousBookingTime(notes: string | null): string | null {
+  if (!notes) return null;
+  const match = notes.match(/rescheduled by the customer.*? from (.+?) to .+?(?:\.|$)/i);
+  return match?.[1]?.trim() ?? null;
+}
+
+function weekdayIndexFromShortName(weekday: string): number {
+  const key = weekday.toLowerCase();
+  if (key.startsWith("sun")) return 0;
+  if (key.startsWith("mon")) return 1;
+  if (key.startsWith("tue")) return 2;
+  if (key.startsWith("wed")) return 3;
+  if (key.startsWith("thu")) return 4;
+  if (key.startsWith("fri")) return 5;
+  return 6;
+}
+
+function parseWeekdayTimeLabel(
+  label: string,
+  referenceStartAt: Date,
+  durationMs: number,
+  timeZone?: string | null
+): { previousStartAt: Date; previousEndAt: Date } | null {
+  const match = label.match(
+    /^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s+at\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i
+  );
+  if (!match) return null;
+
+  const [, weekdayNameRaw, hourRaw, minuteRaw, meridiemRaw] = match;
+  const weekdayIndex = WEEKDAY_INDEX_BY_NAME[weekdayNameRaw!.toLowerCase()];
+  if (weekdayIndex == null) return null;
+
+  const tz = timeZone || "UTC";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short"
+  }).formatToParts(referenceStartAt);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? "";
+  const year = Number(part("year"));
+  const month = Number(part("month"));
+  const day = Number(part("day"));
+  const currentWeekday = weekdayIndexFromShortName(part("weekday"));
+  const dayDelta = (currentWeekday - weekdayIndex + 7) % 7 || 7;
+
+  const inputHour = Number(hourRaw) % 12;
+  const minutes = Number(minuteRaw);
+  const normalizedHour = meridiemRaw!.toUpperCase() === "PM" ? inputHour + 12 : inputHour;
+
+  // Approximate wall-clock in timezone, then correct by measured offset.
+  const tentative = new Date(Date.UTC(year, month - 1, day - dayDelta, normalizedHour, minutes, 0, 0));
+  const asParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(tentative);
+  const asValue = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(asParts.find((entry) => entry.type === type)?.value ?? "0");
+  const desiredAsUtc = Date.UTC(year, month - 1, day - dayDelta, normalizedHour, minutes, 0, 0);
+  const actualAsUtc = Date.UTC(
+    asValue("year"),
+    asValue("month") - 1,
+    asValue("day"),
+    asValue("hour"),
+    asValue("minute"),
+    0,
+    0
+  );
+  const previousStartAt = new Date(tentative.getTime() + (desiredAsUtc - actualAsUtc));
+  const previousEndAt = new Date(previousStartAt.getTime() + Math.max(durationMs, 0));
+  return { previousStartAt, previousEndAt };
+}
+
+function parsePreviousBookingWindow(params: {
+  notes: string | null;
+  startAt: Date;
+  endAt: Date;
+  timeZone?: string | null;
+}): { previousStartAt: string; previousEndAt: string; previousScheduleLabel: string } | null {
+  const durationMs = Math.max(params.endAt.getTime() - params.startAt.getTime(), 0);
+  const marked = extractMarkedPreviousWindow(params.notes);
+  const fromLabel = !marked
+    ? (() => {
+        const previousLabel = extractPreviousBookingTime(params.notes);
+        if (!previousLabel) return null;
+        return parseWeekdayTimeLabel(previousLabel, params.startAt, durationMs, params.timeZone);
+      })()
+    : null;
+  const window = marked ?? fromLabel;
+  if (!window) return null;
+  return {
+    previousStartAt: window.previousStartAt.toISOString(),
+    previousEndAt: window.previousEndAt.toISOString(),
+    previousScheduleLabel: formatScheduleLabel(window.previousStartAt, window.previousEndAt, params.timeZone)
+  };
+}
+
 /** "inbound" | "outbound" from the stored Vapi webhook body; inbound when unknown. */
 function vapiCallDirection(metadataJson: unknown): "inbound" | "outbound" {
   if (!metadataJson || typeof metadataJson !== "object" || Array.isArray(metadataJson)) return "inbound";
@@ -227,15 +375,15 @@ const telegramBusinessSettingsSchema = z.object({
   telegramHelpCommand: z.boolean(),
   telegramCustomCommands: z.array(z.object({
     command: z.string().trim().toLowerCase().regex(/^[a-z0-9_]{1,32}$/, "Use 1-32 lowercase letters, numbers, or underscores for a custom command"),
-    description: z.string().trim().min(1, "Custom command description is required").max(256),
+    description: z.string().trim().max(256).default(""),
     action: z.enum(["reply", "services", "book", "help"]),
     response: z.string().trim().max(4096)
   }).superRefine((command, context) => {
     if (command.action === "reply" && !command.response) {
       context.addIssue({ code: "custom", message: `Add the bot reply for /${command.command}.`, path: ["response"] });
     }
-    if (["start", "services", "book", "mybookings", "reschedule", "cancel", "help"].includes(command.command)) {
-      context.addIssue({ code: "custom", message: `/${command.command} is already a built-in command.`, path: ["command"] });
+    if (command.command === "start") {
+      context.addIssue({ code: "custom", message: `/${command.command} is a fixed Telegram command and cannot be re-defined.`, path: ["command"] });
     }
   })).max(20).superRefine((commands, context) => {
     const seen = new Set<string>();
@@ -924,6 +1072,12 @@ businessRoutes.get("/dashboard", async (c) => {
       calendarConnected: calendar.connected,
       items: monthBookings.map((booking) => {
         const confirmationSms = confirmationSmsByAppointmentId.get(booking.id) ?? null;
+        const previousSchedule = parsePreviousBookingWindow({
+          notes: booking.notes,
+          startAt: booking.startAt,
+          endAt: booking.endAt,
+          timeZone: booking.timeZone
+        });
         return {
           id: booking.id,
           customerName: booking.customerName,
@@ -941,6 +1095,9 @@ businessRoutes.get("/dashboard", async (c) => {
           confirmationSms: confirmationSms
             ? { status: confirmationSms.status, errorCode: confirmationSms.errorCode }
             : null,
+          previousScheduledAt: previousSchedule?.previousStartAt ?? null,
+          previousScheduledEndAt: previousSchedule?.previousEndAt ?? null,
+          previousScheduleLabel: previousSchedule?.previousScheduleLabel ?? null,
           createdAt: booking.createdAt.toISOString()
         };
       })
@@ -1089,6 +1246,7 @@ const businessSetupSchema = z.object({
     })
     .optional(),
   contactName: z.string().trim().optional().or(z.literal("")),
+  allContactNames: z.array(z.string().trim()).optional(),
   customInstructions: z.string().trim().optional().or(z.literal("")),
 
   silenceRepromptCount: z.coerce.number().int().min(0).max(3).optional(),
@@ -1168,6 +1326,25 @@ function cleanOptional(value?: string | null): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 }
+
+/**
+ * Merge all extracted names (e.g. from a document) into a single comma-separated
+ * string so none are lost when multiple doctors/staff are detected.
+ * Falls back to the plain `contactName` field when no array is supplied.
+ */
+function resolveContactName(
+  contactName?: string | null,
+  allContactNames?: string[] | null
+): string | null {
+  const names = (allContactNames ?? [])
+    .map((n) => n.trim())
+    .filter(Boolean);
+  if (names.length > 0) {
+    return names.join(", ");
+  }
+  return cleanOptional(contactName);
+}
+
 
 function cleanAssistantName(value?: string | null): string {
   const trimmed = value?.trim();
@@ -3371,7 +3548,7 @@ businessRoutes.post("/setup", async (c) => {
         ...(coverage ? { coverage: coverage.kind } : {}),
         ...(coverageAnsweringHours ? { answeringHours: coverageAnsweringHours } : {})
       },
-      contactName: cleanOptional(input.contactName),
+      contactName: resolveContactName(input.contactName, input.allContactNames),
       customInstructions: cleanOptional(input.customInstructions),
       ...(emailRecipients ? { emailRecipients } : {}),
       ...(input.scheduling ? { scheduling: input.scheduling } : {}),
@@ -3407,7 +3584,7 @@ businessRoutes.post("/setup", async (c) => {
         assistantName,
         businessName: input.businessName,
         businessType: input.businessType,
-        contactName: cleanOptional(input.contactName),
+        contactName: resolveContactName(input.contactName, input.allContactNames),
         services: input.services
       },
       silence: {

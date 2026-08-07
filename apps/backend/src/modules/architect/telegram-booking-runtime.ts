@@ -48,6 +48,7 @@ import {
 import { telegramCommandList, telegramCustomCommands } from "./telegram-command-config";
 import { parseRunnerWorkflowJson, runWorkflowTest } from "./workflow-runner";
 import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/agent-knowledge";
+import { addressFromProfile, formatAddressOneLine } from "../business/business-facts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -65,9 +66,102 @@ function boolValue(value: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
-function renderBusinessTemplate(template: unknown, businessName: string): string {
-  return stringValue(template).replace(/\{\{\s*business\.name\s*\}\}/gi, businessName);
+function renderBusinessTemplate(
+  template: unknown,
+  businessName: string,
+  sender?: NormalizedTelegramEvent["sender"] | { firstName?: string; lastName?: string; username?: string }
+): string {
+  let str = stringValue(template);
+  if (!str) return "";
+  const userFirstName = sender?.firstName || sender?.username || "there";
+  const userLastName = sender?.lastName || "";
+  const fullName = [sender?.firstName, sender?.lastName].filter(Boolean).join(" ") || sender?.username || "there";
+
+  return str
+    .replace(/\{\{\s*business\.name\s*\}\}/gi, businessName)
+    .replace(/\{\{\s*business_name\s*\}\}/gi, businessName)
+    .replace(/\{\{\s*user\.name\s*\}\}/gi, fullName)
+    .replace(/\{\{\s*user\.first_name\s*\}\}/gi, userFirstName)
+    .replace(/\{\{\s*user\.firstName\s*\}\}/gi, userFirstName)
+    .replace(/\{\{\s*user\.last_name\s*\}\}/gi, userLastName)
+    .replace(/\{\{\s*user\.username\s*\}\}/gi, sender?.username || "")
+    .replace(/\{\{\s*customer\.name\s*\}\}/gi, fullName);
 }
+
+async function recordTelegramTurn(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  direction: "INBOUND" | "OUTBOUND" | "SYSTEM",
+  body: string
+) {
+  if (!body || !body.trim()) return;
+  try {
+    const customerId = event.sender.id || "unknown";
+    const conversation = await prisma.conversation.upsert({
+      where: {
+        businessId_channel_customerPhone: {
+          businessId: connection.businessId,
+          channel: "TELEGRAM",
+          customerPhone: customerId
+        }
+      },
+      update: { status: "OPEN" },
+      create: {
+        businessId: connection.businessId,
+        channel: "TELEGRAM",
+        customerPhone: customerId,
+        status: "OPEN"
+      }
+    });
+
+    const latest = await prisma.conversationMessage.findFirst({
+      where: { conversationId: conversation.id },
+      orderBy: { createdAt: "desc" }
+    });
+
+    if (!(latest && latest.direction === direction && latest.body === body)) {
+      await prisma.conversationMessage.create({
+        data: {
+          conversationId: conversation.id,
+          direction,
+          body
+        }
+      });
+    }
+  } catch (err) {
+    console.warn("[telegram] failed to record turn", err);
+  }
+}
+
+async function loadTelegramHistory(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  limit = 10
+): Promise<Array<{ direction: string; body: string }>> {
+  try {
+    const customerId = event.sender.id || "unknown";
+    const conversation = await prisma.conversation.findUnique({
+      where: {
+        businessId_channel_customerPhone: {
+          businessId: connection.businessId,
+          channel: "TELEGRAM",
+          customerPhone: customerId
+        }
+      }
+    });
+    if (!conversation) return [];
+    const messages = await prisma.conversationMessage.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: { direction: true, body: true }
+    });
+    return messages.reverse();
+  } catch {
+    return [];
+  }
+}
+
 
 function triggerNode(workflowJson: unknown) {
   return parseRunnerWorkflowJson(workflowJson).nodes.find(
@@ -173,6 +267,64 @@ function normalizePhone(value: string): string | null {
   return /^\+[1-9]\d{7,14}$/.test(withCountry) ? withCountry : null;
 }
 
+function findMatchingService<T extends { name: string; slug: string }>(
+  text: string,
+  services: T[]
+): T | undefined {
+  const normText = text.toLowerCase();
+  if (!normText) return undefined;
+  for (const s of services) {
+    const normName = s.name.toLowerCase();
+    if (normText.includes(normName) || normName.includes(normText)) {
+      return s;
+    }
+  }
+  const stopWords = new Set([
+    "want", "book", "booking", "schedule", "appointment", "please", "like", "for", "with",
+    "the", "and", "need", "an", "a", "to", "teeth"
+  ]);
+  const textWords = normText.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !stopWords.has(w));
+  let bestMatch: T | undefined;
+  let maxScore = 0;
+  for (const s of services) {
+    const normName = s.name.toLowerCase();
+    const serviceWords = normName.split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+    let score = 0;
+    for (const tw of textWords) {
+      if (serviceWords.some((sw) => sw.includes(tw) || tw.includes(sw))) {
+        score += 2;
+      }
+    }
+    if (score === 0) {
+      const allTextWords = normText.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !["want", "book", "appointment", "please", "for", "with", "the", "an", "a", "to"].includes(w));
+      for (const tw of allTextWords) {
+        if (serviceWords.some((sw) => sw.includes(tw) || tw.includes(sw))) {
+          score += 1;
+        }
+      }
+    }
+    if (score > maxScore) {
+      maxScore = score;
+      bestMatch = s;
+    }
+  }
+  return maxScore > 0 ? bestMatch : undefined;
+}
+
+function extractDateTimeFromText(text: string): { date?: string; time?: string } {
+  const norm = text.trim();
+  const timeMatch = norm.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)|1[0-2]:\d{2}\s*(?:am|pm)?|(?:morning|afternoon|evening|night))\b/i);
+  const dateMatch = norm.match(/\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?|today|tomorrow|next\s+[a-z]+|(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*)\b/i);
+
+  if (timeMatch && dateMatch) {
+    return {
+      date: dateMatch[0].trim(),
+      time: timeMatch[0].trim()
+    };
+  }
+  return {};
+}
+
 function validEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
@@ -243,11 +395,13 @@ async function sendText(
   purpose: string,
   text: string
 ) {
-  return executeTelegramActionWithRetry({
+  const result = await executeTelegramActionWithRetry({
     ...baseAction(connection, event, purpose),
     actionType: TELEGRAM_ACTION_TYPES.sendMessage,
     text
   });
+  await recordTelegramTurn(connection, event, "OUTBOUND", text);
+  return result;
 }
 
 async function sendButtons(
@@ -257,12 +411,14 @@ async function sendButtons(
   text: string,
   buttons: TelegramButton[][]
 ) {
-  return executeTelegramActionWithRetry({
+  const result = await executeTelegramActionWithRetry({
     ...baseAction(connection, event, purpose),
     actionType: TELEGRAM_ACTION_TYPES.sendButtons,
     text,
     buttons
   });
+  await recordTelegramTurn(connection, event, "OUTBOUND", text);
+  return result;
 }
 
 async function requestContact(
@@ -270,12 +426,15 @@ async function requestContact(
   event: NormalizedTelegramEvent,
   purpose: string
 ) {
-  return executeTelegramActionWithRetry({
+  const text = "Please tap the button below to share your phone number, or type it here:";
+  const result = await executeTelegramActionWithRetry({
     ...baseAction(connection, event, purpose),
     actionType: TELEGRAM_ACTION_TYPES.requestContact,
-    text: "Please share your phone number, or type it in international format such as +15551234567.",
+    text,
     contactButtonText: "Share my phone number"
   });
+  await recordTelegramTurn(connection, event, "OUTBOUND", text);
+  return result;
 }
 
 async function answerCallback(
@@ -308,14 +467,44 @@ async function editMessage(
   });
 }
 
+async function askForCustomerName(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  stateIdentity: TelegramConversationIdentity,
+  context: TelegramBookingContext
+) {
+  const telegramName = [event.sender.firstName, event.sender.lastName].filter(Boolean).join(" ") || event.sender.username;
+  await saveTelegramConversationState(stateIdentity, "WAITING_FOR_NAME", context);
+  if (telegramName && telegramName !== "there") {
+    await sendButtons(
+      connection,
+      event,
+      "ask-name",
+      `Would you like to use your name "${telegramName}" for this booking, or type a different name?`,
+      [
+        [{ text: `Use "${telegramName}"`, callbackData: "name:use_telegram" }],
+        [{ text: "Type a different name", callbackData: "name:type_other" }]
+      ]
+    );
+  } else {
+    await sendText(connection, event, "ask-name", "Could you please share your full name?");
+  }
+}
+
 async function sendMainMenu(
   connection: LoadedConnection,
   event: NormalizedTelegramEvent,
   triggerData: JsonRecord
 ) {
+  const userName = event.sender.firstName || event.sender.username || "there";
+  const customWelcome = renderBusinessTemplate(
+    triggerData.telegramWelcomeMessage,
+    connection.business.name,
+    event.sender
+  );
   const welcome =
-    renderBusinessTemplate(triggerData.telegramWelcomeMessage, connection.business.name) ||
-    `Welcome to ${connection.business.name}. Choose what you would like to do.`;
+    customWelcome ||
+    `Hi ${userName}! 👋 Welcome to ${connection.business.name}. I'd be happy to assist you today! How can I help?`;
   const bookingEnabled = bookingMode(triggerData);
   const primary = [
     ...(commandEnabled(triggerData, "telegramServicesCommand")
@@ -368,24 +557,10 @@ async function showServices(
     );
     return;
   }
-  if (!forBooking) {
-    const list = services.slice(0, 20).map((service) =>
-      service.priceVisible && service.priceCents !== null
-        ? `• ${service.name} - $${(service.priceCents / 100).toFixed(2)}`
-        : `• ${service.name}`
-    );
-    await sendText(
-      connection,
-      event,
-      "show-services",
-      [`Services at ${connection.business.name}:`, ...list].join("\n")
-    );
-    return;
-  }
   const rows = services.slice(0, 20).map((service) => [
     {
       text: service.priceVisible && service.priceCents !== null
-        ? `${service.name} - $${(service.priceCents / 100).toFixed(2)}`
+        ? `${service.name} • $${(service.priceCents / 100).toFixed(2)}`
         : service.name,
       callbackData: `service:${service.slug}`
     }
@@ -394,9 +569,44 @@ async function showServices(
     connection,
     event,
     forBooking ? "book-services" : "show-services",
-    forBooking ? "Choose the service you want to book:" : `Services at ${connection.business.name}:`,
+    forBooking
+      ? "Select a service to proceed with booking:"
+      : `Services available at ${connection.business.name} (tap a service to select):`,
     rows
   );
+}
+
+async function sendTextOrButtonsIfList(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  stepKey: string,
+  rawText: string
+) {
+  const lines = rawText.split("\n").map((l) => l.trim()).filter(Boolean);
+  const listItems: string[] = [];
+  const headerLines: string[] = [];
+
+  for (const line of lines) {
+    const listMatch = line.match(/^(?:\d+[\.\)]|•|\-|\*)\s+(.+)$/);
+    if (listMatch) {
+      listItems.push(listMatch[1].trim());
+    } else if (listItems.length === 0) {
+      headerLines.push(line);
+    }
+  }
+
+  if (listItems.length >= 2 && listItems.length <= 10) {
+    const headerText = headerLines.join("\n") || "Select an option below:";
+    const rows = listItems.map((item) => [
+      {
+        text: item.slice(0, 64),
+        callbackData: `opt:${item.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 32)}`
+      }
+    ]);
+    return sendButtons(connection, event, stepKey, headerText, rows);
+  }
+
+  return sendText(connection, event, stepKey, rawText);
 }
 
 async function availableDates(connection: LoadedConnection, serviceName: string): Promise<string[]> {
@@ -497,7 +707,7 @@ async function beginBookingForService(
       connection,
       event,
       "ask-preferred-date",
-      `${connection.business.name} confirms appointment times manually. I can send them your booking request. What date would you prefer?`
+      `I'd be happy to submit your booking request for ${connection.business.name}. What date would you prefer for your appointment?`
     );
     return;
   }
@@ -935,7 +1145,7 @@ async function deliverConfiguredBookingMessages(options: {
         actionType: TELEGRAM_ACTION_TYPES.sendMessage,
         text: message,
         parseMode:
-          parseModeValue === "HTML" || parseModeValue === "MarkdownV2"
+          parseModeValue === "HTML" || parseModeValue === "MarkdownV2" || parseModeValue === "Markdown"
             ? parseModeValue
             : undefined,
         disableNotification: boolValue(node.data?.telegramDisableNotification, false),
@@ -1075,28 +1285,27 @@ async function confirmManualBookingRequest(
   const next: TelegramBookingContext = { ...context, bookingReference: reference };
   await persistManualBookingRequest(connection, next, reference);
   const customerMessage = [
-    "Booking request received",
+    `Booking request received for ${connection.business.name}`,
     "",
-    `Business: ${connection.business.name}`,
     `Service: ${next.serviceName}`,
     `Preferred date: ${next.preferredDate}`,
     `Preferred time: ${next.preferredTime}`,
-    `Request reference: ${reference}`,
-    "Status: Awaiting confirmation from the business.",
-    "This is not a confirmed appointment yet.",
-    ...(connection.business.profile?.teamPhone
-      ? [`For assistance: ${connection.business.profile.teamPhone}`]
-      : [])
+    `Name: ${next.customerName}`,
+    `Phone: ${next.customerPhone}`,
+    `Reference: ${reference}`
   ].join("\n");
+  let edited = false;
   if (context.summaryMessageId) {
-    await editMessage(
+    const res = await editMessage(
       connection,
       event,
       "booking-request-summary-sent",
       context.summaryMessageId,
       customerMessage
     ).catch(() => null);
-  } else {
+    if (res) edited = true;
+  }
+  if (!edited) {
     await sendText(connection, event, "booking-request-received", customerMessage);
   }
   await notifyOwner(
@@ -1565,17 +1774,25 @@ async function handleCommand(
     await sendMainMenu(connection, event, triggerData);
     return true;
   }
+  if (command === "help" || command === "commands") {
+    await sendHelpMenu(connection, event, triggerData);
+    return true;
+  }
   const commandSetting = {
     services: "telegramServicesCommand",
     book: "telegramBookCommand",
     mybookings: "telegramMyBookingsCommand",
     reschedule: "telegramRescheduleCommand",
-    cancel: "telegramCancelCommand",
-    help: "telegramHelpCommand"
+    cancel: "telegramCancelCommand"
   }[command];
   if (commandSetting && !commandEnabled(triggerData, commandSetting)) return false;
   if (["book", "mybookings", "reschedule", "cancel"].includes(command) && !bookingMode(triggerData)) {
     return false;
+  }
+  if (command === "services") {
+    await saveTelegramConversationState(stateIdentity, "SHOWING_SERVICES", context);
+    await showServices(connection, event, false);
+    return true;
   }
   const customCommand = telegramCustomCommands(triggerData).find((item) => item.command === command);
   if (customCommand) {
@@ -1585,6 +1802,16 @@ async function handleCommand(
       return true;
     }
     if (customCommand.action === "book") {
+      if (customCommand.response && customCommand.response.trim()) {
+        const nextContext = {
+          ...context,
+          activeCustomCommand: customCommand.command,
+          activeCustomInstruction: customCommand.response
+        };
+        await saveTelegramConversationState(stateIdentity, "STARTED", nextContext);
+        await workflowFallback(connection, event, triggerData, customCommand.response);
+        return true;
+      }
       if (!bookingMode(triggerData)) {
         await sendText(connection, event, "custom-booking-disabled", "Booking is not enabled for this bot.");
         return true;
@@ -1597,7 +1824,7 @@ async function handleCommand(
       await sendHelpMenu(connection, event, triggerData);
       return true;
     }
-    await sendText(
+    await sendTextOrButtonsIfList(
       connection,
       event,
       `custom-command:${customCommand.command}`,
@@ -1783,8 +2010,20 @@ async function handleCallback(
       });
       return true;
     }
-    await saveTelegramConversationState(stateIdentity, "WAITING_FOR_NAME", next);
-    await sendText(connection, event, "ask-name", "What is your full name?");
+    await askForCustomerName(connection, event, stateIdentity, next);
+    return true;
+  }
+  if (data === "name:use_telegram") {
+    await answerCallback(connection, event, "name-telegram-callback");
+    const telegramName = [event.sender.firstName, event.sender.lastName].filter(Boolean).join(" ") || event.sender.username || "Customer";
+    const next = { ...context, customerName: telegramName };
+    await saveTelegramConversationState(stateIdentity, "WAITING_FOR_PHONE", next);
+    await requestContact(connection, event, "ask-phone");
+    return true;
+  }
+  if (data === "name:type_other") {
+    await answerCallback(connection, event, "name-other-callback");
+    await sendText(connection, event, "ask-other-name", "Please reply with the name you'd like to use for your booking:");
     return true;
   }
   if (data === "booking:confirm") {
@@ -1914,20 +2153,34 @@ async function handleCollectedInput(
     return true;
   }
   if (stateName === "WAITING_FOR_PREFERRED_DATE" && text && !text.startsWith("/")) {
+    const extracted = extractDateTimeFromText(text);
+    if (extracted.date && extracted.time) {
+      const next = {
+        ...context,
+        preferredDate: extracted.date,
+        preferredTime: extracted.time
+      };
+      await askForCustomerName(connection, event, stateIdentity, next);
+      return true;
+    }
     const next = { ...context, preferredDate: text.slice(0, 120) };
     await saveTelegramConversationState(stateIdentity, "WAITING_FOR_PREFERRED_TIME", next);
     await sendText(
       connection,
       event,
       "ask-preferred-time",
-      "What time would you prefer? Include AM/PM and your timezone if relevant."
+      "What time works best for you? (for example: 2:00 PM)"
     );
     return true;
   }
   if (stateName === "WAITING_FOR_PREFERRED_TIME" && text && !text.startsWith("/")) {
-    const next = { ...context, preferredTime: text.slice(0, 120) };
-    await saveTelegramConversationState(stateIdentity, "WAITING_FOR_NAME", next);
-    await sendText(connection, event, "ask-name", "What is your full name?");
+    const extracted = extractDateTimeFromText(text);
+    const next = {
+      ...context,
+      preferredDate: extracted.date ?? context.preferredDate,
+      preferredTime: extracted.time ?? text.slice(0, 120)
+    };
+    await askForCustomerName(connection, event, stateIdentity, next);
     return true;
   }
   if (stateName === "WAITING_FOR_NAME" && text && !text.startsWith("/")) {
@@ -1952,7 +2205,7 @@ async function handleCollectedInput(
         connection,
         event,
         "phone-invalid",
-        "Enter a valid phone number in international format, for example +15551234567."
+        "Please enter a valid phone number (e.g. +15551234567 or 10-digit number)."
       );
       return true;
     }
@@ -1964,7 +2217,7 @@ async function handleCollectedInput(
     }
     if (boolValue(triggerData.telegramRequestEmail, false)) {
       await saveTelegramConversationState(stateIdentity, "WAITING_FOR_EMAIL", next);
-      await sendText(connection, event, "ask-email", "What email address should receive the confirmation?");
+      await sendText(connection, event, "ask-email", "What email address should we send your appointment confirmation to?");
       return true;
     }
     if (boolValue(triggerData.telegramRequestNotes, false)) {
@@ -1973,7 +2226,7 @@ async function handleCollectedInput(
         connection,
         event,
         "ask-notes",
-        "Add any notes for the business, or type skip."
+        "Feel free to share any notes or special requests for the business, or reply 'skip':"
       );
       return true;
     }
@@ -1982,7 +2235,7 @@ async function handleCollectedInput(
   }
   if (stateName === "WAITING_FOR_EMAIL") {
     if (!validEmail(text)) {
-      await sendText(connection, event, "email-invalid", "Enter a valid email address.");
+      await sendText(connection, event, "email-invalid", "Please enter a valid email address.");
       return true;
     }
     const next = { ...context, customerEmail: text.toLowerCase() };
@@ -1992,7 +2245,7 @@ async function handleCollectedInput(
         connection,
         event,
         "ask-notes",
-        "Add any notes for the business, or type skip."
+        "Feel free to share any notes or special requests for the business, or reply 'skip':"
       );
       return true;
     }
@@ -2048,7 +2301,34 @@ async function naturalLanguageRoute(
     await showCustomerBookings(connection, event, next, "mybookings");
     return true;
   }
-  if (/\b(show|view|list).*\bservices?\b|\bwhat (do you|services)/i.test(text)) {
+  if (
+    /\b(book|booking|schedule|appointment|slot|reserve|visit|make a booking|want to book|to book|can book)\b/i.test(text)
+  ) {
+    const services = await loadTelegramBusinessServices({
+      businessId: connection.businessId,
+      installedAgentId: connection.installedAgentId
+    });
+    const matchedService = findMatchingService(text, services);
+    if (matchedService) {
+      const next = {
+        ...context,
+        serviceId: matchedService.id,
+        serviceSlug: matchedService.slug,
+        serviceName: matchedService.name,
+        serviceDurationMinutes: matchedService.durationMinutes
+      };
+      await beginBookingForService(connection, event, stateIdentity, next);
+    } else {
+      await saveTelegramConversationState(stateIdentity, "SELECTING_SERVICE", {});
+      await showServices(connection, event, true);
+    }
+    return true;
+  }
+  if (
+    /\b(services?|offerings?|options?|treatments?)\b/i.test(text) ||
+    /\bwhat\b.*\b(do you|provide|offer|have|available|do)\b/i.test(text) ||
+    /\b(tell|show|view|list)\b.*\b(services?|offerings?|options?)\b/i.test(text)
+  ) {
     await saveTelegramConversationState(stateIdentity, "SHOWING_SERVICES", context);
     await showServices(connection, event, false);
     return true;
@@ -2109,31 +2389,89 @@ async function naturalLanguageRoute(
 async function workflowFallback(
   connection: LoadedConnection,
   event: NormalizedTelegramEvent,
-  triggerData: JsonRecord
+  triggerData: JsonRecord,
+  customInstructions?: string
 ) {
   const text = event.message.text || event.message.caption || `[${event.eventType}]`;
   const profile = connection.business.profile;
 
-  /* The runner only ever reads knowledge from its input — it never loads from
-     the database itself. Without this, a Telegram bot answers from the prompt
-     and the services list alone and cannot see anything the buyer uploaded,
-     while the voice path answers the same question correctly via
-     lookup_knowledge. Retrieval is query-aware, so only the sections relevant
-     to THIS message are sent. */
-  const knowledge = await retrieveRelevantKnowledge({
+  // ── Business facts ──────────────────────────────────────────────────────────
+  const agentConfig = record(connection.installedAgent.configJson);
+  const contactName = stringValue(agentConfig.contactName);
+  // contactName may be comma-separated (e.g. "Dr. A, Dr. B, Dr. C")
+  const staffList = contactName
+    .split(",")
+    .map((s: string) => s.trim())
+    .filter(Boolean);
+  const staffCount = staffList.length;
+
+  const addressFormatted = formatAddressOneLine(addressFromProfile(profile)) || "";
+  const servicesList = (profile?.services ?? []).join(", ");
+  const rawFaqs = profile?.faqsJson;
+  const faqsArray = Array.isArray(rawFaqs) ? (rawFaqs as Array<{ question?: string; answer?: string }>) : [];
+  const faqsText = faqsArray
+    .map((f: { question?: string; answer?: string }) => `Q: ${f.question ?? ""}\nA: ${f.answer ?? ""}`)
+    .filter((line: string) => line.length > 6)
+    .join("\n\n");
+
+  // ── Retrieve knowledge sections relevant to this specific message ────────────
+  const knowledgeSections = await retrieveRelevantKnowledge({
     businessId: connection.businessId,
     installedAgentId: connection.installedAgentId,
     query: text
-  })
-    .then((sections) => formatKnowledgeEntries(sections))
-    .catch((error) => {
-      // Knowledge is an enhancement — never fail the reply because of it.
-      console.warn("[telegram] knowledge retrieval failed", {
-        businessId: connection.businessId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return [] as string[];
+  }).catch((error) => {
+    console.warn("[telegram] knowledge retrieval failed", {
+      businessId: connection.businessId,
+      error: error instanceof Error ? error.message : String(error)
     });
+    return [] as Awaited<ReturnType<typeof retrieveRelevantKnowledge>>;
+  });
+
+  const knowledgeLines = formatKnowledgeEntries(knowledgeSections);
+
+  // ── Build a single well-structured context block the AI can read reliably ────
+  // We prepend this before the user's message so even a generic AI Brain node
+  // (whose system prompt might not reference any variables) still has all the
+  // business data in the conversation context it receives.
+  const contextParts: string[] = [
+    `[BUSINESS CONTEXT]`,
+    `Business Name: ${connection.business.name}`,
+    ...(connection.business.type ? [`Business Type: ${connection.business.type}`] : []),
+    ...(staffList.length > 0
+      ? [`Staff / Practitioners (${staffCount} total): ${staffList.join(", ")}`]
+      : []),
+    ...(addressFormatted ? [`Location: ${addressFormatted}`] : []),
+    ...(servicesList ? [`Services Offered: ${servicesList}`] : []),
+    ...(faqsText ? [`\nFrequently Asked Questions:\n${faqsText}`] : [])
+  ];
+
+  if (knowledgeLines.length > 0) {
+    contextParts.push(`\n[KNOWLEDGE BASE]`);
+    for (const line of knowledgeLines) {
+      contextParts.push(line);
+    }
+  }
+
+  contextParts.push("");
+
+  const contextBlock = contextParts.join("\n");
+
+  // When a custom action instruction is set (from a dynamic command), wrap it
+  // so the AI understands it should follow that specific action.
+  const effectiveUserMessage = customInstructions?.trim()
+    ? `[Custom Action for /${telegramCommand(event) || "action"}: ${customInstructions.trim()}]\n\nCustomer message: ${text}`
+    : text;
+
+  const latestMessage = `${contextBlock}[CUSTOMER MESSAGE]\n${effectiveUserMessage}`;
+
+  const userFirstName = event.sender.firstName || event.sender.username || "there";
+  const userLastName = event.sender.lastName || "";
+  const fullName =
+    [event.sender.firstName, event.sender.lastName].filter(Boolean).join(" ") ||
+    event.sender.username ||
+    "there";
+
+  const history = await loadTelegramHistory(connection, event);
 
   const run = await runWorkflowTest({
     userId: connection.business.ownerId,
@@ -2144,18 +2482,46 @@ async function workflowFallback(
     callProvider: `TELEGRAM:${connection.id}`,
     externalCallId: event.updateId,
     input: {
+      // Core IDs
       businessId: connection.businessId,
       installedAgentId: connection.installedAgentId,
       businessOwnerId: connection.business.ownerId,
+      // Business facts — structured object (the canonical form nodes should use)
+      business: {
+        id: connection.businessId,
+        name: connection.business.name,
+        type: connection.business.type,
+        contactName,
+        staff: staffList,
+        staffCount,
+        address: addressFormatted,
+        services: profile?.services ?? [],
+        servicesList,
+        faqs: faqsText
+      },
+      // Flat scalars kept for backward compat with older workflow templates
       businessName: connection.business.name,
       businessType: connection.business.type,
       businessPhoneNumber: connection.business.phoneNumbers[0]?.phoneNumber,
+      contactName,
+      address: addressFormatted,
+      services: profile?.services ?? [],
+      servicesList,
       calendarId: profile?.calendarId || "primary",
       timeZone: profile?.timeZone || "UTC",
-      services: profile?.services ?? [],
-      knowledge,
-      latestMessage: text,
-      inboundSmsBody: text,
+      // Knowledge — the sections retrieved for this specific query
+      knowledge: knowledgeLines,
+      // Conversation
+      userName: fullName,
+      customerName: fullName,
+      customerFirstName: userFirstName,
+      customerLastName: userLastName,
+      history,
+      messages: history,
+      // The well-structured message the AI Brain node will read
+      latestMessage,
+      inboundSmsBody: latestMessage,
+      // Telegram event context
       telegramConnectionId: connection.id,
       telegramUpdateId: event.updateId,
       telegramChatId: event.chat.id,
@@ -2168,23 +2534,51 @@ async function workflowFallback(
       telegramEvent: event
     }
   });
-  const context = record(run.context);
-  const telegramAction = record(context.telegramAction);
+
+  const ctx = record(run.context);
+
+  // 1. Workflow sent a Telegram message directly via a Telegram action node
+  const telegramAction = record(ctx.telegramAction);
   if (telegramAction.success === true) return run.workflowRunId ?? null;
-  const ai = record(context.ai);
-  const reply =
-    stringValue(ai.output) ||
-    renderBusinessTemplate(triggerData.telegramFallbackMessage, connection.business.name) ||
-    "I did not understand that. Use /services, /book, or /help.";
+
+  // 2. AI Brain node returned text — render and send it
+  const aiOutput = stringValue(record(ctx.ai).output);
+  if (aiOutput) {
+    const reply = renderBusinessTemplate(aiOutput, connection.business.name, event.sender);
+    await sendTextOrButtonsIfList(connection, event, "workflow-reply", reply);
+    return run.workflowRunId ?? null;
+  }
+
+  // 3. No AI output — answer directly from retrieved knowledge if available
+  //    (handles the case where the workflow has no AI Brain node, or LLM credentials
+  //     are not configured, but the business has uploaded relevant documents)
+  if (knowledgeLines.length > 0) {
+    const knowledgeAnswer = knowledgeLines.slice(0, 4).join("\n\n");
+    await sendText(connection, event, "knowledge-direct-answer", knowledgeAnswer);
+    return run.workflowRunId ?? null;
+  }
+
+  // 4. Final fallback — generic welcome / help message
+  const fallbackMessage = stringValue(triggerData.telegramFallbackMessage);
+  const isGreeting = /^\s*(hi|hello|hey|greetings|hola|howdy)\s*[!.,]?\s*$/i.test(text.trim());
+  const rawReply =
+    (isGreeting && fallbackMessage ? fallbackMessage : null) ||
+    `Hello ${userFirstName}! 👋 I'm here to assist you with ${connection.business.name}. How can I help you today?`;
+  const reply = renderBusinessTemplate(rawReply, connection.business.name, event.sender);
   await sendText(connection, event, "workflow-reply", reply);
   return run.workflowRunId ?? null;
 }
+
 
 async function processEvent(
   connection: LoadedConnection,
   event: NormalizedTelegramEvent,
   triggerData: JsonRecord
 ): Promise<string | null> {
+
+  if (event.message.text && event.eventType !== "callback_query") {
+    await recordTelegramTurn(connection, event, "INBOUND", event.message.text);
+  }
   if (await authorizeOwnerChat(connection, event)) return null;
   if (await handleConnectedOwnerMessage(connection, event)) return null;
   const stateIdentity = identity(connection, event);
@@ -2203,7 +2597,7 @@ async function processEvent(
     await handleCollectedInput(connection, event, triggerData, stateIdentity, stateName, context)
   ) return null;
   if (bookingMode(triggerData) && await naturalLanguageRoute(connection, event, stateIdentity, context)) return null;
-  return workflowFallback(connection, event, triggerData);
+  return workflowFallback(connection, event, triggerData, context.activeCustomInstruction);
 }
 
 export async function processTelegramStoredUpdate(processedUpdateId: string): Promise<void> {
@@ -2251,7 +2645,7 @@ export async function processTelegramStoredUpdate(processedUpdateId: string): Pr
     }
     const active =
       connection.status === "ACTIVE" &&
-      connection.installedAgent.status === "ACTIVE" &&
+      ["ACTIVE", "PROVISIONING"].includes(connection.installedAgent.status) &&
       !connection.installedAgent.pausedAt;
     const provisioningOwnerAuthorization = shouldProcessOwnerAuthorizationDuringProvisioning({
       update: parsed.data,

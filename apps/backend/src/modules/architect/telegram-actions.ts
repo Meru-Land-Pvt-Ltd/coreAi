@@ -47,7 +47,7 @@ export type TelegramActionInput = {
   callbackQueryId?: string;
   text?: string;
   caption?: string;
-  parseMode?: "HTML" | "MarkdownV2";
+  parseMode?: "HTML" | "MarkdownV2" | "Markdown";
   buttons?: TelegramButton[][];
   source?: string;
   latitude?: number;
@@ -251,7 +251,7 @@ export async function executeTelegramAction(input: TelegramActionInput): Promise
       installedAgentId: input.installedAgentId,
       status: "ACTIVE",
       botTokenEncrypted: { not: null },
-      installedAgent: { status: "ACTIVE", pausedAt: null }
+      installedAgent: { status: { in: ["ACTIVE", "PROVISIONING"] }, pausedAt: null }
     },
     select: {
       id: true,

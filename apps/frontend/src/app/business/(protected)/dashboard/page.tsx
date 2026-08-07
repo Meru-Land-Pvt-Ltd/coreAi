@@ -58,6 +58,9 @@ type DashboardBooking = {
     onCalendar: boolean;
     calendarEventLink?: string | null;
     confirmationSms?: { status: string; errorCode?: string | null } | null;
+    previousScheduledAt?: string | null;
+    previousScheduledEndAt?: string | null;
+    previousScheduleLabel?: string | null;
     createdAt: string;
 };
 
@@ -1292,12 +1295,20 @@ function bookingStatusTone(status: string) {
 function BookingRow({ booking }: { booking: DashboardBooking }) {
     const customer = booking.customerName?.trim() || booking.customerPhone;
     const isUpcoming = new Date(booking.startAt).getTime() > Date.now();
+    const isRescheduled = Boolean(booking.previousScheduleLabel || booking.previousScheduledAt);
     const startClock = formatBookingClock(booking.startAt, booking.timeZone);
     const endClock = formatBookingClock(booking.endAt, booking.timeZone);
     const calendarUrl = booking.calendarEventLink || calendarDayUrl(booking.startAt, booking.timeZone);
+    const previousStartClock = booking.previousScheduledAt ? formatBookingClock(booking.previousScheduledAt, booking.timeZone) : "";
+    const previousEndClock = booking.previousScheduledEndAt ? formatBookingClock(booking.previousScheduledEndAt, booking.timeZone) : "";
+    const rescheduledTitle =
+        booking.previousScheduleLabel ||
+        (booking.previousScheduledAt
+            ? `${formatBookingDate(booking.previousScheduledAt, booking.timeZone)}${previousStartClock ? ` · ${previousStartClock}${previousEndClock ? ` – ${previousEndClock}` : ""}` : ""}`
+            : null);
 
     return (
-        <div className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-gray-50 sm:flex-row sm:items-center sm:gap-4 sm:px-6" data-testid={`dashboard-booking-row-${booking.id}`}>
+        <div className="group/booking relative flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-gray-50 sm:flex-row sm:items-center sm:gap-4 sm:px-6" data-testid={`dashboard-booking-row-${booking.id}`}>
             <div className="flex min-w-0 flex-1 items-center gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
                     <Icon name="calendar" className="h-5 w-5" />
@@ -1314,7 +1325,10 @@ function BookingRow({ booking }: { booking: DashboardBooking }) {
                     </p>
                     <p className="truncate text-xs text-slate-400" data-testid="dashboard-booking-meta">
                         {booking.customerName ? `${booking.customerPhone} · ` : ""}
-                        Booked {formatBookingDate(booking.createdAt, booking.timeZone)}
+                        <span data-testid={isRescheduled ? "dashboard-booking-rescheduled-badge" : "dashboard-booking-booked-label"}>
+                            {isRescheduled ? "Rescheduled" : "Booked"}
+                        </span>{" "}
+                        {formatBookingDate(booking.createdAt, booking.timeZone)}
                     </p>
                 </div>
             </div>
@@ -1350,6 +1364,16 @@ function BookingRow({ booking }: { booking: DashboardBooking }) {
                     </a>
                 ) : null}
             </div>
+
+            {isRescheduled && rescheduledTitle ? (
+                <span
+                    role="tooltip"
+                    className="pointer-events-none absolute left-4 top-full z-20 mt-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium leading-snug text-slate-600 opacity-0 shadow-[0_8px_20px_-8px_rgba(15,23,42,0.28)] transition-opacity duration-150 group-hover/booking:opacity-100 sm:left-6"
+                    data-testid="dashboard-booking-rescheduled-tooltip"
+                >
+                    Previous time: {rescheduledTitle}
+                </span>
+            ) : null}
         </div>
     );
 }

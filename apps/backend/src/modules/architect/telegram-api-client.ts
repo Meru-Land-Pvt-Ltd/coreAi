@@ -247,23 +247,44 @@ export async function sendTelegramMessage(options: {
   botToken: string;
   chatId: string;
   text: string;
-  parseMode?: "HTML" | "MarkdownV2";
+  parseMode?: "HTML" | "MarkdownV2" | "Markdown";
   replyMarkup?: TelegramJson;
   replyToMessageId?: string;
   disableNotification?: boolean;
   protectContent?: boolean;
 }): Promise<TelegramSentMessage> {
-  return telegramApiRequest(options.botToken, "sendMessage", {
-    chat_id: telegramChatId(options.chatId),
-    text: options.text.slice(0, 4096),
-    ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
-    ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
-    ...(options.replyToMessageId
-      ? { reply_parameters: { message_id: telegramMessageId(options.replyToMessageId) } }
-      : {}),
-    ...(options.disableNotification ? { disable_notification: true } : {}),
-    ...(options.protectContent ? { protect_content: true } : {})
-  });
+  const parseMode = options.parseMode ?? "Markdown";
+  try {
+    return await telegramApiRequest(options.botToken, "sendMessage", {
+      chat_id: telegramChatId(options.chatId),
+      text: options.text.slice(0, 4096),
+      ...(parseMode ? { parse_mode: parseMode } : {}),
+      ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
+      ...(options.replyToMessageId
+        ? { reply_parameters: { message_id: telegramMessageId(options.replyToMessageId) } }
+        : {}),
+      ...(options.disableNotification ? { disable_notification: true } : {}),
+      ...(options.protectContent ? { protect_content: true } : {})
+    });
+  } catch (error) {
+    if (
+      parseMode &&
+      error instanceof TelegramApiError &&
+      /can't parse entities|bad request/i.test(error.message)
+    ) {
+      return telegramApiRequest(options.botToken, "sendMessage", {
+        chat_id: telegramChatId(options.chatId),
+        text: options.text.slice(0, 4096),
+        ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
+        ...(options.replyToMessageId
+          ? { reply_parameters: { message_id: telegramMessageId(options.replyToMessageId) } }
+          : {}),
+        ...(options.disableNotification ? { disable_notification: true } : {}),
+        ...(options.protectContent ? { protect_content: true } : {})
+      });
+    }
+    throw error;
+  }
 }
 
 export async function answerTelegramCallback(options: {
@@ -288,10 +309,11 @@ export async function sendTelegramMedia(options: {
   chatId: string;
   source: string;
   caption?: string;
-  parseMode?: "HTML" | "MarkdownV2";
+  parseMode?: "HTML" | "MarkdownV2" | "Markdown";
   disableNotification?: boolean;
   protectContent?: boolean;
 }): Promise<TelegramSentMessage> {
+  const parseMode = options.parseMode ?? "Markdown";
   const dataUrl = options.source.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
   if (dataUrl) {
     const mimeType = dataUrl[1] || "application/octet-stream";
@@ -316,7 +338,7 @@ export async function sendTelegramMedia(options: {
     form.append("chat_id", String(telegramChatId(options.chatId)));
     form.append(options.mediaField, new Blob([bytes], { type: mimeType }), `telegram-upload.${extension}`);
     if (options.caption) form.append("caption", options.caption.slice(0, 1024));
-    if (options.parseMode) form.append("parse_mode", options.parseMode);
+    if (parseMode) form.append("parse_mode", parseMode);
     if (options.disableNotification) form.append("disable_notification", "true");
     if (options.protectContent) form.append("protect_content", "true");
     return telegramMultipartRequest(options.botToken, options.method, form);
@@ -325,7 +347,7 @@ export async function sendTelegramMedia(options: {
     chat_id: telegramChatId(options.chatId),
     [options.mediaField]: validatePublicTelegramMediaSource(options.source),
     ...(options.caption ? { caption: options.caption.slice(0, 1024) } : {}),
-    ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
+    ...(parseMode ? { parse_mode: parseMode } : {}),
     ...(options.disableNotification ? { disable_notification: true } : {}),
     ...(options.protectContent ? { protect_content: true } : {})
   });
@@ -376,27 +398,55 @@ export async function editTelegramMessage(options: {
   text?: string;
   caption?: string;
   replyMarkup?: TelegramJson;
-  parseMode?: "HTML" | "MarkdownV2";
+  parseMode?: "HTML" | "MarkdownV2" | "Markdown";
 }): Promise<TelegramSentMessage | boolean> {
+  const parseMode = options.parseMode ?? "Markdown";
   const common: TelegramRequestPayload = {
     chat_id: telegramChatId(options.chatId),
     message_id: telegramMessageId(options.messageId),
     ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
-    ...(options.parseMode ? { parse_mode: options.parseMode } : {})
+    ...(parseMode ? { parse_mode: parseMode } : {})
   };
-  if (options.text) {
-    return telegramApiRequest(options.botToken, "editMessageText", {
-      ...common,
-      text: options.text.slice(0, 4096)
-    });
+  try {
+    if (options.text) {
+      return await telegramApiRequest(options.botToken, "editMessageText", {
+        ...common,
+        text: options.text.slice(0, 4096)
+      });
+    }
+    if (options.caption) {
+      return await telegramApiRequest(options.botToken, "editMessageCaption", {
+        ...common,
+        caption: options.caption.slice(0, 1024)
+      });
+    }
+    return await telegramApiRequest(options.botToken, "editMessageReplyMarkup", common);
+  } catch (error) {
+    if (
+      parseMode &&
+      error instanceof TelegramApiError &&
+      /can't parse entities|bad request/i.test(error.message)
+    ) {
+      const fallbackCommon: TelegramRequestPayload = {
+        chat_id: telegramChatId(options.chatId),
+        message_id: telegramMessageId(options.messageId),
+        ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {})
+      };
+      if (options.text) {
+        return telegramApiRequest(options.botToken, "editMessageText", {
+          ...fallbackCommon,
+          text: options.text.slice(0, 4096)
+        });
+      }
+      if (options.caption) {
+        return telegramApiRequest(options.botToken, "editMessageCaption", {
+          ...fallbackCommon,
+          caption: options.caption.slice(0, 1024)
+        });
+      }
+    }
+    throw error;
   }
-  if (options.caption) {
-    return telegramApiRequest(options.botToken, "editMessageCaption", {
-      ...common,
-      caption: options.caption.slice(0, 1024)
-    });
-  }
-  return telegramApiRequest(options.botToken, "editMessageReplyMarkup", common);
 }
 
 export async function deleteTelegramMessage(options: {

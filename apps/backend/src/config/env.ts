@@ -192,6 +192,7 @@ const envSchema = z.object({
   OPENAI_DEFAULT_MODEL: z.string().default("gpt-4o-mini"),
   ANTHROPIC_DEFAULT_MODEL: z.string().default("claude-sonnet-4-5"),
   GEMINI_DEFAULT_MODEL: z.string().default("gemini-2.0-flash"),
+  OCR_MODEL: z.string().default("gemma-4-31b-it"),
 
   ARCHITECT_TEST_LLM_MODEL: z.string().default("gpt-4o-mini"),
 

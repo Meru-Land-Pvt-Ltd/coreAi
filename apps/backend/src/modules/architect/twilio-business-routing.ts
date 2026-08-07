@@ -88,6 +88,8 @@ import {
 } from "./twilio-connector";
 import {
   applyTwilioMessageStatus,
+  renderAppointmentCancellationSms,
+  renderAppointmentRescheduleSms,
   sendAppointmentConfirmationSms,
   sendTrackedSms,
   type SmsSendOutcome
@@ -3796,7 +3798,14 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
   try {
     const smsOutcome = await sendTrackedSms({
       to: target.customerPhone || callerPhone,
-      body: `${smsAttributionPrefix(ctx.business.businessName)}Hi ${target.customerName || "there"}, your ${target.service ? `${target.service} ` : ""}appointment on ${cancelledDate} at ${cancelledTime} has been cancelled. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
+      body: renderAppointmentCancellationSms({
+        customerName: target.customerName || "there",
+        businessName: ctx.business.businessName,
+        serviceName: target.service || "your",
+        appointmentDate: cancelledDate,
+        appointmentTime: cancelledTime,
+        businessPhone: ctx.business.businessPhoneNumber || ctx.business.teamPhone || ""
+      }),
       messageType: "APPOINTMENT_CANCELLATION",
       businessId,
       businessName: ctx.business.businessName,
@@ -4111,7 +4120,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
       ...(calendarEventLink ? { calendarEventLink } : {}),
       notes: [
         target.notes,
-        `${new Date().toISOString()}: rescheduled by the customer during a phone call from ${previousDateLabel} ${previousTimeLabel} to ${newDateLabel} ${newTimeLabel}.${ctx.callId ? ` Call ID: ${ctx.callId}` : ""}`
+        `${new Date().toISOString()}: rescheduled by the customer during a phone call from ${previousDateLabel} ${previousTimeLabel} to ${newDateLabel} ${newTimeLabel}.${ctx.callId ? ` Call ID: ${ctx.callId}` : ""} [prevWindow:${target.startAt.toISOString()}/${target.endAt.toISOString()}]`
       ]
         .filter(Boolean)
         .join("\n")
@@ -4122,7 +4131,14 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   try {
     const smsOutcome = await sendTrackedSms({
       to: target.customerPhone || callerPhone,
-      body: `${smsAttributionPrefix(ctx.business.businessName)}Hi ${target.customerName || "there"}, your ${target.service ? `${target.service} ` : ""}appointment has been moved to ${newDateLabel} at ${newTimeLabel}. Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.`,
+      body: renderAppointmentRescheduleSms({
+        customerName: target.customerName || "there",
+        businessName: ctx.business.businessName,
+        serviceName: target.service || "your",
+        appointmentDate: newDateLabel,
+        appointmentTime: newTimeLabel,
+        businessPhone: ctx.business.businessPhoneNumber || ctx.business.teamPhone || ""
+      }),
       messageType: "APPOINTMENT_CONFIRMATION",
       businessId,
       businessName: ctx.business.businessName,

@@ -349,6 +349,8 @@ function formatTimeInZone(date: Date, timeZone: string): string {
   }
 }
 
+// --------------- appointment confirmation SMS template ----------------
+
 export type AppointmentConfirmationTemplateValues = {
   customerName: string;
   businessName: string;
@@ -358,16 +360,33 @@ export type AppointmentConfirmationTemplateValues = {
   businessPhone: string;
 };
 
-export function renderAppointmentConfirmationSms(values: AppointmentConfirmationTemplateValues): string {
+
+// --------------- appointment SMS template ----------------
+function renderAppointmentSmsLines(
+  values: AppointmentConfirmationTemplateValues,
+  actionPhrase: string
+): string {
   const service = values.serviceName && values.serviceName !== "your" ? `${values.serviceName} ` : "";
   const lines = [
-    `${smsAttributionPrefix(values.businessName)}Hi ${values.customerName}, your ${service}appointment is confirmed for ${values.appointmentDate} at ${values.appointmentTime}.`
+    `${smsAttributionPrefix(values.businessName)}Hi ${values.customerName}, your ${service}appointment ${actionPhrase} ${values.appointmentDate} at ${values.appointmentTime}.`
   ];
   if (values.businessPhone) {
     lines.push(`For assistance call ${values.businessPhone}.`);
   }
   lines.push("Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.");
   return lines.join("\n");
+}
+
+export function renderAppointmentConfirmationSms(values: AppointmentConfirmationTemplateValues): string {
+  return renderAppointmentSmsLines(values, "is confirmed for");
+}
+
+export function renderAppointmentCancellationSms(values: AppointmentConfirmationTemplateValues): string {
+  return renderAppointmentSmsLines(values, "has been cancelled for");
+}
+
+export function renderAppointmentRescheduleSms(values: AppointmentConfirmationTemplateValues): string {
+  return renderAppointmentSmsLines(values, "has been rescheduled for");
 }
 
 async function resolveBusinessDisplayPhone(
