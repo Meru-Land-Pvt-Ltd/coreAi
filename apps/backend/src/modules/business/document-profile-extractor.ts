@@ -42,8 +42,12 @@ export type DocumentProfileSuggestion = {
 // In-Memory Cache: Stores extracted results by businessId + contentHash
 const profileCache = new Map<string, { hash: string; suggestion: DocumentProfileSuggestion }>();
 
+// In-Flight Request Map: Deduplicates concurrent extractions for the same businessId
+const pendingExtractions = new Map<string, Promise<DocumentProfileSuggestion | null>>();
+
 export function invalidateDocumentProfileCache(businessId: string) {
   profileCache.delete(businessId);
+  pendingExtractions.delete(businessId);
   console.log(`[document-profile-extractor] Cache invalidated for businessId=${businessId}`);
 }
 
@@ -220,6 +224,23 @@ export async function extractProfileFromDocuments(input: {
   businessId: string;
   installedAgentId?: string | null;
 }): Promise<DocumentProfileSuggestion | null> {
+  const existingPending = pendingExtractions.get(input.businessId);
+  if (existingPending) {
+    return existingPending;
+  }
+
+  const promise = runExtraction(input).finally(() => {
+    pendingExtractions.delete(input.businessId);
+  });
+
+  pendingExtractions.set(input.businessId, promise);
+  return promise;
+}
+
+async function runExtraction(input: {
+  businessId: string;
+  installedAgentId?: string | null;
+}): Promise<DocumentProfileSuggestion | null> {
   const chunks = await prisma.businessKnowledgeBase.findMany({
     where: {
       businessId: input.businessId,
@@ -249,6 +270,15 @@ export async function extractProfileFromDocuments(input: {
 
   const sourceFilename = chunks[0]?.sourceFile?.filename ?? null;
   const fallbackServices = extractFallbackServices(fullText);
+
+  const phoneMatch = fullText.match(/(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/);
+  const emailMatch = fullText.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/);
+  const websiteMatch = fullText.match(/\b(?:https?:\/\/)?(?:www\.)?[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/[^\s]*)?\b/);
+
+  const phone = phoneMatch ? phoneMatch[0].trim() : null;
+  const email = emailMatch ? emailMatch[0].trim() : null;
+  const website = websiteMatch ? websiteMatch[0].trim() : null;
+
   let suggestion: DocumentProfileSuggestion;
 
   // 1. Try Gemini AI Structured Extraction first
@@ -271,9 +301,9 @@ export async function extractProfileFromDocuments(input: {
       businessType: aiResult.businessType ?? null,
       services: mergedServices,
       registrationNumber: aiResult.registrationNumber ?? null,
-      phone: null,
-      email: null,
-      website: null,
+      phone,
+      email,
+      website,
       address: null,
       sourceFilename,
       extractedAt: new Date().toISOString()
@@ -322,9 +352,9 @@ export async function extractProfileFromDocuments(input: {
       businessType: detectedType,
       services: fallbackServices.filter(isValidServiceName).slice(0, 12),
       registrationNumber,
-      phone: null,
-      email: null,
-      website: null,
+      phone,
+      email,
+      website,
       address: null,
       sourceFilename,
       extractedAt: new Date().toISOString()

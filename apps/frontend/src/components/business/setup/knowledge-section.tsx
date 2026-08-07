@@ -74,14 +74,15 @@ export function DocumentUploadSection({
 
   const [facts, setFacts] = useState<BusinessFactsData | null>(null);
   const [addressApplying, setAddressApplying] = useState(false);
+  const [isExtractingOcr, setIsExtractingOcr] = useState(false);
 
   const profileCallbackRef = useRef(onProfileSuggestionFetched);
   useEffect(() => {
     profileCallbackRef.current = onProfileSuggestionFetched;
   }, [onProfileSuggestionFetched]);
 
-  const refreshFacts = useCallback(async () => {
-    const res = await getBusinessFacts();
+  const refreshFacts = useCallback(async (force = false) => {
+    const res = await getBusinessFacts(force);
     if (res.success && res.data) {
       setFacts(res.data);
       if (res.data.profileSuggestion) {
@@ -115,7 +116,7 @@ export function DocumentUploadSection({
     setAddressApplying(false);
     if (res.success) {
       dismissRow("address");
-      void refreshFacts();
+      void refreshFacts(true);
       onKnowledgeChanged?.();
     } else {
       setUploadError(res.error ?? "Failed to apply address suggestion.");
@@ -194,6 +195,7 @@ export function DocumentUploadSection({
     setUploadError(rejected.join(" · "));
     if (accepted.length === 0) return;
     setLiveSyncOk(false);
+    setIsExtractingOcr(true);
 
     const pendingKeys = accepted.map((file, idx) => `${Date.now()}-${idx}-${file.name}`);
     setPendingUploads((prev) => [
@@ -201,26 +203,30 @@ export function DocumentUploadSection({
       ...accepted.map((file, idx) => ({ key: pendingKeys[idx], name: file.name, size: file.size }))
     ]);
 
-    const res = await uploadBusinessKnowledgeFiles(accepted, {
-      ...(listingId ? { listingId } : {}),
-      ...(installedAgentId ? { installedAgentId } : {})
-    });
-
-    setPendingUploads((prev) => prev.filter((row) => !pendingKeys.includes(row.key)));
-
-    if (res.success && res.data) {
-      const returned = res.data.files;
-      setKnowledgeFiles((prev) => {
-        const byId = new Map(prev.map((file) => [file.id, file]));
-        for (const file of returned) byId.set(file.id, file);
-        return Array.from(byId.values());
+    try {
+      const res = await uploadBusinessKnowledgeFiles(accepted, {
+        ...(listingId ? { listingId } : {}),
+        ...(installedAgentId ? { installedAgentId } : {})
       });
-      applyLiveSync(res.data.liveSync);
-      void refreshKnowledgeFiles();
-      void refreshFacts();
-      onKnowledgeChanged?.();
-    } else {
-      setUploadError(res.error ?? "Upload failed. Please try again.");
+
+      setPendingUploads((prev) => prev.filter((row) => !pendingKeys.includes(row.key)));
+
+      if (res.success && res.data) {
+        const returned = res.data.files;
+        setKnowledgeFiles((prev) => {
+          const byId = new Map(prev.map((file) => [file.id, file]));
+          for (const file of returned) byId.set(file.id, file);
+          return Array.from(byId.values());
+        });
+        applyLiveSync(res.data.liveSync);
+        void refreshKnowledgeFiles();
+        await refreshFacts(true);
+        onKnowledgeChanged?.();
+      } else {
+        setUploadError(res.error ?? "Upload failed. Please try again.");
+      }
+    } finally {
+      setIsExtractingOcr(false);
     }
   }
 
@@ -239,7 +245,7 @@ export function DocumentUploadSection({
       setKnowledgeFiles((prev) => prev.filter((file) => file.id !== id));
       applyLiveSync(res.data?.liveSync);
       void refreshKnowledgeFiles();
-      void refreshFacts();
+      void refreshFacts(true);
       onKnowledgeChanged?.();
     } else {
       setUploadError(res.error ?? "Could not remove the document. Please try again.");
@@ -249,17 +255,22 @@ export function DocumentUploadSection({
   async function handleRetryFile(id: string) {
     setBusyFileIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     setLiveSyncOk(false);
-    const res = await reprocessBusinessKnowledgeFile(id);
-    setBusyFileIds((prev) => prev.filter((busyId) => busyId !== id));
-    if (res.success && res.data) {
-      const updated = res.data.file;
-      setKnowledgeFiles((prev) => prev.map((file) => (file.id === updated.id ? updated : file)));
-      applyLiveSync(res.data.liveSync);
-      void refreshKnowledgeFiles();
-      void refreshFacts();
-      onKnowledgeChanged?.();
-    } else {
-      setUploadError(res.error ?? "Could not reprocess the document. Please try again.");
+    setIsExtractingOcr(true);
+    try {
+      const res = await reprocessBusinessKnowledgeFile(id);
+      if (res.success && res.data) {
+        const updated = res.data.file;
+        setKnowledgeFiles((prev) => prev.map((file) => (file.id === updated.id ? updated : file)));
+        applyLiveSync(res.data.liveSync);
+        void refreshKnowledgeFiles();
+        await refreshFacts(true);
+        onKnowledgeChanged?.();
+      } else {
+        setUploadError(res.error ?? "Could not reprocess the document. Please try again.");
+      }
+    } finally {
+      setBusyFileIds((prev) => prev.filter((busyId) => busyId !== id));
+      setIsExtractingOcr(false);
     }
   }
 
@@ -431,6 +442,20 @@ export function DocumentUploadSection({
         <p className="mt-1.5 text-xs text-green-600" data-testid="business-setup-knowledge-sync-ok">
           Live agent updated.
         </p>
+      ) : null}
+
+      {/* OCR & AI Extraction Minimal Loading Bar */}
+      {isExtractingOcr ? (
+        <div
+          className="mt-2.5 flex items-center gap-2 text-xs font-medium text-amber-700 bg-amber-50/70 border border-amber-200/60 rounded-xl px-3 py-2 animate-pulse"
+          data-testid="business-setup-knowledge-ocr-processing"
+        >
+          <svg className="animate-spin w-3.5 h-3.5 text-amber-600 shrink-0" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+            <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span>Extracting details...</span>
+        </div>
       ) : null}
 
       {/* Unified minimalist confirmation card for extracted details */}

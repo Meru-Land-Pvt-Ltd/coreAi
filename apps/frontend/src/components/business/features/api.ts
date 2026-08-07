@@ -560,11 +560,13 @@ export type BusinessAddressInput = {
 
 let cachedFactsResponse: ApiResponse<BusinessFactsData> | null = null;
 let cachedFactsTimestamp = 0;
+let pendingFactsPromise: Promise<ApiResponse<BusinessFactsData>> | null = null;
 const FACTS_CACHE_TTL_MS = 300_000; // 5 minutes frontend memory cache
 
 export function clearBusinessFactsCache() {
   cachedFactsResponse = null;
   cachedFactsTimestamp = 0;
+  pendingFactsPromise = null;
 }
 
 /** Structured business facts (address, completeness, PDF suggestion, conflicts). */
@@ -573,12 +575,24 @@ export async function getBusinessFacts(forceRefresh = false) {
   if (!forceRefresh && cachedFactsResponse && now - cachedFactsTimestamp < FACTS_CACHE_TTL_MS) {
     return cachedFactsResponse;
   }
-  const res = await apiGet<BusinessFactsData>("/business/setup/business-facts");
-  if (res.success) {
-    cachedFactsResponse = res;
-    cachedFactsTimestamp = Date.now();
+  if (!forceRefresh && pendingFactsPromise) {
+    return pendingFactsPromise;
   }
-  return res;
+
+  pendingFactsPromise = (async () => {
+    try {
+      const res = await apiGet<BusinessFactsData>("/business/setup/business-facts");
+      if (res.success) {
+        cachedFactsResponse = res;
+        cachedFactsTimestamp = Date.now();
+      }
+      return res;
+    } finally {
+      pendingFactsPromise = null;
+    }
+  })();
+
+  return pendingFactsPromise;
 }
 
 /** Save + confirm the Business Address; the live assistant is re-synced server-side. */
