@@ -480,9 +480,17 @@ export type VerifiedKnowledgeFileSummary = KnowledgeFileSummary & {
   ready: boolean;
 };
 
-export async function listKnowledgeFiles(businessId: string): Promise<VerifiedKnowledgeFileSummary[]> {
+export async function listKnowledgeFiles(
+  businessId: string,
+  installedAgentId?: string | null
+): Promise<VerifiedKnowledgeFileSummary[]> {
   const rows = await prisma.businessKnowledgeFile.findMany({
-    where: { businessId },
+    where: {
+      businessId,
+      ...(installedAgentId === undefined
+        ? {}
+        : { OR: [{ installedAgentId: null }, { installedAgentId }] })
+    },
     orderBy: { createdAt: "asc" },
     select: SUMMARY_SELECT
   });

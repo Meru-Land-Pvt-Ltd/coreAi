@@ -805,8 +805,8 @@ export function BusinessAddressSection({
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
-  const refreshFacts = useCallback(async () => {
-    const res = await getBusinessFacts();
+  const refreshFacts = useCallback(async (includeDocumentSuggestions = false) => {
+    const res = await getBusinessFacts({ includeDocumentSuggestions });
     if (res.success && res.data) {
       setFacts(res.data);
       if (!dirtyRef.current) setDraft(addressDraftFromFacts(res.data));
@@ -827,7 +827,7 @@ export function BusinessAddressSection({
     if (refreshSeenRef.current === refreshToken) return;
     refreshSeenRef.current = refreshToken;
     setSuggestionDismissed(false);
-    void refreshFacts();
+    void refreshFacts(true);
   }, [refreshToken, refreshFacts]);
 
   const suggestion = facts?.documentSuggestion ?? null;

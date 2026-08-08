@@ -20,6 +20,9 @@ import {
 
 
 export function HoursAvailabilitySection({
+  showBusinessHours = true,
+  showBookingRules = true,
+  showAiCallCoverage = true,
   timeZone,
   persistTimeZone = true,
   onBusinessHoursLoaded,
@@ -46,6 +49,9 @@ export function HoursAvailabilitySection({
   onAnsweringDay,
   triggerKind
 }: {
+  showBusinessHours?: boolean;
+  showBookingRules?: boolean;
+  showAiCallCoverage?: boolean;
   /** Authoritative business timezone — owned by the Connect step, passed through to the hours editor. */
   timeZone: string;
   /** False until the buyer edits the timezone this session (stale-tab guard). */
@@ -80,6 +86,7 @@ export function HoursAvailabilitySection({
   return (
     <div className="space-y-6">
       {/* A. Business Hours — the ONLY weekly Business Hours editor. */}
+      {showBusinessHours ? (
       <div data-testid="business-setup-business-hours">
         <BusinessHoursSection
           title="Business Hours"
@@ -94,9 +101,10 @@ export function HoursAvailabilitySection({
           refreshToken={businessHoursRefreshToken}
         />
       </div>
+      ) : null}
 
       {/* B. Appointment Hours — inherits Business Hours unless custom. */}
-      {apptLoaded ? (
+      {showBookingRules && apptLoaded ? (
         <div className="border-t border-gray-100 pt-6">
           <AppointmentHoursEditor
             useBusinessHours={apptUseBusinessHours}
@@ -115,6 +123,7 @@ export function HoursAvailabilitySection({
       ) : null}
 
       {/* C. AI Call Coverage — when the AI answers. */}
+      {showAiCallCoverage ? (
       <div className="border-t border-gray-100 pt-6">
         <AiCallCoverageEditor
           kind={coverageKind}
@@ -126,6 +135,7 @@ export function HoursAvailabilitySection({
           triggerKind={triggerKind}
         />
       </div>
+      ) : null}
     </div>
   );
 }

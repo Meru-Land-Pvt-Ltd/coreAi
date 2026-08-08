@@ -87,9 +87,11 @@ export function BusinessProfileSection({
 
   // Sync selected services → servicesText state
   useEffect(() => {
-    onServices(selectedServices.join("\n"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedServices]);
+    const next = selectedServices.join("\n");
+    if (next !== servicesText) {
+      onServices(next);
+    }
+  }, [selectedServices, servicesText, onServices]);
 
   // Handle profile suggestion fetched from uploaded documents
   function handleProfileSuggestion(suggestion: import("@/components/business/features/api").DocumentProfileSuggestion) {

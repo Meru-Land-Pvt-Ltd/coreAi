@@ -559,41 +559,62 @@ export type BusinessAddressInput = {
   confirm: boolean;
 };
 
-let cachedFactsResponse: ApiResponse<BusinessFactsData> | null = null;
-let cachedFactsTimestamp = 0;
-let pendingFactsPromise: Promise<ApiResponse<BusinessFactsData>> | null = null;
+const cachedFactsResponses = new Map<string, { response: ApiResponse<BusinessFactsData>; timestamp: number }>();
+const pendingFactsPromises = new Map<string, Promise<ApiResponse<BusinessFactsData>>>();
 const FACTS_CACHE_TTL_MS = 300_000; // 5 minutes frontend memory cache
 
 export function clearBusinessFactsCache() {
-  cachedFactsResponse = null;
-  cachedFactsTimestamp = 0;
-  pendingFactsPromise = null;
+  cachedFactsResponses.clear();
+  pendingFactsPromises.clear();
 }
 
 /** Structured business facts (address, completeness, PDF suggestion, conflicts). */
-export async function getBusinessFacts(forceRefresh = false) {
+export async function getBusinessFacts(
+  forceRefreshOrOptions:
+    | boolean
+    | {
+        forceRefresh?: boolean;
+        includeDocumentSuggestions?: boolean;
+        installedAgentId?: string | null;
+      } = false
+) {
+  const options =
+    typeof forceRefreshOrOptions === "boolean"
+      ? { forceRefresh: forceRefreshOrOptions }
+      : forceRefreshOrOptions;
+  const forceRefresh = Boolean(options.forceRefresh);
+  const includeDocumentSuggestions = Boolean(options.includeDocumentSuggestions);
+  const installedAgentId = options.installedAgentId?.trim() || "";
+  const cacheKey = JSON.stringify({ includeDocumentSuggestions, installedAgentId });
   const now = Date.now();
-  if (!forceRefresh && cachedFactsResponse && now - cachedFactsTimestamp < FACTS_CACHE_TTL_MS) {
-    return cachedFactsResponse;
+  const cached = cachedFactsResponses.get(cacheKey);
+  if (!forceRefresh && cached && now - cached.timestamp < FACTS_CACHE_TTL_MS) {
+    return cached.response;
   }
-  if (!forceRefresh && pendingFactsPromise) {
-    return pendingFactsPromise;
+  const pending = pendingFactsPromises.get(cacheKey);
+  if (!forceRefresh && pending) {
+    return pending;
   }
 
-  pendingFactsPromise = (async () => {
+  const query = new URLSearchParams();
+  if (includeDocumentSuggestions) query.set("includeDocumentSuggestions", "1");
+  if (installedAgentId) query.set("installedAgentId", installedAgentId);
+  const url = `/business/setup/business-facts${query.size ? `?${query.toString()}` : ""}`;
+
+  const pendingPromise = (async () => {
     try {
-      const res = await apiGet<BusinessFactsData>("/business/setup/business-facts");
+      const res = await apiGet<BusinessFactsData>(url);
       if (res.success) {
-        cachedFactsResponse = res;
-        cachedFactsTimestamp = Date.now();
+        cachedFactsResponses.set(cacheKey, { response: res, timestamp: Date.now() });
       }
       return res;
     } finally {
-      pendingFactsPromise = null;
+      pendingFactsPromises.delete(cacheKey);
     }
   })();
 
-  return pendingFactsPromise;
+  pendingFactsPromises.set(cacheKey, pendingPromise);
+  return pendingPromise;
 }
 
 /** Save + confirm the Business Address; the live assistant is re-synced server-side. */
@@ -829,8 +850,10 @@ export function getVoiceSamplePreview(body: { presetId?: string; voiceId?: strin
 }
 
 /** List the business's persisted knowledge documents. */
-export function getBusinessKnowledgeFiles() {
-  return apiGet<{ files: KnowledgeFileSummary[] }>("/business/setup/knowledge-files");
+export function getBusinessKnowledgeFiles(opts: { installedAgentId?: string | null } = {}) {
+  const installedAgentId = opts.installedAgentId?.trim();
+  const query = installedAgentId ? `?installedAgentId=${encodeURIComponent(installedAgentId)}` : "";
+  return apiGet<{ files: KnowledgeFileSummary[] }>(`/business/setup/knowledge-files${query}`);
 }
 
 /** Delete one knowledge document (and its extracted knowledge). */
