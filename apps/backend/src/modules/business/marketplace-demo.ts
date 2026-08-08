@@ -165,7 +165,7 @@ async function findExistingDemoAssistant(listingId: string): Promise<string | nu
 
   try {
     const response = await fetch(`${env.VAPI_BASE_URL.replace(/\/$/, "")}/assistant?limit=100`, {
-      headers: { Authorization: `Bearer ${CredentialService.getKeySync("vapi")}` },
+      headers: { Authorization: `Bearer ${env.VAPI_API_KEY}` },
       signal: AbortSignal.timeout(10000)
     });
 
@@ -313,7 +313,7 @@ async function startDemoCallInternal(params: {
 }): Promise<MarketplaceDemoSession> {
   const { scopeKey, listingId, dailyLimit, maxDurationSeconds, customInfo } = params;
 
-  if (!isVapiConfigured() || !CredentialService.getKeySync("vapi_public_key")) {
+  if (!isVapiConfigured() || !env.VAPI_PUBLIC_KEY) {
     throw new MarketplaceDemoError(
       "Live demos are not configured on the server.",
       503,
@@ -451,7 +451,7 @@ async function startDemoCallInternal(params: {
   });
 
   return {
-    publicKey: CredentialService.getKeySync("vapi_public_key"),
+    publicKey: env.VAPI_PUBLIC_KEY,
     assistantId: assistant.id,
     assistantOverrides,
     listingId: listing.id,
