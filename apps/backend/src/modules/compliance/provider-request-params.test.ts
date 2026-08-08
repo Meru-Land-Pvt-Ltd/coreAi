@@ -16,6 +16,15 @@ describe("Deepgram request params", () => {
     expect(qs.get("language")).toBe("en");
     expect(qs.get("diarize")).toBe("true");
   });
+
+  it("coerces unsupported languages for English-only models like nova-2-medical", () => {
+    const qs = new URLSearchParams(
+      buildQueryString("nova-2-medical", "multi", { diarize: false })
+    );
+    expect(qs.get("model")).toBe("nova-2-medical");
+    expect(qs.get("language")).toBe("en");
+    expect(qs.get("mip_opt_out")).toBe("true");
+  });
 });
 
 describe("ElevenLabs TTS params", () => {

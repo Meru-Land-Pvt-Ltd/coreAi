@@ -749,7 +749,7 @@ export async function startInstalledAgentPreviewCall(
     simulateBusinessHoursState?: "open" | "closed" | null;
   }
 ): Promise<SetupPreviewCallSession> {
-  if (!isVapiConfigured() || !env.VAPI_PUBLIC_KEY) {
+  if (!isVapiConfigured() || !CredentialService.getKeySync("vapi_public_key")) {
     throw new SetupPreviewCallError("Voice preview is not configured on this server.", 503, "PREVIEW_NOT_CONFIGURED");
   }
 
@@ -831,7 +831,7 @@ export async function startInstalledAgentPreviewCall(
   }
 
   return {
-    publicKey: env.VAPI_PUBLIC_KEY,
+    publicKey: CredentialService.getKeySync("vapi_public_key"),
     assistantId: assistant.id,
     assistantName: plan.assistantName,
     businessName: plan.businessName,

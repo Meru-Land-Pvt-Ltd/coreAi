@@ -1,3 +1,4 @@
+import { resolveDeepgramListenLanguage } from "@coreai/shared";
 import { getProviderEngine } from "./provider-engine";
 import type { AIExecuteResponse } from "./types";
 
@@ -65,7 +66,7 @@ export async function transcribeWithDeepgram(
   }
 
   const model = input.model?.trim() || "nova-3";
-  const language = input.language?.trim() || "en";
+  const language = resolveDeepgramListenLanguage(model, input.language?.trim() || "en");
   const mimeType = input.mimeType?.trim() || stripped.mimeType || "audio/wav";
 
   const engine = getProviderEngine();

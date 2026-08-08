@@ -7,7 +7,11 @@
  * Auth         : Authorization: Token <DEEPGRAM_API_KEY>
  */
 
-import { DEEPGRAM_STT_MODELS, DEEPGRAM_TTS_VOICES } from "@coreai/shared";
+import {
+  DEEPGRAM_STT_MODELS,
+  DEEPGRAM_TTS_VOICES,
+  resolveDeepgramListenLanguage
+} from "@coreai/shared";
 import type {
   AIProviderAdapter,
   AIExecuteRequest,
@@ -95,8 +99,9 @@ export function buildQueryString(
     mip_opt_out: "true",
   };
 
-  if (language) {
-    params["language"] = language;
+  const resolvedLanguage = resolveDeepgramListenLanguage(model, language);
+  if (resolvedLanguage) {
+    params["language"] = resolvedLanguage;
   }
 
   const boolFlags = [

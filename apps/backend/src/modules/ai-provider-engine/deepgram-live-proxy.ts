@@ -195,11 +195,18 @@ export function attachDeepgramLiveProxy(server: {
               return;
             }
 
+            // Gap detected — client should commit any pending interim text.
+            if (parsed.type === "UtteranceEnd") {
+              clientWs.send(JSON.stringify({ type: "utterance_end" }));
+              return;
+            }
+
             // Flux (/v2/listen) emits TurnInfo with cumulative turn transcript.
             if (parsed.type === "TurnInfo") {
               const transcript = (parsed.transcript ?? "").trim();
               if (!transcript) return;
               const eventName = (parsed.event ?? "").trim();
+              // Only EndOfTurn is committed; EagerEndOfTurn / Update stay interim.
               const isFinal = eventName === "EndOfTurn";
               clientWs.send(
                 JSON.stringify({
@@ -221,11 +228,14 @@ export function attachDeepgramLiveProxy(server: {
               const transcript = (alt?.transcript ?? "").trim();
               const confidence = alt?.confidence ?? null;
               if (!transcript) return;
+              // Commit only on is_final. speech_final is turn-taking only and can
+              // truncate phrases if treated as a transcript commit.
               clientWs.send(
                 JSON.stringify({
                   type: "transcript",
                   transcript,
-                  isFinal: Boolean(parsed.is_final || parsed.speech_final),
+                  isFinal: Boolean(parsed.is_final),
+                  speechFinal: Boolean(parsed.speech_final),
                   replace: false,
                   confidence
                 })
