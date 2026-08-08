@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "@/lib/api";
 
 export type AdminSummary = {
   totalUsers: number;
@@ -599,4 +599,36 @@ export function getAdminEmailSuppressions(params: { page?: number; limit?: numbe
 
 export function reactivateAdminEmailSuppression(id: string) {
   return apiPost<{ suppression: AdminEmailSuppression }>(`/admin/email-suppressions/${id}/reactivate`, {});
+}
+
+/* ------------------------- Manage API (platform keys) ---------------------- */
+
+export type AdminApiSettingField = {
+  key: string;
+  label: string;
+  /** Masked for secrets, full value for non-secret settings, "" when unset. */
+  value: string;
+  secret: boolean;
+  /** Where the effective value comes from right now. */
+  source: "admin" | "env" | "unset";
+  updatedAt: string | null;
+};
+
+export type AdminApiSettingGroup = {
+  id: string;
+  title: string;
+  description: string;
+  fields: AdminApiSettingField[];
+};
+
+export function getAdminApiSettings() {
+  return apiGet<{ groups: AdminApiSettingGroup[] }>("/admin/api-settings");
+}
+
+/** An empty value clears the override and restores the .env fallback. */
+export function updateAdminApiSettings(settings: Array<{ key: string; value: string }>) {
+  return apiPut<{ groups: AdminApiSettingGroup[]; saved: number; cleared: number }>(
+    "/admin/api-settings",
+    { settings }
+  );
 }

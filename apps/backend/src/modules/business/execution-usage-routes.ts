@@ -161,14 +161,21 @@ export async function getBusinessExecutionUsage(c: Context) {
         usageInvoiceId: true
       }
     }),
+    /* Calls that failed to price are included deliberately. Requiring
+       billingRecordedAt made an unpriced call vanish from Billing & Usage
+       altogether — the business saw neither a charge nor the call, which reads
+       as "the platform lost my calls" rather than "this call is not priced yet".
+       They carry no line items, so they add nothing to the totals. */
     prisma.vapiCall.findMany({
       where: {
         businessId: business.id,
         executionMode: "LIVE",
-        billingMonth: month,
-        billingRecordedAt: { not: null }
+        OR: [
+          { billingMonth: month, billingRecordedAt: { not: null } },
+          { billingMonth: month, pricingState: { in: ["PENDING", "UNPRICED"] } }
+        ]
       },
-      orderBy: { billingRecordedAt: "desc" },
+      orderBy: [{ billingRecordedAt: "desc" }, { createdAt: "desc" }],
       select: {
         callId: true,
         customerPhone: true,
@@ -177,6 +184,7 @@ export async function getBusinessExecutionUsage(c: Context) {
         durationSeconds: true,
         usageLineItemsJson: true,
         billingRecordedAt: true,
+        pricingState: true,
         recordingUrl: true
       }
     }),

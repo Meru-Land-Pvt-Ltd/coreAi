@@ -1,6 +1,6 @@
 import type { IncomingMessage } from "http";
 import type { Duplex } from "stream";
-import { WebSocketServer, WebSocket } from "ws";
+import { WebSocketServer, WebSocket, type RawData } from "ws";
 import {
   buildDeepgramLiveListenUrl,
   describeDeepgramLiveError,
@@ -244,7 +244,7 @@ export function attachDeepgramLiveProxy(server: {
 
         deepgramWs.on("close", () => closeBoth());
 
-        clientWs.on("message", (data, isBinary) => {
+        clientWs.on("message", (data: RawData, isBinary: boolean) => {
           if (deepgramWs.readyState !== WebSocket.OPEN) return;
           const isAudioChunk =
             isBinary ||

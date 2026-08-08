@@ -13,6 +13,11 @@ import { getAdminLiveSummaryData } from "./admin-summary";
 import { pseudonymizeDisclosureConsentsForUser } from "../compliance/disclosure-consent";
 import { deleteUserWorkspace } from "../auth/workspace-deletion";
 import { logAdminAction } from "./audit";
+import {
+  isManagedPlatformApiKey,
+  listPlatformApiSettings,
+  savePlatformApiSettings
+} from "./platform-api-settings";
 
 export const adminRoutes = new Hono();
 
@@ -23,6 +28,56 @@ adminRoutes.use("*", requireRole(["ADMIN"]));
 adminRoutes.route("/phone-numbers", adminPhoneNumberRoutes);
 adminRoutes.route("/payouts", adminPayoutRoutes);
 adminRoutes.route("/pricing", adminPricingRoutes);
+
+/* -------------------- Manage API (platform credentials) ------------------- */
+
+adminRoutes.get("/api-settings", async (c) => {
+  // Secrets come back masked — the plaintext never leaves the server.
+  return successResponse(c, { groups: await listPlatformApiSettings() });
+});
+
+const apiSettingsUpdateSchema = z.object({
+  settings: z
+    .array(
+      z.object({
+        key: z.string().trim().min(1).max(120),
+        // Empty clears the override and restores the .env fallback.
+        value: z.string().max(4000)
+      })
+    )
+    .min(1)
+    .max(60)
+});
+
+adminRoutes.put("/api-settings", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = apiSettingsUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid settings payload", 422, "VALIDATION_ERROR");
+  }
+
+  const unknown = parsed.data.settings.filter((setting) => !isManagedPlatformApiKey(setting.key));
+  if (unknown.length > 0) {
+    return errorResponse(
+      c,
+      `Not managed from this page: ${unknown.map((setting) => setting.key).join(", ")}`,
+      422,
+      "UNSUPPORTED_SETTING_KEY"
+    );
+  }
+
+  const result = await savePlatformApiSettings(parsed.data.settings, authUser.id);
+
+  // Values are never logged — only which keys changed.
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "PLATFORM_API_SETTINGS_UPDATED",
+    targetType: "PlatformApiSetting",
+    meta: { keys: parsed.data.settings.map((setting) => setting.key), ...result }
+  }).catch(() => undefined);
+
+  return successResponse(c, { groups: await listPlatformApiSettings(), ...result }, "API settings saved");
+});
 
 function parsePagination(c: { req: { query: (k: string) => string | undefined } }) {
   const page = Math.max(1, Number(c.req.query("page")) || 1);

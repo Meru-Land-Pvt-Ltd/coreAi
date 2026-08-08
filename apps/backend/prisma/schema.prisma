@@ -39,6 +39,7 @@ model User {
   roleMemberships      UserRoleMembership[]
   memoryRecords        MemoryRecord[]
   whatsappConnections  WhatsAppConnection[]
+  platformApiSettings  PlatformApiSetting[]
 
   @@unique([email, role])
   @@index([role])
@@ -2096,4 +2097,26 @@ model WhatsAppWebhookLog {
 
   @@index([connectionId])
   @@index([createdAt])
+}
+
+/// Platform-wide API credentials and provider settings managed from Admin →
+/// Manage API instead of .env, so a key can be rotated without a redeploy.
+/// A key absent here falls back to the matching environment variable, which
+/// keeps every existing deployment working until an admin fills the form in.
+model PlatformApiSetting {
+  id             String   @id @default(cuid())
+  /// Environment-variable name, e.g. "OPENAI_API_KEY". Unique.
+  key            String   @unique
+  /// AES-encrypted with ENCRYPTION_KEY — never stored or returned in plaintext.
+  valueEncrypted String
+  /// True for credentials (masked in every API response). False for non-secret
+  /// settings like model names and voice ids, which are returned in full.
+  secret         Boolean  @default(true)
+  updatedByUserId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  updatedBy User? @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([updatedAt])
 }

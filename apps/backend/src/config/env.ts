@@ -411,6 +411,45 @@ if (parsedEnv.NODE_ENV === "production") {
   }
 }
 
-export const env = parsedEnv;
+/**
+ * Admin-managed overrides (Admin → Manage API).
+ *
+ * The settings module registers a resolver here at import time rather than being
+ * imported by this file — env must stay dependency-free, and a direct import
+ * would be circular because the settings module reads env for its fallback.
+ *
+ * Returning "" or undefined means "no admin value", and the parsed environment
+ * value is used. That fallback is what lets the feature ship without taking any
+ * provider offline.
+ */
+type PlatformSettingResolver = (key: string) => string | undefined;
 
-export const isProduction = env.NODE_ENV === "production";
+let platformSettingResolver: PlatformSettingResolver | null = null;
+
+export function setPlatformSettingResolver(resolver: PlatformSettingResolver | null): void {
+  platformSettingResolver = resolver;
+}
+
+/**
+ * Reading `env.OPENAI_API_KEY` consults the admin store first, so all ~60
+ * existing call sites pick up admin-managed keys with no change, and a rotated
+ * key takes effect on the next read instead of on the next redeploy.
+ */
+export const env = new Proxy(parsedEnv, {
+  get(target, property, receiver) {
+    if (typeof property === "string" && platformSettingResolver) {
+      const override = platformSettingResolver(property);
+      if (override) return override;
+    }
+    return Reflect.get(target, property, receiver);
+  }
+}) as typeof parsedEnv;
+
+/**
+ * The parsed environment WITHOUT admin overrides. The settings module reads its
+ * fallback from here — going through `env` would re-enter the resolver and
+ * recurse forever.
+ */
+export const rawEnv = parsedEnv;
+
+export const isProduction = parsedEnv.NODE_ENV === "production";

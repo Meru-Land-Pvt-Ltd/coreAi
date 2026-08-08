@@ -3,6 +3,7 @@ import { env } from "./config/env";
 import { app } from "./app";
 import { prisma } from "./lib/prisma";
 import { initProviderEngine } from "./modules/ai-provider-engine/provider-engine";
+import { preloadPlatformApiSettings } from "./modules/admin/platform-api-settings";
 import { attachDeepgramLiveProxy } from "./modules/ai-provider-engine/deepgram-live-proxy";
 import { startBillingScheduler, stopBillingScheduler } from "./modules/business/billing-cycle";
 import { startEarningReleaseWorker, stopEarningReleaseWorker } from "./modules/payouts/release-worker";
@@ -18,6 +19,10 @@ const server = serve(
   },
   async (info) => {
     console.log(`Triven backend running on http://localhost:${info.port}`);
+    /* Warm the admin-managed API keys BEFORE the provider engine validates
+       credentials — otherwise the engine boots against .env only and a key
+       entered in Admin → Manage API would look missing until the cache filled. */
+    await preloadPlatformApiSettings();
     await initProviderEngine();
     startBillingScheduler();
     startEarningReleaseWorker();
