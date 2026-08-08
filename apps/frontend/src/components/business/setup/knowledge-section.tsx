@@ -81,14 +81,19 @@ export function DocumentUploadSection({
   const [facts, setFacts] = useState<BusinessFactsData | null>(null);
   const [addressApplying, setAddressApplying] = useState(false);
   const [isExtractingOcr, setIsExtractingOcr] = useState(false);
+  const dismissedStorageKey = `knowledge_dismissed_keys:${installedAgentId || listingId || "business"}`;
 
   const profileCallbackRef = useRef(onProfileSuggestionFetched);
   useEffect(() => {
     profileCallbackRef.current = onProfileSuggestionFetched;
   }, [onProfileSuggestionFetched]);
 
-  const refreshFacts = useCallback(async (force = false) => {
-    const res = await getBusinessFacts(force);
+  const refreshFacts = useCallback(async (options: { force?: boolean; includeDocumentSuggestions?: boolean } = {}) => {
+    const res = await getBusinessFacts({
+      forceRefresh: options.force,
+      includeDocumentSuggestions: options.includeDocumentSuggestions,
+      installedAgentId
+    });
     if (res.success && res.data) {
       setFacts(res.data);
       if (res.data.profileSuggestion) {
@@ -100,18 +105,27 @@ export function DocumentUploadSection({
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set();
     try {
-      const stored = typeof window !== "undefined" && window.sessionStorage ? window.sessionStorage.getItem("knowledge_dismissed_keys") : null;
+      const stored = typeof window !== "undefined" && window.sessionStorage ? window.sessionStorage.getItem(dismissedStorageKey) : null;
       return stored ? new Set(JSON.parse(stored)) : new Set();
     } catch {
       return new Set();
     }
   });
 
+  useEffect(() => {
+    try {
+      const stored = window.sessionStorage?.getItem(dismissedStorageKey);
+      setDismissedKeys(stored ? new Set(JSON.parse(stored)) : new Set());
+    } catch {
+      setDismissedKeys(new Set());
+    }
+  }, [dismissedStorageKey]);
+
   function dismissRow(key: string) {
     setDismissedKeys((prev) => {
       const next = new Set(prev).add(key);
       try {
-        window.sessionStorage.setItem("knowledge_dismissed_keys", JSON.stringify(Array.from(next)));
+        window.sessionStorage.setItem(dismissedStorageKey, JSON.stringify(Array.from(next)));
       } catch {}
       return next;
     });
@@ -136,7 +150,7 @@ export function DocumentUploadSection({
     setAddressApplying(false);
     if (res.success) {
       dismissRow("address");
-      void refreshFacts(true);
+      void refreshFacts({ force: true, includeDocumentSuggestions: true });
       onKnowledgeChanged?.();
     } else {
       setUploadError(res.error ?? "Failed to apply address suggestion.");
@@ -198,9 +212,9 @@ export function DocumentUploadSection({
   }
 
   const refreshKnowledgeFiles = useCallback(async () => {
-    const res = await getBusinessKnowledgeFiles();
+    const res = await getBusinessKnowledgeFiles({ installedAgentId });
     if (res.success && res.data) setKnowledgeFiles(res.data.files);
-  }, []);
+  }, [installedAgentId]);
 
   useEffect(() => {
     void refreshKnowledgeFiles();
@@ -258,9 +272,9 @@ export function DocumentUploadSection({
         });
         applyLiveSync(res.data.liveSync);
         setDismissedKeys(new Set());
-        try { window.sessionStorage?.removeItem("knowledge_dismissed_keys"); } catch {}
+        try { window.sessionStorage?.removeItem(dismissedStorageKey); } catch {}
         void refreshKnowledgeFiles();
-        await refreshFacts(true);
+        await refreshFacts({ force: true, includeDocumentSuggestions: true });
         onKnowledgeChanged?.();
       } else {
         setUploadError(res.error ?? "Upload failed. Please try again.");
@@ -285,7 +299,7 @@ export function DocumentUploadSection({
       setKnowledgeFiles((prev) => prev.filter((file) => file.id !== id));
       applyLiveSync(res.data?.liveSync);
       void refreshKnowledgeFiles();
-      void refreshFacts(true);
+      void refreshFacts({ force: true, includeDocumentSuggestions: true });
       onKnowledgeChanged?.();
     } else {
       setUploadError(res.error ?? "Could not remove the document. Please try again.");
@@ -303,7 +317,7 @@ export function DocumentUploadSection({
         setKnowledgeFiles((prev) => prev.map((file) => (file.id === updated.id ? updated : file)));
         applyLiveSync(res.data.liveSync);
         void refreshKnowledgeFiles();
-        await refreshFacts(true);
+        await refreshFacts({ force: true, includeDocumentSuggestions: true });
         onKnowledgeChanged?.();
       } else {
         setUploadError(res.error ?? "Could not reprocess the document. Please try again.");

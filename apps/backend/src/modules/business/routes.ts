@@ -2048,7 +2048,16 @@ businessRoutes.get("/setup/knowledge-files", async (c) => {
   const businessId = await requireOwnedBusinessId(authUser.id);
   if (!businessId) return successResponse(c, { files: [] });
 
-  return successResponse(c, { files: await listKnowledgeFiles(businessId) });
+  const requestedAgentId = c.req.query("installedAgentId")?.trim() || undefined;
+  const installedAgentId =
+    requestedAgentId === undefined
+      ? undefined
+      : await resolveOwnedInstalledAgentId(authUser.id, businessId, requestedAgentId);
+  if (installedAgentId === null) {
+    return errorResponse(c, "Installed agent not found for your business.", 404, "AGENT_NOT_FOUND");
+  }
+
+  return successResponse(c, { files: await listKnowledgeFiles(businessId, installedAgentId) });
 });
 
 businessRoutes.delete("/setup/knowledge-files/:id", async (c) => {
@@ -2090,9 +2099,23 @@ businessRoutes.get("/setup/business-facts", async (c) => {
   const businessId = await requireOwnedBusinessId(authUser.id);
   if (!businessId) return errorResponse(c, "Create your business profile first.", 404, "BUSINESS_NOT_FOUND");
 
+  const includeDocumentSuggestions = c.req.query("includeDocumentSuggestions") === "1";
+  const requestedAgentId = c.req.query("installedAgentId")?.trim() || undefined;
+  const installedAgentId =
+    requestedAgentId === undefined
+      ? undefined
+      : await resolveOwnedInstalledAgentId(authUser.id, businessId, requestedAgentId);
+  if (installedAgentId === null) {
+    return errorResponse(c, "Installed agent not found for your business.", 404, "AGENT_NOT_FOUND");
+  }
+
   const facts = await loadBusinessFacts(businessId);
-  const suggestion = await extractAddressFromDocuments({ businessId }).catch(() => null);
-  const profileSuggestion = await extractProfileFromDocuments({ businessId }).catch(() => null);
+  const suggestion = includeDocumentSuggestions
+    ? await extractAddressFromDocuments({ businessId, installedAgentId }).catch(() => null)
+    : null;
+  const profileSuggestion = includeDocumentSuggestions
+    ? await extractProfileFromDocuments({ businessId, installedAgentId }).catch(() => null)
+    : null;
 
   if (profileSuggestion && suggestion) {
     profileSuggestion.address = suggestion;

@@ -551,6 +551,8 @@ function SetupWizard() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const listingId = searchParams.get("listingId") ?? "";
+  const setupScopeKey = listingId || "default";
+  const stepStorageKey = `${STEP_STORAGE_KEY}:${setupScopeKey}`;
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -725,6 +727,95 @@ function SetupWizard() {
     });
   }, []);
 
+  const resetSetupDraft = useCallback(() => {
+    setStatusMsg("");
+    setError("");
+    setDeployed(false);
+    setWasAlreadyDeployed(false);
+    setRedeploySuccess(false);
+    setSuccessNumber(null);
+    setLiveVapiAssistantId(null);
+    setLiveInstalledAgentId(null);
+    setTestResult(null);
+    setBrowserTestOutcome(null);
+    setLastTestEvent(null);
+    setBusinessName("");
+    setListing(null);
+    setSetupTimeEstimate(null);
+    setIsAddressValid(false);
+    setBusinessType("");
+    setConnectStepValidated(false);
+    setTelegramConnected(false);
+    setContactName("");
+    setAllContactNames([]);
+    setServicesText("");
+    setFaqs([]);
+    setBookingUrl("");
+    setTone("friendly");
+    setCoverageKind("always");
+    setAnsweringDays(defaultAnsweringDays());
+    setBusinessHoursState({ configured: false, summary: null, timeZone: "", suggestion: false });
+    setKnowledgeSummary({ files: 0, ready: 0 });
+    setKnowledgeVersion((v) => v + 1);
+    setConfigDirty(false);
+    setBhDirty(false);
+    setAddressDirty(false);
+    bhApiRef.current = null;
+    addressApiRef.current = null;
+    telegramApiRef.current = null;
+    setApptLoaded(false);
+    setApptDays(DEFAULT_APPT_DAYS);
+    setApptFields({
+      defaultDurationMinutes: 30,
+      bufferMinutes: 0,
+      minNoticeMinutes: 0,
+      maxAdvanceDays: 30
+    });
+    setApptConfirmed(false);
+    setApptRulesTouched(false);
+    setApptNeedsConfirmation(false);
+    setApptUseBusinessHours(true);
+    setKnowledge([]);
+    setPhoneNumbers([]);
+    setSelectedPhoneId("");
+    setAssignedNumber(null);
+    setForwardToPhone("");
+    setTeamPhone("");
+    setAnsweringMode("NO_ANSWER");
+    setCalendar({ connected: false, email: null });
+    setCalendly({
+      connected: false,
+      email: null,
+      eventTypeUri: "",
+      eventTypeName: "",
+      schedulingUrl: ""
+    });
+    setCalendarId("primary");
+    setTimeZone(defaultTimeZone());
+    setTzEdited(false);
+    savedTimeZoneRef.current = "";
+    setExistingPhoneNumber("");
+    setAssistantName("");
+    setVoiceChoice("");
+    setCustomVoiceId("");
+    setCustomInstructions("");
+    setSilenceRepromptCount(DEFAULT_SILENCE.repromptCount);
+    setSilenceMessage1("");
+    setSilenceMessage2("");
+    setGoodbyeMessage("");
+    setRequiredKeys([]);
+    setMailAlias(null);
+    setEmailRecipientType("customer");
+    setEmailCustomRecipient("");
+    setEmailCc("");
+    setEmailBcc("");
+    setBuyerSetupFields([]);
+    setBuyerSetupInstructions("");
+    setCustomFieldValues([]);
+    setTriggerKind("none");
+    setOpenSections({ "business-profile": true });
+  }, []);
+
   // Warn before leaving while any Configure section has unsaved changes.
   const anyUnsaved = configDirty || bhDirty || addressDirty;
   useEffect(() => {
@@ -770,6 +861,7 @@ function SetupWizard() {
 
   const loadSetup = useCallback(async () => {
     setLoading(true);
+    resetSetupDraft();
 
     // Mail Setup status feeds the checklist — non-blocking if it fails.
     void getBusinessMailSetup().then((mailRes) => {
@@ -969,9 +1061,9 @@ function SetupWizard() {
       const isEditingSetup = isEditParam || Boolean(data.installedAgentId) || Boolean(data.profile?.vapiAssistantId);
 
       if (typeof window !== "undefined") {
-        const savedStep = Number(window.sessionStorage.getItem(STEP_STORAGE_KEY) || "");
+        const savedStep = Number(window.sessionStorage.getItem(stepStorageKey) || "");
 
-        if (isEditingSetup || isEditParam || isEditMode) {
+        if (isEditingSetup || isEditParam) {
           // Always start at Step 1 ("Connect") when opening setup or editing configuration
           setStep(1);
         } else if (savedStep >= 1 && savedStep < STEPS.length) {
@@ -981,12 +1073,12 @@ function SetupWizard() {
           setStep(1);
         }
 
-        window.sessionStorage.removeItem(STEP_STORAGE_KEY);
+        window.sessionStorage.removeItem(stepStorageKey);
       }
     }
 
     setLoading(false);
-  }, [listingId]);
+  }, [isEditParam, listingId, resetSetupDraft, stepStorageKey]);
 
   useEffect(() => {
     void loadSetup();
@@ -1329,7 +1421,7 @@ function SetupWizard() {
 
   async function handleCalendarDisclosureAgreed() {
     if (typeof window !== "undefined") {
-      window.sessionStorage.setItem(STEP_STORAGE_KEY, String(step));
+      window.sessionStorage.setItem(stepStorageKey, String(step));
     }
 
     setCalendarBusy(true);
@@ -1379,7 +1471,7 @@ function SetupWizard() {
   async function handleConnectCalendly() {
     setError("");
     if (typeof window !== "undefined") {
-      window.sessionStorage.setItem(STEP_STORAGE_KEY, String(step));
+      window.sessionStorage.setItem(stepStorageKey, String(step));
     }
     setCalendlyBusy(true);
     try {
@@ -1795,16 +1887,16 @@ function SetupWizard() {
     {
       key: "business_profile",
       label: "Business profile",
-      required: true,
+      required: setupVisibility.businessProfile,
       complete: businessComplete,
-      blocker: businessComplete ? undefined : "Add your business name and type."
+      blocker: setupVisibility.businessProfile && !businessComplete ? "Add your business name and type." : undefined
     },
     {
       key: "booking_rules",
       label: "Booking rules",
-      required: true,
+      required: setupValidationPlan.requireBookingRules,
       complete: !bookingRulesBlocked,
-      blocker: bookingRulesBlocked
+      blocker: setupValidationPlan.requireBookingRules && bookingRulesBlocked
         ? "Fix the booking rules in Configure → Hours & Availability."
         : undefined
     },
@@ -2153,7 +2245,7 @@ function SetupWizard() {
                     onBusinessType={dirtyWrap(setBusinessType)}
                     onContactName={dirtyWrap(setContactName)}
                     onAllContactNames={dirtyWrap(setAllContactNames)}
-                    onServices={setServicesText}
+                    onServices={dirtyWrap(setServicesText)}
                     onAddressDirtyChange={setAddressDirty}
                     onAddressValidChange={setIsAddressValid}
                     registerAddressApi={registerAddressApi}
@@ -2229,7 +2321,7 @@ function SetupWizard() {
                   status={
                     bookingRulesBlocked
                       ? "attention"
-                      : businessHours.configured
+                      : !setupVisibility.hours || businessHours.configured
                         ? "complete"
                         : "attention"
                   }
@@ -2237,6 +2329,9 @@ function SetupWizard() {
                   onToggle={(open) => toggleSection("hours-availability", open)}
                 >
                   <HoursAvailabilitySection
+                    showBusinessHours={setupVisibility.hours}
+                    showBookingRules={setupVisibility.bookingRules}
+                    showAiCallCoverage={setupVisibility.aiCallCoverage}
                     timeZone={timeZone}
                     persistTimeZone={tzEdited}
                     onBusinessHoursLoaded={handleBusinessHoursData}

@@ -39,15 +39,23 @@ export type DocumentProfileSuggestion = {
   extractedAt: string;
 };
 
-// In-Memory Cache: Stores extracted results by businessId + contentHash
+// In-Memory Cache: Stores extracted results by businessId + installedAgentId + contentHash
 const profileCache = new Map<string, { hash: string; suggestion: DocumentProfileSuggestion }>();
 
-// In-Flight Request Map: Deduplicates concurrent extractions for the same businessId
+// In-Flight Request Map: Deduplicates concurrent extractions for the same scope
 const pendingExtractions = new Map<string, Promise<DocumentProfileSuggestion | null>>();
 
+function extractionScopeKey(input: { businessId: string; installedAgentId?: string | null }): string {
+  return `${input.businessId}:${input.installedAgentId ?? "all"}`;
+}
+
 export function invalidateDocumentProfileCache(businessId: string) {
-  profileCache.delete(businessId);
-  pendingExtractions.delete(businessId);
+  for (const key of profileCache.keys()) {
+    if (key === businessId || key.startsWith(`${businessId}:`)) profileCache.delete(key);
+  }
+  for (const key of pendingExtractions.keys()) {
+    if (key === businessId || key.startsWith(`${businessId}:`)) pendingExtractions.delete(key);
+  }
   console.log(`[document-profile-extractor] Cache invalidated for businessId=${businessId}`);
 }
 
@@ -224,16 +232,17 @@ export async function extractProfileFromDocuments(input: {
   businessId: string;
   installedAgentId?: string | null;
 }): Promise<DocumentProfileSuggestion | null> {
-  const existingPending = pendingExtractions.get(input.businessId);
+  const scopeKey = extractionScopeKey(input);
+  const existingPending = pendingExtractions.get(scopeKey);
   if (existingPending) {
     return existingPending;
   }
 
   const promise = runExtraction(input).finally(() => {
-    pendingExtractions.delete(input.businessId);
+    pendingExtractions.delete(scopeKey);
   });
 
-  pendingExtractions.set(input.businessId, promise);
+  pendingExtractions.set(scopeKey, promise);
   return promise;
 }
 
@@ -260,13 +269,14 @@ async function runExtraction(input: {
   const fullText = chunks.map((c) => c.content ?? "").join("\n\n");
   const contentHash = createHash("md5").update(fullText).digest("hex");
 
-  const cached = profileCache.get(input.businessId);
+  const scopeKey = extractionScopeKey(input);
+  const cached = profileCache.get(scopeKey);
   if (cached && cached.hash === contentHash) {
-    console.log(`[document-profile-extractor] Cache HIT for businessId=${input.businessId} (0 API calls)`);
+    console.log(`[document-profile-extractor] Cache HIT for scope=${scopeKey} (0 API calls)`);
     return cached.suggestion;
   }
 
-  console.log(`[document-profile-extractor] Cache MISS for businessId=${input.businessId}. Running extraction...`);
+  console.log(`[document-profile-extractor] Cache MISS for scope=${scopeKey}. Running extraction...`);
 
   const sourceFilename = chunks[0]?.sourceFile?.filename ?? null;
   const fallbackServices = extractFallbackServices(fullText);
@@ -361,6 +371,6 @@ async function runExtraction(input: {
     };
   }
 
-  profileCache.set(input.businessId, { hash: contentHash, suggestion });
+  profileCache.set(scopeKey, { hash: contentHash, suggestion });
   return suggestion;
 }
