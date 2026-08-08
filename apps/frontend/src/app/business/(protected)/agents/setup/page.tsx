@@ -567,7 +567,9 @@ function SetupWizard() {
   const [liveInstalledAgentId, setLiveInstalledAgentId] = useState<string | null>(null);
 
   const isEditParam = searchParams.get("mode") === "edit";
-  const isEditMode = isEditParam || wasAlreadyDeployed;
+  // True when installing a new agent (mode is not 'edit'). Ensures form starts blank.
+  const isNewInstall = !isEditParam;
+  const isEditMode = isEditParam || (wasAlreadyDeployed && isEditParam);
 
   useEffect(() => {
     if (isEditMode && !redeploySuccess && step === 4) {
@@ -896,123 +898,140 @@ function SetupWizard() {
         (data.installedAgent && data.installedAgent.status === "ACTIVE") ||
         Boolean(existingVapiAssistantId);
       setDeployed(isDeployed);
-      if (isEditParam || isDeployed) {
+      if (isEditParam) {
         setWasAlreadyDeployed(true);
       }
-      setAssistantName(readAssistantName(data));
+      // When installing a brand-new agent (mode is not 'edit'), do NOT auto-fill
+      // agent-specific fields from a previous agent's setup. Only load shared
+      // infrastructure state (phone numbers list, calendar/calendly connection status,
+      // time-zone) so connections made previously are still recognised but form inputs start fresh.
 
-      if (data.business) {
+      if (!isNewInstall) {
+        setAssistantName(readAssistantName(data));
+      }
+
+      if (!isNewInstall && data.business) {
         setBusinessName(data.business.name);
         setBusinessType(data.business.type);
       }
 
       if (data.profile) {
-        setBookingUrl(data.profile.bookingUrl ?? "");
-        setTeamPhone(data.profile.teamPhone ?? "");
+        // Always restore the timezone — it's a business-level preference.
         setTimeZone(normalizeTimeZone(data.profile.timeZone || defaultTimeZone()));
         savedTimeZoneRef.current = data.profile.timeZone ? normalizeTimeZone(data.profile.timeZone) : "";
-        setTone(data.profile.tone ?? "friendly");
-        setServicesText((data.profile.services ?? []).join("\n"));
-        setCalendarId(data.profile.calendarId ?? "primary");
 
-        if (Array.isArray(data.profile.faqs) && data.profile.faqs.length > 0) {
-          setFaqs(data.profile.faqs);
+        if (!isNewInstall) {
+          setBookingUrl(data.profile.bookingUrl ?? "");
+          setTeamPhone(data.profile.teamPhone ?? "");
+          setTone(data.profile.tone ?? "friendly");
+          setServicesText((data.profile.services ?? []).join("\n"));
+          setCalendarId(data.profile.calendarId ?? "primary");
+
+          if (Array.isArray(data.profile.faqs) && data.profile.faqs.length > 0) {
+            setFaqs(data.profile.faqs);
+          }
         }
       }
 
-
-      // AI Call Coverage (phoneRouting.coverage) + the custom answering
-      // schedule rows. Legacy CUSTOM_HOURS mode arrives as coverage "custom".
-      const savedCoverage = data.aiCallCoverage;
-      setCoverageKind(
-        savedCoverage === "custom" ? "custom" : savedCoverage === "business_hours" ? "business_hours" : "always"
-      );
-      const savedAnsweringHours = data.answeringHours;
-      if (Array.isArray(savedAnsweringHours) && savedAnsweringHours.length > 0) {
-        setAnsweringDays(
-          defaultAnsweringDays().map((row) => {
-            const saved = savedAnsweringHours.find(
-              (item) => (item.day ?? "").toLowerCase() === row.day.toLowerCase()
-            );
-            if (!saved) return row;
-            return {
-              day: row.day,
-              open: saved.open?.slice(0, 5) || row.open,
-              close: saved.close?.slice(0, 5) || row.close,
-              closed: saved.closed
-            };
-          })
+      if (!isNewInstall) {
+        // AI Call Coverage (phoneRouting.coverage) + the custom answering
+        // schedule rows. Legacy CUSTOM_HOURS mode arrives as coverage "custom".
+        const savedCoverage = data.aiCallCoverage;
+        setCoverageKind(
+          savedCoverage === "custom" ? "custom" : savedCoverage === "business_hours" ? "business_hours" : "always"
         );
-      }
-
-      if (Array.isArray(data.knowledge)) {
-        setKnowledge(data.knowledge);
-      }
-
-      const rawContact = data.contactName ?? "";
-      const contactParts = rawContact.split(",").map((s) => s.trim()).filter(Boolean);
-      if (contactParts.length > 0) {
-        setContactName(contactParts[0]);
-        setAllContactNames(contactParts);
-      } else {
-        setContactName("");
-        setAllContactNames([]);
-      }
-      setCustomInstructions(data.customInstructions ?? "");
-
-      if (data.silence) {
-        if (typeof data.silence.repromptCount === "number") {
-          setSilenceRepromptCount(data.silence.repromptCount);
+        const savedAnsweringHours = data.answeringHours;
+        if (Array.isArray(savedAnsweringHours) && savedAnsweringHours.length > 0) {
+          setAnsweringDays(
+            defaultAnsweringDays().map((row) => {
+              const saved = savedAnsweringHours.find(
+                (item) => (item.day ?? "").toLowerCase() === row.day.toLowerCase()
+              );
+              if (!saved) return row;
+              return {
+                day: row.day,
+                open: saved.open?.slice(0, 5) || row.open,
+                close: saved.close?.slice(0, 5) || row.close,
+                closed: saved.closed
+              };
+            })
+          );
         }
 
-        setSilenceMessage1(data.silence.reprompt1 ?? "");
-        setSilenceMessage2(data.silence.reprompt2 ?? "");
-        setGoodbyeMessage(data.silence.goodbye ?? "");
+        if (Array.isArray(data.knowledge)) {
+          setKnowledge(data.knowledge);
+        }
+
+        const rawContact = data.contactName ?? "";
+        const contactParts = rawContact.split(",").map((s: string) => s.trim()).filter(Boolean);
+        if (contactParts.length > 0) {
+          setContactName(contactParts[0]);
+          setAllContactNames(contactParts);
+        } else {
+          setContactName("");
+          setAllContactNames([]);
+        }
+        setCustomInstructions(data.customInstructions ?? "");
+
+        if (data.silence) {
+          if (typeof data.silence.repromptCount === "number") {
+            setSilenceRepromptCount(data.silence.repromptCount);
+          }
+
+          setSilenceMessage1(data.silence.reprompt1 ?? "");
+          setSilenceMessage2(data.silence.reprompt2 ?? "");
+          setGoodbyeMessage(data.silence.goodbye ?? "");
+        }
+
+        if (data.phoneNumber) {
+          setForwardToPhone(data.phoneNumber.forwardToPhone ?? "");
+          setAssignedNumber(data.phoneNumber.phoneNumber ?? null);
+          setExistingPhoneNumber(data.phoneNumber.forwardToPhone ?? "");
+        }
       }
 
-      if (data.phoneNumber) {
-        setForwardToPhone(data.phoneNumber.forwardToPhone ?? "");
-        setAssignedNumber(data.phoneNumber.phoneNumber ?? null);
-        setExistingPhoneNumber(data.phoneNumber.forwardToPhone ?? "");
-      }
-
+      // Always load available phone numbers and connection states — they reflect
+      // shared business infrastructure, not the previous agent's configuration.
       setPhoneNumbers(data.availablePhoneNumbers ?? []);
-      setSelectedPhoneId(data.selectedPlatformPhoneNumberId ?? "");
+      setSelectedPhoneId(isNewInstall ? "" : (data.selectedPlatformPhoneNumberId ?? ""));
       setCalendar(data.calendar ?? { connected: false, email: null });
       setCalendly(normalizeCalendlyState(data.calendly));
-      // Legacy CUSTOM_HOURS answering mode is now expressed as coverage
-      // "custom" — the Connect routing choice falls back to its default.
-      setAnsweringMode(
-        data.answeringMode === "CUSTOM_HOURS" ? "NO_ANSWER" : data.answeringMode || "NO_ANSWER"
-      );
 
-      const selection = data.voiceSelection ?? null;
-      const savedVoiceId = (selection?.voiceId ?? "").trim();
-      const savedVoiceName = normalizeVoiceChoice(selection?.name);
+      if (!isNewInstall) {
+        // Legacy CUSTOM_HOURS answering mode is now expressed as coverage
+        // "custom" — the Connect routing choice falls back to its default.
+        setAnsweringMode(
+          data.answeringMode === "CUSTOM_HOURS" ? "NO_ANSWER" : data.answeringMode || "NO_ANSWER"
+        );
 
-      if (savedVoiceName === "custom" && savedVoiceId) {
-        setVoiceChoice("custom");
-        setCustomVoiceId(savedVoiceId);
-      } else if (PRESET_VOICE_IDS.has(savedVoiceName)) {
-        setVoiceChoice(savedVoiceName);
-        setCustomVoiceId("");
-      } else if (savedVoiceId) {
-        setVoiceChoice("custom");
-        setCustomVoiceId(savedVoiceId);
-      } else {
-        setVoiceChoice("");
-        setCustomVoiceId("");
-      }
+        const selection = data.voiceSelection ?? null;
+        const savedVoiceId = (selection?.voiceId ?? "").trim();
+        const savedVoiceName = normalizeVoiceChoice(selection?.name);
 
-      if (Array.isArray(data.customFields) && data.customFields.length > 0) {
-        setCustomFieldValues(data.customFields);
-      }
+        if (savedVoiceName === "custom" && savedVoiceId) {
+          setVoiceChoice("custom");
+          setCustomVoiceId(savedVoiceId);
+        } else if (PRESET_VOICE_IDS.has(savedVoiceName)) {
+          setVoiceChoice(savedVoiceName);
+          setCustomVoiceId("");
+        } else if (savedVoiceId) {
+          setVoiceChoice("custom");
+          setCustomVoiceId(savedVoiceId);
+        } else {
+          setVoiceChoice("");
+          setCustomVoiceId("");
+        }
 
-      if (data.emailRecipients) {
-        setEmailRecipientType(data.emailRecipients.recipientType ?? "customer");
-        setEmailCustomRecipient(data.emailRecipients.customRecipient ?? "");
-        setEmailCc((data.emailRecipients.cc ?? []).join(", "));
-        setEmailBcc((data.emailRecipients.bcc ?? []).join(", "));
+        if (Array.isArray(data.customFields) && data.customFields.length > 0) {
+          setCustomFieldValues(data.customFields);
+        }
+
+        if (data.emailRecipients) {
+          setEmailRecipientType(data.emailRecipients.recipientType ?? "customer");
+          setEmailCustomRecipient(data.emailRecipients.customRecipient ?? "");
+          setEmailCc((data.emailRecipients.cc ?? []).join(", "));
+          setEmailBcc((data.emailRecipients.bcc ?? []).join(", "));
+        }
       }
 
       // Schema snapshot saved with the installed agent — keeps the dynamic
@@ -2205,6 +2224,7 @@ function SetupWizard() {
             />
           ) : null}
 
+
           {step === 2 ? (
             <div className="space-y-4" data-testid="business-setup-configure">
               <div>
@@ -2213,7 +2233,7 @@ function SetupWizard() {
                 </h2>
                 <p className="mt-1 text-sm font-normal text-slate-500">
                   Configure your agent&apos;s identity, knowledge, availability, and instructions.
-                </p>
+</p>
               </div>
 
               {(setupVisibility.businessProfile || setupVisibility.knowledge) && (
@@ -2258,6 +2278,7 @@ function SetupWizard() {
                     onKnowledgeChanged={handleKnowledgeChanged}
                     hoursSuggestionReady={businessHours.suggestion}
                     onReviewHours={() => jumpToConfigureSection("hours-availability")}
+                    clearAddressOnMount={isNewInstall}
                   />
                 </ConfigureSectionCard>
               )}
@@ -2299,7 +2320,7 @@ function SetupWizard() {
                 </ConfigureSectionCard>
               )}
 
-              {(setupVisibility.hours || setupVisibility.bookingRules || setupVisibility.aiCallCoverage) && (
+              {!setupVisibility.telegram && (setupVisibility.hours || setupVisibility.bookingRules || setupVisibility.aiCallCoverage) && (
                 <ConfigureSectionCard
                   id="hours-availability"
                   title="Business Hours & Availability"
