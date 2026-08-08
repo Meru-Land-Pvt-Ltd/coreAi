@@ -1,8 +1,9 @@
 "use client";
 
 import {
-  DEEPGRAM_STT_LANGUAGES,
-  DEEPGRAM_STT_MODELS
+  DEEPGRAM_STT_MODELS,
+  getDeepgramLanguagesForModel,
+  resolveDeepgramListenLanguage
 } from "@coreai/shared";
 import type { BuilderNode, BuilderNodeData } from "./types";
 import { Section, Label, TextInput, SelectBox } from "./node-inspector";
@@ -30,12 +31,13 @@ export function DeepgramNodeInspector({ selectedNode, onUpdateNodeData }: NodePr
   const punctuate = str("punctuate", "true");
   const diarize = str("diarize", "false");
 
-  const languageOptions = DEEPGRAM_STT_LANGUAGES.map((item) => ({
+  const selectedModel =
+    (DEEPGRAM_STT_MODELS as readonly string[]).includes(model) ? model : "nova-3";
+  const selectedLanguage = resolveDeepgramListenLanguage(selectedModel, language);
+  const languageOptions = getDeepgramLanguagesForModel(selectedModel).map((item) => ({
     value: item.value,
     label: item.label
   }));
-  const selectedModel =
-    (DEEPGRAM_STT_MODELS as readonly string[]).includes(model) ? model : "nova-3";
 
   return (
     <div data-testid="deepgram-stt-node-inspector">
@@ -55,7 +57,13 @@ export function DeepgramNodeInspector({ selectedNode, onUpdateNodeData }: NodePr
             <SelectBox
               testId="deepgram-model-select"
               value={selectedModel}
-              onChange={(val) => onUpdateNodeData("model", val)}
+              onChange={(val) => {
+                onUpdateNodeData("model", val);
+                const nextLanguage = resolveDeepgramListenLanguage(val, language);
+                if (nextLanguage !== language) {
+                  onUpdateNodeData("language", nextLanguage);
+                }
+              }}
               options={[...DEEPGRAM_STT_MODELS]}
             />
           </div>
@@ -63,7 +71,7 @@ export function DeepgramNodeInspector({ selectedNode, onUpdateNodeData }: NodePr
             <Label>Language</Label>
             <SelectBox
               testId="deepgram-language-select"
-              value={language}
+              value={selectedLanguage}
               onChange={(val) => onUpdateNodeData("language", val)}
               options={languageOptions}
             />

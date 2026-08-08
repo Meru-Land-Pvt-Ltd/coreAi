@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import {
   DEEPGRAM_LIVE_STT_MODELS,
-  DEEPGRAM_STT_LANGUAGES,
   describeDeepgramLiveError,
-  isDeepgramLiveSttModel
+  getDeepgramLanguagesForModel,
+  isDeepgramLiveSttModel,
+  resolveDeepgramListenLanguage
 } from "@coreai/shared";
 import { Loader2, Mic, Square } from "lucide-react";
 
@@ -165,12 +166,21 @@ export function DeepgramSttTestCard({
   const pcmChunksRef = useRef<Int16Array[]>([]);
   const keepAliveRef = useRef<number | null>(null);
   const finalTextRef = useRef("");
+  const interimRef = useRef("");
   const listeningRef = useRef(false);
+  const interimRafRef = useRef<number | null>(null);
+  const shouldRecordRef = useRef(Boolean(onAudioCaptured));
 
   const [model, setModel] = useState(
     isDeepgramLiveSttModel(defaultModel) ? defaultModel : "nova-3"
   );
-  const [language, setLanguage] = useState(defaultLanguage);
+  const [language, setLanguage] = useState(() =>
+    resolveDeepgramListenLanguage(
+      isDeepgramLiveSttModel(defaultModel) ? defaultModel : "nova-3",
+      defaultLanguage
+    )
+  );
+  const languageOptions = getDeepgramLanguagesForModel(model);
   const [connecting, setConnecting] = useState(false);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
@@ -184,7 +194,15 @@ export function DeepgramSttTestCard({
     typeof AudioContext !== "undefined";
 
   useEffect(() => {
+    shouldRecordRef.current = Boolean(onAudioCaptured);
+  }, [onAudioCaptured]);
+
+  useEffect(() => {
     return () => {
+      if (interimRafRef.current != null) {
+        window.cancelAnimationFrame(interimRafRef.current);
+        interimRafRef.current = null;
+      }
       stopLiveListening({ saveRecording: false });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -195,6 +213,35 @@ export function DeepgramSttTestCard({
       window.clearInterval(keepAliveRef.current);
       keepAliveRef.current = null;
     }
+  }
+
+  function flushInterimToState() {
+    interimRafRef.current = null;
+    setInterim(interimRef.current);
+  }
+
+  function scheduleInterimPaint(text: string) {
+    interimRef.current = text;
+    if (interimRafRef.current != null) return;
+    interimRafRef.current = window.requestAnimationFrame(flushInterimToState);
+  }
+
+  function commitFinalPiece(text: string) {
+    const next = `${finalTextRef.current}${finalTextRef.current ? " " : ""}${text}`.trim();
+    finalTextRef.current = next;
+    interimRef.current = "";
+    if (interimRafRef.current != null) {
+      window.cancelAnimationFrame(interimRafRef.current);
+      interimRafRef.current = null;
+    }
+    setFinalText(next);
+    setInterim("");
+  }
+
+  function commitPendingInterim() {
+    const pending = interimRef.current.trim();
+    if (!pending) return;
+    commitFinalPiece(pending);
   }
 
   function publishCapturedAudio() {
@@ -216,27 +263,24 @@ export function DeepgramSttTestCard({
     const text = piece.trim();
     if (!text) return;
     if (isFinal) {
-      if (replace) {
-        // Flux turn transcript is cumulative for the turn - commit once on EndOfTurn.
-        const next = `${finalTextRef.current}${finalTextRef.current ? " " : ""}${text}`.trim();
-        finalTextRef.current = next;
-        setFinalText(next);
-      } else {
-        const next = `${finalTextRef.current}${finalTextRef.current ? " " : ""}${text}`.trim();
-        finalTextRef.current = next;
-        setFinalText(next);
-      }
-      setInterim("");
+      // Flux EndOfTurn sends cumulative turn text; Nova finals are segment deltas.
+      commitFinalPiece(text);
       return;
     }
     // Streaming interim (Nova partials or Flux Update / StartOfTurn).
-    setInterim(text);
+    // Throttle React paints so the audio callback is not starved on the main thread.
+    if (replace) {
+      scheduleInterimPaint(text);
+      return;
+    }
+    scheduleInterimPaint(text);
   }
 
   function stopLiveListening(options?: { saveRecording?: boolean }) {
     const shouldSave = options?.saveRecording !== false;
     listeningRef.current = false;
     clearKeepAlive();
+    commitPendingInterim();
 
     try {
       processorRef.current?.disconnect();
@@ -358,6 +402,10 @@ export function DeepgramSttTestCard({
               }
               return;
             }
+            if (payload.type === "utterance_end") {
+              // Deepgram gap signal only — wait for is_final for the accurate commit.
+              return;
+            }
             if (payload.type === "transcript") {
               applyTranscript(
                 payload.transcript ?? "",
@@ -391,13 +439,14 @@ export function DeepgramSttTestCard({
       }
 
       const source = audioContext.createMediaStreamSource(stream);
-      // Smaller buffer = lower latency streaming updates.
-      const processor = audioContext.createScriptProcessor(2048, 1, 1);
+      // 4096 keeps capture stable under UI updates; still low enough latency for live text.
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
       processorRef.current = processor;
-      // MediaStreamDestination keeps the graph alive without speaker playback
-      // (zero-gain -> destination can be optimized away in Chrome).
+      // Keep the graph alive without audible playback.
       const streamDest = audioContext.createMediaStreamDestination();
       streamDestRef.current = streamDest;
+      const silentGain = audioContext.createGain();
+      silentGain.gain.value = 0;
 
       processor.onaudioprocess = (event) => {
         const socket = wsRef.current;
@@ -406,12 +455,17 @@ export function DeepgramSttTestCard({
         const downsampled = downsampleBuffer(input, audioContext.sampleRate, TARGET_SAMPLE_RATE);
         if (downsampled.length < 1) return;
         const pcm = floatTo16BitPCM(downsampled);
-        pcmChunksRef.current.push(new Int16Array(pcm.slice(0)));
-        socket.send(new Uint8Array(pcm));
+        // Avoid extra copies unless a caller needs the WAV for dry-run.
+        if (shouldRecordRef.current) {
+          pcmChunksRef.current.push(new Int16Array(pcm.slice(0)));
+        }
+        socket.send(pcm);
       };
 
       source.connect(processor);
       processor.connect(streamDest);
+      processor.connect(silentGain);
+      silentGain.connect(audioContext.destination);
 
       keepAliveRef.current = window.setInterval(() => {
         const socket = wsRef.current;
@@ -485,6 +539,26 @@ export function DeepgramSttTestCard({
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <label className="block text-xs font-medium text-slate-600">
+          Model
+          <select
+            data-testid={`${testIdPrefix}-model-select`}
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-slate-400"
+            value={model}
+            onChange={(event) => {
+              const nextModel = event.target.value;
+              setModel(nextModel);
+              setLanguage((prev) => resolveDeepgramListenLanguage(nextModel, prev));
+            }}
+            disabled={busy}
+          >
+            {DEEPGRAM_LIVE_STT_MODELS.map((modelId) => (
+              <option key={modelId} value={modelId}>
+                {modelId}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-xs font-medium text-slate-600">
           Language
           <select
             data-testid={`${testIdPrefix}-language-select`}
@@ -493,25 +567,9 @@ export function DeepgramSttTestCard({
             onChange={(event) => setLanguage(event.target.value)}
             disabled={busy}
           >
-            {DEEPGRAM_STT_LANGUAGES.map((item) => (
+            {languageOptions.map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-xs font-medium text-slate-600">
-          Model
-          <select
-            data-testid={`${testIdPrefix}-model-select`}
-            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-slate-400"
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
-            disabled={busy}
-          >
-            {DEEPGRAM_LIVE_STT_MODELS.map((modelId) => (
-              <option key={modelId} value={modelId}>
-                {modelId}
               </option>
             ))}
           </select>

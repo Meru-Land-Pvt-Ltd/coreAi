@@ -134,7 +134,10 @@ export function isDeepgramNodeType(type: string | null | undefined): boolean {
   );
 }
 
-/** Deepgram Listen model IDs — display as-is (no friendly labels). */
+/**
+ * Official Deepgram Listen model IDs (see Deepgram Models & Languages Overview).
+ * Display as-is (no friendly labels).
+ */
 export const DEEPGRAM_STT_MODELS = [
   // Flux
   "flux-general-en",
@@ -185,6 +188,38 @@ export const DEEPGRAM_STT_MODELS = [
   "whisper-large"
 ] as const;
 
+/**
+ * Domain / specialized models that only support English (`en` / `en-*`).
+ * Pairing these with `multi` or non-English languages returns HTTP 400 from Deepgram.
+ */
+export const DEEPGRAM_ENGLISH_ONLY_STT_MODELS = [
+  "nova-3-medical",
+  "nova-2-meeting",
+  "nova-2-phonecall",
+  "nova-2-finance",
+  "nova-2-conversationalai",
+  "nova-2-voicemail",
+  "nova-2-video",
+  "nova-2-medical",
+  "nova-2-drivethru",
+  "nova-2-automotive",
+  "nova-2-atc",
+  "nova-phonecall",
+  "nova-medical",
+  "enhanced-meeting",
+  "enhanced-phonecall",
+  "enhanced-finance",
+  "base-meeting",
+  "base-phonecall",
+  "base-finance",
+  "base-conversationalai",
+  "base-voicemail",
+  "base-video",
+  "flux-general-en"
+] as const;
+
+const DEEPGRAM_ENGLISH_ONLY_STT_MODEL_SET = new Set<string>(DEEPGRAM_ENGLISH_ONLY_STT_MODELS);
+
 /** Models that support live microphone streaming. Whisper is batch-only. */
 export const DEEPGRAM_LIVE_STT_MODELS = DEEPGRAM_STT_MODELS.filter(
   (model) => !model.startsWith("whisper")
@@ -197,9 +232,32 @@ export function isDeepgramLiveSttModel(model: string | null | undefined): boolea
   return (DEEPGRAM_STT_MODELS as readonly string[]).includes(normalized);
 }
 
+export function isDeepgramEnglishOnlySttModel(model: string | null | undefined): boolean {
+  const normalized = (model ?? "").trim().toLowerCase();
+  return DEEPGRAM_ENGLISH_ONLY_STT_MODEL_SET.has(normalized);
+}
+
+/**
+ * Coerce language so English-only models never send unsupported codes like `multi` / `es`.
+ * Deepgram returns 400 "No such model/language/tier combination" otherwise.
+ */
+export function resolveDeepgramListenLanguage(
+  model: string | null | undefined,
+  language: string | null | undefined
+): string {
+  const resolvedLanguage = (language ?? "en").trim() || "en";
+  if (!isDeepgramEnglishOnlySttModel(model)) {
+    return resolvedLanguage;
+  }
+  if (resolvedLanguage === "en" || resolvedLanguage.toLowerCase().startsWith("en-")) {
+    return resolvedLanguage;
+  }
+  return "en";
+}
+
 export function buildDeepgramLiveListenUrl(model: string, language: string): string {
   const resolvedModel = model.trim() || "nova-3";
-  const resolvedLanguage = language.trim() || "en";
+  const resolvedLanguage = resolveDeepgramListenLanguage(resolvedModel, language);
   const isFlux = resolvedModel.startsWith("flux-");
 
   if (isFlux) {
@@ -223,9 +281,12 @@ export function buildDeepgramLiveListenUrl(model: string, language: string): str
     sample_rate: "16000",
     channels: "1",
     interim_results: "true",
+    // Finalize trailing words after a short pause (requires interim_results).
+    utterance_end_ms: "1000",
     punctuate: "true",
     smart_format: "true",
-    endpointing: "300",
+    // Slightly longer endpointing avoids cutting mid-phrase into dropped segments.
+    endpointing: "500",
     mip_opt_out: "true"
   });
   if (resolvedLanguage && resolvedLanguage !== "multi") {
@@ -242,12 +303,21 @@ export function describeDeepgramLiveError(raw: string, model?: string | null): s
   if (/whisper/i.test(modelId) || /whisper/i.test(text)) {
     return "Whisper models are for file transcription only. Choose nova-3 for live microphone.";
   }
+  if (/No such model\/language/i.test(text) || /model\/language\/tier/i.test(text)) {
+    if (isDeepgramEnglishOnlySttModel(modelId)) {
+      return `${modelId || "This model"} only supports English. Switch language to English (en) and try again.`;
+    }
+    return "This model does not support the selected language. Switch to English or pick nova-3 / nova-2-general.";
+  }
   if (/Unknown query parameters/i.test(text)) {
     return "This speech model rejected a live setting. Try nova-3, or pick another Flux model.";
   }
-  if (/Unexpected server response:\s*400/i.test(text) || /\b400\b/.test(text)) {
+  if (/Unexpected server response:\s*400/i.test(text) || /\b400\b/.test(text) || /Bad Request/i.test(text)) {
     if (modelId.startsWith("flux-")) {
       return "Live transcription could not start with this Flux model. Try nova-3, or confirm Flux is enabled on your Deepgram plan.";
+    }
+    if (isDeepgramEnglishOnlySttModel(modelId)) {
+      return `${modelId} only supports English. Switch language to English (en) and try again.`;
     }
     return "Live transcription could not start with this model. Try nova-3.";
   }
@@ -280,6 +350,16 @@ export const DEEPGRAM_STT_LANGUAGES = [
   { value: "nl", label: "Dutch" },
   { value: "multi", label: "Multilingual (auto)" }
 ] as const;
+
+/** Language options valid for a given official Deepgram model. */
+export function getDeepgramLanguagesForModel(model: string | null | undefined) {
+  if (isDeepgramEnglishOnlySttModel(model)) {
+    return DEEPGRAM_STT_LANGUAGES.filter(
+      (item) => item.value === "en" || item.value.startsWith("en-")
+    );
+  }
+  return DEEPGRAM_STT_LANGUAGES;
+}
 
 /** Deepgram Speak model IDs — display as-is (no friendly labels). */
 export const DEEPGRAM_TTS_VOICES = [
