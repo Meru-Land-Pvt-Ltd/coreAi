@@ -93,8 +93,11 @@ import {
   ingestKnowledgeFiles,
   replaceManualKnowledge,
   listKnowledgeFiles,
-  reprocessKnowledgeFile
+  reprocessKnowledgeFile,
+  extractDocumentText,
+  type KnowledgeFileKind
 } from "./knowledge-files";
+import { getProviderEngine } from "../ai-provider-engine/provider-engine";
 import { MarketplaceDemoError, startMarketplaceDemoCall } from "./marketplace-demo";
 import {
   buildInstalledAgentChatTestSetup,
@@ -456,6 +459,143 @@ businessRoutes.post("/agents/:installedAgentId/telegram/settings", async (c) => 
       apiErrorStatus(status, 500),
       error instanceof TelegramConnectorError ? error.code : "TELEGRAM_SETTINGS_FAILED"
     );
+  }
+});
+
+businessRoutes.post("/agents/:installedAgentId/telegram/generate-commands", async (c) => {
+  const authUser = c.get("authUser");
+  const installedAgentId = c.req.param("installedAgentId");
+  const agent = await prisma.installedAgent.findFirst({
+    where: {
+      id: installedAgentId,
+      business: { ownerId: authUser.id }
+    },
+    include: {
+      business: {
+        include: {
+          profile: true
+        }
+      }
+    }
+  });
+
+  if (!agent) {
+    return errorResponse(c, "Agent not found or unauthorized.", 404, "AGENT_NOT_FOUND");
+  }
+
+  let businessInfo = "";
+  const contentType = c.req.header("content-type") || "";
+
+  if (contentType.includes("multipart/form-data")) {
+    const body = await c.req.parseBody();
+    businessInfo = typeof body.businessInfo === "string" ? body.businessInfo : "";
+
+    const file = body.file;
+    if (file && typeof file === "object" && "arrayBuffer" in file) {
+      const filename = (file as any).name || "uploaded_file.txt";
+      const ext = filename.split(".").pop()?.toLowerCase();
+      
+      const fileBytes = Buffer.from(await (file as any).arrayBuffer());
+      
+      let kind: KnowledgeFileKind | undefined;
+      if (ext === "pdf" || ext === "docx" || ext === "txt") {
+        kind = ext as KnowledgeFileKind;
+      }
+      
+      if (kind) {
+        try {
+          const parsed = await extractDocumentText(kind, fileBytes);
+          businessInfo += "\n\nExtracted content from file " + filename + ":\n" + parsed.text;
+        } catch (err) {
+          console.warn("[telegram-generation] failed to extract file content", err);
+        }
+      }
+    }
+  } else {
+    const body = await c.req.json().catch(() => null);
+    businessInfo = body?.businessInfo || "";
+  }
+
+  if (!businessInfo.trim()) {
+    const profile = agent.business.profile;
+    const services = profile?.services || [];
+    const faqs = Array.isArray(profile?.faqsJson) ? profile.faqsJson : [];
+    businessInfo = `Business Name: ${agent.business.name}\n` +
+      `Business Type: ${agent.business.type || "Service Business"}\n` +
+      (services.length > 0 ? `Services Offered: ${services.join(", ")}\n` : "") +
+      (faqs.length > 0 ? `FAQs:\n${faqs.map((f: any) => `Q: ${f.question}\nA: ${f.answer}`).join("\n")}\n` : "");
+  }
+
+  if (!businessInfo.trim()) {
+    return errorResponse(c, "Please provide business info or upload a document to analyze.", 400, "BAD_REQUEST");
+  }
+
+  try {
+    const systemPrompt = `You are an expert AI system that analyzes business details and generates optimized Telegram commands for a customer assistant bot.
+Analyze the business details provided. Generate a JSON object containing:
+1. "welcomeMessage": A friendly, helpful welcome message for the bot. Do not use emojis.
+2. "fallbackMessage": A fallback message when the bot doesn't understand a message. Do not use emojis.
+3. "commands": An array of up to 7 commands. Each command has:
+   - "command": lowercase alphanumeric command name (e.g. "services", "doctors", "team", "book", "hours", "contact", "pricing", "location", "insurance", "faq"). Do not include leading slash. Do not include "start" or "help" or "commands" as they are reserved/automatic.
+   - "description": A brief explanation of the command for the Telegram menu. Do not use emojis.
+   - "action": "reply" (for static responses) or "book" (for dynamic AI actions).
+   - "response": 
+     - If action is "reply", this must be the exact, fully detailed static response text. Do not use emojis. Use clean, professional plain text formatting.
+     - If action is "book", this must be custom instructions for the AI on how to handle the request (e.g., "Guide the user to book a dental cleaning, ask for name/phone, and check availability").
+
+CRITICAL FORMATTING & INFORMATION SEPARATION RULES:
+1. ABSOLUTELY NO EMOJIS. Keep all responses formal, professional, and clean.
+2. DEDICATED COMMANDS FOR SEPARATE CONCEPTS:
+   - If there are doctors, practitioners, or team members in the text, you MUST generate a dedicated "doctors" or "team" command listing them (e.g. "• Dr. Emily Carter: Specialist in Orthodontics"). Do NOT mix doctor names into the "services" command response.
+   - The "services" command response must ONLY list SERVICE CATEGORIES (not individual service items). Group all individual services under their parent category. Each bullet must be: "• Category Name: Service 1, Service 2, Service 3". ALL services from the document must be included under the correct category. Do not omit any.
+   - Example for a dental clinic services response:
+     Our dental services:
+     • Preventive Dentistry: Dental Exams, Professional Cleaning, Fluoride Treatment, Sealants, Oral Cancer Screening
+     • Cosmetic Dentistry: Teeth Whitening, Porcelain Veneers, Smile Design, Cosmetic Bonding
+     • Restorative Dentistry: Tooth-Colored Fillings, Dental Crowns, Dental Bridges, Root Canal Treatment, Dentures
+     • Orthodontics: Invisalign, Clear Aligners, Retainers
+     • Oral Surgery: Tooth Extraction, Wisdom Tooth Removal, Dental Implants
+     • Pediatric Dentistry: Children's Exams, Fluoride Treatment, Fillings
+   - NEVER list individual services as their own bullet points. Always group under a named category.
+   - Do not mix unrelated concepts (hours, address, doctor profiles) in a single response. Each command response must stay focused on its topic.
+3. For FAQ command: each bullet must be "• Question: Answer" format.
+4. For doctors/team command: each bullet must be "• Name: Role or Specialization" format.
+5. Use structured grouped lists for all multi-item responses.
+
+Format the output strictly as a JSON object matching this schema:
+{
+  "welcomeMessage": string,
+  "fallbackMessage": string,
+  "commands": Array<{
+    "command": string,
+    "description": string,
+    "action": "reply" | "book",
+    "response": string
+  }>
+}`;
+
+    const engine = getProviderEngine();
+    const response = await engine.executeAI({
+      systemPrompt,
+      messages: [{ role: "user", content: `Generate Telegram bot configuration for this business information:\n\n${businessInfo}` }],
+      outputFormat: "json",
+      temperature: 0.1
+    });
+
+    if (response.status !== "success" || !response.text) {
+      throw new Error(response.error || "Failed to generate commands from LLM.");
+    }
+
+    let cleanJson = response.text.trim();
+    if (cleanJson.startsWith("```")) {
+      cleanJson = cleanJson.replace(/^```[a-zA-Z]*\s*/, "");
+      cleanJson = cleanJson.replace(/\s*```$/, "");
+    }
+    const data = JSON.parse(cleanJson.trim());
+    return successResponse(c, data);
+  } catch (err) {
+    console.error("[telegram-generation] error during command generation", err);
+    return errorResponse(c, err instanceof Error ? err.message : "Failed to generate commands via AI.", 500, "GENERATION_FAILED");
   }
 });
 
