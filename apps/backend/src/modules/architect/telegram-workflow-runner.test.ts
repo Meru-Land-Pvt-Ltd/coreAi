@@ -308,4 +308,54 @@ describe("Telegram trigger source-handle routing", () => {
     if (!(await databaseIsAvailable())) return;
     expect(reachedEnd(await runWith("/book", "/book"))).toBe(true);
   });
+
+  it("passes business name, type, and services context to AI nodes in Telegram workflows", async () => {
+    if (!(await databaseIsAvailable())) return;
+
+    const result = await runWorkflowTest({
+      userId: testUserId,
+      workflowId: testWorkflowId,
+      workflowJson: {
+        nodes: [
+          {
+            id: "telegram-trigger",
+            data: {
+              type: "trigger.telegram_message",
+              nodeKind: "trigger",
+              title: "Telegram Trigger"
+            }
+          },
+          {
+            id: "ai-node",
+            data: {
+              type: "ai.llm_call",
+              nodeKind: "ai",
+              title: "AI Response",
+              llmPrompt: "Business is {{businessName}} offering {{services}}"
+            }
+          }
+        ],
+        edges: [{ id: "edge", source: "telegram-trigger", target: "ai-node" }]
+      },
+      input: {
+        businessName: "Meru Dental Clinic",
+        businessType: "Dental Care",
+        services: ["Teeth Cleaning", "Root Canal"],
+        latestMessage: "What services do you offer?",
+        telegramChatId: "10001",
+        telegramUserId: "20002",
+        telegramMessageId: "3"
+      }
+    });
+
+    expect(result.context.businessName).toBe("Meru Dental Clinic");
+    expect(result.context.businessType).toBe("Dental Care");
+    expect(result.context.services).toEqual(["Teeth Cleaning", "Root Canal"]);
+    expect(result.context.business).toMatchObject({
+      name: "Meru Dental Clinic",
+      type: "Dental Care",
+      services: ["Teeth Cleaning", "Root Canal"]
+    });
+  });
 });
+

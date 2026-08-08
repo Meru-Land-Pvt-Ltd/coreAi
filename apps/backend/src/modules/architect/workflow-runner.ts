@@ -1012,9 +1012,27 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
     asString(node.data?.instructions) ||
     (configuredSystemPrompt && configuredSystemPrompt !== "You are a helpful assistant.")
   );
+
+  const bName = asString(context.businessName ?? context.business_name ?? context.business?.name, "the business");
+  const bType = asString(context.businessType ?? context.business_type ?? context.business?.type);
+  const servicesArray: string[] = Array.isArray(context.services)
+    ? context.services.map(String)
+    : (Array.isArray(context.business?.services) ? context.business.services.map(String) : []);
+  const servicesFormatted = servicesArray.length > 0
+    ? servicesArray.map((s) => `• ${s}`).join("\n")
+    : "";
+
+  const businessContextSummary = [
+    `Business Details:`,
+    `- Business Name: ${bName}`,
+    ...(bType ? [`- Business Type: ${bType}`] : []),
+    ...(servicesFormatted ? [`- Available Services:\n${servicesFormatted}`] : [])
+  ].join("\n");
+
   const telegramDefaultTask = context.telegram && !hasAuthoredTask
     ? [
-        `You are a natural, helpful AI assistant for ${asString(context.business?.name, "the business")}.`,
+        `You are a natural, helpful AI assistant for ${bName}.`,
+        businessContextSummary,
         `Customer message: ${JSON.stringify(asString(context.latestMessage) || asString(context.telegram.text))}`,
         `Conversational Guidelines:`,
         `- Be warm, natural, helpful, and concise.`,
@@ -1039,6 +1057,11 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
     ? (isNaN(parsedMaxTokens) || parsedMaxTokens < 2048 ? 2048 : parsedMaxTokens)
     : rawMaxTokens;
 
+  const existingLlmContext = renderTemplate(node.data?.llmContext, context);
+  const combinedLlmContext = existingLlmContext && existingLlmContext.includes(bName)
+    ? existingLlmContext
+    : [existingLlmContext, businessContextSummary].filter(Boolean).join("\n\n");
+
   const data = isLlmCall
     ? {
         ...node.data,
@@ -1051,6 +1074,7 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
         llmSystemPrompt: renderTemplate(node.data?.llmSystemPrompt, context),
         llmPrompt: renderTemplate(node.data?.llmPrompt, context),
         llmRequirements: renderTemplate(node.data?.llmRequirements, context) || telegramDefaultTask,
+        llmContext: combinedLlmContext,
         temperature: node.data?.llmTemperature ?? node.data?.temperature,
         maxTokens: finalMaxTokens,
         outputFormat: node.data?.llmOutputFormat ?? node.data?.outputFormat,
@@ -1191,6 +1215,28 @@ function seedMissedCallContext(
       ...(input?.businessHours ? { hours: input.businessHours } : {}),
       ...(optionalString(input?.assistantName) ? { assistantName: optionalString(input?.assistantName) } : {})
     } as any;
+
+    if (context.business) {
+      if (context.business.name) {
+        context.businessName = context.business.name;
+        context.business_name = context.business.name;
+      }
+      if (context.business.type) {
+        context.businessType = context.business.type;
+        context.business_type = context.business.type;
+      }
+      if (Array.isArray(context.business.services) && context.business.services.length > 0) {
+        context.services = context.business.services;
+        context.business_services = context.business.services;
+        if (!context.appointmentService) {
+          context.appointmentService = context.business.services[0];
+        }
+      }
+      if (context.business.timeZone) {
+        context.timeZone = context.business.timeZone;
+        context.time_zone = context.business.timeZone;
+      }
+    }
   }
 
   /* Telegram runs are seeded here, before any node executes, because the
@@ -1512,6 +1558,16 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
     if (!context.telegram?.chat_id || !context.telegram.message_id) {
       logs.push(createLog(node, "error", "Telegram trigger is missing a chat ID or message ID."));
       return;
+    }
+
+    const msgText = asString(context.telegram.text) || asString(context.latestMessage);
+    if (msgText) {
+      context.lastOutput = msgText;
+      context.text = msgText;
+      context.output = msgText;
+      context.latestMessage = msgText;
+      context.telegramMessage = msgText;
+      context[`node.${node.id}.output`] = msgText;
     }
 
     logs.push(
@@ -4573,8 +4629,11 @@ async function executeSingleNodeInRunner(params: {
       if (context.inboundSms) triggerOutput.inboundSms = context.inboundSms;
       if (context.missedCall) triggerOutput.missedCall = context.missedCall;
       if (context.business) triggerOutput.business = context.business;
+      if (context.services) triggerOutput.services = context.services;
+      if (context.telegram) triggerOutput.telegram = context.telegram;
+      if (context.telegramMessage) triggerOutput.telegramMessage = context.telegramMessage;
       if (context.calendly) triggerOutput.calendly = context.calendly;
-      if (input?.latestMessage) triggerOutput.message = input.latestMessage;
+      if (input?.latestMessage || context.latestMessage) triggerOutput.message = input?.latestMessage || context.latestMessage;
 
       await memoryBroker.saveNodeMemory({
         workflowRunId,
