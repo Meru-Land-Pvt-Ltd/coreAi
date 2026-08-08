@@ -243,7 +243,6 @@ export function extractMemoryVariableLines(
   const varLines: string[] = [];
   const IGNORED_KEYS = new Set([
     "node",
-    "business",
     "missedCall",
     "llmPipeline",
     "ai",
@@ -265,7 +264,7 @@ export function extractMemoryVariableLines(
     // Skip internal node metadata aliases
     if (typeof value === "object" && value !== null) {
       const obj = value as Record<string, unknown>;
-      if (obj.icon || obj.nodeKind || obj.type || obj.accent) continue;
+      if (obj.icon || obj.nodeKind || obj.accent) continue;
     }
 
     let valStr = "";
@@ -273,6 +272,10 @@ export function extractMemoryVariableLines(
       valStr = value.trim();
     } else if (typeof value === "number" || typeof value === "boolean") {
       valStr = String(value);
+    } else if (Array.isArray(value)) {
+      valStr = value.map(String).join(", ");
+    } else if (typeof value === "object" && value !== null) {
+      valStr = flattenStructuredData(value);
     }
 
     if (valStr && !key.includes(".") && !key.includes(" ")) {

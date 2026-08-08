@@ -820,6 +820,7 @@ export async function handleArchitectTelegramTestWebhook(c: Context) {
       });
       return c.json({ ok: true, accepted: true, interaction: true });
     }
+    const effectiveBusinessName = context.businessName?.trim() || workflow.name || "Business";
     const run = await runWorkflowTest({
       userId: connection.userId,
       workflowId: workflow.id,
@@ -827,7 +828,7 @@ export async function handleArchitectTelegramTestWebhook(c: Context) {
       mode: "test",
       executionMode: "ARCHITECT_DRY_RUN",
       input: {
-        businessName: context.businessName || workflow.name || "Architect Telegram Test",
+        businessName: effectiveBusinessName,
         businessType: context.businessType || "Service Business",
         timeZone: context.timeZone || "UTC",
         services,
@@ -854,11 +855,11 @@ export async function handleArchitectTelegramTestWebhook(c: Context) {
       const aiOutput = text(record(runContext.ai).output);
       const fallback = text(
         data.telegramFallbackMessage,
-        `Thanks for messaging ${context.businessName || workflow.name}. How can I help?`
+        `Thanks for messaging ${effectiveBusinessName}. How can I help?`
       );
       const reply = aiOutput || renderArchitectTelegramTestTemplate(
         fallback,
-        context.businessName || workflow.name
+        effectiveBusinessName
       );
       await sendTelegramMessage({ botToken, chatId: event.chat.id, text: reply });
     }
