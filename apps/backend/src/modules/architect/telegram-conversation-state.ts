@@ -14,7 +14,6 @@ export const TELEGRAM_CONVERSATION_STATES = [
   "WAITING_FOR_NOTES",
   "CONFIRMING",
   "CONFIRMING_REQUEST",
-  "CONFIRMING_CUSTOM",
   "BOOKING",
   "BOOKED",
   "REQUESTED",
@@ -49,7 +48,6 @@ export type TelegramBookingContext = {
   pendingIntent?: "mybookings" | "reschedule" | "cancel";
   activeCustomCommand?: string;
   activeCustomInstruction?: string;
-  collectedFields?: Record<string, string>;
 };
 
 export type TelegramConversationIdentity = {

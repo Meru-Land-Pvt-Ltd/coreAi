@@ -90,48 +90,9 @@ export function DocumentUploadSection({
   const refreshFacts = useCallback(async (force = false) => {
     const res = await getBusinessFacts(force);
     if (res.success && res.data) {
-      let profileSuggestion = res.data.profileSuggestion;
-      let documentSuggestion = res.data.documentSuggestion;
-
-      if (force) {
-        // Trigger hours extraction as well when forcing
-        const hoursRes = await getBusinessHours(true);
-        try {
-          localStorage.setItem(
-            "extracted_suggestions",
-            JSON.stringify({
-              profileSuggestion: profileSuggestion || null,
-              documentSuggestion: documentSuggestion || null,
-              hoursSuggestion: hoursRes.success && hoursRes.data?.suggestion ? hoursRes.data.suggestion : null
-            })
-          );
-        } catch (e) {
-          console.error(e);
-        }
-      } else {
-        // Hydrate suggestions from localStorage
-        try {
-          const cached = localStorage.getItem("extracted_suggestions");
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (parsed) {
-              profileSuggestion = parsed.profileSuggestion || profileSuggestion;
-              documentSuggestion = parsed.documentSuggestion || documentSuggestion;
-            }
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }
-
-      setFacts({
-        ...res.data,
-        profileSuggestion,
-        documentSuggestion
-      });
-
-      if (profileSuggestion) {
-        profileCallbackRef.current?.(profileSuggestion);
+      setFacts(res.data);
+      if (res.data.profileSuggestion) {
+        profileCallbackRef.current?.(res.data.profileSuggestion);
       }
     }
   }, []);
@@ -182,48 +143,21 @@ export function DocumentUploadSection({
     }
   }
 
-  const clean = (s?: string) => s?.trim().toLowerCase().replace(/\s+/g, " ") || "";
-
-  const isBusinessNameSame = !facts?.profileSuggestion?.businessName ||
-    clean(facts.profileSuggestion.businessName) === clean(currentBusinessName);
-
-  const isDoctorNameSame = !facts?.profileSuggestion?.doctorNames || facts.profileSuggestion.doctorNames.length === 0 ||
-    clean(facts.profileSuggestion.doctorNames.join(", ")) === clean(currentContactName);
-
-  const cleanServices = (s?: string) => {
-    if (!s) return [];
-    return s.split(/[\n,]/).map((item) => clean(item)).filter(Boolean).sort();
-  };
-  const suggestionServices = (facts?.profileSuggestion?.services ?? []).map((item: string) => clean(item)).filter(Boolean).sort();
-  const currentServicesList = cleanServices(currentServices);
-  const isServicesSame = JSON.stringify(suggestionServices) === JSON.stringify(currentServicesList);
-
-  const isAddressSame = !facts?.documentSuggestion || (
-    clean(facts.documentSuggestion.line1) === clean(facts.address?.line1 ?? "") &&
-    clean(facts.documentSuggestion.city) === clean(facts.address?.city ?? "") &&
-    clean(facts.documentSuggestion.state) === clean(facts.address?.state ?? "") &&
-    clean(facts.documentSuggestion.postalCode) === clean(facts.address?.postalCode ?? "")
-  );
-
   const showDoctorSuggestion =
     !dismissedKeys.has("doctor") &&
-    Boolean(facts?.profileSuggestion?.doctorNames && facts.profileSuggestion.doctorNames.length > 0) &&
-    !isDoctorNameSame;
+    Boolean(facts?.profileSuggestion?.doctorNames && facts.profileSuggestion.doctorNames.length > 0);
 
   const showBusinessNameSuggestion =
     !dismissedKeys.has("businessName") &&
-    Boolean(facts?.profileSuggestion?.businessName) &&
-    !isBusinessNameSame;
+    Boolean(facts?.profileSuggestion?.businessName);
 
   const showServicesSuggestion =
     !dismissedKeys.has("services") &&
-    Boolean(facts?.profileSuggestion?.services && facts.profileSuggestion.services.length > 0) &&
-    !isServicesSame;
+    Boolean(facts?.profileSuggestion?.services && facts.profileSuggestion.services.length > 0);
 
   const showAddressSuggestion =
     !dismissedKeys.has("address") &&
-    Boolean(facts?.documentSuggestion) &&
-    !isAddressSame;
+    Boolean(facts?.documentSuggestion);
 
   const showHoursSuggestion = !dismissedKeys.has("hours") && hoursSuggestionReady;
 
@@ -231,8 +165,7 @@ export function DocumentUploadSection({
     showDoctorSuggestion ||
     showBusinessNameSuggestion ||
     showServicesSuggestion ||
-    (Boolean(facts?.profileSuggestion?.registrationNumber) &&
-      (showDoctorSuggestion || showBusinessNameSuggestion || showServicesSuggestion || showAddressSuggestion || showHoursSuggestion)) ||
+    Boolean(facts?.profileSuggestion?.registrationNumber) ||
     showAddressSuggestion ||
     showHoursSuggestion;
 
