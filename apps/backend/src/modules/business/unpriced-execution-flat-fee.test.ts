@@ -155,3 +155,48 @@ describe("UNPRICED branch source contract", () => {
     expect(unpricedBranch).toContain("recordVapiExecutionUsage");
   });
 });
+
+describe("model-less Cartesia pipeline completion (production log 2026-08-08)", () => {
+  it('completes { hop: "voice", provider: "cartesia", model: null } from platform deploy config', async () => {
+    const { completeVoicePipelineModels } = await import("./usage-billing");
+    const { resolveApplicableUsageServiceCodes } = await import("../../lib/usage-service-resolver");
+
+    // Exactly what the webhook received in production.
+    const reported = {
+      orchestrator: "vapi" as const,
+      llmProvider: "openai",
+      llmModel: "gpt-4o-mini",
+      transcriberProvider: "deepgram",
+      transcriberModel: "nova-3",
+      voiceProvider: "cartesia"
+      // voiceModel absent — Vapi does not echo the TTS model back.
+    };
+
+    const completed = completeVoicePipelineModels(reported);
+    expect(completed.voiceModel).toBe("sonic-2");
+
+    const resolution = resolveApplicableUsageServiceCodes({
+      execution: { calendarUsed: false },
+      installedAgent: null,
+      voicePipeline: completed,
+      providerMetadata: { telephonyProvider: "twilio" }
+    });
+    expect(resolution.state).toBe("RESOLVED");
+    if (resolution.state === "RESOLVED") {
+      expect(resolution.codes).toContain("cartesia_sonic_2");
+    }
+  });
+
+  it("providers we do not deploy stay incomplete and therefore UNPRICED — never guessed", async () => {
+    const { completeVoicePipelineModels } = await import("./usage-billing");
+    const completed = completeVoicePipelineModels({
+      orchestrator: "vapi" as const,
+      llmProvider: "openai",
+      llmModel: "gpt-4o-mini",
+      transcriberProvider: "deepgram",
+      transcriberModel: "nova-3",
+      voiceProvider: "playht"
+    });
+    expect(completed.voiceModel).toBeUndefined();
+  });
+});

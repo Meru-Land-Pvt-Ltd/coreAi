@@ -14,6 +14,7 @@ import {
 } from "../compliance/workspace-ai-guard";
 import { loadActiveUsageServicePricing } from "./usage-pricing-service";
 import { monthBounds, recordVapiExecutionUsage } from "../business/execution-billing";
+import { completeVoicePipelineModels } from "../business/usage-billing";
 import { fetchVapiCallById } from "../architect/vapi-connector";
 
 export type RepriceUnpricedInput = {
@@ -157,6 +158,11 @@ export async function repriceUnpricedExecutions(
         return null;
       });
       if (vapiCall?.voicePipeline) pipeline = vapiCall.voicePipeline;
+      /* Vapi's re-fetched call reports the voice provider but usually not the
+         model, and the stored snapshots of stuck calls carry model:null — both
+         would fail resolution again forever. Complete the voice hop from our
+         own deploy config, exactly as the live path now does. */
+      pipeline = completeVoicePipelineModels(pipeline);
 
       const resolvePipeline = (voicePipeline: ResolvedVoicePipeline) =>
         resolveApplicableUsageServiceCodes({

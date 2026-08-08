@@ -74,6 +74,20 @@ function platformVoiceModelFor(voiceProvider: string): string | undefined {
   }
 }
 
+/**
+ * Complete a pipeline whose voice hop lacks a model. Vapi's payloads report
+ * voice.provider but routinely omit voice.model (production log:
+ * `{ hop: 'voice', provider: 'cartesia', model: null }`), and a model-less hop
+ * can never match a rate. We only ever deploy each provider with one
+ * platform-configured model, so this is a restoration of our own deploy
+ * config — providers we do not deploy stay incomplete and correctly UNPRICED.
+ */
+export function completeVoicePipelineModels(pipeline: ResolvedVoicePipeline): ResolvedVoicePipeline {
+  if (pipeline.voiceModel) return pipeline;
+  const voiceModel = platformVoiceModelFor(pipeline.voiceProvider);
+  return voiceModel ? { ...pipeline, voiceModel } : pipeline;
+}
+
 export function mergeVapiCallPipeline(
   vapiPipeline: ResolvedVoicePipeline | null,
   fallback: ResolvedVoicePipeline
