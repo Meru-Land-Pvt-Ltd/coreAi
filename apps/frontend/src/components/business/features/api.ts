@@ -444,6 +444,26 @@ export function updateBusinessTelegramSettings(
   );
 }
 
+export function generateBusinessTelegramCommands(
+  installedAgentId: string,
+  businessInfo?: string,
+  file?: File
+) {
+  const form = new FormData();
+  if (businessInfo) form.append("businessInfo", businessInfo);
+  if (file) form.append("file", file);
+  return apiPostFormData<{
+    welcomeMessage: string;
+    fallbackMessage: string;
+    commands: Array<{
+      command: string;
+      description: string;
+      action: "reply" | "book";
+      response: string;
+    }>;
+  }>(`/business/agents/${encodeURIComponent(installedAgentId)}/telegram/generate-commands`, form);
+}
+
 export function refreshBusinessTelegramHealth(installedAgentId: string) {
   return apiPost<{
     ok: boolean;
