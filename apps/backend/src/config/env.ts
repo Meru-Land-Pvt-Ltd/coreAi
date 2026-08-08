@@ -236,6 +236,8 @@ const envSchema = z.object({
   DEEPGRAM_MIP_OPT_OUT_CONFIRMED: booleanFromEnv.default(false),
   ELEVENLABS_TRAINING_OPT_OUT_CONFIRMED: booleanFromEnv.default(false),
   ELEVENLABS_ZRM_CONFIRMED: booleanFromEnv.default(false),
+  /** Set true only after confirming Cartesia's no-training terms (platform default voice). */
+  CARTESIA_NO_TRAINING_CONFIRMED: booleanFromEnv.default(false),
 
   VAPI_ANSWER_INBOUND: booleanFromEnv.default(false),
 

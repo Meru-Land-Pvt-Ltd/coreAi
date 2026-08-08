@@ -27,7 +27,8 @@ const ALL_CONFIRMED = {
   GEMINI_DATASET_SHARING_DISABLED_CONFIRMED: "true",
   DEEPGRAM_MIP_OPT_OUT_CONFIRMED: "true",
   ELEVENLABS_TRAINING_OPT_OUT_CONFIRMED: "true",
-  ELEVENLABS_ZRM_CONFIRMED: "true"
+  ELEVENLABS_ZRM_CONFIRMED: "true",
+  CARTESIA_NO_TRAINING_CONFIRMED: "true"
 };
 
 describe("isConfirmed (fail-closed parse)", () => {
@@ -229,14 +230,29 @@ describe("live voice pipeline gate (Vapi + Deepgram + LLM + voice)", () => {
     ).toBe("OPENAI_DATA_SHARING_DISABLED_CONFIRMED");
   });
 
-  it("Cartesia can never silently bypass policy — explicit no-pathway block", () => {
+  it("Cartesia can never silently bypass policy — blocked until its confirmation flag is set", () => {
+    /* Cartesia became the platform default voice (2026-08-06), so it moved from
+       the no-pathway blocklist to a confirmation pathway like ElevenLabs. The
+       invariant this test protects is unchanged: without the operator's explicit
+       flag, workspace-derived data never reaches Cartesia. */
     const cartesiaPipeline: ResolvedVoicePipeline = {
       orchestrator: "vapi",
       llmProvider: "openai",
       transcriberProvider: "deepgram",
       voiceProvider: "cartesia"
     };
-    expect(liveVoicePipelineBlockReason(ALL_CONFIRMED, cartesiaPipeline)).toBe("NO_CONFIRMATION_PATHWAY:cartesia");
+    expect(
+      liveVoicePipelineBlockReason(
+        { ...ALL_CONFIRMED, CARTESIA_NO_TRAINING_CONFIRMED: "false" },
+        cartesiaPipeline
+      )
+    ).toBe("CARTESIA_NO_TRAINING_CONFIRMED");
+    // Default env state (flag absent) is just as blocked.
+    const withoutFlag = { ...ALL_CONFIRMED } as Record<string, string>;
+    delete withoutFlag.CARTESIA_NO_TRAINING_CONFIRMED;
+    expect(liveVoicePipelineBlockReason(withoutFlag, cartesiaPipeline)).toBe("CARTESIA_NO_TRAINING_CONFIRMED");
+    // With the operator's confirmation, the platform default voice is usable.
+    expect(liveVoicePipelineBlockReason(ALL_CONFIRMED, cartesiaPipeline)).toBeNull();
   });
 
   it("unknown voice/transcriber/model providers fail closed even with everything confirmed", () => {

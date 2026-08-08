@@ -167,6 +167,10 @@ type UsageBill = {
         durationSeconds: number | null;
         billedCostUsd: number;
         recordedAt: string | null;
+        /** PRICED | PENDING | UNPRICED — the flat execution fee is already
+         * charged; UNPRICED means the per-service breakdown awaits admin
+         * repricing. */
+        pricingState?: string | null;
         /** Present only when call recording was enabled for this call. */
         recordingUrl: string | null;
     }>;

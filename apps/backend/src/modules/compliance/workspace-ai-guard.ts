@@ -14,7 +14,8 @@ export type WorkspaceAiProvider =
   | "anthropic"
   | "gemini"
   | "deepgram"
-  | "elevenlabs";
+  | "elevenlabs"
+  | "cartesia";
 
 
 export function isConfirmed(value: unknown): boolean {
@@ -29,7 +30,13 @@ export const PROVIDER_REQUIRED_CONFIRMATIONS: Record<WorkspaceAiProvider, readon
   anthropic: ["ANTHROPIC_NO_TRAINING_CONFIRMED", "ANTHROPIC_FEEDBACK_SHARING_DISABLED_CONFIRMED"],
   gemini: ["GEMINI_PAID_SERVICE_CONFIRMED", "GEMINI_DATASET_SHARING_DISABLED_CONFIRMED"],
   deepgram: ["DEEPGRAM_MIP_OPT_OUT_CONFIRMED"],
-  elevenlabs: ["ELEVENLABS_TRAINING_OPT_OUT_CONFIRMED"]
+  elevenlabs: ["ELEVENLABS_TRAINING_OPT_OUT_CONFIRMED"],
+  /* Cartesia became the platform default voice (2026-08-06). Without a
+     pathway it sat in NO_CONFIRMATION_PATHWAY_PROVIDERS, so every workspace
+     guard check failed and live booking silently degraded to local-fallback.
+     Default false keeps the fail-closed posture until the operator confirms
+     Cartesia's no-training terms.  */
+  cartesia: ["CARTESIA_NO_TRAINING_CONFIRMED"]
 } as const;
 
 const PROVIDER_ALIASES: Record<string, WorkspaceAiProvider> = {
@@ -41,10 +48,11 @@ const PROVIDER_ALIASES: Record<string, WorkspaceAiProvider> = {
   gemini: "gemini",
   deepgram: "deepgram",
   "11labs": "elevenlabs",
-  elevenlabs: "elevenlabs"
+  elevenlabs: "elevenlabs",
+  cartesia: "cartesia"
 };
 
-const NO_CONFIRMATION_PATHWAY_PROVIDERS = new Set(["cartesia", "playht", "azure", "lmnt", "rime-ai", "neets"]);
+const NO_CONFIRMATION_PATHWAY_PROVIDERS = new Set(["playht", "azure", "lmnt", "rime-ai", "neets"]);
 
 /** Lowercased/trimmed canonical provider, or the raw value when unknown. */
 export function normalizeAiProvider(raw: unknown): string {

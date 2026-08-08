@@ -5271,23 +5271,24 @@ export async function handleVapiWebhook(c: Context) {
     const settleLiveEndOfCall = async () => {
       if (!businessContext?.businessId || !callId || executionMode !== "LIVE" || !isEndOfCallEvent) return;
 
-      try {
-        const installedAgent = metadataInstalledAgentId
-          ? await prisma.installedAgent.findFirst({
-            where: { id: metadataInstalledAgentId, businessId: businessContext.businessId },
-            select: { id: true, workflowId: true }
-          })
-          : await latestActiveInstalledAgent(businessContext.businessId);
+      const installedAgent = await (metadataInstalledAgentId
+        ? prisma.installedAgent.findFirst({
+          where: { id: metadataInstalledAgentId, businessId: businessContext.businessId },
+          select: { id: true, workflowId: true }
+        })
+        : latestActiveInstalledAgent(businessContext.businessId)
+      ).catch((error) => {
+        console.error("[vapi-webhook] installed agent resolution failed", { callId, error });
+        return null;
+      });
 
-        await recordVapiCallUsage({
-          businessId: businessContext.businessId,
-          installedAgentId: installedAgent?.id,
-          callId,
-          customerPhone,
-          webhookBody: body
-        });
-
-        if (installedAgent?.workflowId) {
+      /* The WorkflowRun IS the execution record several screens count. It used
+         to be written AFTER usage settlement inside one try/catch, so any
+         pricing/DB throw also erased the run — the call vanished from every
+         execution count, not only from billing. The two writes are independent
+         facts (the call happened; what it costs); record them independently. */
+      if (installedAgent?.workflowId) {
+        try {
           await prisma.workflowRun.upsert({
             where: { callProvider_externalCallId: { callProvider: "VAPI", externalCallId: callId } },
             update: { status: "COMPLETED", finishedAt: new Date() },
@@ -5303,7 +5304,19 @@ export async function handleVapiWebhook(c: Context) {
               inputJson: { source: "vapi_end_of_call", callId }
             }
           });
+        } catch (error) {
+          console.error("[vapi-webhook] WorkflowRun upsert failed (non-fatal)", { callId, error });
         }
+      }
+
+      try {
+        await recordVapiCallUsage({
+          businessId: businessContext.businessId,
+          installedAgentId: installedAgent?.id,
+          callId,
+          customerPhone,
+          webhookBody: body
+        });
       } catch (error) {
         console.error("[vapi-webhook] USAGE SETTLEMENT FAILED — needs reconciliation", {
           callId,

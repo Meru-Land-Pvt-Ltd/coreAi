@@ -172,7 +172,15 @@ export async function getBusinessExecutionUsage(c: Context) {
         executionMode: "LIVE",
         OR: [
           { billingMonth: month, billingRecordedAt: { not: null } },
-          { billingMonth: month, pricingState: { in: ["PENDING", "UNPRICED"] } }
+          { billingMonth: month, pricingState: { in: ["PENDING", "UNPRICED"] } },
+          /* Legacy unpriced rows: before billingMonth was stamped in the
+             UNPRICED branch, these were written with billingMonth null and were
+             unfindable by month. Address them by when the call happened. */
+          {
+            billingMonth: null,
+            pricingState: { in: ["PENDING", "UNPRICED"] },
+            createdAt: { gte: selectedBounds.start, lt: selectedBounds.end }
+          }
         ]
       },
       orderBy: [{ billingRecordedAt: "desc" }, { createdAt: "desc" }],
@@ -246,6 +254,18 @@ export async function getBusinessExecutionUsage(c: Context) {
       .map((execution) => execution.sourceId)
   );
   const invoicedCalls = calls.filter((call) => chargedCallIds.has(call.callId));
+  /* PENDING/UNPRICED calls with no charged execution yet (legacy stuck rows,
+     trial/zero-fee agents) were fetched above and then filtered away here —
+     defeating the point of fetching them. They are appended for DISPLAY only:
+     rollups and totals keep reading invoicedCalls, so they add zero to any sum. */
+  const visibleCalls = [
+    ...invoicedCalls,
+    ...calls.filter(
+      (call) =>
+        !chargedCallIds.has(call.callId) &&
+        (call.pricingState === "PENDING" || call.pricingState === "UNPRICED")
+    )
+  ];
   const callDurationByAgent = new Map<string, number>();
   for (const call of invoicedCalls) {
     if (!call.installedAgentId) continue;
@@ -462,7 +482,7 @@ export async function getBusinessExecutionUsage(c: Context) {
       legacyBilledCostUsd: microUsdToUsd(execution.legacyBilledCostMicroUsd),
       usageInvoiceId: execution.usageInvoiceId
     })),
-    calls: invoicedCalls.map((call) => {
+    calls: visibleCalls.map((call) => {
       const execution = executionByCallId.get(call.callId);
       const repricedCallMicroUsd =
         execution &&
@@ -487,6 +507,10 @@ export async function getBusinessExecutionUsage(c: Context) {
           repricedCallMicroUsd / MICRO_USD_PER_CENT
         ),
         recordedAt: call.billingRecordedAt?.toISOString() ?? null,
+        /* "PRICED" | "PENDING" | "UNPRICED" — lets the page mark a call whose
+           per-service breakdown is still awaiting admin repricing while its
+           flat execution fee is already charged. */
+        pricingState: call.pricingState ?? null,
         recordingUrl: call.recordingUrl ?? null
       };
     })

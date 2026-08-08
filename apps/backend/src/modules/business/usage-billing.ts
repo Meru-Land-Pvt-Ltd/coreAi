@@ -20,6 +20,7 @@ import {
   type ResolvedVoicePipeline
 } from "../compliance/workspace-ai-guard";
 import { fetchVapiCallById } from "../architect/vapi-connector";
+import { env } from "../../config/env";
 import { loadActiveUsageServicePricing } from "../admin/usage-pricing-service";
 import { getStripeClient, isStripeConfigured } from "../payments/stripe";
 import { restoreBusinessAfterBillingPayment } from "./billing-cycle";
@@ -61,6 +62,18 @@ function parseDurationMinutes(payload: Record<string, unknown>): number {
   return 0;
 }
 
+/** The single TTS model this platform deploys for a given voice provider. */
+function platformVoiceModelFor(voiceProvider: string): string | undefined {
+  switch (voiceProvider) {
+    case "cartesia":
+      return env.CARTESIA_TTS_MODEL || "sonic-2";
+    case "elevenlabs":
+      return env.VAPI_ELEVENLABS_MODEL || "eleven_flash_v2_5";
+    default:
+      return undefined;
+  }
+}
+
 export function mergeVapiCallPipeline(
   vapiPipeline: ResolvedVoicePipeline | null,
   fallback: ResolvedVoicePipeline
@@ -86,12 +99,21 @@ export function mergeVapiCallPipeline(
     fallback.transcriberProvider,
     fallback.transcriberModel
   );
-  const voiceModel = sameProviderModel(
-    vapiPipeline.voiceProvider,
-    vapiPipeline.voiceModel,
-    fallback.voiceProvider,
-    fallback.voiceModel
-  );
+  const voiceModel =
+    sameProviderModel(
+      vapiPipeline.voiceProvider,
+      vapiPipeline.voiceModel,
+      fallback.voiceProvider,
+      fallback.voiceModel
+    ) ??
+    /* Vapi's end-of-call payload reports voice.provider but frequently omits
+       voice.model. When the fallback pipeline is for a DIFFERENT provider
+       (agent deployed under ElevenLabs, call answered under Cartesia after the
+       platform default switch), the merge produced a model-less voice hop and
+       the whole call went UNPRICED. We only ever deploy these providers with
+       one platform-configured model, so completing it from our own deploy
+       config is a restoration, not a guess. */
+    platformVoiceModelFor(vapiPipeline.voiceProvider);
 
   return {
     ...vapiPipeline,
@@ -519,6 +541,12 @@ export async function recordVapiCallUsage({
         vapiCostBreakdownJson: vapiCostDetails as never,
         pricingSnapshotJson: pricingSnapshot as never,
         pricingState: "UNPRICED",
+        /* billingMonth was omitted here, which made an unpriceable call
+           invisible: every Billing & Usage query is month-addressed, so the
+           business saw neither the execution nor any charge — while the Vapi
+           dashboard showed cost. The month is known from endedAt regardless of
+           whether the pipeline priced; reprice recomputes the same value. */
+        billingMonth,
         endedAt
       },
       create: {
@@ -536,10 +564,37 @@ export async function recordVapiCallUsage({
         vapiCostBreakdownJson: vapiCostDetails as never,
         pricingSnapshotJson: pricingSnapshot as never,
         pricingState: "UNPRICED",
+        billingMonth,
         endedAt,
         metadataJson: webhookBody as never
       }
     });
+
+    /* The execution itself is real and its buyer-facing charge — the flat
+       per-execution fee — does not depend on per-hop pipeline rates. Skipping
+       this on UNPRICED meant no AgentUsageExecution, therefore no execution on
+       the page, no invoice attachment, and no dashboard count: the platform
+       looked like it lost the call. recordAgentExecutionUsage dedupes on the
+       canonical callId key under an advisory lock, so the later admin reprice
+       (which also calls it, with line items) can never double-charge. */
+    /* installedAgent (the business-scoped lookup), never the raw param — a
+       metadata id from another tenant resolves to null there, and the fee must
+       not land on a foreign agent. */
+    if (installedAgent?.id) {
+      try {
+        await recordVapiExecutionUsage({
+          installedAgentId: installedAgent.id,
+          callId,
+          occurredAt: endedAt,
+          actualCostMicroUsd: vapiCostMicroUsd
+        });
+      } catch (error) {
+        console.error("[usage-billing] flat-fee execution write failed for UNPRICED call (non-fatal)", {
+          callId,
+          error
+        });
+      }
+    }
     return;
   }
 
@@ -781,9 +836,15 @@ export async function getBusinessUsageBill(c: Context) {
       where: {
         businessId: business.id,
         billingMonth: month,
-        billingRecordedAt: { not: null }
+        /* UNPRICED calls (billingRecordedAt null until admin reprice) are shown
+           with their flat execution fee rather than hidden — a call the buyer
+           made and was charged for must never be absent from their bill. */
+        OR: [
+          { billingRecordedAt: { not: null } },
+          { pricingState: { in: ["PENDING", "UNPRICED"] } }
+        ]
       },
-      orderBy: { billingRecordedAt: "desc" },
+      orderBy: [{ billingRecordedAt: "desc" }, { createdAt: "desc" }],
       select: {
         callId: true,
         customerPhone: true,
