@@ -763,7 +763,8 @@ export function BusinessAddressSection({
   onDirtyChange,
   onAddressValidChange,
   registerApi,
-  refreshToken
+  refreshToken,
+  clearOnMount = false
 }: {
   embedded?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
@@ -771,6 +772,8 @@ export function BusinessAddressSection({
   registerApi?: (api: { save: () => Promise<{ ok: boolean; error?: string }>; isDirty: () => boolean } | null) => void;
 
   refreshToken?: number;
+  /** When true, do NOT pre-fill the address fields on mount (used for brand-new agent installs). */
+  clearOnMount?: boolean;
 } = {}) {
   const [facts, setFacts] = useState<BusinessFactsData | null>(null);
   const [draft, setDraft] = useState<BusinessAddressDraft>(EMPTY_ADDRESS_DRAFT);
@@ -809,9 +812,17 @@ export function BusinessAddressSection({
     const res = await getBusinessFacts({ includeDocumentSuggestions });
     if (res.success && res.data) {
       setFacts(res.data);
-      if (!dirtyRef.current) setDraft(addressDraftFromFacts(res.data));
+      if (!dirtyRef.current) {
+        setDraft(clearOnMount ? EMPTY_ADDRESS_DRAFT : addressDraftFromFacts(res.data));
+      }
     }
-  }, []);
+  }, [clearOnMount]);
+
+  useEffect(() => {
+    if (clearOnMount) {
+      setDraft(EMPTY_ADDRESS_DRAFT);
+    }
+  }, [clearOnMount]);
 
   useEffect(() => {
     void refreshFacts();

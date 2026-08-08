@@ -48,7 +48,8 @@ export function BusinessProfileSection({
   onSummaryChange,
   onKnowledgeChanged,
   hoursSuggestionReady = false,
-  onReviewHours
+  onReviewHours,
+  clearAddressOnMount = false
 }: {
   businessName: string;
   businessType: string;
@@ -75,6 +76,8 @@ export function BusinessProfileSection({
   onKnowledgeChanged?: () => void;
   hoursSuggestionReady?: boolean;
   onReviewHours?: () => void;
+  /** When true, address fields start empty (new agent install). */
+  clearAddressOnMount?: boolean;
 }) {
   const [selectedServices, setSelectedServices] = useState<string[]>(() =>
     servicesText
@@ -84,6 +87,15 @@ export function BusinessProfileSection({
   );
   const [customServiceInput, setCustomServiceInput] = useState("");
   const [profileSuggestion, setProfileSuggestion] = useState<import("@/components/business/features/api").DocumentProfileSuggestion | null>(null);
+
+  // Keep selectedServices in sync when servicesText prop changes (e.g. cleared on fresh install)
+  useEffect(() => {
+    const parsed = servicesText
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setSelectedServices(parsed);
+  }, [servicesText]);
 
   // Sync selected services → servicesText state
   useEffect(() => {
@@ -355,7 +367,6 @@ export function BusinessProfileSection({
         </div>
 
 
-        {/* Structured business address */}
         <div className="border-t border-gray-100 pt-3.5">
           <BusinessAddressSection
             embedded
@@ -363,6 +374,7 @@ export function BusinessProfileSection({
             onAddressValidChange={onAddressValidChange}
             registerApi={registerAddressApi}
             refreshToken={addressRefreshToken}
+            clearOnMount={clearAddressOnMount}
           />
         </div>
       </div>

@@ -366,7 +366,7 @@ const telegramManualSetupSchema = telegramBotSetupSchema.extend({
     .max(256)
 });
 
-const telegramBusinessSettingsSchema = z.object({
+export const telegramBusinessSettingsSchema = z.object({
   botDisplayName: z.string().trim().min(1, "Bot name is required").max(64),
   telegramWelcomeMessage: z.string().trim().max(4096),
   telegramFallbackMessage: z.string().trim().max(4096),
@@ -383,7 +383,7 @@ const telegramBusinessSettingsSchema = z.object({
     action: z.enum(["reply", "services", "book", "help"]),
     response: z.string().trim().max(4096)
   }).superRefine((command, context) => {
-    if (command.action === "reply" && !command.response) {
+    if (command.action === "reply" && !command.response && command.command !== "commands") {
       context.addIssue({ code: "custom", message: `Add the bot reply for /${command.command}.`, path: ["response"] });
     }
     if (command.command === "start") {
