@@ -262,10 +262,89 @@ function localHourMinute(startAt: string, timeZone: string): { hour: number; min
 }
 
 function normalizePhone(value: string): string | null {
-  const normalized = value.trim().replace(/[()\s.-]/g, "");
+  // Strip formatting characters (spaces, dashes, dots, parentheses)
+  const normalized = value.trim().replace(/[()\s.\-]/g, "");
   const withCountry = normalized.startsWith("+") ? normalized : `+${normalized}`;
-  return /^\+[1-9]\d{7,14}$/.test(withCountry) ? withCountry : null;
+  // Must be E.164: + country code (1-3 digits) + national number (minimum 7 digits)
+  // Overall minimum: +1 + 7 = 9 chars → but real phone numbers need national min 10 digits
+  // We require total digits (after +) to be at least 10 (e.g. +1XXXXXXXXXX = 11 total digits after +)
+  if (!/^\+[1-9]\d{9,14}$/.test(withCountry)) return null;
+  return withCountry;
 }
+
+/**
+ * Parses "8pm", "8:30 PM", "14:00", "2pm" etc. into { hour24, minuteNum }.
+ * Returns null if unparseable.
+ */
+function parseTimeInput(text: string): { hour24: number; minute: number } | null {
+  const cleaned = text.trim().toLowerCase();
+  // Matches: 8pm, 8am, 8:30pm, 8:30 am, 14:00, 14:30, 9, 09:00
+  const match = cleaned.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
+  if (!match) return null;
+  let hour = parseInt(match[1], 10);
+  const minute = match[2] ? parseInt(match[2], 10) : 0;
+  const meridiem = match[3];
+  if (hour > 23 || minute > 59) return null;
+  if (meridiem === "pm" && hour < 12) hour += 12;
+  if (meridiem === "am" && hour === 12) hour = 0;
+  return { hour24: hour, minute };
+}
+
+type HoursJsonEntry = { day?: string; open?: string; close?: string; closed?: boolean };
+
+/**
+ * Validates that a requested time is within business open hours for a given day name.
+ * Returns null if valid, or an error string with the actual hours if invalid.
+ */
+function validatePreferredTime(
+  timeText: string,
+  preferredDate: string | undefined,
+  hoursJson: unknown
+): string | null {
+  const parsed = parseTimeInput(timeText);
+  if (!parsed) return null; // Can't parse — let it pass, user typed something unusual
+
+  const { hour24, minute } = parsed;
+  if (!Array.isArray(hoursJson) || hoursJson.length === 0) return null; // No hours configured — pass
+
+  // Determine the day of week from the preferredDate (YYYY-MM-DD) or fall back to using all days
+  const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  let dayName: string | null = null;
+  if (preferredDate && /^\d{4}-\d{2}-\d{2}$/.test(preferredDate)) {
+    const d = new Date(`${preferredDate}T12:00:00Z`);
+    if (!isNaN(d.getTime())) dayName = WEEKDAYS[d.getUTCDay()];
+  }
+
+  // Find the hours entry for that day (or check any open day if day is unknown)
+  const entries = hoursJson as HoursJsonEntry[];
+  const dayEntry = dayName ? entries.find((e) => String(e.day ?? "").toLowerCase() === dayName) : null;
+
+  if (dayEntry) {
+    if (dayEntry.closed) {
+      // Business is closed on that day
+      return `The business is closed on ${dayName!.charAt(0).toUpperCase() + dayName!.slice(1)}. Please choose a different day.`;
+    }
+    const openTime = dayEntry.open ?? "09:00";
+    const closeTime = dayEntry.close ?? "17:00";
+    const [openH, openM] = openTime.split(":").map(Number);
+    const [closeH, closeM] = closeTime.split(":").map(Number);
+    const requestedMins = hour24 * 60 + minute;
+    const openMins = openH * 60 + openM;
+    const closeMins = closeH * 60 + closeM;
+
+    if (requestedMins < openMins || requestedMins >= closeMins) {
+      const fmt = (h: number, m: number) => {
+        const ampm = h >= 12 ? "PM" : "AM";
+        const h12 = h % 12 === 0 ? 12 : h % 12;
+        return m === 0 ? `${h12} ${ampm}` : `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+      };
+      return `That time is outside business hours. On ${dayName!.charAt(0).toUpperCase() + dayName!.slice(1)} we are open from ${fmt(openH, openM)} to ${fmt(closeH, closeM)}. Please choose a time within those hours.`;
+    }
+  }
+
+  return null; // Valid
+}
+
 
 function findMatchingService<T extends { name: string; slug: string }>(
   text: string,
@@ -576,6 +655,65 @@ async function showServices(
   );
 }
 
+/**
+ * For booking flows: shows service CATEGORIES from the custom /services command text
+ * as tappable buttons (svcopt: callbacks). Falls back to DB showServices() if no custom
+ * services command is configured.
+ */
+async function showServicesFromCustomCommand(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  triggerData: JsonRecord
+) {
+  const customServicesCmd = telegramCustomCommands(triggerData).find(
+    (item) => item.command === "services" && item.action === "reply" && item.response?.trim()
+  );
+
+  if (!customServicesCmd) {
+    // No custom services command — fall back to DB-backed list
+    await showServices(connection, event, true);
+    return;
+  }
+
+  // Parse category lines: only "• Category: sub-items" format
+  const lines = customServicesCmd.response.split("\n").map((l) => l.trim()).filter(Boolean);
+  const categories: string[] = [];
+  for (const line of lines) {
+    const listMatch = line.match(/^(?:\d+[.\)]|•|-|\*)\s+(.+)$/);
+    if (!listMatch) continue;
+    const content = listMatch[1].trim();
+    const colonIdx = content.indexOf(":");
+    if (colonIdx > 2 && colonIdx < content.length - 2) {
+      const title = content.slice(0, colonIdx).trim();
+      if (title.length >= 3) categories.push(title);
+    } else {
+      // Plain item with no colon — use full text as the service name
+      if (content.length >= 3) categories.push(content);
+    }
+  }
+
+  if (categories.length === 0) {
+    // Command exists but could not parse categories — fall back to DB
+    await showServices(connection, event, true);
+    return;
+  }
+
+  const rows = categories.slice(0, 20).map((cat) => [
+    {
+      text: cat.slice(0, 64),
+      callbackData: `svcopt:${cat.slice(0, 80)}`
+    }
+  ]);
+
+  await sendButtons(
+    connection,
+    event,
+    "book-custom-services",
+    "Select a service to proceed with booking:",
+    rows
+  );
+}
+
 async function sendTextOrButtonsIfList(
   connection: LoadedConnection,
   event: NormalizedTelegramEvent,
@@ -583,31 +721,55 @@ async function sendTextOrButtonsIfList(
   rawText: string
 ) {
   const lines = rawText.split("\n").map((l) => l.trim()).filter(Boolean);
-  const listItems: string[] = [];
   const headerLines: string[] = [];
+
+  // Parsed items: only items that match a clear "Title: Details" or "Title - Details" structure
+  // where the title and the detail are meaningfully different strings
+  const interactiveItems: { title: string; detail: string }[] = [];
+  let foundFirstListItem = false;
 
   for (const line of lines) {
     const listMatch = line.match(/^(?:\d+[\.\)]|•|\-|\*)\s+(.+)$/);
     if (listMatch) {
-      listItems.push(listMatch[1].trim());
-    } else if (listItems.length === 0) {
+      foundFirstListItem = true;
+      const content = listMatch[1].trim();
+      // Only extract as interactive if there's a colon separator splitting title from detail
+      const colonIdx = content.indexOf(":");
+      if (colonIdx > 2 && colonIdx < content.length - 2) {
+        const title = content.slice(0, colonIdx).trim();
+        const detail = content.slice(colonIdx + 1).trim();
+        // Both parts must be non-trivially different (detail has actual content beyond the title)
+        if (title.length >= 3 && detail.length >= 5 && detail !== title) {
+          interactiveItems.push({ title, detail });
+        }
+      }
+      // Items without a valid title:detail split are not added to interactiveItems
+    } else if (!foundFirstListItem) {
       headerLines.push(line);
     }
   }
 
-  if (listItems.length >= 2 && listItems.length <= 10) {
-    const headerText = headerLines.join("\n") || "Select an option below:";
-    const rows = listItems.map((item) => [
+  const isCustomCommand = stepKey.startsWith("custom-command:");
+  const commandName = isCustomCommand ? stepKey.slice("custom-command:".length) : "";
+
+  // Only show interactive buttons if ALL list items had a genuine title:detail split
+  // AND the detail is actually different from the title (so clicking reveals new info)
+  if (isCustomCommand && interactiveItems.length >= 2 && interactiveItems.length <= 15) {
+    const headerText = headerLines.join("\n") || "Select a category for details:";
+    const rows = interactiveItems.map((item, idx) => [
       {
-        text: item.slice(0, 64),
-        callbackData: `opt:${item.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 32)}`
+        text: item.title.slice(0, 64),
+        callbackData: `cmdopt:${commandName}:${idx}`
       }
     ]);
     return sendButtons(connection, event, stepKey, headerText, rows);
   }
 
+  // Default: send as plain formatted text — preserves the original structure
   return sendText(connection, event, stepKey, rawText);
 }
+
+
 
 async function availableDates(connection: LoadedConnection, serviceName: string): Promise<string[]> {
   const timeZone = connection.business.profile?.timeZone || "UTC";
@@ -1344,6 +1506,53 @@ async function finishBookingDetails(
   );
 }
 
+/**
+ * Shown after a custom AI `book` command finishes collecting name + phone.
+ * Displays a review card with Confirm / Change details / Cancel buttons.
+ */
+async function showCustomConfirmation(
+  connection: LoadedConnection,
+  event: NormalizedTelegramEvent,
+  stateIdentity: TelegramConversationIdentity,
+  context: TelegramBookingContext
+) {
+  const commandLabel = context.activeCustomCommand
+    ? `/${context.activeCustomCommand}`
+    : "Your request";
+
+  // Build a clean summary of collected fields
+  const lines: string[] = [
+    `Review your details for ${commandLabel}:`,
+    "",
+    `Name:  ${context.customerName ?? "Not provided"}`,
+    `Phone: ${context.customerPhone ?? "Not provided"}`,
+    ...(context.customerEmail ? [`Email: ${context.customerEmail}`] : []),
+    ...(context.customerNotes ? [`Notes: ${context.customerNotes}`] : []),
+    // If there are any extra collected fields from the AI flow, show them
+    ...Object.entries(context.collectedFields ?? {}).map(
+      ([k, v]) => `${k.charAt(0).toUpperCase() + k.slice(1)}: ${v}`
+    )
+  ];
+
+  const result = await sendButtons(
+    connection,
+    event,
+    "custom-confirm",
+    lines.join("\n"),
+    [
+      [{ text: "Confirm and Submit", callbackData: "custom:confirm" }],
+      [
+        { text: "Change Details", callbackData: "custom:change" },
+        { text: "Cancel", callbackData: "custom:cancel" }
+      ]
+    ]
+  );
+  await saveTelegramConversationState(stateIdentity, "CONFIRMING_CUSTOM", {
+    ...context,
+    summaryMessageId: result.messageId ?? undefined
+  });
+}
+
 async function confirmBooking(
   connection: LoadedConnection,
   event: NormalizedTelegramEvent,
@@ -1789,11 +1998,6 @@ async function handleCommand(
   if (["book", "mybookings", "reschedule", "cancel"].includes(command) && !bookingMode(triggerData)) {
     return false;
   }
-  if (command === "services") {
-    await saveTelegramConversationState(stateIdentity, "SHOWING_SERVICES", context);
-    await showServices(connection, event, false);
-    return true;
-  }
   const customCommand = telegramCustomCommands(triggerData).find((item) => item.command === command);
   if (customCommand) {
     if (customCommand.action === "services") {
@@ -1817,7 +2021,7 @@ async function handleCommand(
         return true;
       }
       await saveTelegramConversationState(stateIdentity, "SELECTING_SERVICE", {});
-      await showServices(connection, event, true);
+      await showServicesFromCustomCommand(connection, event, triggerData);
       return true;
     }
     if (customCommand.action === "help") {
@@ -1839,7 +2043,7 @@ async function handleCommand(
   }
   if (command === "book") {
     await saveTelegramConversationState(stateIdentity, "SELECTING_SERVICE", {});
-    await showServices(connection, event, true);
+    await showServicesFromCustomCommand(connection, event, triggerData);
     return true;
   }
   if (command === "help") {
@@ -1885,10 +2089,47 @@ async function handleCallback(
 ): Promise<boolean> {
   const data = event.callback.data;
   if (!data) return false;
+
+  if (data.startsWith("cmdopt:")) {
+    const parts = data.split(":");
+    const commandName = parts[1];
+    const itemIndex = parseInt(parts[2] || "", 10);
+    if (commandName && !isNaN(itemIndex)) {
+      const customCommand = telegramCustomCommands(triggerData).find((item) => item.command === commandName);
+      if (customCommand) {
+        // Re-parse using IDENTICAL logic to sendTextOrButtonsIfList to ensure index alignment
+        const lines = customCommand.response.split("\n").map((l) => l.trim()).filter(Boolean);
+        const interactiveItems: { title: string; detail: string }[] = [];
+        for (const line of lines) {
+          const listMatch = line.match(/^(?:\d+[\.\)]|•|\-|\*)\s+(.+)$/);
+          if (listMatch) {
+            const content = listMatch[1].trim();
+            const colonIdx = content.indexOf(":");
+            if (colonIdx > 2 && colonIdx < content.length - 2) {
+              const title = content.slice(0, colonIdx).trim();
+              const detail = content.slice(colonIdx + 1).trim();
+              if (title.length >= 3 && detail.length >= 5 && detail !== title) {
+                interactiveItems.push({ title, detail });
+              }
+            }
+          }
+        }
+        const selected = interactiveItems[itemIndex];
+        if (selected) {
+          await answerCallback(connection, event, `cmdopt-${commandName}-${itemIndex}-callback`);
+          const replyText = `*${selected.title}*\n\n${selected.detail}`;
+          await sendText(connection, event, `cmdopt-reply:${commandName}`, replyText);
+          return true;
+        }
+      }
+    }
+  }
+
   const bookingCallback =
     data === "nav:book" ||
     data === "nav:mybookings" ||
     data.startsWith("service:") ||
+    data.startsWith("svcopt:") ||
     data.startsWith("date:") ||
     data.startsWith("slot:") ||
     data.startsWith("booking:") ||
@@ -1901,13 +2142,27 @@ async function handleCallback(
   if (data === "nav:services") {
     await answerCallback(connection, event, "nav-services-callback");
     await saveTelegramConversationState(stateIdentity, "SHOWING_SERVICES", context);
-    await showServices(connection, event, false);
+    // If there's a custom "services" command with a static reply, show its text
+    // (not the booking DB services list which may be empty or different)
+    const customServicesCmd = telegramCustomCommands(triggerData).find(
+      (item) => item.command === "services" && item.action === "reply" && item.response?.trim()
+    );
+    if (customServicesCmd) {
+      await sendTextOrButtonsIfList(
+        connection,
+        event,
+        "custom-command:services",
+        renderBusinessTemplate(customServicesCmd.response, connection.business.name)
+      );
+    } else {
+      await showServices(connection, event, false);
+    }
     return true;
   }
   if (data === "nav:book") {
     await answerCallback(connection, event, "nav-book-callback");
     await saveTelegramConversationState(stateIdentity, "SELECTING_SERVICE", {});
-    await showServices(connection, event, true);
+    await showServicesFromCustomCommand(connection, event, triggerData);
     return true;
   }
   if (data === "nav:mybookings") {
@@ -1958,6 +2213,35 @@ async function handleCallback(
     await beginBookingForService(connection, event, stateIdentity, nextContext);
     return true;
   }
+  // svcopt: — service selected from custom /services command text (no DB record, manual request)
+  if (data.startsWith("svcopt:")) {
+    const serviceName = data.slice("svcopt:".length).trim();
+    if (!serviceName) {
+      await answerCallback(connection, event, "svcopt-invalid-callback", "Service is unavailable.");
+      return true;
+    }
+    await answerCallback(connection, event, "svcopt-callback", serviceName);
+    const nextContext: TelegramBookingContext = {
+      ...context,
+      serviceName,
+      serviceSlug: undefined,
+      serviceId: undefined,
+      serviceDurationMinutes: undefined,
+      selectedDate: undefined,
+      selectedStartAt: undefined,
+      bookingAttemptId: undefined,
+      bookingRequestMode: true  // Always manual request since these are text-only services
+    };
+    await saveTelegramConversationState(stateIdentity, "WAITING_FOR_PREFERRED_DATE", nextContext);
+    await sendText(
+      connection,
+      event,
+      "ask-preferred-date",
+      `Great choice. What date would you prefer for ${serviceName}? (e.g. "Monday" or "August 15")`
+    );
+    return true;
+  }
+
   if (data.startsWith("date:") && context.serviceName) {
     const date = data.slice("date:".length);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -2045,7 +2329,7 @@ async function handleCallback(
   if (data === "booking:change") {
     await answerCallback(connection, event, "booking-change-callback");
     await saveTelegramConversationState(stateIdentity, "SELECTING_SERVICE", {});
-    await showServices(connection, event, true);
+    await showServicesFromCustomCommand(connection, event, triggerData);
     return true;
   }
   if (data === "booking:cancel") {
@@ -2054,6 +2338,47 @@ async function handleCallback(
     await sendText(connection, event, "booking-cancel-flow", "The booking flow has been cancelled.");
     return true;
   }
+  // ── Custom AI book command confirm / change / cancel ───────────────────────
+  if (data === "custom:confirm") {
+    if (!context.activeCustomInstruction) {
+      await answerCallback(connection, event, "custom-confirm-no-instruction", "No active request found.");
+      return true;
+    }
+    await answerCallback(connection, event, "custom-confirm-callback", "Submitting your request...");
+    // Pass confirmed details back to AI to complete the action
+    const customInstruction = context.activeCustomInstruction;
+    const summary = [
+      `Customer confirmed the following details:`,
+      `Name: ${context.customerName ?? "Not provided"}`,
+      `Phone: ${context.customerPhone ?? "Not provided"}`,
+      ...(context.customerEmail ? [`Email: ${context.customerEmail}`] : []),
+      ...(context.customerNotes ? [`Notes: ${context.customerNotes}`] : []),
+      ...Object.entries(context.collectedFields ?? {}).map(([k, v]) => `${k}: ${v}`),
+      ``,
+      `Instruction: ${customInstruction}`
+    ].join("\n");
+    // Update context to STARTED so follow-up messages go through AI
+    await saveTelegramConversationState(stateIdentity, "STARTED", context);
+    await workflowFallback(connection, event, triggerData, summary);
+    return true;
+  }
+  if (data === "custom:change") {
+    await answerCallback(connection, event, "custom-change-callback");
+    // Go back to name collection but keep the active command context
+    const keepContext = {
+      activeCustomCommand: context.activeCustomCommand,
+      activeCustomInstruction: context.activeCustomInstruction
+    };
+    await askForCustomerName(connection, event, stateIdentity, keepContext);
+    return true;
+  }
+  if (data === "custom:cancel") {
+    await answerCallback(connection, event, "custom-cancel-callback", "Request cancelled.");
+    await saveTelegramConversationState(stateIdentity, "CANCELLED", {});
+    await sendText(connection, event, "custom-cancel-flow", "Your request has been cancelled. Type /help to see available commands.");
+    return true;
+  }
+
   if (data === "reschedule:confirm") {
     if (!context.reschedulingAppointmentId) {
       await answerCallback(connection, event, "reschedule-already-confirmed-callback", "Already processed.");
@@ -2136,7 +2461,7 @@ async function handleCollectedInput(
         "typed-service-not-found",
         `I couldn't match “${text.slice(0, 80)}” to one service. Type the exact service name or choose a button below.`
       );
-      await showServices(connection, event, true);
+      await showServicesFromCustomCommand(connection, event, triggerData);
       return true;
     }
     const next: TelegramBookingContext = {
@@ -2175,10 +2500,20 @@ async function handleCollectedInput(
   }
   if (stateName === "WAITING_FOR_PREFERRED_TIME" && text && !text.startsWith("/")) {
     const extracted = extractDateTimeFromText(text);
+    const timeText = extracted.time ?? text.trim();
+    const hoursJson = connection.business.profile?.hoursJson;
+
+    // Validate the requested time against business open hours
+    const timeError = validatePreferredTime(timeText, context.preferredDate, hoursJson);
+    if (timeError) {
+      await sendText(connection, event, "preferred-time-invalid", timeError);
+      return true;
+    }
+
     const next = {
       ...context,
       preferredDate: extracted.date ?? context.preferredDate,
-      preferredTime: extracted.time ?? text.slice(0, 120)
+      preferredTime: timeText.slice(0, 120)
     };
     await askForCustomerName(connection, event, stateIdentity, next);
     return true;
@@ -2205,7 +2540,7 @@ async function handleCollectedInput(
         connection,
         event,
         "phone-invalid",
-        "Please enter a valid phone number (e.g. +15551234567 or 10-digit number)."
+        "Please enter a valid phone number including the country code (e.g. +1 555 123 4567 for USA, or +91 98765 43210 for India). The number must have at least 10 digits after the country code."
       );
       return true;
     }
@@ -2213,6 +2548,26 @@ async function handleCollectedInput(
     if (context.pendingIntent) {
       await saveTelegramConversationState(stateIdentity, "STARTED", next);
       await showCustomerBookings(connection, event, next, context.pendingIntent);
+      return true;
+    }
+    // If this is a custom AI book command (not a calendar booking), route to custom confirmation
+    if (next.activeCustomCommand && next.activeCustomInstruction) {
+      if (boolValue(triggerData.telegramRequestEmail, false)) {
+        await saveTelegramConversationState(stateIdentity, "WAITING_FOR_EMAIL", next);
+        await sendText(connection, event, "ask-email", "What email address should we use for your request confirmation?");
+        return true;
+      }
+      if (boolValue(triggerData.telegramRequestNotes, false)) {
+        await saveTelegramConversationState(stateIdentity, "WAITING_FOR_NOTES", next);
+        await sendText(
+          connection,
+          event,
+          "ask-notes",
+          "Any additional notes or requests? (Reply 'skip' to proceed):"
+        );
+        return true;
+      }
+      await showCustomConfirmation(connection, event, stateIdentity, next);
       return true;
     }
     if (boolValue(triggerData.telegramRequestEmail, false)) {
@@ -2249,6 +2604,11 @@ async function handleCollectedInput(
       );
       return true;
     }
+    // Route to custom confirmation if in a custom AI book command
+    if (next.activeCustomCommand && next.activeCustomInstruction) {
+      await showCustomConfirmation(connection, event, stateIdentity, next);
+      return true;
+    }
     await finishBookingDetails(connection, event, stateIdentity, next);
     return true;
   }
@@ -2257,6 +2617,11 @@ async function handleCollectedInput(
       ...context,
       customerNotes: text.toLowerCase() === "skip" ? undefined : text.slice(0, 1_000)
     };
+    // Route to custom confirmation if in a custom AI book command
+    if (next.activeCustomCommand && next.activeCustomInstruction) {
+      await showCustomConfirmation(connection, event, stateIdentity, next);
+      return true;
+    }
     await finishBookingDetails(connection, event, stateIdentity, next);
     return true;
   }
@@ -2320,7 +2685,7 @@ async function naturalLanguageRoute(
       await beginBookingForService(connection, event, stateIdentity, next);
     } else {
       await saveTelegramConversationState(stateIdentity, "SELECTING_SERVICE", {});
-      await showServices(connection, event, true);
+      await showServicesFromCustomCommand(connection, event, triggerData);
     }
     return true;
   }
@@ -2369,7 +2734,7 @@ async function naturalLanguageRoute(
       await beginBookingForService(connection, event, stateIdentity, next);
     } else {
       await saveTelegramConversationState(stateIdentity, "SELECTING_SERVICE", {});
-      await showServices(connection, event, true);
+      await showServicesFromCustomCommand(connection, event, triggerData);
     }
     return true;
   }
@@ -2393,7 +2758,24 @@ async function workflowFallback(
   customInstructions?: string
 ) {
   const text = event.message.text || event.message.caption || `[${event.eventType}]`;
+
+  // If the conversation is not explicitly marked as AI-powered (no active custom instruction),
+  // route statically and avoid invoking the AI/LLM workflow.
+  if (!customInstructions?.trim()) {
+    const userFirstName = event.sender.firstName || event.sender.username || "there";
+    const fallbackMessage = stringValue(triggerData.telegramFallbackMessage);
+    const isGreeting = /^\s*(hi|hello|hey|greetings|hola|howdy)\s*[!.,]?\s*$/i.test(text.trim());
+    const rawReply =
+      (isGreeting && fallbackMessage ? fallbackMessage : null) ||
+      fallbackMessage ||
+      `Hello ${userFirstName}! 👋 I'm here to assist you with ${connection.business.name}. Type /help or /commands to see how I can help.`;
+    const reply = renderBusinessTemplate(rawReply, connection.business.name, event.sender);
+    await sendText(connection, event, "workflow-reply-static", reply);
+    return null;
+  }
+
   const profile = connection.business.profile;
+
 
   // ── Business facts ──────────────────────────────────────────────────────────
   const agentConfig = record(connection.installedAgent.configJson);

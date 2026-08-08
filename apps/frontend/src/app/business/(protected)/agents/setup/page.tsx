@@ -601,6 +601,7 @@ function SetupWizard() {
     summary: string[] | null;
     timeZone: string;
     suggestion: boolean;
+    hours?: any[];
   }>({ configured: false, summary: null, timeZone: "", suggestion: false });
 
   // Document counts reported by the Knowledge section (collapsed-card summary).
@@ -721,7 +722,8 @@ function SetupWizard() {
       configured: data.configured,
       summary: data.weeklySummary ?? null,
       timeZone: data.timeZone,
-      suggestion: Boolean(data.suggestion)
+      suggestion: Boolean(data.suggestion),
+      hours: data.hours
     });
   }, []);
 
@@ -1025,12 +1027,13 @@ function SetupWizard() {
       if (cancelled || !res.success || !res.data) return;
       setBusinessHoursState((current) =>
         current.configured
-          ? current
+          ? { ...current, hours: res.data!.hours }
           : {
             configured: res.data!.configured,
             summary: res.data!.weeklySummary ?? null,
             timeZone: res.data!.timeZone,
-            suggestion: Boolean(res.data!.suggestion)
+            suggestion: Boolean(res.data!.suggestion),
+            hours: res.data!.hours
           }
       );
     });
@@ -2164,7 +2167,32 @@ function SetupWizard() {
                     onFaqs={dirtyWrap(setFaqs)}
                     onSummaryChange={setKnowledgeSummary}
                     onKnowledgeChanged={handleKnowledgeChanged}
-                    hoursSuggestionReady={businessHours.suggestion}
+                     hoursSuggestionReady={(() => {
+                      try {
+                        const cached = typeof window !== "undefined" && localStorage.getItem("extracted_suggestions");
+                        if (cached) {
+                          const parsed = JSON.parse(cached);
+                          const suggestion = parsed?.hoursSuggestion;
+                          if (suggestion && businessHours.hours) {
+                            const w = businessHours.hours;
+                            for (const row of w) {
+                              const sug = suggestion.days[row.day.toLowerCase()];
+                              if (!sug) continue;
+                              if (sug.closed !== row.closed) return true;
+                              if (!sug.closed) {
+                                const openTime = row.periods[0]?.open || "";
+                                const closeTime = row.periods[0]?.close || "";
+                                if (sug.open.slice(0, 5) !== openTime.slice(0, 5) || sug.close.slice(0, 5) !== closeTime.slice(0, 5)) {
+                                  return true;
+                                }
+                              }
+                            }
+                            return false;
+                          }
+                        }
+                      } catch {}
+                      return businessHours.suggestion;
+                    })()}
                     onReviewHours={() => jumpToConfigureSection("hours-availability")}
                   />
                 </ConfigureSectionCard>

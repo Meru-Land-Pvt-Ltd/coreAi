@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { HelpCircle, Info, Plus, Trash2, Zap } from "lucide-react";
+import { HelpCircle, Info, Plus, Trash2, Zap, Sparkles, UploadCloud, FileText, Loader2 } from "lucide-react";
 import {
   getBusinessTelegramStatus,
   updateBusinessTelegramSettings,
+  generateBusinessTelegramCommands,
   type TelegramBusinessCustomCommand,
   type TelegramBusinessSettings,
   type TelegramSetupStatus
@@ -32,6 +33,11 @@ const CUSTOM_COMMAND_ACTIONS: Array<{
     value: "book",
     label: "AI Action",
     subtitle: "AI intelligently responds and completes tasks using custom instructions"
+  },
+  {
+    value: "services",
+    label: "Booking Flow",
+    subtitle: "Show list of bookable services and start appointment scheduling"
   }
 ];
 
@@ -84,19 +90,24 @@ const FIVE_PRESETS = [
 ];
 
 function ensureDefaultCommands(loadedCmds: TelegramBusinessCustomCommand[]): TelegramBusinessCustomCommand[] {
-  const hasCommands = loadedCmds.some((c) => c.command === "commands");
+  const normalized = loadedCmds.map((cmd) =>
+    cmd.command === "commands" && !cmd.response.trim()
+      ? { ...cmd, response: "Show a list of all active bot commands." }
+      : cmd
+  );
+  const hasCommands = normalized.some((c) => c.command === "commands");
   if (!hasCommands) {
     return [
       {
         command: "commands",
         description: "Show list of all active bot commands",
         action: "reply",
-        response: ""
+        response: "Show a list of all active bot commands."
       },
-      ...loadedCmds
+      ...normalized
     ];
   }
-  return loadedCmds;
+  return normalized;
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -272,6 +283,66 @@ export function TelegramConfigSection({
   const [showValidation, setShowValidation] = useState(false);
 
   const [activeCommandIndex, setActiveCommandIndex] = useState<number>(0);
+
+  const [businessInfoInput, setBusinessInfoInput] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generationSuccess, setGenerationSuccess] = useState(false);
+  const [generationError, setGenerationError] = useState("");
+
+  const handleGenerateCommands = async () => {
+    if (!installedAgentId) return;
+    setGenerating(true);
+    setGenerationError("");
+    setGenerationSuccess(false);
+
+    try {
+      const res = await generateBusinessTelegramCommands(
+        installedAgentId,
+        businessInfoInput || undefined,
+        selectedFile || undefined
+      );
+
+      if (!res.success || !res.data) {
+        throw new Error(res.error || "Failed to generate Telegram commands.");
+      }
+
+      const data = res.data;
+      setSettings(prev => {
+        if (!prev) return prev;
+        const generated = data.commands || [];
+        return {
+          ...prev,
+          telegramWelcomeMessage: data.welcomeMessage || prev.telegramWelcomeMessage,
+          telegramFallbackMessage: data.fallbackMessage || prev.telegramFallbackMessage,
+          telegramCustomCommands: [
+            {
+              command: "commands",
+              description: "Show list of all active bot commands",
+              action: "reply",
+              response: "Show a list of all active bot commands."
+            },
+            ...generated.map(c => ({
+              command: c.command.toLowerCase().replace(/[^a-z0-9_]/g, ""),
+              description: c.description || "",
+              action: c.action || "reply",
+              response: c.response || ""
+            }))
+          ]
+        };
+      });
+
+      setActiveCommandIndex(0);
+      setGenerationSuccess(true);
+      setBusinessInfoInput("");
+      setSelectedFile(null);
+    } catch (err) {
+      setGenerationError(err instanceof Error ? err.message : "Error generating commands");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
 
   const load = useCallback(async () => {
     if (!installedAgentId) return;
@@ -511,6 +582,110 @@ export function TelegramConfigSection({
   return (
     <div className="space-y-6 text-slate-900" data-testid="business-setup-telegram-customization">
 
+      {/* ── Section 0: AI Command Generator ── */}
+      <div className="space-y-3">
+        <div>
+          <h4 className={`${SECTION_TITLE} inline-flex items-center gap-1.5`}>
+            <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+            AI Bot Command Generator
+            <InfoTooltip content="Provide business details or upload documents to automatically generate bot greetings and command shortcuts." />
+          </h4>
+        </div>
+
+        <div className="space-y-2.5">
+          {/* Text Area */}
+          <div>
+            <textarea
+              rows={3}
+              value={businessInfoInput}
+              onChange={(e) => setBusinessInfoInput(e.target.value)}
+              placeholder="Paste website content, business profile, services list, or details here..."
+              className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400 transition-colors"
+            />
+          </div>
+
+          {/* Compact File Upload Bar */}
+          <div
+            className="border border-dashed border-slate-200 hover:border-slate-300 rounded-lg px-3 py-2 bg-slate-50/50 hover:bg-slate-50 transition-colors cursor-pointer text-xs text-slate-600 flex items-center justify-between"
+            onClick={() => document.getElementById("ai-command-file-input")?.click()}
+          >
+            <input
+              id="ai-command-file-input"
+              type="file"
+              accept=".pdf,.docx,.txt"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                setSelectedFile(file);
+              }}
+            />
+            {selectedFile ? (
+              <div className="flex items-center justify-between w-full text-xs font-medium text-slate-700">
+                <div className="flex items-center gap-2 truncate">
+                  <FileText className="h-4 w-4 text-slate-500 shrink-0" />
+                  <span className="truncate">{selectedFile.name}</span>
+                  <span className="text-[10px] text-slate-400 font-normal">({(selectedFile.size / 1024).toFixed(1)} KB)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedFile(null);
+                  }}
+                  className="text-slate-400 hover:text-red-500 font-bold ml-2 shrink-0 p-0.5"
+                  title="Remove file"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between w-full text-xs">
+                <div className="flex items-center gap-2 text-slate-600">
+                  <UploadCloud className="h-4 w-4 text-slate-400 shrink-0" />
+                  <span>Upload brochure, PDF, or text document</span>
+                </div>
+                <span className="text-[10px] text-slate-400">PDF, DOCX, TXT (up to 10MB)</span>
+              </div>
+            )}
+          </div>
+
+          {/* Action Footer & Status */}
+          <div className="flex items-center justify-between gap-4 pt-1">
+            <div>
+              {generationSuccess && (
+                <p className="text-[11px] font-medium text-emerald-600 flex items-center gap-1">
+                  ✓ Commands generated successfully! Review settings below.
+                </p>
+              )}
+              {generationError && (
+                <p className="text-[11px] font-medium text-red-600">
+                  {generationError}
+                </p>
+              )}
+            </div>
+
+            <button
+              type="button"
+              disabled={generating || (!businessInfoInput.trim() && !selectedFile)}
+              onClick={handleGenerateCommands}
+              className="bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-medium py-1.5 px-3.5 rounded-lg flex items-center gap-1.5 text-xs transition-colors cursor-pointer disabled:cursor-not-allowed select-none shrink-0"
+            >
+              {generating ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-300" />
+                  <span>Generating…</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                  <span>Generate Commands</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* ── Section 1: Greeting Messages ── */}
       <div className="space-y-3">
         <div>
@@ -526,7 +701,7 @@ export function TelegramConfigSection({
               <InfoTooltip content="Sent automatically when a customer starts a chat (/start)." />
             </span>
             <textarea
-              rows={2}
+              rows={4}
               value={settings.telegramWelcomeMessage}
               onChange={(e) => patch("telegramWelcomeMessage", e.target.value)}
               placeholder="e.g. Hi! Welcome! How can I help you today?"
@@ -540,7 +715,7 @@ export function TelegramConfigSection({
               <InfoTooltip content="Sent when the bot cannot understand a customer message." />
             </span>
             <textarea
-              rows={2}
+              rows={4}
               value={settings.telegramFallbackMessage}
               onChange={(e) => patch("telegramFallbackMessage", e.target.value)}
               placeholder="e.g. I didn't quite catch that. Type /help to view options."
@@ -728,7 +903,7 @@ export function TelegramConfigSection({
                     Reply Message Text <span className="text-red-500">*</span>
                   </span>
                   <textarea
-                    rows={2}
+                    rows={6}
                     value={activeCmd.response}
                     onChange={(e) => patchCustomCommand(activeIdx, { response: e.target.value.slice(0, 4096) })}
                     placeholder="Enter the exact response text message your bot will send when triggered..."
@@ -742,7 +917,7 @@ export function TelegramConfigSection({
                     AI Action Instructions <span className="text-red-500">*</span>
                   </span>
                   <textarea
-                    rows={2}
+                    rows={6}
                     value={activeCmd.response}
                     onChange={(e) => patchCustomCommand(activeIdx, { response: e.target.value.slice(0, 4096) })}
                     placeholder="Describe what the AI bot should do (e.g. 'Ask for Policy ID & damage photo, collect phone number, and alert owner')."

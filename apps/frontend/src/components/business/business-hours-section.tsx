@@ -181,6 +181,42 @@ export function BusinessHoursSection({
       : JSON.stringify(s);
   };
 
+  const getSuggestion = useCallback((serverSuggestion: BusinessHoursData["suggestion"]) => {
+    if (serverSuggestion) return serverSuggestion;
+    try {
+      const cached = localStorage.getItem("extracted_suggestions");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.hoursSuggestion) {
+          return parsed.hoursSuggestion;
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return null;
+  }, []);
+
+  const doesHoursSuggestionMatchWeek = useCallback((
+    s: BusinessHoursData["suggestion"],
+    w: BusinessHoursDayInput[]
+  ) => {
+    if (!s) return true;
+    for (const row of w) {
+      const sug = s.days[row.day.toLowerCase()];
+      if (!sug) continue;
+      if (sug.closed !== row.closed) return false;
+      if (!sug.closed) {
+        const openTime = row.periods[0]?.open || "";
+        const closeTime = row.periods[0]?.close || "";
+        if (sug.open.slice(0, 5) !== openTime.slice(0, 5) || sug.close.slice(0, 5) !== closeTime.slice(0, 5)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }, []);
+
   const filterSuggestion = useCallback((s: BusinessHoursData["suggestion"]) => {
     if (!s) return null;
     const key = getSuggestionKey(s);
@@ -212,10 +248,10 @@ export function BusinessHoursSection({
     setConfirmedAt(data.confirmedAt);
     setLiveAssistant(data.liveAssistant);
     setOpenStatusText(data.openStatus?.description ?? "");
-    setSuggestion(filterSuggestion(data.suggestion ?? null));
+    setSuggestion(filterSuggestion(getSuggestion(data.suggestion ?? null)));
     if (data.sync) setSync(data.sync);
     setDirty(false);
-  }, [filterSuggestion]);
+  }, [filterSuggestion, getSuggestion]);
 
   useEffect(() => {
     let mounted = true;
@@ -251,7 +287,7 @@ export function BusinessHoursSection({
     getBusinessHours().then((response) => {
       if (cancelled || !response.success || !response.data) return;
       if (dirtyRef.current) {
-        setSuggestion(filterSuggestion(response.data.suggestion ?? null));
+        setSuggestion(filterSuggestion(getSuggestion(response.data.suggestion ?? null)));
         setOpenStatusText(response.data.openStatus?.description ?? "");
         setLiveAssistant(response.data.liveAssistant);
       } else {
@@ -263,7 +299,7 @@ export function BusinessHoursSection({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh only on token change
-  }, [refreshToken, applyServerData, filterSuggestion]);
+  }, [refreshToken, applyServerData, filterSuggestion, getSuggestion]);
 
   useEffect(() => {
     if (!dirty || embedded) return;
@@ -601,7 +637,7 @@ export function BusinessHoursSection({
         </span>
       ) : null}
 
-      {suggestion ? (
+      {suggestion && !doesHoursSuggestionMatchWeek(suggestion, week) && !confirmedAt ? (
         <div
           className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4"
           data-testid="business-hours-suggestion"

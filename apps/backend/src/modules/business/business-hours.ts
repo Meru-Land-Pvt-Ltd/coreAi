@@ -104,7 +104,8 @@ businessHoursRoutes.get("/", async (c) => {
   // not confirmed a schedule themselves.
   let suggestion: { days: Record<string, { open: string; close: string; closed: boolean }>; sourceFilename: string | null } | null =
     null;
-  if (!state.confirmedAt) {
+  const extractParam = c.req.query("extract") === "true";
+  if (extractParam && !state.confirmedAt) {
     const extracted = await extractHoursFromDocuments({ businessId: business.id });
     if (extracted) {
       suggestion = { days: extracted.days as never, sourceFilename: extracted.sourceFilename };

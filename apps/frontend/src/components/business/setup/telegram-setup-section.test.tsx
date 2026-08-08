@@ -4,7 +4,8 @@ import {
   disconnectBusinessTelegram,
   getBusinessTelegramStatus,
   startBusinessTelegramOwnerAuthorization,
-  updateBusinessTelegramSettings
+  updateBusinessTelegramSettings,
+  generateBusinessTelegramCommands
 } from "@/components/business/features/api";
 import { TelegramConnectSection, TelegramConfigSection } from "./telegram-setup-section";
 
@@ -15,7 +16,8 @@ vi.mock("@/components/business/features/api", () => ({
   refreshBusinessTelegramHealth: vi.fn(),
   sendBusinessTelegramTestMessage: vi.fn(),
   startBusinessTelegramOwnerAuthorization: vi.fn(),
-  updateBusinessTelegramSettings: vi.fn()
+  updateBusinessTelegramSettings: vi.fn(),
+  generateBusinessTelegramCommands: vi.fn()
 }));
 
 const settings = {
@@ -158,6 +160,64 @@ describe("Business Telegram setup", () => {
     });
   });
 
+  it("does not require a bot reply for the default /commands command", async () => {
+    vi.mocked(getBusinessTelegramStatus).mockResolvedValue({
+      success: true,
+      data: {
+        connection: null,
+        manualProvisioningAvailable: true,
+        settings,
+        services: ["Consultation"]
+      }
+    });
+    vi.mocked(updateBusinessTelegramSettings).mockResolvedValue({
+      success: true,
+      data: {
+        settings: {
+          ...settings,
+          telegramCustomCommands: [
+            {
+              command: "commands",
+              description: "Show list of all active bot commands",
+              action: "reply",
+              response: "Show a list of all active bot commands."
+            }
+          ]
+        },
+        services: ["Consultation"],
+        botDisplayName: "Example Business Assistant"
+      }
+    });
+
+    render(
+      <TelegramConfigSection
+        installedAgentId="installed-agent"
+        businessName="Example Business"
+        services={["Consultation"]}
+      />
+    );
+
+    await screen.findByTestId("business-setup-telegram-command-0");
+    fireEvent.click(screen.getByTestId("business-setup-telegram-save-settings"));
+
+    await waitFor(() => {
+      expect(updateBusinessTelegramSettings).toHaveBeenCalledWith(
+        "installed-agent",
+        expect.objectContaining({
+          services: ["Consultation"],
+          telegramCustomCommands: expect.arrayContaining([
+            expect.objectContaining({
+              command: "commands",
+              action: "reply"
+            })
+          ])
+        })
+      );
+    });
+
+    expect(screen.queryByTestId("business-setup-telegram-validation-error")).toBeNull();
+  });
+
   it("lets the business define custom commands in configuration step", async () => {
     vi.mocked(getBusinessTelegramStatus).mockResolvedValue({
       success: true,
@@ -224,5 +284,73 @@ describe("Business Telegram setup", () => {
         })
       );
     });
+  });
+
+  it("generates commands via AI when user clicks generate commands", async () => {
+    vi.mocked(getBusinessTelegramStatus).mockResolvedValue({
+      success: true,
+      data: {
+        connection: null,
+        manualProvisioningAvailable: true,
+        settings,
+        services: ["Strategy call"]
+      }
+    });
+
+    vi.mocked(generateBusinessTelegramCommands).mockResolvedValue({
+      success: true,
+      data: {
+        welcomeMessage: "Hello, welcome to our business!",
+        fallbackMessage: "I didn't understand. Type /help.",
+        commands: [
+          {
+            command: "hours",
+            description: "View business hours",
+            action: "reply",
+            response: "We are open 9am to 5pm."
+          },
+          {
+            command: "book",
+            description: "Book an appointment",
+            action: "book",
+            response: "Prompt user for name and time."
+          }
+        ]
+      }
+    });
+
+    render(
+      <TelegramConfigSection
+        installedAgentId="installed-agent"
+        businessName="Example Business"
+        services={["Strategy call"]}
+      />
+    );
+
+    // AI Command Generator should be present
+    expect(await screen.findByText("AI Bot Command Generator")).toBeTruthy();
+    
+    // Fill text area
+    const textarea = screen.getByPlaceholderText(/paste website content/i);
+    fireEvent.change(textarea, { target: { value: "We are open 9am to 5pm, book appointment with us" } });
+
+    // Click Generate Commands button
+    const generateBtn = screen.getByText("Generate Commands");
+    fireEvent.click(generateBtn);
+
+    await waitFor(() => {
+      expect(generateBusinessTelegramCommands).toHaveBeenCalledWith(
+        "installed-agent",
+        "We are open 9am to 5pm, book appointment with us",
+        undefined
+      );
+    });
+
+    // Success alert should be present
+    expect(await screen.findByText(/Commands generated successfully/i)).toBeTruthy();
+
+    // Verify it updated welcome message field
+    const welcomeTextarea = screen.getByPlaceholderText(/Hi! Welcome!/i);
+    expect((welcomeTextarea as HTMLTextAreaElement).value).toBe("Hello, welcome to our business!");
   });
 });

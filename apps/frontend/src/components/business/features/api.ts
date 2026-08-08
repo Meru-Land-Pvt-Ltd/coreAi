@@ -444,6 +444,27 @@ export function updateBusinessTelegramSettings(
   );
 }
 
+export function generateBusinessTelegramCommands(
+  installedAgentId: string,
+  businessInfo?: string,
+  file?: File
+) {
+  const form = new FormData();
+  if (businessInfo) form.append("businessInfo", businessInfo);
+  if (file) form.append("file", file);
+  return apiPostFormData<{
+    welcomeMessage: string;
+    fallbackMessage: string;
+    commands: Array<{
+      command: string;
+      description: string;
+      action: "reply" | "book";
+      response: string;
+    }>;
+  }>(`/business/agents/${encodeURIComponent(installedAgentId)}/telegram/generate-commands`, form);
+}
+
+
 export function refreshBusinessTelegramHealth(installedAgentId: string) {
   return apiPost<{
     ok: boolean;
@@ -582,7 +603,8 @@ export async function getBusinessFacts(forceRefresh = false) {
 
   pendingFactsPromise = (async () => {
     try {
-      const res = await apiGet<BusinessFactsData>("/business/setup/business-facts");
+      const url = forceRefresh ? "/business/setup/business-facts?extract=true" : "/business/setup/business-facts";
+      const res = await apiGet<BusinessFactsData>(url);
       if (res.success) {
         cachedFactsResponse = res;
         cachedFactsTimestamp = Date.now();
@@ -1216,8 +1238,9 @@ export type BusinessHoursData = {
   sync?: BusinessHoursSyncStatus;
 };
 
-export function getBusinessHours() {
-  return apiGet<BusinessHoursData>("/business/hours");
+export function getBusinessHours(forceRefresh = false) {
+  const url = forceRefresh ? "/business/hours?extract=true" : "/business/hours";
+  return apiGet<BusinessHoursData>(url);
 }
 
 export function putBusinessHours(body: {
