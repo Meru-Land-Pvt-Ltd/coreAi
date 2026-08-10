@@ -1,13 +1,19 @@
 #!/usr/bin/env node
-const API_BASE = (process.env.TRIVEN_API_BASE || "https://triven.ai/api").replace(/\/$/, "");
-const APP_BASE = (process.env.TRIVEN_APP_BASE || "https://triven.ai").replace(/\/$/, "");
+import fs from "node:fs";
+import path from "node:path";
+
+const API_BASE = (process.env.TRIVEN_API_BASE || "http://192.168.1.47:8787").replace(/\/$/, "");
+const APP_BASE = (process.env.TRIVEN_APP_BASE || "http://192.168.1.47:3000").replace(/\/$/, "");
 const TOKEN = (process.env.TRIVEN_ARCHITECT_TOKEN || "").trim();
 const UPDATE_EXISTING = /^(1|true|yes)$/i.test(process.env.UPDATE_EXISTING || "");
 const SUBMIT_REVIEW = /^(1|true|yes)$/i.test(process.env.SUBMIT_REVIEW || "");
 const CONFIRM_TESTED = /^(1|true|yes)$/i.test(process.env.CONFIRM_TESTED || "");
 const ONLY_INDUSTRY = (process.env.ONLY_INDUSTRY || "").trim().toLowerCase();
 const ONLY_SUBINDUSTRY = (process.env.ONLY_SUBINDUSTRY || "").trim().toLowerCase();
-const PRICE = Number.isFinite(Number(process.env.AGENT_PRICE)) ? Math.max(0, Number(process.env.AGENT_PRICE)) : 149;
+const PRICE = 199;
+const PRICING_MODEL = "one_time";
+const FREE_TRIAL_DAYS = 7;
+const MAX_ICON_BYTES = 1024 * 1024;
 const DRY_RUN = process.argv.includes("--dry-run");
 
 if (!DRY_RUN && !TOKEN) {
@@ -54,6 +60,83 @@ const AGENTS = [
   { industry: "Legal", subindustry: "Notary Services", name: "Notary Appointment AI", bookingLabel: "Notary appointment", purpose: "Handle notary-service inquiries, collect document and appointment requirements, answer approved FAQs, and schedule notary appointments.", intake: ["document or notary service type", "number of signers if relevant", "preferred date and time"], templateType: "Appointment Booking" }
 ];
 
+function iconFilename(agentName) {
+  return `${agentName.replace(/\s+/g, "_")}.png`;
+}
+
+function resolveIconDirectory() {
+  const candidates = [
+    (process.env.AGENT_ICON_DIR || "").trim(),
+    path.resolve(process.cwd(), "triven_25_agent_icons"),
+    path.resolve(process.cwd(), "scripts", "triven_25_agent_icons"),
+    path.resolve(process.cwd(), "apps", "frontend", "public", "triven_25_agent_icons"),
+    path.resolve(process.cwd(), "apps", "frontend", "public", "agent-icons")
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.statSync(candidate).isDirectory()) return candidate;
+    } catch {
+      // Try the next supported location.
+    }
+  }
+
+  throw new Error(
+    `Agent icon folder not found. Expected the extracted triven_25_agent_icons folder. ` +
+      `Set AGENT_ICON_DIR=/absolute/path/to/triven_25_agent_icons if it is stored elsewhere.`
+  );
+}
+
+function mimeTypeForIcon(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".svg") return "image/svg+xml";
+  throw new Error(`Unsupported icon type: ${filePath}`);
+}
+
+function loadAgentIconDataUrl(agent, iconDirectory) {
+  const expectedBase = agent.name.replace(/\s+/g, "_");
+  const extensions = [".png", ".webp", ".jpg", ".jpeg", ".svg"];
+  const filePath = extensions
+    .map((ext) => path.join(iconDirectory, `${expectedBase}${ext}`))
+    .find((candidate) => fs.existsSync(candidate));
+
+  if (!filePath) {
+    throw new Error(`Missing icon for ${agent.name}. Expected ${iconFilename(agent.name)} in ${iconDirectory}`);
+  }
+
+  const stats = fs.statSync(filePath);
+  if (!stats.isFile()) throw new Error(`Icon path is not a file: ${filePath}`);
+  if (stats.size <= 0) throw new Error(`Icon file is empty: ${filePath}`);
+  if (stats.size >= MAX_ICON_BYTES) {
+    throw new Error(
+      `Icon for ${agent.name} must be under 1 MB. Current size: ${(stats.size / 1024).toFixed(1)} KB`
+    );
+  }
+
+  const mime = mimeTypeForIcon(filePath);
+  const base64 = fs.readFileSync(filePath).toString("base64");
+  return {
+    dataUrl: `data:${mime};base64,${base64}`,
+    filePath,
+    bytes: stats.size
+  };
+}
+
+function buildTagline(agent) {
+  const source = String(agent.purpose || "").replace(/\s+/g, " ").trim();
+  if (source.length < 10) throw new Error(`Tagline source is too short for ${agent.name}`);
+  if (source.length < 100) return source;
+
+  const clipped = source.slice(0, 96);
+  const clean = clipped.replace(/\s+\S*$/, "").trim() || clipped.trim();
+  const tagline = `${clean}...`;
+  if (tagline.length >= 100) throw new Error(`Generated tagline is not under 100 characters for ${agent.name}`);
+  return tagline;
+}
+
 function slugify(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
@@ -97,6 +180,7 @@ Call behavior:
 - Ask for the preferred date and time before checking calendar availability.
 - Use the calendar availability capability when scheduling is requested.
 - Book only after the caller confirms the date/time and required booking details.
+- After a successful booking, offer an SMS confirmation when the workflow supports SMS. Follow the platform-required SMS consent disclosure exactly, record affirmative consent before sending, and never claim a text was sent unless the SMS tool confirms success.
 - If the caller does not want to book, answer their administrative question and close naturally.
 - Keep responses concise, conversational, and suitable for a phone call.
 - Escalate or arrange human follow-up when the request is outside the configured knowledge or permissions.${industrySafety(agent)}`.trim();
@@ -109,6 +193,7 @@ function makeWorkflow(agent) {
     ai: `${prefix}-voice`,
     availability: `${prefix}-availability`,
     book: `${prefix}-book`,
+    sms: `${prefix}-sms`,
     end: `${prefix}-end`
   };
 
@@ -187,9 +272,27 @@ function makeWorkflow(agent) {
       }
     },
     {
-      id: ids.end,
+      id: ids.sms,
       type: "coreNode",
       position: { x: 1200, y: 300 },
+      data: {
+        type: "communication.send_sms",
+        nodeKind: "connector",
+        label: "Send SMS",
+        title: "Send SMS Confirmation",
+        subtitle: `Send the customer a confirmation after the ${agent.bookingLabel.toLowerCase()} is booked.`,
+        connector: "SMS",
+        connectorAction: "send_notification",
+        sendToCustomer: "true",
+        customerTemplate: "Confirmed: [Service] on [Date] at [Time] with [Business Name]. Reply STOP to opt out.",
+        sendToTeam: "false",
+        teamTemplate: ""
+      }
+    },
+    {
+      id: ids.end,
+      type: "coreNode",
+      position: { x: 1480, y: 300 },
       data: {
         type: "flow.end",
         nodeKind: "output",
@@ -207,7 +310,8 @@ function makeWorkflow(agent) {
     { id: `${prefix}-e1`, source: ids.trigger, target: ids.ai },
     { id: `${prefix}-e2`, source: ids.ai, target: ids.availability },
     { id: `${prefix}-e3`, source: ids.availability, target: ids.book },
-    { id: `${prefix}-e4`, source: ids.book, target: ids.end }
+    { id: `${prefix}-e4`, source: ids.book, target: ids.sms },
+    { id: `${prefix}-e5`, source: ids.sms, target: ids.end }
   ];
 
   return { nodes, edges };
@@ -236,9 +340,9 @@ function commonBuyerSetup(agent) {
   return fields;
 }
 
-function configure(agent, workflowJson, complianceChecked = false) {
-  const tagline = agent.purpose.length <= 155 ? agent.purpose : `${agent.purpose.slice(0, 152)}...`;
-  const fullDescription = `${agent.name} is a production-oriented AI voice agent for ${agent.subindustry}. It answers inbound calls, understands the caller's administrative or sales intent, uses the buyer's verified business knowledge to answer approved questions, checks connected Google Calendar availability, and books ${agent.bookingLabel.toLowerCase()} when appropriate. The buyer configures services, business hours, team information, booking rules, escalation rules, and FAQs during setup. The agent is designed to stay within administrative and scheduling boundaries and arrange human follow-up whenever the request is outside its configured permissions.`;
+function configure(agent, workflowJson, iconUrl, complianceChecked = false) {
+  const tagline = buildTagline(agent);
+  const fullDescription = `${agent.name} is a production-oriented AI voice agent for ${agent.subindustry}. It answers inbound calls, understands the caller's administrative or sales intent, uses the buyer's verified business knowledge to answer approved questions, checks connected Google Calendar availability, books ${agent.bookingLabel.toLowerCase()} when appropriate, and can send a consent-based SMS confirmation after a successful booking. The buyer configures services, business hours, team information, booking rules, escalation rules, and FAQs during setup. The agent is designed to stay within administrative and scheduling boundaries and arrange human follow-up whenever the request is outside its configured permissions.`;
 
   return {
     version: 1,
@@ -247,7 +351,7 @@ function configure(agent, workflowJson, complianceChecked = false) {
       tagline,
       category: agent.subindustry,
       industryTags: [agent.industry],
-      iconUrl: "",
+      iconUrl,
       visibility: "public",
       shortDescription: `${agent.name} handles inbound ${agent.subindustry.toLowerCase()} calls, answers approved FAQs, checks availability, and books ${agent.bookingLabel.toLowerCase()}.`
     },
@@ -258,7 +362,8 @@ function configure(agent, workflowJson, complianceChecked = false) {
         "Industry-specific AI voice conversation",
         "Business knowledge and FAQ handling",
         "Real-time calendar availability check",
-        `Automated ${agent.bookingLabel.toLowerCase()} booking`
+        `Automated ${agent.bookingLabel.toLowerCase()} booking`,
+        "Consent-based SMS booking confirmations"
       ],
       screenshotUrls: [],
       demoVideoUrl: ""
@@ -270,7 +375,7 @@ function configure(agent, workflowJson, complianceChecked = false) {
       setupTimeEstimate: "5-10 min",
       requiredIntegrations: {
         phone: true,
-        sms: false,
+        sms: true,
         calendar: true,
         email: false,
         crm: false,
@@ -280,15 +385,15 @@ function configure(agent, workflowJson, complianceChecked = false) {
         twilio: true,
         whatsapp: false
       },
-      buyerSetupInstructions: `Connect the business phone number and Google Calendar, then provide verified ${agent.subindustry} services, team information, business hours, booking rules, escalation rules, and FAQs. Review the generated voice prompt before activation.`,
-      installInstructions: `Install ${agent.name}, complete buyer setup, connect telephony and Google Calendar, assign exactly one phone number to the installed voice agent, run browser/preview tests, then activate the live agent.`
+      buyerSetupInstructions: `Connect the business phone number, Twilio SMS capability, and Google Calendar, then provide verified ${agent.subindustry} services, team information, business hours, booking rules, escalation rules, and FAQs. Complete any required A2P/10DLC registration and review the SMS consent/confirmation behavior before activation. Review the generated voice prompt before activation.`,
+      installInstructions: `Install ${agent.name}, complete buyer setup, connect telephony, SMS, and Google Calendar, assign exactly one phone number to the installed voice agent, verify SMS registration/consent handling, run browser/preview tests, then activate the live agent.`
     },
     pricing: {
-      pricingModel: PRICE === 0 ? "free" : "subscription",
+      pricingModel: PRICING_MODEL,
       price: PRICE,
       executionFee: 0,
-      freeTrialEnabled: false,
-      trialDays: 7,
+      freeTrialEnabled: true,
+      trialDays: FREE_TRIAL_DAYS,
       platformCommissionPercent: 30
     },
     compliance: {
@@ -338,15 +443,32 @@ function sleep(ms) {
 
 async function main() {
   const selected = AGENTS.filter(matchesFilter);
+  const iconDirectory = resolveIconDirectory();
+  const iconsByAgent = new Map();
+
+  for (const agent of selected) {
+    const icon = loadAgentIconDataUrl(agent, iconDirectory);
+    const tagline = buildTagline(agent);
+    if (tagline.length >= 100) throw new Error(`Tagline must be under 100 characters for ${agent.name}`);
+    iconsByAgent.set(agent.name, icon);
+  }
+
   console.log(`\nTriven.ai - Devansh Sir Agent Templates`);
   console.log(`Mode: ${DRY_RUN ? "DRY RUN" : "CREATE/UPDATE DRAFTS"}`);
   console.log(`API: ${API_BASE}`);
   console.log(`Selected: ${selected.length} / ${AGENTS.length}`);
   console.log(`Update existing: ${UPDATE_EXISTING ? "YES" : "NO"}`);
+  console.log(`Pricing: $${PRICE} one-time purchase`);
+  console.log(`Free trial: ${FREE_TRIAL_DAYS} days`);
+  console.log(`Icons: ${iconDirectory}`);
   console.log(`Submit review: ${SUBMIT_REVIEW ? "YES (confirmed tested)" : "NO - drafts only"}\n`);
 
   for (const [index, agent] of selected.entries()) {
-    console.log(`${String(index + 1).padStart(2, "0")}. [${agent.industry}] ${agent.subindustry} -> ${agent.name}`);
+    const icon = iconsByAgent.get(agent.name);
+    console.log(
+      `${String(index + 1).padStart(2, "0")}. [${agent.industry}] ${agent.subindustry} -> ${agent.name}` +
+        ` | tagline ${buildTagline(agent).length} chars | icon ${(icon.bytes / 1024).toFixed(1)} KB`
+    );
   }
 
   if (DRY_RUN) {
@@ -363,7 +485,9 @@ async function main() {
     const key = agent.name.toLowerCase();
     let workflow = existingByName.get(key);
     const workflowJson = makeWorkflow(agent);
-    const draftConfigure = configure(agent, workflowJson, false);
+    const icon = iconsByAgent.get(agent.name);
+    if (!icon) throw new Error(`Icon preflight missing for ${agent.name}`);
+    const draftConfigure = configure(agent, workflowJson, icon.dataUrl, false);
 
     try {
       if (workflow && !UPDATE_EXISTING) {
@@ -406,7 +530,7 @@ async function main() {
 
       let submitted = false;
       if (SUBMIT_REVIEW) {
-        const testedConfigure = configure(agent, workflowJson, true);
+        const testedConfigure = configure(agent, workflowJson, icon.dataUrl, true);
         await api(`/architect/workflows/${encodeURIComponent(workflow.id)}/submit-review`, {
           method: "POST",
           body: { configure: testedConfigure }
