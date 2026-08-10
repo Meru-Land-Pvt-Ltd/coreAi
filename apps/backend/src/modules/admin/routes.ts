@@ -466,7 +466,221 @@ adminRoutes.patch("/agents/:listingId/status", async (c) => {
   }
 });
 
-// 6. DELETE /admin/architects/:userId
+// 6. DELETE /admin/agents/:listingId
+// ADMIN-only permanent removal. Intentionally has no status, publication,
+// install-count, confirmation-text, or payment-history gate: an admin may
+// remove any listing at any time. Historical billing rows are detached while
+// live routing/install records are removed so no orphan can keep receiving calls.
+adminRoutes.delete("/agents/:listingId", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const listingId = c.req.param("listingId");
+
+    const listing = await prisma.agentListing.findUnique({
+      where: { id: listingId },
+      select: {
+        id: true,
+        name: true,
+        workflowId: true,
+        architectUserId: true
+      }
+    });
+
+    if (!listing) {
+      return errorResponse(c, "Agent listing not found", 404, "LISTING_NOT_FOUND");
+    }
+
+    const deleted = await prisma.$transaction(async (tx) => {
+      const otherListing = listing.workflowId
+        ? await tx.agentListing.findFirst({
+            where: { workflowId: listing.workflowId, id: { not: listing.id } },
+            select: { id: true }
+          })
+        : null;
+      const deleteWorkflow = Boolean(listing.workflowId && !otherListing);
+
+      const installations = await tx.installedAgent.findMany({
+        where: deleteWorkflow && listing.workflowId
+          ? { OR: [{ listingId: listing.id }, { workflowId: listing.workflowId }] }
+          : { listingId: listing.id },
+        select: { id: true, businessId: true, configJson: true }
+      });
+      const installedAgentIds = installations.map((agent) => agent.id);
+      const businessIds = [...new Set(installations.map((agent) => agent.businessId))];
+      const assistantIds = [...new Set(installations.flatMap((agent) => {
+        const config = agent.configJson && typeof agent.configJson === "object" && !Array.isArray(agent.configJson)
+          ? agent.configJson as Record<string, unknown>
+          : {};
+        return [config.vapiAssistantId, config.previewAssistantId]
+          .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+          .map((value) => value.trim());
+      }))];
+
+      let phoneNumbersReleased = 0;
+      if (installedAgentIds.length > 0) {
+        const platformPhones = await tx.platformPhoneNumber.updateMany({
+          where: {
+            installedAgentId: { in: installedAgentIds },
+            isPlatformSmsSender: false
+          },
+          data: {
+            status: "AVAILABLE",
+            businessId: null,
+            buyerUserId: null,
+            installedAgentId: null,
+            assignedAt: null,
+            feeBilledAt: null
+          }
+        });
+        phoneNumbersReleased = platformPhones.count;
+
+        await tx.businessPhoneNumber.updateMany({
+          where: { installedAgentId: { in: installedAgentIds } },
+          data: { installedAgentId: null, isActive: false }
+        });
+        await tx.payment.updateMany({
+          where: { OR: [{ listingId: listing.id }, { installedAgentId: { in: installedAgentIds } }] },
+          data: { listingId: null, installedAgentId: null }
+        });
+        await tx.businessUsageInvoice.updateMany({
+          where: { installedAgentId: { in: installedAgentIds } },
+          data: { installedAgentId: null }
+        });
+        await tx.appointment.updateMany({
+          where: { installedAgentId: { in: installedAgentIds } },
+          data: { installedAgentId: null }
+        });
+        await tx.businessKnowledgeFile.updateMany({
+          where: { installedAgentId: { in: installedAgentIds } },
+          data: { installedAgentId: null }
+        });
+        await tx.businessKnowledgeBase.updateMany({
+          where: { installedAgentId: { in: installedAgentIds } },
+          data: { installedAgentId: null }
+        });
+        await tx.vapiCall.updateMany({
+          where: { installedAgentId: { in: installedAgentIds } },
+          data: { installedAgentId: null }
+        });
+        await tx.testCalendarEvent.updateMany({
+          where: { installedAgentId: { in: installedAgentIds } },
+          data: { installedAgentId: null }
+        });
+        await tx.emailMessage.updateMany({
+          where: { installedAgentId: { in: installedAgentIds } },
+          data: { installedAgentId: null }
+        });
+        await tx.businessEmailAlias.updateMany({
+          where: { installedAgentId: { in: installedAgentIds } },
+          data: { installedAgentId: null, status: "ARCHIVED" }
+        });
+        await tx.smsExecution.updateMany({
+          where: { installedAgentId: { in: installedAgentIds } },
+          data: { installedAgentId: null }
+        });
+        await tx.smsConsent.updateMany({
+          where: { installedAgentId: { in: installedAgentIds } },
+          data: { installedAgentId: null }
+        });
+        await tx.phoneProvisioningRequest.updateMany({
+          where: { installedAgentId: { in: installedAgentIds } },
+          data: { installedAgentId: null }
+        });
+
+        // Older deployed databases retain a restrictive FK for execution
+        // usage even though newer schemas cascade it. Remove those children
+        // explicitly so an admin deletion works consistently everywhere.
+        await tx.agentUsageExecution.deleteMany({
+          where: { installedAgentId: { in: installedAgentIds } }
+        });
+
+        if (assistantIds.length > 0) {
+          await tx.businessProfile.updateMany({
+            where: {
+              businessId: { in: businessIds },
+              vapiAssistantId: { in: assistantIds }
+            },
+            data: { vapiAssistantId: null }
+          });
+        }
+
+        await tx.installedAgent.deleteMany({ where: { id: { in: installedAgentIds } } });
+
+        if (businessIds.length > 0) {
+          const businessesWithAgents = await tx.installedAgent.findMany({
+            where: { businessId: { in: businessIds } },
+            select: { businessId: true },
+            distinct: ["businessId"]
+          });
+          const remainingBusinessIds = new Set(businessesWithAgents.map((agent) => agent.businessId));
+          const businessesWithoutAgents = businessIds.filter((businessId) => !remainingBusinessIds.has(businessId));
+          if (businessesWithoutAgents.length > 0) {
+            await tx.businessProfile.updateMany({
+              where: { businessId: { in: businessesWithoutAgents } },
+              data: { vapiAssistantId: null }
+            });
+          }
+        }
+      } else {
+        await tx.payment.updateMany({
+          where: { listingId: listing.id },
+          data: { listingId: null }
+        });
+      }
+
+      // Architect earnings are immutable history but listingId is a denormalized
+      // lookup key, so detach it before the listing disappears.
+      await tx.architectEarning.updateMany({
+        where: { listingId: listing.id },
+        data: { listingId: null }
+      });
+      await tx.agentListing.delete({ where: { id: listing.id } });
+
+      if (deleteWorkflow && listing.workflowId) {
+        await tx.testCalendarEvent.updateMany({
+          where: { workflowId: listing.workflowId },
+          data: { workflowId: null }
+        });
+        await tx.workflowDefinition.deleteMany({ where: { id: listing.workflowId } });
+      }
+
+      return {
+        workflowDeleted: deleteWorkflow,
+        installedAgentsDeleted: installedAgentIds.length,
+        phoneNumbersReleased
+      };
+    });
+
+    await logAdminAction({
+      adminUserId: authUser.id,
+      action: "AGENT_DELETED",
+      targetType: "AgentListing",
+      targetId: listing.id,
+      meta: {
+        name: listing.name,
+        architectUserId: listing.architectUserId,
+        workflowId: listing.workflowId,
+        ...deleted
+      }
+    }).catch(() => undefined);
+
+    return successResponse(
+      c,
+      {
+        deleted: true,
+        listingId: listing.id,
+        workflowId: listing.workflowId,
+        ...deleted
+      },
+      "Agent deleted permanently"
+    );
+  } catch (error) {
+    console.error("[admin] agent deletion failed", error);
+    return errorResponse(c, "Could not delete agent", 500, "AGENT_DELETE_FAILED");
+  }
+});
+
+// 7. DELETE /admin/architects/:userId
 adminRoutes.delete("/architects/:userId", async (c) => {
   try {
     const authUser = c.get("authUser");

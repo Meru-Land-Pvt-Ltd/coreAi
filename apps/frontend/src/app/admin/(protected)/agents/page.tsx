@@ -9,10 +9,12 @@ import {
   CircleDollarSign,
   Download,
   Search,
+  Trash2,
   UserRound,
   X
 } from "lucide-react";
 import {
+  deleteAdminAgent,
   getAdminAgents,
   updateAdminAgentStatus,
   type AdminAgent,
@@ -294,6 +296,7 @@ export default function AdminAgentsPage() {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [reviewingAgent, setReviewingAgent] = useState<AdminAgent | null>(null);
 
   async function load(searchValue: string) {
@@ -381,6 +384,23 @@ export default function AdminAgentsPage() {
     )));
     setUpdatingId(null);
     return true;
+  }
+
+  async function deleteAgent(agent: AdminAgent) {
+    setMessage(`Deleting ${display(agent.name)}…`);
+    setDeletingId(agent.id);
+    const result = await deleteAdminAgent(agent.id);
+
+    if (!result.success) {
+      setMessage(result.error ?? "Could not delete agent.");
+      setDeletingId(null);
+      return;
+    }
+
+    setRows((current) => current.filter((row) => row.id !== agent.id));
+    setReviewingAgent((current) => current?.id === agent.id ? null : current);
+    setMessage(`${display(agent.name)} was deleted permanently.`);
+    setDeletingId(null);
   }
 
   return (
@@ -490,6 +510,8 @@ export default function AdminAgentsPage() {
         <div data-testid="admin-agents-grid" className="mt-6 space-y-4">
           {visibleRows.map((agent) => {
             const isUpdating = updatingId === agent.id;
+            const isDeleting = deletingId === agent.id;
+            const isBusy = isUpdating || isDeleting;
 
             return (
               <article
@@ -540,7 +562,7 @@ export default function AdminAgentsPage() {
                       <>
                         <button
                           type="button"
-                          disabled={isUpdating}
+                          disabled={isBusy}
                           onClick={() => setReviewingAgent(agent)}
                           className="rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_6px_16px_-6px_rgba(245,158,11,0.65)] transition hover:from-amber-500 hover:to-amber-600 disabled:opacity-50"
                         >
@@ -548,7 +570,7 @@ export default function AdminAgentsPage() {
                         </button>
                         <button
                           type="button"
-                          disabled={isUpdating}
+                          disabled={isBusy}
                           onClick={() => void changeStatus(agent.id, "APPROVED")}
                           className="rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-50"
                         >
@@ -556,7 +578,7 @@ export default function AdminAgentsPage() {
                         </button>
                         <button
                           type="button"
-                          disabled={isUpdating}
+                          disabled={isBusy}
                           onClick={() => void changeStatus(agent.id, "REJECTED")}
                           className="rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-wait disabled:opacity-50"
                         >
@@ -566,6 +588,17 @@ export default function AdminAgentsPage() {
                     ) : (
                       <AgentStatusBadge status={agent.status} />
                     )}
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => void deleteAgent(agent)}
+                      data-testid={`admin-agent-delete-${agent.id}`}
+                      aria-label={`Delete ${display(agent.name)}`}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-wait disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      {isDeleting ? "Deleting…" : "Delete"}
+                    </button>
                   </div>
                 </div>
               </article>

@@ -3,18 +3,31 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import AdminAgentsPage from "./page";
 
-const { getAdminAgentsMock, updateAdminAgentStatusMock } = vi.hoisted(() => ({
+const { deleteAdminAgentMock, getAdminAgentsMock, updateAdminAgentStatusMock } = vi.hoisted(() => ({
+  deleteAdminAgentMock: vi.fn(),
   getAdminAgentsMock: vi.fn(),
   updateAdminAgentStatusMock: vi.fn()
 }));
 
 vi.mock("@/components/admin/features/api", () => ({
+  deleteAdminAgent: deleteAdminAgentMock,
   getAdminAgents: getAdminAgentsMock,
   updateAdminAgentStatus: updateAdminAgentStatusMock
 }));
 
 beforeEach(() => {
   cleanup();
+  deleteAdminAgentMock.mockReset().mockResolvedValue({
+    success: true,
+    data: {
+      deleted: true,
+      listingId: "listing-1",
+      workflowId: "workflow-1",
+      workflowDeleted: true,
+      installedAgentsDeleted: 0,
+      phoneNumbersReleased: 0
+    }
+  });
   updateAdminAgentStatusMock.mockReset().mockResolvedValue({
     success: true,
     data: { listing: { id: "listing-1", status: "REJECTED" } }
@@ -116,5 +129,16 @@ describe("Admin moderation queue", () => {
     expect(within(card).queryByRole("button", { name: "Review" })).toBeNull();
     expect(within(card).queryByRole("button", { name: "Quick Approve" })).toBeNull();
     expect(within(card).queryByRole("button", { name: "Reject" })).toBeNull();
+  });
+
+  it("deletes an agent immediately and removes it from the admin list", async () => {
+    render(<AdminAgentsPage />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Delete Reception Agent" }));
+
+    await waitFor(() => expect(deleteAdminAgentMock).toHaveBeenCalledWith("listing-1"));
+    await waitFor(() => expect(screen.queryByTestId("admin-agent-card-listing-1")).toBeNull());
+    expect(screen.getByText("Reception Agent was deleted permanently.")).toBeTruthy();
   });
 });
