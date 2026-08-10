@@ -10,6 +10,7 @@ import {
   useArchitectTemplate,
   type TemplateCard
 } from "@/components/architect/features/api";
+import { BROWSE_INDUSTRIES, getCategoriesForIndustry, resolveBrowseIndustries, tagsMatchVerticalCategory } from "@coreai/shared";
 
 type WorkflowNode = {
   id: string;
@@ -318,19 +319,30 @@ export default function ArchitectTemplateGalleryPage() {
   }, []);
 
   const categories = useMemo(() => {
+    if (industry !== "all") {
+      const verticals = getCategoriesForIndustry(industry);
+      return ["All", ...verticals];
+    }
     const unique = Array.from(new Set(templates.map((t) => t.category))).sort();
     return ["All", ...unique];
-  }, [templates]);
+  }, [templates, industry]);
 
-  const industries = useMemo(
-    () => Array.from(new Set(templates.flatMap((t) => t.tags))).sort(),
+  const industries = useMemo(() => [...BROWSE_INDUSTRIES], []);
+
+  const requestIndustryOptions = useMemo(
+    () =>
+      Array.from(new Set([...REQUEST_INDUSTRIES, ...templates.flatMap((t) => t.tags)])).sort((a, b) =>
+        a.localeCompare(b)
+      ),
     [templates]
   );
 
-  const requestIndustryOptions = useMemo(
-    () => Array.from(new Set([...REQUEST_INDUSTRIES, ...industries])).sort((a, b) => a.localeCompare(b)),
-    [industries]
-  );
+  // When industry changes, reset category if it is no longer available.
+  useEffect(() => {
+    if (category !== "All" && !categories.includes(category)) {
+      setCategory("All");
+    }
+  }, [categories, category]);
 
   const featured = useMemo(
     () => templates.find((t) => t.recommended) ?? templates[0] ?? null,
@@ -357,12 +369,14 @@ export default function ArchitectTemplateGalleryPage() {
 
   const visible = useMemo(() => {
     const matches = (t: TemplateCard) => {
-      if (category !== "All" && t.category !== category) return false;
-      if (complexity !== "All" && !t.difficulty.toLowerCase().includes(complexity.toLowerCase())) return false;
       if (industry !== "all") {
-        const hay = t.tags.join(" ").toLowerCase();
-        if (!hay.includes(industry.toLowerCase())) return false;
+        const browse = resolveBrowseIndustries(t.tags);
+        if (!browse.includes(industry as (typeof BROWSE_INDUSTRIES)[number])) return false;
+        if (category !== "All" && !tagsMatchVerticalCategory(t.tags, category)) return false;
+      } else if (category !== "All" && t.category !== category) {
+        return false;
       }
+      if (complexity !== "All" && !t.difficulty.toLowerCase().includes(complexity.toLowerCase())) return false;
       if (search) {
         const q = search.toLowerCase();
         const hay = (t.title + " " + t.description + " " + t.category + " " + t.tags.join(" ")).toLowerCase();
@@ -599,9 +613,36 @@ export default function ArchitectTemplateGalleryPage() {
       ) : null}
 
       <div className="sticky top-14 z-20 mt-6 border-y border-gray-100 bg-white/95 backdrop-blur-md sm:mt-8 lg:top-[73px]">
-        <div className="mx-auto flex w-full max-w-full flex-col gap-3 px-4 py-3.5 sm:px-6 lg:flex-row lg:flex-nowrap lg:items-center lg:gap-3 lg:px-8">
-          <div className="min-w-0 overflow-x-auto no-scrollbar lg:flex-1">
-            <div className="flex w-max max-w-full items-center gap-2 pb-0.5 lg:pb-0" role="group" aria-label="Filter by category">
+        <div className="mx-auto flex w-full max-w-full flex-col gap-3 px-4 py-3.5 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+            <select
+              aria-label="Filter by industry"
+              value={industry}
+              onChange={(e) => setIndustry(e.target.value)}
+              className={selectClass}
+              data-testid="architect-templates-industry-select"
+            >
+              <option value="all">All industries</option>
+              {industries.map((tag) => (
+                <option key={tag} value={tag}>
+                  {tag}
+                </option>
+              ))}
+            </select>
+            <select aria-label="Filter by complexity" value={complexity} onChange={(e) => setComplexity(e.target.value)} className={selectClass} data-testid="architect-templates-complexity-select">
+              <option value="All">All levels</option>
+              <option value="Beginner">Beginner · 2–3 nodes</option>
+              <option value="Intermediate">Intermediate · 4–6 nodes</option>
+              <option value="Advanced">Advanced · 7+ nodes</option>
+            </select>
+            <select aria-label="Sort templates" value={sort} onChange={(e) => setSort(e.target.value)} className={selectClass} data-testid="architect-templates-sort-select">
+              <option value="popular">Most popular</option>
+              <option value="newest">Newest</option>
+              <option value="forks">Most forks</option>
+            </select>
+          </div>
+          <div className="min-w-0 overflow-x-auto no-scrollbar">
+            <div className="flex w-max max-w-full items-center gap-2 pb-0.5" role="group" aria-label="Filter by category">
               {categories.map((c) => {
                 const on = c === category;
                 return (
@@ -623,27 +664,6 @@ export default function ArchitectTemplateGalleryPage() {
                 );
               })}
             </div>
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:flex-shrink-0 lg:items-center lg:gap-2">
-            <select aria-label="Filter by industry" value={industry} onChange={(e) => setIndustry(e.target.value)} className={selectClass} data-testid="architect-templates-industry-select">
-              <option value="all">All industries</option>
-              {industries.map((tag) => (
-                <option key={tag} value={tag}>
-                  {tag}
-                </option>
-              ))}
-            </select>
-            <select aria-label="Filter by complexity" value={complexity} onChange={(e) => setComplexity(e.target.value)} className={selectClass} data-testid="architect-templates-complexity-select">
-              <option value="All">All levels</option>
-              <option value="Beginner">Beginner · 2–3 nodes</option>
-              <option value="Intermediate">Intermediate · 4–6 nodes</option>
-              <option value="Advanced">Advanced · 7+ nodes</option>
-            </select>
-            <select aria-label="Sort templates" value={sort} onChange={(e) => setSort(e.target.value)} className={selectClass} data-testid="architect-templates-sort-select">
-              <option value="popular">Most popular</option>
-              <option value="newest">Newest</option>
-              <option value="forks">Most forks</option>
-            </select>
           </div>
         </div>
       </div>

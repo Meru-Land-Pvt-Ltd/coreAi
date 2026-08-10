@@ -5,18 +5,22 @@ import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
-  AGENT_CATEGORIES,
-  AGENT_INDUSTRIES,
+  AGENT_CATEGORY_CUSTOM,
   AGENT_TEMPLATE_TYPES,
+  BROWSE_INDUSTRIES,
   REQUIRED_INTEGRATION_DEFS,
   SETUP_TIME_OPTIONS,
   defaultAgentConfigure,
   deriveRequiredIntegrationsFromWorkflow,
   generateIncludedFeaturesFromWorkflow,
+  getCategoriesForIndustry,
+  industryTagsForCategorySelection,
   normalizeBuyerSetupKey,
+  normalizeIndustryTags,
   RECEPTIONIST_DEFAULT_FULL_DESCRIPTION,
   RECEPTIONIST_DEFAULT_SHORT_DESCRIPTION,
   RECEPTIONIST_DEFAULT_TAGLINE,
+  resolveBrowseIndustries,
   validateBuyerSetupFields,
   validateConfigureForSubmit,
   validateConfigureForTemplateGallery,
@@ -29,6 +33,7 @@ import {
   type AgentConfigureMedia,
   type AgentConfigurePricing,
   type AgentConfigureTemplate,
+  type BrowseIndustry,
   type BuyerSetupField,
   type RequiredIntegrationKey
 } from "@coreai/shared";
@@ -198,7 +203,9 @@ function sanitizeStep1Basics(basics: AgentConfigureBasics): AgentConfigureBasics
     agentName,
     tagline,
     shortDescription,
-    category: looksUntouched && basics.category === "Communication" ? "" : basics.category
+    category: looksUntouched && (basics.category === "Communication" || basics.category === "Custom")
+      ? ""
+      : basics.category
   };
 }
 
@@ -304,6 +311,11 @@ export function ConfigurePanel({
   const [templateModalErrors, setTemplateModalErrors] = useState<Record<string, string>>({});
   const [templateModalWorkflowError, setTemplateModalWorkflowError] = useState("");
   const [savingAsTemplate, setSavingAsTemplate] = useState(false);
+  const [browseIndustry, setBrowseIndustry] = useState<"" | BrowseIndustry>("");
+  const [selectedPresetCategories, setSelectedPresetCategories] = useState<string[]>([]);
+  const [categoryIsCustom, setCategoryIsCustom] = useState(false);
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [customCategoryDraft, setCustomCategoryDraft] = useState("");
   const toastIdRef = useRef(0);
   const configureRef = useRef(configure);
   const workflowFlowRef = useRef(workflowFlow);
@@ -349,7 +361,7 @@ export function ConfigurePanel({
         Object.assign(loaded.basics, sanitizeStep1Basics(loaded.basics));
         loaded.media = sanitizeStep2Media(loaded.media);
 
-        // Single source of truth for industries: Step 1 "Industry tags".
+        // Single source of truth for industry: Step 1 Industry selection.
         // Older drafts that only filled Step 4's supportedIndustries migrate up.
         if (loaded.basics.industryTags.length === 0 && loaded.template.supportedIndustries.length > 0) {
           loaded.basics.industryTags = [...loaded.template.supportedIndustries];
@@ -377,6 +389,20 @@ export function ConfigurePanel({
         }
 
         setConfigure(loaded);
+        const resolvedBrowse = resolveBrowseIndustries(loaded.basics.industryTags);
+        const nextBrowse = resolvedBrowse[0] ?? "";
+        if (nextBrowse) setBrowseIndustry(nextBrowse);
+        const categoryOptionsOnLoad = nextBrowse ? [...getCategoriesForIndustry(nextBrowse)] : [];
+        const loadedCategoryParts = loaded.basics.category
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
+        const loadedPresets = loadedCategoryParts.filter((part) => categoryOptionsOnLoad.includes(part));
+        const loadedCustomParts = loadedCategoryParts.filter((part) => !categoryOptionsOnLoad.includes(part));
+        setSelectedPresetCategories(loadedPresets);
+        setCategoryIsCustom(loadedCustomParts.length > 0);
+        setCustomCategories(loadedCustomParts);
+        setCustomCategoryDraft("");
         setServerLocked(result.data.locked);
         setServerLockedMessage(result.data.lockedMessage ?? "");
         setListing(result.data.listing);
@@ -424,6 +450,113 @@ export function ConfigurePanel({
   const updateTemplate = useCallback((patch: Partial<AgentConfigureTemplate>) => {
     setConfigure((current) => ({ ...current, template: { ...current.template, ...patch } }));
   }, []);
+
+  const categoryOptions = useMemo(() => {
+    if (!browseIndustry) return [];
+    return [...getCategoriesForIndustry(browseIndustry), ...customCategories, AGENT_CATEGORY_CUSTOM];
+  }, [browseIndustry, customCategories]);
+
+  const selectedCategoryPills = useMemo(() => {
+    const selected = [...selectedPresetCategories, ...customCategories];
+    if (categoryIsCustom) selected.push(AGENT_CATEGORY_CUSTOM);
+    return selected;
+  }, [selectedPresetCategories, customCategories, categoryIsCustom]);
+
+  function syncIndustryCategorySelection(args: {
+    nextBrowse: "" | BrowseIndustry;
+    presets: string[];
+    customEnabled: boolean;
+    customs: string[];
+    draft?: string;
+  }) {
+    const { nextBrowse, presets, customEnabled, customs } = args;
+    setBrowseIndustry(nextBrowse);
+    setSelectedPresetCategories(presets);
+    setCategoryIsCustom(customEnabled);
+    setCustomCategories(customs);
+    if (typeof args.draft === "string") setCustomCategoryDraft(args.draft);
+    if (!nextBrowse) {
+      setCustomCategoryDraft("");
+      updateBasics({ category: "", industryTags: [] });
+      updateTemplate({ supportedIndustries: [] });
+      return;
+    }
+    const categoryLabel = [...presets, ...(customEnabled ? customs : [])].join(", ");
+    const industryTags = normalizeIndustryTags(
+      industryTagsForCategorySelection(nextBrowse, presets)
+    );
+    updateBasics({ category: categoryLabel, industryTags });
+    updateTemplate({ supportedIndustries: industryTags });
+  }
+
+  function handleBrowseIndustryChange(next: string) {
+    const value = (BROWSE_INDUSTRIES as readonly string[]).includes(next)
+      ? (next as BrowseIndustry)
+      : "";
+    syncIndustryCategorySelection({
+      nextBrowse: value,
+      presets: [],
+      customEnabled: false,
+      customs: [],
+      draft: ""
+    });
+  }
+
+  function toggleCategory(option: string) {
+    if (!browseIndustry) return;
+    if (option === AGENT_CATEGORY_CUSTOM) {
+      const enabling = !categoryIsCustom;
+      syncIndustryCategorySelection({
+        nextBrowse: browseIndustry,
+        presets: selectedPresetCategories,
+        customEnabled: enabling,
+        customs: enabling ? customCategories : [],
+        draft: enabling ? customCategoryDraft : ""
+      });
+      return;
+    }
+    if (customCategories.includes(option)) {
+      const nextCustoms = customCategories.filter((item) => item !== option);
+      syncIndustryCategorySelection({
+        nextBrowse: browseIndustry,
+        presets: selectedPresetCategories,
+        customEnabled: nextCustoms.length > 0 ? true : categoryIsCustom,
+        customs: nextCustoms,
+        draft: nextCustoms.length > 0 ? customCategoryDraft : ""
+      });
+      return;
+    }
+    const presets = selectedPresetCategories.includes(option)
+      ? selectedPresetCategories.filter((item) => item !== option)
+      : [...selectedPresetCategories, option];
+    syncIndustryCategorySelection({
+      nextBrowse: browseIndustry,
+      presets,
+      customEnabled: categoryIsCustom,
+      customs: customCategories
+    });
+  }
+
+  function commitCustomCategoryDraft() {
+    if (!browseIndustry || !categoryIsCustom) return;
+    const next = customCategoryDraft.trim();
+    if (!next) return;
+    const alreadyPreset = selectedPresetCategories.some(
+      (item) => item.toLowerCase() === next.toLowerCase()
+    );
+    const alreadyCustom = customCategories.some((item) => item.toLowerCase() === next.toLowerCase());
+    if (alreadyPreset || alreadyCustom || next.toLowerCase() === AGENT_CATEGORY_CUSTOM.toLowerCase()) {
+      setCustomCategoryDraft("");
+      return;
+    }
+    syncIndustryCategorySelection({
+      nextBrowse: browseIndustry,
+      presets: selectedPresetCategories,
+      customEnabled: true,
+      customs: [...customCategories, next],
+      draft: ""
+    });
+  }
 
   /** Regenerate "What's included" from the current builder graph (explicit overwrite). */
   const refreshIncludedFeatures = useCallback(() => {
@@ -503,10 +636,10 @@ export function ConfigurePanel({
           errors.tagline = "Write a tagline of at least 10 characters.";
         }
         if (configure.basics.industryTags.length === 0) {
-          errors.industryTags = "Pick at least one industry.";
+          errors.industryTags = "Select an industry.";
         }
         if (!configure.basics.category.trim()) {
-          errors.category = "Select a category for your agent.";
+          errors.category = "Select a category.";
         }
       }
 
@@ -1083,36 +1216,71 @@ export function ConfigurePanel({
                 <FieldError message={fieldErrors.tagline} testId="configure-error-tagline" />
               </div>
 
-              <div className="grid gap-7 sm:grid-cols-2">
-                <div>
-                  <label htmlFor="configure-category" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
-                    Category <span className="text-amber-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <select
-                      id="configure-category"
-                      data-testid="configure-category-select"
-                      value={configure.basics.category}
-                      disabled={isLocked}
-                      onChange={(event) => updateBasics({ category: event.target.value })}
-                      className="fld w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 pr-10 text-[15px] font-medium text-slate-800 disabled:opacity-60"
-                    >
-                      <option value="" disabled>
-                        Select a category
+              <div>
+                <label htmlFor="configure-browse-industry" className="mb-2 block text-[13.5px] font-semibold text-slate-700">
+                  Industry <span className="text-amber-500">*</span>
+                </label>
+                <div className="relative max-w-md">
+                  <select
+                    id="configure-browse-industry"
+                    data-testid="configure-industry-select"
+                    value={browseIndustry}
+                    disabled={isLocked}
+                    onChange={(event) => handleBrowseIndustryChange(event.target.value)}
+                    className="fld w-full cursor-pointer appearance-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3 pr-10 text-[15px] font-medium text-slate-800 disabled:opacity-60"
+                  >
+                    <option value="">Select an industry</option>
+                    {BROWSE_INDUSTRIES.map((industryOption) => (
+                      <option key={industryOption} value={industryOption}>
+                        {industryOption}
                       </option>
-                      {AGENT_CATEGORIES.map((category) => (
-                        <option key={category} value={category}>
-                          {category}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                      <BuilderIcon name="chevron" className="h-4 w-4" />
-                    </span>
-                  </div>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                    <BuilderIcon name="chevron" className="h-4 w-4" />
+                  </span>
+                </div>
+                <FieldError message={fieldErrors.industryTags} testId="configure-error-industry-tags" />
+              </div>
+
+              {browseIndustry ? (
+                <div>
+                  <span className="mb-1 block text-[13.5px] font-semibold text-slate-700">
+                    Category <span className="text-amber-500">*</span>
+                  </span>
+                  <p className="mb-3 text-[12.5px] text-slate-400">
+                    Pick one or more categories under {browseIndustry}.
+                  </p>
+                  <IndustryPills
+                    options={categoryOptions}
+                    selected={selectedCategoryPills}
+                    disabled={isLocked}
+                    onToggle={toggleCategory}
+                    testIdPrefix="configure-category-pill"
+                  />
+                  {categoryIsCustom ? (
+                    <input
+                      id="configure-custom-category"
+                      data-testid="configure-custom-category-input"
+                      type="text"
+                      maxLength={80}
+                      value={customCategoryDraft}
+                      disabled={isLocked}
+                      placeholder="Type a category and press Enter"
+                      onChange={(event) => setCustomCategoryDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        commitCustomCategoryDraft();
+                      }}
+                      className={`mt-3 ${fieldClass(Boolean(fieldErrors.category))}`}
+                    />
+                  ) : null}
                   <FieldError message={fieldErrors.category} testId="configure-error-category" />
                 </div>
+              ) : null}
 
+              <div className="grid gap-7 sm:grid-cols-2">
                 <div>
                   <span className="mb-2 block text-[13.5px] font-semibold text-slate-700">Visibility</span>
                   <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-3" data-testid="configure-visibility">
@@ -1120,27 +1288,6 @@ export function ConfigurePanel({
                     <span className="text-[14px] font-medium text-slate-700">Public · Triven Marketplace</span>
                   </div>
                 </div>
-              </div>
-
-              <div>
-                <span className="mb-1 block text-[13.5px] font-semibold text-slate-700">
-                  Industry tags <span className="text-amber-500">*</span>
-                </span>
-                <p className="mb-3 text-[12.5px] text-slate-400">Pick every industry your agent serves well - buyers filter by these.</p>
-                <IndustryPills
-                  options={AGENT_INDUSTRIES}
-                  selected={configure.basics.industryTags}
-                  disabled={isLocked}
-                  onToggle={(industry) => {
-                    const industryTags = configure.basics.industryTags.includes(industry)
-                      ? configure.basics.industryTags.filter((tag) => tag !== industry)
-                      : [...configure.basics.industryTags, industry];
-                    updateBasics({ industryTags });
-                    // Step 4's "Supported industries" mirrors this list — one source of truth.
-                    updateTemplate({ supportedIndustries: industryTags });
-                  }}
-                />
-                <FieldError message={fieldErrors.industryTags} testId="configure-error-industry-tags" />
               </div>
 
               <div>
@@ -1900,7 +2047,7 @@ export function ConfigurePanel({
                       { label: "Name", value: configure.basics.agentName.trim() || undefined },
                       { label: "Tagline", value: configure.basics.tagline.trim() || undefined },
                       { label: "Category", value: configure.basics.category },
-                      { label: "Industries", value: configure.basics.industryTags.join(", ") || undefined }
+                      { label: "Industry", value: configure.basics.industryTags[0] || undefined }
                     ]}
                   />
                   <ReviewSection
@@ -2222,31 +2369,30 @@ export function ConfigurePanel({
                           <FieldError message={templateModalErrors.shortDescription} testId="configure-template-error-short-description" />
                         </div>
 
-                        <div>
-                          <label htmlFor="template-modal-category" className="mb-2 block text-[13px] font-semibold text-slate-700">
-                            Category <span className="text-amber-500">*</span>
+                        <div className="sm:col-span-2">
+                          <label htmlFor="template-modal-browse-industry" className="mb-2 block text-[13px] font-semibold text-slate-700">
+                            Industry <span className="text-amber-500">*</span>
                           </label>
                           <div className="relative">
                             <select
-                              id="template-modal-category"
-                              data-testid="configure-template-modal-category"
-                              value={configure.basics.category}
+                              id="template-modal-browse-industry"
+                              data-testid="configure-template-modal-industry"
+                              value={browseIndustry}
                               onChange={(event) => {
-                                updateBasics({ category: event.target.value });
+                                handleBrowseIndustryChange(event.target.value);
+                                clearTemplateModalFieldError("industryTags");
                                 clearTemplateModalFieldError("category");
                               }}
                               className={`w-full cursor-pointer appearance-none rounded-xl border bg-gray-50/40 px-4 py-3 pr-10 text-[14px] font-medium text-slate-800 outline-none transition focus:ring-2 ${
-                                templateModalErrors.category
+                                templateModalErrors.industryTags
                                   ? "border-red-300 focus:border-red-400 focus:ring-red-400/40"
                                   : "border-gray-100 focus:border-amber-300 focus:ring-amber-400/50"
                               }`}
                             >
-                              <option value="" disabled>
-                                Select a category
-                              </option>
-                              {AGENT_CATEGORIES.map((category) => (
-                                <option key={category} value={category}>
-                                  {category}
+                              <option value="">Select an industry</option>
+                              {BROWSE_INDUSTRIES.map((industryOption) => (
+                                <option key={industryOption} value={industryOption}>
+                                  {industryOption}
                                 </option>
                               ))}
                             </select>
@@ -2254,8 +2400,47 @@ export function ConfigurePanel({
                               <BuilderIcon name="chevron" className="h-4 w-4" />
                             </span>
                           </div>
-                          <FieldError message={templateModalErrors.category} testId="configure-template-error-category" />
+                          <FieldError message={templateModalErrors.industryTags} testId="configure-template-error-industry-tags" />
                         </div>
+
+                        {browseIndustry ? (
+                          <div className="sm:col-span-2">
+                            <span className="mb-2 block text-[13px] font-semibold text-slate-700">
+                              Category <span className="text-amber-500">*</span>
+                            </span>
+                            <IndustryPills
+                              options={categoryOptions}
+                              selected={selectedCategoryPills}
+                              onToggle={(option) => {
+                                toggleCategory(option);
+                                clearTemplateModalFieldError("category");
+                              }}
+                              testIdPrefix="configure-template-category-pill"
+                            />
+                            {categoryIsCustom ? (
+                              <input
+                                id="template-modal-custom-category"
+                                data-testid="configure-template-modal-custom-category"
+                                type="text"
+                                maxLength={80}
+                                value={customCategoryDraft}
+                                onChange={(event) => {
+                                  setCustomCategoryDraft(event.target.value);
+                                  clearTemplateModalFieldError("category");
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key !== "Enter") return;
+                                  event.preventDefault();
+                                  commitCustomCategoryDraft();
+                                  clearTemplateModalFieldError("category");
+                                }}
+                                placeholder="Type a category and press Enter"
+                                className={`mt-3 ${fieldClass(Boolean(templateModalErrors.category))}`}
+                              />
+                            ) : null}
+                            <FieldError message={templateModalErrors.category} testId="configure-template-error-category" />
+                          </div>
+                        ) : null}
 
                         <div>
                           <label htmlFor="template-modal-type" className="mb-2 block text-[13px] font-semibold text-slate-700">
@@ -2285,25 +2470,6 @@ export function ConfigurePanel({
                             </span>
                           </div>
                           <FieldError message={templateModalErrors.templateType} testId="configure-template-error-template-type" />
-                        </div>
-
-                        <div className="sm:col-span-2">
-                          <span className="mb-2 block text-[13px] font-semibold text-slate-700">
-                            Industry tags <span className="text-amber-500">*</span>
-                          </span>
-                          <IndustryPills
-                            options={AGENT_INDUSTRIES}
-                            selected={configure.basics.industryTags}
-                            onToggle={(industry) => {
-                              const industryTags = configure.basics.industryTags.includes(industry)
-                                ? configure.basics.industryTags.filter((tag) => tag !== industry)
-                                : [...configure.basics.industryTags, industry];
-                              updateBasics({ industryTags });
-                              updateTemplate({ supportedIndustries: industryTags });
-                              clearTemplateModalFieldError("industryTags");
-                            }}
-                          />
-                          <FieldError message={templateModalErrors.industryTags} testId="configure-template-error-industry-tags" />
                         </div>
 
                         <div>

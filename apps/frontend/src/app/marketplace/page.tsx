@@ -8,7 +8,20 @@ import { CoreFooter } from "@/components/common/footer";
 import { MarketplaceFeaturedSection } from "@/components/common/marketplace-featured-section";
 import { apiGet } from "@/lib/api";
 import { ASSIGNMENT_PATH, businessCheckoutPath, publicAgentPath } from "@/lib/routes";
-import { getConnectorIncludedItem } from "@coreai/shared";
+import {
+  BROWSE_INDUSTRIES,
+  BROWSE_INDUSTRY_ICONS,
+  BROWSE_INDUSTRY_TILE_INITIAL_COUNT,
+  browseIndustryFromSlug,
+  browseIndustrySlug,
+  getCategoriesForIndustry,
+  getConnectorIncludedItem,
+  INDUSTRY_SECTION_INITIAL_COUNT,
+  resolveBrowseIndustries,
+  resolveBrowseIndustry,
+  tagsMatchVerticalCategory,
+  type BrowseIndustry,
+} from "@coreai/shared";
 import { getWorkflowFeatures } from "@/components/agent-description/shared/agent-listing";
 import { BotIcon, Download, Search } from "lucide-react";
 
@@ -396,6 +409,10 @@ function industryMatchesFilter(agentIndustry: string, selectedIndustry: string) 
 
 function agentMatchesIndustry(agent: Agent, industryId: string) {
   if (industryId === "all") return true;
+  const browse = browseIndustryFromSlug(industryId);
+  if (browse) {
+    return resolveBrowseIndustries(agent.industries).includes(browse);
+  }
   if (industryMatchesFilter(agent.industry, industryId)) return true;
 
   return agent.industries.some((label) =>
@@ -414,8 +431,34 @@ function isIndustryAvailable(id: string, agents: Agent[]) {
   return getIndustryAgentCount(id, agents) > 0;
 }
 
+function buildBrowseIndustryTiles(agents: Agent[]): Industry[] {
+  return BROWSE_INDUSTRIES.map((label) => {
+    const id = browseIndustrySlug(label);
+    return {
+      id,
+      label,
+      icon: BROWSE_INDUSTRY_ICONS[label],
+      count: getIndustryAgentCount(id, agents)
+    };
+  });
+}
+
+function resolveSelectedBrowseIndustry(
+  industryId: string,
+  options: Omit<Industry, "count">[] | Industry[]
+): BrowseIndustry | null {
+  if (industryId === "all") return null;
+  const fromSlug = browseIndustryFromSlug(industryId);
+  if (fromSlug) return fromSlug;
+  const label = options.find((item) => item.id === industryId)?.label;
+  if (label) return resolveBrowseIndustry(label);
+  return resolveBrowseIndustry(industryId);
+}
+
 function getIndustryDisplayLabel(industryId: string) {
   if (industryId === "all") return "All industries";
+  const browse = browseIndustryFromSlug(industryId);
+  if (browse) return browse;
 
   return (
     filterIndustries.find((item) => item.id === industryId)?.label ??
@@ -425,10 +468,10 @@ function getIndustryDisplayLabel(industryId: string) {
 }
 
 function buildIndustriesWithCounts(agents: Agent[]): Industry[] {
-  return baseIndustries.map((item) => ({
-    ...item,
-    count: getIndustryAgentCount(item.id, agents)
-  }));
+  return [
+    { id: "all", label: "All industries", icon: "✨", count: agents.length },
+    ...buildBrowseIndustryTiles(agents)
+  ];
 }
 
 function buildFilterIndustriesWithCounts(agents: Agent[]): Industry[] {
@@ -463,11 +506,14 @@ export default function MarketplacePage() {
   const [view, setView] = useState<"grid" | "list">("grid");
   const [freeTrialOnly, setFreeTrialOnly] = useState(false);
   const [newOnly, setNewOnly] = useState(false);
-  const [openFilter, setOpenFilter] = useState<"industry" | "price" | "rating" | "sort" | null>(null);
+  const [openFilter, setOpenFilter] = useState<"industry" | "subCategory" | "price" | "rating" | "sort" | null>(null);
   const [priceMin, setPriceMin] = useState(0);
   const [priceMax, setPriceMax] = useState(200);
   const [minRating, setMinRating] = useState(0);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [expandedIndustries, setExpandedIndustries] = useState<Record<string, boolean>>({});
+  const [showAllBrowseIndustries, setShowAllBrowseIndustries] = useState(false);
+  const [subCategory, setSubCategory] = useState("all");
 
   const scrollToAgents = useCallback(() => {
     const section = document.getElementById(MARKETPLACE_AGENTS_SECTION_ID);
@@ -527,8 +573,28 @@ export default function MarketplacePage() {
   }, []);
 
   const industries = useMemo(() => buildIndustriesWithCounts(agents), [agents]);
-  const dropdownIndustries = useMemo(() => buildFilterIndustriesWithCounts(agents), [agents]);
+  const dropdownIndustries = useMemo(
+    () => [
+      { id: "all", label: "All industries", icon: "✨", count: agents.length },
+      ...buildBrowseIndustryTiles(agents)
+    ],
+    [agents]
+  );
   const featuredAgent = agents[0] ?? null;
+
+  const selectedBrowseIndustry = useMemo(
+    () => resolveSelectedBrowseIndustry(industry, dropdownIndustries),
+    [industry, dropdownIndustries]
+  );
+
+  const subCategoryOptions = useMemo(
+    () => (selectedBrowseIndustry ? [...getCategoriesForIndustry(selectedBrowseIndustry)] : []),
+    [selectedBrowseIndustry]
+  );
+
+  useEffect(() => {
+    setSubCategory("all");
+  }, [industry]);
 
   const filteredAgents = useMemo(() => {
     const cleanQuery = query.trim().toLowerCase();
@@ -541,6 +607,8 @@ export default function MarketplacePage() {
           .includes(cleanQuery);
 
       const matchesIndustry = industry === "all" || agentMatchesIndustry(agent, industry);
+      const matchesSubCategory =
+        subCategory === "all" || tagsMatchVerticalCategory(agent.industries, subCategory);
 
       const matchesPrice = agent.price >= priceMin && agent.price <= priceMax;
       const matchesRating = agent.rating >= minRating;
@@ -550,6 +618,7 @@ export default function MarketplacePage() {
       return (
         matchesQuery &&
         matchesIndustry &&
+        matchesSubCategory &&
         matchesPrice &&
         matchesRating &&
         matchesTrial &&
@@ -568,8 +637,50 @@ export default function MarketplacePage() {
       }
       return b.installs - a.installs;
     });
-  }, [agents, query, industry, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
+  }, [agents, query, industry, subCategory, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
 
+  useEffect(() => {
+    setExpandedIndustries({});
+  }, [query, industry, subCategory, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
+
+  const industrySections = useMemo(() => {
+    const byIndustry = new Map<string, Agent[]>();
+    for (const browse of BROWSE_INDUSTRIES) {
+      byIndustry.set(browse, []);
+    }
+    byIndustry.set("Other", []);
+
+    for (const agent of filteredAgents) {
+      const browseList = resolveBrowseIndustries(agent.industries);
+      if (browseList.length === 0) {
+        byIndustry.get("Other")!.push(agent);
+        continue;
+      }
+      for (const browse of browseList) {
+        byIndustry.get(browse)!.push(agent);
+      }
+    }
+
+    const sections: { industry: string; agents: Agent[] }[] = [];
+    for (const browse of BROWSE_INDUSTRIES) {
+      const agentsForIndustry = byIndustry.get(browse) ?? [];
+      if (agentsForIndustry.length > 0) {
+        sections.push({ industry: browse, agents: agentsForIndustry });
+      }
+    }
+    const other = byIndustry.get("Other") ?? [];
+    if (other.length > 0) {
+      sections.push({ industry: "Other", agents: other });
+    }
+    return sections;
+  }, [filteredAgents]);
+
+  function toggleIndustryExpanded(industryName: string) {
+    setExpandedIndustries((prev) => ({
+      ...prev,
+      [industryName]: !prev[industryName],
+    }));
+  }
 
   const industryLabel =
     dropdownIndustries.find((item) => item.id === industry)?.label ??
@@ -593,6 +704,12 @@ export default function MarketplacePage() {
       ? {
         key: "industry",
         label: industryLabel
+      }
+      : null,
+    subCategory !== "all"
+      ? {
+        key: "subCategory",
+        label: subCategory
       }
       : null,
     priceActive
@@ -623,7 +740,11 @@ export default function MarketplacePage() {
 
   function clearFilter(key: string) {
     if (key === "query") setQuery("");
-    if (key === "industry") setIndustry("all");
+    if (key === "industry") {
+      setIndustry("all");
+      setSubCategory("all");
+    }
+    if (key === "subCategory") setSubCategory("all");
     if (key === "price") {
       setPriceMin(0);
       setPriceMax(200);
@@ -636,6 +757,7 @@ export default function MarketplacePage() {
   function clearAllFilters() {
     setQuery("");
     setIndustry("all");
+    setSubCategory("all");
     setPriceMin(0);
     setPriceMax(200);
     setMinRating(0);
@@ -815,17 +937,22 @@ export default function MarketplacePage() {
           <div className="mt-10 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
             {industries
               .filter((item) => item.id !== "all")
+              .slice(
+                0,
+                showAllBrowseIndustries ? undefined : BROWSE_INDUSTRY_TILE_INITIAL_COUNT
+              )
               .map((item) => {
                 const hasAgents = item.count > 0;
 
                 return (
-                  <button data-testid="marketplace-industry-card"
+                  <button data-testid={`marketplace-industry-${item.id}`}
                     key={item.id}
                     type="button"
                     disabled={!hasAgents}
                     onClick={() => {
                       if (!hasAgents) return;
                       setIndustry(item.id);
+                      setSubCategory("all");
                       scrollToAgents();
                     }}
                     className={`group relative rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 ${hasAgents
@@ -857,6 +984,19 @@ export default function MarketplacePage() {
                 );
               })}
           </div>
+
+          {industries.filter((item) => item.id !== "all").length > BROWSE_INDUSTRY_TILE_INITIAL_COUNT ? (
+            <div className="mt-8 flex justify-center">
+              <button
+                type="button"
+                data-testid="marketplace-browse-industry-show-more"
+                onClick={() => setShowAllBrowseIndustries((prev) => !prev)}
+                className="inline-flex items-center gap-2 rounded-xl border-2 border-gray-200 px-8 py-3 font-semibold text-slate-600 transition hover:border-amber-300 hover:text-amber-600"
+              >
+                {showAllBrowseIndustries ? "Show less" : "Show More"}
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {featuredAgent ? (
@@ -925,6 +1065,7 @@ export default function MarketplacePage() {
                           onClick={() => {
                             if (!unlocked) return;
                             setIndustry(item.id);
+                            setSubCategory("all");
                             setOpenFilter(null);
                           }}
                           className={
@@ -944,6 +1085,62 @@ export default function MarketplacePage() {
                   </div>
                 ) : null}
               </div>
+
+              {subCategoryOptions.length > 0 ? (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setOpenFilter(openFilter === "subCategory" ? null : "subCategory")}
+                    data-testid="marketplace-filter-subcategory"
+                    data-filter-trigger="subCategory"
+                    className={filterPillClass(subCategory !== "all")}
+                    aria-haspopup="true"
+                    aria-expanded={openFilter === "subCategory"}
+                  >
+                    <span data-testid="marketplace-subcategory-label-text">
+                      {subCategory === "all" ? "Category" : subCategory}
+                    </span>
+                    <ChevronIcon open={openFilter === "subCategory"} />
+                  </button>
+
+                  {openFilter === "subCategory" ? (
+                    <div
+                      data-filter-panel="subCategory"
+                      data-testid="marketplace-subcategory-filters"
+                      className="absolute left-0 top-full z-[90] mt-2 max-h-80 w-72 overflow-y-auto overscroll-contain rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                    >
+                      <button
+                        type="button"
+                        data-testid="marketplace-subcategory-all"
+                        onClick={() => {
+                          setSubCategory("all");
+                          setOpenFilter(null);
+                        }}
+                        className={popoverOptionClass(subCategory === "all")}
+                      >
+                        <span>All categories</span>
+                      </button>
+                      {subCategoryOptions.map((option) => {
+                        const slug = option.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            data-testid={`marketplace-subcategory-${slug}`}
+                            onClick={() => {
+                              setSubCategory(option);
+                              setOpenFilter(null);
+                            }}
+                            className={popoverOptionClass(subCategory === option)}
+                          >
+                            <span>{option}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="relative">
                 <button
@@ -1196,28 +1393,65 @@ export default function MarketplacePage() {
               </p>
             </div>
           ) : filteredAgents.length ? (
-            <div data-testid="app-marketplace-page-div-34"
-              className={
-                view === "grid"
-                  ? "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
-                  : "flex flex-col gap-4"
-              }
-            >
-              {filteredAgents.map((agent) =>
-                view === "grid" ? (
-                  <AgentGridCard
-                    key={agent.id}
-                    agent={agent}
-                    onViewDetails={() => openDetailsModal(agent)}
-                  />
-                ) : (
-                  <AgentListCard
-                    key={agent.id}
-                    agent={agent}
-                    onViewDetails={() => openDetailsModal(agent)}
-                  />
-                )
-              )}
+            <div className="flex flex-col gap-10" data-testid="marketplace-industry-sections">
+              {industrySections.map((section) => {
+                const isExpanded = Boolean(expandedIndustries[section.industry]);
+                const visibleAgents = isExpanded
+                  ? section.agents
+                  : section.agents.slice(0, INDUSTRY_SECTION_INITIAL_COUNT);
+                const canToggle = section.agents.length > INDUSTRY_SECTION_INITIAL_COUNT;
+                const sectionSlug = section.industry
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, "-")
+                  .replace(/(^-|-$)/g, "");
+
+                return (
+                  <section key={section.industry} data-testid={`marketplace-industry-section-${sectionSlug}`}>
+                    <div className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                      <h3 className="text-xl font-bold tracking-tight text-slate-900">{section.industry}</h3>
+                      <p className="text-sm font-medium text-slate-400">
+                        {section.agents.length} {section.agents.length === 1 ? "agent" : "agents"}
+                      </p>
+                    </div>
+                    <div
+                      data-testid="app-marketplace-page-div-34"
+                      className={
+                        view === "grid"
+                          ? "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
+                          : "flex flex-col gap-4"
+                      }
+                    >
+                      {visibleAgents.map((agent) =>
+                        view === "grid" ? (
+                          <AgentGridCard
+                            key={`${section.industry}-${agent.id}`}
+                            agent={agent}
+                            onViewDetails={() => openDetailsModal(agent)}
+                          />
+                        ) : (
+                          <AgentListCard
+                            key={`${section.industry}-${agent.id}`}
+                            agent={agent}
+                            onViewDetails={() => openDetailsModal(agent)}
+                          />
+                        )
+                      )}
+                    </div>
+                    {canToggle ? (
+                      <div className="mt-6 flex justify-center">
+                        <button
+                          type="button"
+                          data-testid={`marketplace-industry-show-more-${sectionSlug}`}
+                          onClick={() => toggleIndustryExpanded(section.industry)}
+                          className="inline-flex items-center gap-2 rounded-xl border-2 border-gray-200 px-8 py-3 font-semibold text-slate-600 transition hover:border-amber-300 hover:text-amber-600"
+                        >
+                          {isExpanded ? "Show less" : "Show More"}
+                        </button>
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-gray-200 bg-white py-16 text-center">

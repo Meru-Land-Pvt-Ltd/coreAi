@@ -15,7 +15,21 @@ import {
   businessSetupPath,
   publicAgentPath,
 } from "@/lib/routes";
-import { getConnectorIncludedItem, getLlmIncludedItem } from "@coreai/shared";
+import {
+  BROWSE_INDUSTRIES,
+  BROWSE_INDUSTRY_ICONS,
+  BROWSE_INDUSTRY_TILE_INITIAL_COUNT,
+  browseIndustryFromSlug,
+  browseIndustrySlug,
+  getCategoriesForIndustry,
+  getConnectorIncludedItem,
+  getLlmIncludedItem,
+  INDUSTRY_SECTION_INITIAL_COUNT,
+  resolveBrowseIndustries,
+  resolveBrowseIndustry,
+  tagsMatchVerticalCategory,
+  type BrowseIndustry,
+} from "@coreai/shared";
 import { getWorkflowFeatures } from "@/components/agent-description/shared/agent-listing";
 import { X, Check, Dot, Download, Search, BotIcon } from "lucide-react";
 import {
@@ -140,7 +154,6 @@ type Industry = {
 };
 
 const LISTINGS_API_PATH = "/architect/listings/public";
-const PAGE_SIZE = 6;
 const PRICE_MAX_DEFAULT = 10000;
 
 const sortOptions = [
@@ -151,7 +164,7 @@ const sortOptions = [
 ] as const;
 
 type SortValue = (typeof sortOptions)[number]["value"];
-type OpenFilter = "industry" | "price" | "rating" | "sort" | null;
+type OpenFilter = "industry" | "subCategory" | "price" | "rating" | "sort" | null;
 
 const baseIndustries: Omit<Industry, "count">[] = [
   { id: "all", label: "All industries", icon: "✨" },
@@ -405,6 +418,10 @@ function industryMatchesFilter(agentIndustry: string, selectedIndustry: string) 
 
 function agentMatchesIndustry(agent: Agent, industryId: string) {
   if (industryId === "all") return true;
+  const browse = browseIndustryFromSlug(industryId);
+  if (browse) {
+    return resolveBrowseIndustries(agent.industries).includes(browse);
+  }
   if (industryMatchesFilter(agent.industry, industryId)) return true;
   return agent.industries.some((label) =>
     industryMatchesFilter(normalizeIndustryId(label), industryId),
@@ -419,6 +436,30 @@ function getIndustryAgentCount(industryId: string, agents: Agent[]) {
 function isIndustryAvailable(id: string, agents: Agent[]) {
   if (id === "all") return true;
   return getIndustryAgentCount(id, agents) > 0;
+}
+
+function buildBrowseIndustryTiles(agents: Agent[]): Industry[] {
+  return BROWSE_INDUSTRIES.map((label) => {
+    const id = browseIndustrySlug(label);
+    return {
+      id,
+      label,
+      icon: BROWSE_INDUSTRY_ICONS[label],
+      count: getIndustryAgentCount(id, agents),
+    };
+  });
+}
+
+function resolveSelectedBrowseIndustry(
+  industryId: string,
+  options: Omit<Industry, "count">[] | Industry[],
+): BrowseIndustry | null {
+  if (industryId === "all") return null;
+  const fromSlug = browseIndustryFromSlug(industryId);
+  if (fromSlug) return fromSlug;
+  const label = options.find((item) => item.id === industryId)?.label;
+  if (label) return resolveBrowseIndustry(label);
+  return resolveBrowseIndustry(industryId);
 }
 
 /** Prefer AgentListing.industryTags; fall back to legacy industry:/plain tags. */
@@ -576,10 +617,10 @@ function AgentCardIcon({ iconUrl, size = 12 }: { iconUrl?: string | null; size?:
 }
 
 function buildIndustriesWithCounts(agents: Agent[]): Industry[] {
-  return baseIndustries.map((item) => ({
-    ...item,
-    count: getIndustryAgentCount(item.id, agents),
-  }));
+  return [
+    { id: "all", label: "All industries", icon: "✨", count: agents.length },
+    ...buildBrowseIndustryTiles(agents),
+  ];
 }
 function buildFilterIndustriesWithCounts(agents: Agent[]): Industry[] {
   return filterIndustries.map((item) => ({
@@ -611,7 +652,9 @@ export default function MarketplacePage() {
   const [setupPendingListingIds, setSetupPendingListingIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [expandedIndustries, setExpandedIndustries] = useState<Record<string, boolean>>({});
+  const [showAllBrowseIndustries, setShowAllBrowseIndustries] = useState(false);
+  const [subCategory, setSubCategory] = useState("all");
 
   const scrollToAgents = useCallback(() => {
     agentListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -796,8 +839,28 @@ export default function MarketplacePage() {
   }
 
   const industries = useMemo(() => buildIndustriesWithCounts(agents), [agents]);
-  const filterIndustryOptions = useMemo(() => buildFilterIndustriesWithCounts(agents), [agents]);
+  const filterIndustryOptions = useMemo(
+    () => [
+      { id: "all", label: "All industries", icon: "✨", count: agents.length },
+      ...buildBrowseIndustryTiles(agents),
+    ],
+    [agents],
+  );
   const featuredAgent = agents[0] ?? null;
+
+  const selectedBrowseIndustry = useMemo(
+    () => resolveSelectedBrowseIndustry(industry, filterIndustryOptions),
+    [industry, filterIndustryOptions],
+  );
+
+  const subCategoryOptions = useMemo(
+    () => (selectedBrowseIndustry ? [...getCategoriesForIndustry(selectedBrowseIndustry)] : []),
+    [selectedBrowseIndustry],
+  );
+
+  useEffect(() => {
+    setSubCategory("all");
+  }, [industry]);
 
   const industryLabel =
     filterIndustryOptions.find((item) => item.id === industry)?.label ??
@@ -812,6 +875,7 @@ export default function MarketplacePage() {
   const activeFilters = [
     query.trim() ? { key: "query", label: `"${query.trim()}"` } : null,
     industry !== "all" ? { key: "industry", label: industryLabel } : null,
+    subCategory !== "all" ? { key: "subCategory", label: subCategory } : null,
     priceActive
       ? {
           key: "price",
@@ -825,7 +889,11 @@ export default function MarketplacePage() {
 
   function clearFilter(key: string) {
     if (key === "query") setQuery("");
-    if (key === "industry") setIndustry("all");
+    if (key === "industry") {
+      setIndustry("all");
+      setSubCategory("all");
+    }
+    if (key === "subCategory") setSubCategory("all");
     if (key === "price") {
       setPriceMin(0);
       setPriceMax(PRICE_MAX_DEFAULT);
@@ -838,6 +906,7 @@ export default function MarketplacePage() {
   function clearAllFilters() {
     setQuery("");
     setIndustry("all");
+    setSubCategory("all");
     setPriceMin(0);
     setPriceMax(PRICE_MAX_DEFAULT);
     setMinRating(0);
@@ -857,6 +926,8 @@ export default function MarketplacePage() {
           .includes(cleanQuery);
 
       const matchesIndustry = industry === "all" || agentMatchesIndustry(agent, industry);
+      const matchesSubCategory =
+        subCategory === "all" || tagsMatchVerticalCategory(agent.industries, subCategory);
 
       const matchesPrice =
         agent.price >= priceMin && (priceMax >= PRICE_MAX_DEFAULT || agent.price <= priceMax);
@@ -867,6 +938,7 @@ export default function MarketplacePage() {
       return (
         matchesQuery &&
         matchesIndustry &&
+        matchesSubCategory &&
         matchesPrice &&
         matchesRating &&
         matchesTrial &&
@@ -883,12 +955,52 @@ export default function MarketplacePage() {
 
       return b.installs - a.installs;
     });
-  }, [agents, query, industry, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
+  }, [agents, query, industry, subCategory, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
 
-  // Reset visible count whenever the filtered list changes (filter/sort/search applied)
+  // Reset section expand state whenever filters change
   useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [query, industry, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
+    setExpandedIndustries({});
+  }, [query, industry, subCategory, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
+
+  const industrySections = useMemo(() => {
+    const byIndustry = new Map<string, Agent[]>();
+
+    for (const browse of BROWSE_INDUSTRIES) {
+      byIndustry.set(browse, []);
+    }
+    byIndustry.set("Other", []);
+
+    for (const agent of filteredAgents) {
+      const browseList = resolveBrowseIndustries(agent.industries);
+      if (browseList.length === 0) {
+        byIndustry.get("Other")!.push(agent);
+        continue;
+      }
+      for (const browse of browseList) {
+        byIndustry.get(browse)!.push(agent);
+      }
+    }
+
+    const sections: { industry: string; agents: Agent[] }[] = [];
+    for (const browse of BROWSE_INDUSTRIES) {
+      const agentsForIndustry = byIndustry.get(browse) ?? [];
+      if (agentsForIndustry.length > 0) {
+        sections.push({ industry: browse, agents: agentsForIndustry });
+      }
+    }
+    const other = byIndustry.get("Other") ?? [];
+    if (other.length > 0) {
+      sections.push({ industry: "Other", agents: other });
+    }
+    return sections;
+  }, [filteredAgents]);
+
+  function toggleIndustryExpanded(industryName: string) {
+    setExpandedIndustries((prev) => ({
+      ...prev,
+      [industryName]: !prev[industryName],
+    }));
+  }
 
   if (!authReady) {
     return <main className="min-h-screen bg-white" />;
@@ -968,6 +1080,12 @@ export default function MarketplacePage() {
               <div className="mt-10 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
                 {industries
                   .filter((item) => item.id !== "all")
+                  .slice(
+                    0,
+                    showAllBrowseIndustries
+                      ? undefined
+                      : BROWSE_INDUSTRY_TILE_INITIAL_COUNT,
+                  )
                   .map((item) => {
                     const hasAgents = item.count > 0;
 
@@ -980,6 +1098,7 @@ export default function MarketplacePage() {
                         onClick={() => {
                           if (!hasAgents) return;
                           setIndustry(item.id);
+                          setSubCategory("all");
                           scrollToAgents();
                         }}
                         className={`group relative rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 ${
@@ -1009,6 +1128,20 @@ export default function MarketplacePage() {
                     );
                   })}
               </div>
+
+              {industries.filter((item) => item.id !== "all").length >
+              BROWSE_INDUSTRY_TILE_INITIAL_COUNT ? (
+                <div className="mt-8 flex justify-center">
+                  <button
+                    type="button"
+                    data-testid="marketplace-browse-industry-show-more"
+                    onClick={() => setShowAllBrowseIndustries((prev) => !prev)}
+                    className="inline-flex items-center gap-2 rounded-xl border-2 border-gray-200 px-8 py-3 font-semibold text-slate-600 transition hover:border-amber-300 hover:text-amber-600"
+                  >
+                    {showAllBrowseIndustries ? "Show less" : "Show More"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           </section>
 
@@ -1117,6 +1250,7 @@ export default function MarketplacePage() {
                           onClick={() => {
                             if (!unlocked) return;
                             setIndustry(item.id);
+                            setSubCategory("all");
                             setOpenFilter(null);
                           }}
                           className={
@@ -1136,6 +1270,72 @@ export default function MarketplacePage() {
                   </div>
                 ) : null}
               </div>
+
+              {subCategoryOptions.length > 0 ? (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setOpenFilter(openFilter === "subCategory" ? null : "subCategory")}
+                    data-testid="marketplace-filter-subcategory"
+                    data-filter-trigger="subCategory"
+                    className={filterPillClass(subCategory !== "all")}
+                    aria-haspopup="true"
+                    aria-expanded={openFilter === "subCategory"}
+                  >
+                    <span>{subCategory === "all" ? "Category" : subCategory}</span>
+                    <ChevronIcon open={openFilter === "subCategory"} />
+                  </button>
+
+                  {openFilter === "subCategory" ? (
+                    <div
+                      data-filter-panel="subCategory"
+                      data-testid="marketplace-subcategory-filters"
+                      className="
+        absolute top-full z-[90] mt-2
+        left-1/2 -translate-x-1/2
+        sm:left-0 sm:translate-x-0
+
+        w-[calc(100vw-2rem)]
+        max-w-xs
+        sm:w-72
+
+        max-h-80 overflow-y-auto overscroll-contain
+        rounded-2xl border border-slate-100 bg-white p-2
+        shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]
+    "
+                    >
+                      <button
+                        type="button"
+                        data-testid="marketplace-subcategory-all"
+                        onClick={() => {
+                          setSubCategory("all");
+                          setOpenFilter(null);
+                        }}
+                        className={popoverOptionClass(subCategory === "all")}
+                      >
+                        <span>All categories</span>
+                      </button>
+                      {subCategoryOptions.map((option) => {
+                        const slug = option.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            data-testid={`marketplace-subcategory-${slug}`}
+                            onClick={() => {
+                              setSubCategory(option);
+                              setOpenFilter(null);
+                            }}
+                            className={popoverOptionClass(subCategory === option)}
+                          >
+                            <span>{option}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="relative">
                 <button
@@ -1426,58 +1626,90 @@ export default function MarketplacePage() {
             </div>
           ) : filteredAgents.length ? (
             <>
-              <div
-                className={
-                  view === "grid"
-                    ? "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
-                    : "flex flex-col gap-4"
-                }
-              >
-                {filteredAgents
-                  .slice(0, visibleCount)
-                  .map((agent) =>
-                    view === "grid" ? (
-                      <AgentGridCard
-                        key={agent.id}
-                        agent={agent}
-                        onOpen={() => openAgentPage(agent)}
-                        onViewDetails={() => openDetailsModal(agent)}
-                        executionPricing={executionPricing}
-                        executionPricingLoading={executionPricingLoading}
-                        executionPricingUnavailable={executionPricingError}
-                      />
-                    ) : (
-                      <AgentListCard
-                        key={agent.id}
-                        agent={agent}
-                        onOpen={() => openAgentPage(agent)}
-                        onViewDetails={() => openDetailsModal(agent)}
-                        executionPricing={executionPricing}
-                        executionPricingLoading={executionPricingLoading}
-                        executionPricingUnavailable={executionPricingError}
-                      />
-                    ),
-                  )}
+              <div className="flex flex-col gap-10" data-testid="marketplace-industry-sections">
+                {industrySections.map((section) => {
+                  const isExpanded = Boolean(expandedIndustries[section.industry]);
+                  const visibleAgents = isExpanded
+                    ? section.agents
+                    : section.agents.slice(0, INDUSTRY_SECTION_INITIAL_COUNT);
+                  const canToggle = section.agents.length > INDUSTRY_SECTION_INITIAL_COUNT;
+
+                  return (
+                    <section
+                      key={section.industry}
+                      data-testid={`marketplace-industry-section-${section.industry
+                        .toLowerCase()
+                        .replace(/[^a-z0-9]+/g, "-")
+                        .replace(/(^-|-$)/g, "")}`}
+                    >
+                      <div className="mb-5 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                        <h3 className="text-xl font-bold tracking-tight text-slate-900">
+                          {section.industry}
+                        </h3>
+                        <p className="text-sm font-medium text-slate-400">
+                          {section.agents.length}{" "}
+                          {section.agents.length === 1 ? "agent" : "agents"}
+                        </p>
+                      </div>
+
+                      <div
+                        className={
+                          view === "grid"
+                            ? "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
+                            : "flex flex-col gap-4"
+                        }
+                      >
+                        {visibleAgents.map((agent) =>
+                          view === "grid" ? (
+                            <AgentGridCard
+                              key={`${section.industry}-${agent.id}`}
+                              agent={agent}
+                              onOpen={() => openAgentPage(agent)}
+                              onViewDetails={() => openDetailsModal(agent)}
+                              executionPricing={executionPricing}
+                              executionPricingLoading={executionPricingLoading}
+                              executionPricingUnavailable={executionPricingError}
+                            />
+                          ) : (
+                            <AgentListCard
+                              key={`${section.industry}-${agent.id}`}
+                              agent={agent}
+                              onOpen={() => openAgentPage(agent)}
+                              onViewDetails={() => openDetailsModal(agent)}
+                              executionPricing={executionPricing}
+                              executionPricingLoading={executionPricingLoading}
+                              executionPricingUnavailable={executionPricingError}
+                            />
+                          ),
+                        )}
+                      </div>
+
+                      {canToggle ? (
+                        <div className="mt-6 flex justify-center">
+                          <button
+                            type="button"
+                            data-testid={`marketplace-industry-show-more-${section.industry
+                              .toLowerCase()
+                              .replace(/[^a-z0-9]+/g, "-")
+                              .replace(/(^-|-$)/g, "")}`}
+                            onClick={() => toggleIndustryExpanded(section.industry)}
+                            className="inline-flex items-center gap-2 rounded-xl border-2 border-gray-200 px-8 py-3 font-semibold text-slate-600 transition hover:border-amber-300 hover:text-amber-600"
+                          >
+                            {isExpanded ? "Show less" : "Show More"}
+                          </button>
+                        </div>
+                      ) : null}
+                    </section>
+                  );
+                })}
               </div>
 
-              {/* Load more + counter */}
               <div className="mt-10 flex flex-col items-center gap-3">
-                {visibleCount < filteredAgents.length && (
-                  <button
-                    type="button"
-                    data-testid="marketplace-load-more"
-                    onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
-                    className="inline-flex items-center gap-2 rounded-xl border-2 border-gray-200 px-8 py-3 font-semibold text-slate-600 transition hover:border-amber-300 hover:text-amber-600 disabled:cursor-default disabled:border-gray-100 disabled:text-slate-300 disabled:hover:border-gray-100 disabled:hover:text-slate-300"
-                  >
-                    Load more agents
-                  </button>
-                )}
                 <p
                   className="text-sm text-slate-400"
                   data-testid="business-protected-marketplace-showing-filtered-agents-of-agents-text"
                 >
-                  Showing {Math.min(visibleCount, filteredAgents.length)} of {filteredAgents.length}{" "}
-                  agents
+                  Showing {filteredAgents.length} of {filteredAgents.length} agents
                 </p>
               </div>
             </>

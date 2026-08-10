@@ -63,7 +63,7 @@ function workflowToTemplate(workflow: WorkflowRow): WorkflowTemplate {
     id: workflow.id,
     slug: workflowTemplateSlug(workflow.id),
     title,
-    category: configure.basics.category.trim() || "Communication",
+    category: configure.basics.category.trim() || "Custom",
     difficulty: difficultyFromNodeCount(nodeCount),
     nodeCount,
     description,

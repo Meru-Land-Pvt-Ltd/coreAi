@@ -1,3 +1,4 @@
+import { BROWSE_INDUSTRIES } from "./industry-browse";
 import { getNodeDefinition } from "./node-registry";
 
 export type AgentPricingModel = "free" | "one_time" | "subscription";
@@ -54,6 +55,7 @@ export const REQUIRED_INTEGRATION_DEFS: RequiredIntegrationDef[] = [
   { key: "webhook", label: "Custom webhook", description: "Send events to the buyer's systems" }
 ];
 
+/** @deprecated Prefer industry-scoped categories from INDUSTRY_CATEGORY_MAP. Kept for legacy listings. */
 export const AGENT_CATEGORIES = [
   "Communication",
   "Scheduling",
@@ -64,6 +66,9 @@ export const AGENT_CATEGORIES = [
   "Marketing",
   "Custom"
 ] as const;
+
+/** Category option that unlocks a free-text input in Configure. */
+export const AGENT_CATEGORY_CUSTOM = "Custom";
 
 export const AGENT_INDUSTRIES = [
   "Dental",
@@ -110,17 +115,20 @@ export const LEGACY_INDUSTRY_MAP: Record<string, string> = {
 };
 
 /**
- * Map legacy industry names to their canonical equivalents, keep only values
- * present in AGENT_INDUSTRIES, and dedupe — so configureJson saved before the
- * list changed still loads safely.
+ * Map legacy industry names to their canonical equivalents, keep AGENT_INDUSTRIES
+ * and browse-industry labels, and dedupe — so configureJson saved before the
+ * list changed still loads safely, and Industry → Category selections persist.
  */
 export function normalizeIndustryTags(tags: string[]): string[] {
   const canonical = new Set<string>(AGENT_INDUSTRIES);
+  const browse = new Set<string>(BROWSE_INDUSTRIES);
   const result: string[] = [];
   for (const tag of tags) {
     const trimmed = tag.trim();
     const mapped = LEGACY_INDUSTRY_MAP[trimmed] ?? trimmed;
-    if (canonical.has(mapped) && !result.includes(mapped)) result.push(mapped);
+    if ((canonical.has(mapped) || browse.has(mapped)) && !result.includes(mapped)) {
+      result.push(mapped);
+    }
   }
   return result;
 }
@@ -870,7 +878,7 @@ export function defaultAgentConfigure(seed?: {
     basics: {
       agentName: seed?.name?.trim() || "",
       tagline: seed?.tagline?.trim() || "",
-      category: "Communication",
+      category: "",
       industryTags: [],
       iconUrl: "",
       visibility: "public",
@@ -1043,10 +1051,10 @@ export function validateConfigureForSubmit(data: AgentConfigureData): ConfigureV
     issues.push({ step: 1, field: "tagline", message: "Tagline must be at least 10 characters." });
   }
   if (!data.basics.category.trim()) {
-    issues.push({ step: 1, field: "category", message: "Pick a category." });
+    issues.push({ step: 1, field: "category", message: "Select a category." });
   }
   if (data.basics.industryTags.length === 0) {
-    issues.push({ step: 1, field: "industryTags", message: "Pick at least one industry tag." });
+    issues.push({ step: 1, field: "industryTags", message: "Select an industry." });
   }
 
   const plainDescription = data.media.fullDescription
@@ -1115,13 +1123,13 @@ export function validateConfigureForTemplateGallery(
     });
   }
   if (!data.basics.category.trim()) {
-    issues.push({ step: 1, field: "category", message: "Pick a category." });
+    issues.push({ step: 1, field: "category", message: "Select a category." });
   }
   if (data.basics.industryTags.length === 0) {
     issues.push({
       step: 1,
       field: "industryTags",
-      message: "Pick at least one industry tag."
+      message: "Select an industry."
     });
   }
 
