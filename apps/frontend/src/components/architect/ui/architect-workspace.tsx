@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  createArchitectListing,
   createArchitectWorkflow,
   getArchitectListings,
   getArchitectProjects,
   getArchitectSummary,
   getArchitectWorkflows,
   saveArchitectProfile,
-  submitProjectProposal }
+  submitProjectProposal
+}
   from "../features/api"
 import type {
   ArchitectListing,
@@ -162,28 +162,28 @@ export function ArchitectWorkspace() {
     await loadAll();
   }
 
-  async function handleListingSubmit(formData: FormData) {
-    setMessage("");
+  // async function handleListingSubmit(formData: FormData) {
+  //   setMessage("");
 
-    const result = await createArchitectListing({
-      workflowId: String(formData.get("workflowId") ?? "") || undefined,
-      name: String(formData.get("name") ?? ""),
-      shortDescription: String(formData.get("shortDescription") ?? ""),
-      description: String(formData.get("description") ?? ""),
-      priceCents: Number(formData.get("price")) * 100,
-      tags: csvToArray(String(formData.get("tags") ?? "")),
-      requiredConnectors: csvToArray(String(formData.get("connectors") ?? "")),
-      supportedLlms: csvToArray(String(formData.get("llms") ?? ""))
-    });
+  //   const result = await createArchitectListing({
+  //     workflowId: String(formData.get("workflowId") ?? "") || undefined,
+  //     name: String(formData.get("name") ?? ""),
+  //     shortDescription: String(formData.get("shortDescription") ?? ""),
+  //     description: String(formData.get("description") ?? ""),
+  //     priceCents: Number(formData.get("price")) * 100,
+  //     tags: csvToArray(String(formData.get("tags") ?? "")),
+  //     requiredConnectors: csvToArray(String(formData.get("connectors") ?? "")),
+  //     supportedLlms: csvToArray(String(formData.get("llms") ?? ""))
+  //   });
 
-    if (!result.success) {
-      setMessage(result.error ?? "Listing creation failed");
-      return;
-    }
+  //   if (!result.success) {
+  //     setMessage(result.error ?? "Listing creation failed");
+  //     return;
+  //   }
 
-    setMessage("Agent listing submitted for review");
-    await loadAll();
-  }
+  //   setMessage("Agent listing submitted for review");
+  //   await loadAll();
+  // }
 
   async function handleProposalSubmit(projectId: string, formData: FormData) {
     setMessage("");
@@ -233,11 +233,10 @@ export function ArchitectWorkspace() {
             <button data-testid="architect-workspace-tab"
               key={key}
               onClick={() => setTab(key as Tab)}
-              className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
-                tab === key
+              className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${tab === key
                   ? "bg-violet-600 text-white shadow-lg shadow-violet-200"
                   : "text-slate-600 hover:bg-violet-50"
-              }`}
+                }`}
             >
               {label}
             </button>
@@ -281,9 +280,8 @@ export function ArchitectWorkspace() {
               <button data-testid="architect-workspace-mobile-tab"
                 key={key}
                 onClick={() => setTab(key as Tab)}
-                className={`rounded-full px-4 py-2 text-sm font-semibold ${
-                  tab === key ? "bg-violet-600 text-white" : "bg-white text-slate-700"
-                }`}
+                className={`rounded-full px-4 py-2 text-sm font-semibold ${tab === key ? "bg-violet-600 text-white" : "bg-white text-slate-700"
+                  }`}
               >
                 {label}
               </button>
@@ -379,49 +377,226 @@ export function ArchitectWorkspace() {
           ) : null}
 
           {tab === "marketplace" ? (
-            <section className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
-              <Panel title="Submit Agent Listing">
-                <form data-testid="architect-workspace-listing-form" action={handleListingSubmit} className="grid gap-4">
-                  <label className="grid gap-1 text-sm font-semibold text-slate-700" data-testid="architect-ui-architect-workspace-select-workflow-no-workflow-selected-workflows-workflow-label">
-                    Select Workflow
-                    <select data-testid="architect-workspace-workflow-select" name="workflowId" className="rounded-2xl border border-slate-200 px-4 py-3 outline-none">
-                      <option value="">No workflow selected</option>
-                      {workflows.map((workflow) => (
-                        <option key={workflow.id} value={workflow.id}>
-                          {workflow.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <Input name="name" label="Agent Name" placeholder="Customer Support Agent" />
-                  <Input name="shortDescription" label="Short Description" placeholder="AI agent that drafts and routes support replies." />
-                  <Textarea name="description" label="Full Description" placeholder="Explain the agent in detail." />
-                  <Input name="price" label="Price in INR" type="number" placeholder="999" />
-                  <Input name="tags" label="Tags comma separated" placeholder="support, gmail, automation" />
-                  <Input name="connectors" label="Required Connectors" placeholder="Gmail, Google Sheets" />
-                  <Input name="llms" label="Supported LLMs" placeholder="OpenAI, Claude, Gemini" />
-                  <SubmitButton>Submit for Review</SubmitButton>
-                </form>
+            <section className="grid gap-6">
+              {/* Publish Agent */}
+              <Panel title="Publish Agent">
+                <div className="grid gap-5">
+                  <div className="rounded-[26px] border border-violet-100 bg-violet-50/70 p-5">
+                    <h3 className="text-base font-black text-slate-950">
+                      Publish from Workflow Builder
+                    </h3>
+
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                      Marketplace agents are published from their Workflow Builder.
+                      Choose a workflow below, complete its agent configuration,
+                      Industry, Subindustry, buyer setup, integrations, pricing and
+                      compliance details, test the agent, then submit it for review.
+                    </p>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Badge>Configure</Badge>
+                      <Badge>Test</Badge>
+                      <Badge>Submit Review</Badge>
+                    </div>
+                  </div>
+
+                  {/* Workflow Selection */}
+                  <div>
+                    <div className="mb-3 flex items-center justify-between gap-4">
+                      <div>
+                        <h3 className="font-black text-slate-950">
+                          Select Workflow
+                        </h3>
+
+                        <p className="mt-1 text-sm text-slate-500">
+                          Open the workflow you want to configure and publish.
+                        </p>
+                      </div>
+
+                      <a
+                        href="/architect/workflows/new"
+                        className="inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                      >
+                        Create Workflow
+                      </a>
+                    </div>
+
+                    {workflows.length ? (
+                      <div className="grid gap-3">
+                        {workflows.map((workflow) => (
+                          <Card key={workflow.id}>
+                            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="min-w-0">
+                                <h4
+                                  className="truncate font-black text-slate-950"
+                                  data-testid="architect-ui-marketplace-workflow-name"
+                                >
+                                  {workflow.name}
+                                </h4>
+
+                                {workflow.description ? (
+                                  <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-600">
+                                    {workflow.description}
+                                  </p>
+                                ) : (
+                                  <p className="mt-1 text-sm text-slate-400">
+                                    No workflow description added yet.
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="flex shrink-0 flex-wrap gap-2">
+                                <a
+                                  href={`/architect/workflows/${encodeURIComponent(
+                                    workflow.id
+                                  )}/builder`}
+                                  className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                                >
+                                  Open Builder
+                                </a>
+
+                                <a
+                                  href={`/architect/workflows/${encodeURIComponent(
+                                    workflow.id
+                                  )}/builder?tab=configure`}
+                                  className="inline-flex items-center justify-center rounded-full bg-violet-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-violet-700"
+                                >
+                                  Configure & Publish
+                                </a>
+                              </div>
+                            </div>
+                          </Card>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
+                        <h4 className="font-black text-slate-900">
+                          No workflow selected
+                        </h4>
+
+                        <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
+                          Create your first workflow, build the agent logic, then use
+                          Configure to prepare it for Marketplace review.
+                        </p>
+
+                        <a
+                          href="/architect/workflows/new"
+                          className="mt-5 inline-flex items-center justify-center rounded-full bg-violet-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-violet-700"
+                        >
+                          Create First Workflow
+                        </a>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Publishing Flow */}
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-[22px] border border-slate-200 bg-white p-4">
+                      <div className="text-xs font-black uppercase tracking-[0.15em] text-violet-600">
+                        Step 1
+                      </div>
+                      <h4 className="mt-2 font-black text-slate-950">
+                        Build
+                      </h4>
+                      <p className="mt-1 text-sm leading-6 text-slate-500">
+                        Create the workflow nodes, triggers, AI conversation and
+                        integrations.
+                      </p>
+                    </div>
+
+                    <div className="rounded-[22px] border border-slate-200 bg-white p-4">
+                      <div className="text-xs font-black uppercase tracking-[0.15em] text-violet-600">
+                        Step 2
+                      </div>
+                      <h4 className="mt-2 font-black text-slate-950">
+                        Configure
+                      </h4>
+                      <p className="mt-1 text-sm leading-6 text-slate-500">
+                        Add Industry, Subindustry, pricing, buyer setup and Marketplace
+                        information.
+                      </p>
+                    </div>
+
+                    <div className="rounded-[22px] border border-slate-200 bg-white p-4">
+                      <div className="text-xs font-black uppercase tracking-[0.15em] text-violet-600">
+                        Step 3
+                      </div>
+                      <h4 className="mt-2 font-black text-slate-950">
+                        Test
+                      </h4>
+                      <p className="mt-1 text-sm leading-6 text-slate-500">
+                        Run realistic scenarios and verify the agent behaves correctly
+                        before publishing.
+                      </p>
+                    </div>
+
+                    <div className="rounded-[22px] border border-slate-200 bg-white p-4">
+                      <div className="text-xs font-black uppercase tracking-[0.15em] text-violet-600">
+                        Step 4
+                      </div>
+                      <h4 className="mt-2 font-black text-slate-950">
+                        Submit Review
+                      </h4>
+                      <p className="mt-1 text-sm leading-6 text-slate-500">
+                        Complete compliance confirmations and submit the configured
+                        agent for Marketplace review.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </Panel>
 
+              {/* Existing Marketplace Listings */}
               <Panel title="Your Listings">
                 {listings.length ? (
                   <div className="grid gap-3">
                     {listings.map((listing) => (
                       <Card key={listing.id}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <h3 className="font-black" data-testid="architect-ui-architect-workspace-listing-heading">{listing.name}</h3>
-                            <p className="mt-1 text-sm text-slate-600" data-testid="architect-ui-architect-workspace-listing-short-description-text">{listing.shortDescription}</p>
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3
+                                className="font-black text-slate-950"
+                                data-testid="architect-ui-architect-workspace-listing-heading"
+                              >
+                                {listing.name}
+                              </h3>
+
+                              <Badge>{listing.status}</Badge>
+                            </div>
+
+                            <p
+                              className="mt-2 text-sm leading-6 text-slate-600"
+                              data-testid="architect-ui-architect-workspace-listing-short-description-text"
+                            >
+                              {listing.shortDescription ||
+                                "No Marketplace description added yet."}
+                            </p>
+
+                            <p
+                              className="mt-3 text-sm font-black text-slate-950"
+                              data-testid="architect-ui-architect-workspace-currency-listing-price-cents-text"
+                            >
+                              {currency(listing.priceCents)}
+                            </p>
                           </div>
-                          <Badge>{listing.status}</Badge>
+
+                          {listing.workflowId ? (
+                            <a
+                              href={`/architect/workflows/${encodeURIComponent(
+                                listing.workflowId
+                              )}/builder?tab=configure`}
+                              className="inline-flex shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                            >
+                              Manage Agent
+                            </a>
+                          ) : null}
                         </div>
-                        <p className="mt-3 text-sm font-bold" data-testid="architect-ui-architect-workspace-currency-listing-price-cents-text">{currency(listing.priceCents)}</p>
                       </Card>
                     ))}
                   </div>
                 ) : (
-                  <Empty text="No marketplace listings submitted yet." />
+                  <Empty text="No marketplace listings submitted yet. Configure and submit a workflow to publish your first agent." />
                 )}
               </Panel>
             </section>
