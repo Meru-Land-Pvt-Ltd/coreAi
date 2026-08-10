@@ -7,7 +7,8 @@ import { formatDate } from "@/components/architect/ui/architect-ui";
 import { getArchitectListings, updateArchitectListingStatus } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { ARCHITECT_MY_AGENTS_PATH } from "@/lib/routes";
-import { Dot } from "lucide-react";
+import { CategoryTagsPill } from "@/components/common/category-tags-pill";
+import { resolveBrowseIndustries } from "@coreai/shared";
 
 type StatusState = 1 | 2 | 3 | 4;
 
@@ -732,18 +733,22 @@ function PublishingStatusContent() {
     [agent, listingId]
   );
 
-  const categoryTags = useMemo(() => {
-    const primary = headerAgent.category?.trim();
-    const extras = headerAgent.tags
-      .map((tag) => tag.trim())
-      .filter(Boolean)
-      .filter((tag) => tag !== primary);
-    const combined = primary ? [primary, ...extras] : extras;
-    return [...new Set(combined)];
-  }, [headerAgent.category, headerAgent.tags]);
-  const visibleCategoryTags = categoryTags.slice(0, 3);
-  const extraCategoryCount = Math.max(0, categoryTags.length - 3);
-  const hiddenCategoryTags = categoryTags.slice(3);
+  const industryLabel = useMemo(() => {
+    const browsed = resolveBrowseIndustries(headerAgent.tags);
+    return browsed[0] ?? headerAgent.tags[0] ?? null;
+  }, [headerAgent.tags]);
+  const categoryLabels = useMemo(
+    () =>
+      [
+        ...new Set(
+          (headerAgent.category ?? "")
+            .split(",")
+            .map((part) => part.trim())
+            .filter(Boolean)
+        )
+      ],
+    [headerAgent.category]
+  );
 
   function goToMyAgents() {
     router.push(ARCHITECT_MY_AGENTS_PATH);
@@ -800,14 +805,27 @@ function PublishingStatusContent() {
           <section className="flex flex-col items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 text-center sm:flex-row sm:items-center sm:p-6 sm:text-left">
             <AgentHeaderIcon iconUrl={headerAgent.iconUrl} />
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start ">
+                <div className="flex min-w-0 flex-col items-center gap-2 sm:items-start">
                 <h1 className="text-lg font-bold text-slate-900" data-testid="publishing-status-agent-name">
                   {headerAgent.name}
                 </h1>
-                <div className="group/tags relative flex items-center gap-1" data-testid={`publishing-status-category-${headerAgent.id}`}>
-                <div className="text-xs font-semibold text-slate-500 rounded-full bg-gray-300/50 px-2.5 py-0.5 whitespace-nowrap flex items-center justify-center">{headerAgent.category ?? "Category not set"}</div>
-                
-              </div>
+                <div className="flex w-full min-w-0 flex-nowrap items-center justify-center gap-1.5 overflow-hidden sm:justify-start" data-testid={`publishing-status-category-${headerAgent.id}`}>
+                  <div
+                    className="flex shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-gray-300/50 px-2.5 py-0.5 text-xs font-semibold text-slate-500"
+                    data-testid={`publishing-status-industry-${headerAgent.id}`}
+                  >
+                    {industryLabel ?? "Industry not set"}
+                  </div>
+                  <CategoryTagsPill
+                    labels={categoryLabels}
+                    compact
+                    className="min-w-0"
+                    testId={`publishing-status-categories-${headerAgent.id}`}
+                    moreTestId={`publishing-status-categories-more-${headerAgent.id}`}
+                    tooltipTestId={`publishing-status-categories-tooltip-${headerAgent.id}`}
+                    emptyLabel="Category not set"
+                  />
+                </div>
               </div>
 
   
