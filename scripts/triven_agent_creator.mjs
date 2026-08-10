@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-const API_BASE = (process.env.TRIVEN_API_BASE || "http://192.168.1.47:8787").replace(/\/$/, "");
-const APP_BASE = (process.env.TRIVEN_APP_BASE || "http://192.168.1.47:3000").replace(/\/$/, "");
+const API_BASE = (process.env.TRIVEN_API_BASE || "https://triven.ai/api").replace(/\/$/, "");
+const APP_BASE = (process.env.TRIVEN_APP_BASE || "https://triven.ai").replace(/\/$/, "");
 const TOKEN = (process.env.TRIVEN_ARCHITECT_TOKEN || "").trim();
 const UPDATE_EXISTING = /^(1|true|yes)$/i.test(process.env.UPDATE_EXISTING || "");
 const SUBMIT_REVIEW = /^(1|true|yes)$/i.test(process.env.SUBMIT_REVIEW || "");
