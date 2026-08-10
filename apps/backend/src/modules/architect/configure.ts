@@ -1,8 +1,11 @@
 import type { Context } from "hono";
 import {
   buildMarketplacePreview,
+  isTrivenTargetIndustry,
   normalizeAgentConfigure,
   requiredConnectorKeys,
+  resolveBrowseIndustries,
+  targetIndustryForSubindustry,
   validateConfigureForSubmit,
   type AgentConfigureData,
   type AgentPricingModel
@@ -239,6 +242,28 @@ export async function submitWorkflowForReview(c: Context) {
   const body = (await c.req.json().catch(() => ({}))) as { configure?: unknown };
   const architectName = authUser.fullName?.trim() || authUser.email;
   const configure = await persistConfigure(workflow, body.configure, architectName);
+
+  const selectedIndustries = resolveBrowseIndustries(configure.basics.industryTags);
+  const expectedIndustry = targetIndustryForSubindustry(configure.basics.category);
+  const selectedTargetIndustries = selectedIndustries.filter(isTrivenTargetIndustry);
+
+  if (selectedTargetIndustries.length > 0 && !expectedIndustry) {
+    return errorResponse(
+      c,
+      `${configure.basics.category} is not an approved subindustry for the selected Triven launch industry.`,
+      422,
+      "INVALID_SUBINDUSTRY"
+    );
+  }
+
+  if (expectedIndustry && !selectedIndustries.includes(expectedIndustry)) {
+    return errorResponse(
+      c,
+      `${configure.basics.category} belongs to ${expectedIndustry}. Select the matching Industry before submitting.`,
+      422,
+      "SUBINDUSTRY_INDUSTRY_MISMATCH"
+    );
+  }
 
   const issues = validateConfigureForSubmit(configure);
   if (issues.length > 0) {

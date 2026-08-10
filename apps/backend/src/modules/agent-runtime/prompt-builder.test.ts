@@ -115,11 +115,11 @@ describe("buildAgentSystemPrompt emotional support", () => {
     ...overrides
   });
 
-  it("instructs the agent to acknowledge the caller's feelings first", () => {
+  it("keeps empathy brief while prioritizing the caller's actual business question", () => {
     const prompt = buildAgentSystemPrompt(baseInput());
     expect(prompt).toContain("Emotional support:");
-    expect(prompt).toContain("acknowledge how they feel FIRST");
-    expect(prompt).toMatch(/pain, discomfort, worry, stress, frustration/);
+    expect(prompt).toContain("One brief empathy sentence is enough");
+    expect(prompt).toContain("Answer the caller's actual administrative/business question first");
   });
 
   /**
@@ -137,8 +137,8 @@ describe("buildAgentSystemPrompt emotional support", () => {
   it("requires answering the actual question and forbids booking-only replies", () => {
     const prompt = buildAgentSystemPrompt(baseInput());
     expect(prompt).toContain("answer the caller's ACTUAL question directly");
-    expect(prompt).toContain("Never skip straight to booking");
-    expect(prompt).toContain("do NOT deflect or ignore it");
+    expect(prompt).toContain("Answer the caller's actual administrative/business question first");
+    expect(prompt).toContain("appropriate next step");
   });
 
   it("sets safe professional boundaries without shutting down empathy", () => {
@@ -148,20 +148,19 @@ describe("buildAgentSystemPrompt emotional support", () => {
     expect(prompt).toMatch(/legal opinions/);
     expect(prompt).toMatch(/financial or investment advice/);
     expect(prompt).toMatch(/guarantee any outcome/);
-    // "do not invent" must stay scoped to business facts, not empathy.
-    expect(prompt).toContain("it never means refusing to comfort the caller");
+    expect(prompt).toContain("administrative receptionist");
   });
 
   it("escalates immediate safety risks over everything else", () => {
     const prompt = buildAgentSystemPrompt(baseInput());
-    expect(prompt).toContain("OVERRIDES everything else");
-    expect(prompt).toMatch(/medical emergency/);
+    expect(prompt).toContain("Immediate safety risk OVERRIDES everything else");
+    expect(prompt).toMatch(/chest pain/);
     expect(prompt).toMatch(/fire/);
-    expect(prompt).toMatch(/sparking or smoking electrics/);
+    expect(prompt).toMatch(/sparking\/smoking electrics/);
     expect(prompt).toMatch(/self-harm/);
     expect(prompt).toMatch(/violence/);
-    expect(prompt).toContain("call their local emergency number (911 in the US)");
-    expect(prompt).toContain("988 Suicide and Crisis Lifeline");
+    expect(prompt).toContain("contact their local emergency services now");
+    expect(prompt).not.toContain("988 Suicide and Crisis Lifeline");
   });
 
   it("keeps the tone natural and non-robotic, not excessively emotional", () => {
@@ -172,16 +171,11 @@ describe("buildAgentSystemPrompt emotional support", () => {
     expect(prompt).toContain("Sound like a real human receptionist, not a script.");
   });
 
-  it("covers multi-industry situational examples, not just dental", () => {
+  it("keeps cross-industry support generic instead of embedding ad-hoc medical advice", () => {
     const prompt = buildAgentSystemPrompt(baseInput());
-    expect(prompt).toMatch(/Tooth pain/);
-    expect(prompt).toMatch(/Feeling unwell before a visit/);
-    expect(prompt).toMatch(/Broken AC/);
-    expect(prompt).toMatch(/salon treatment/);
-    expect(prompt).toMatch(/Water leak or urgent home issue/);
-    expect(prompt).toMatch(/legal deadline/);
-    expect(prompt).toMatch(/bill or missed payment/);
-    expect(prompt).toContain("never limit yourself to these");
+    expect(prompt).toContain("consultation, reservation, quote, service request, property viewing, test drive");
+    expect(prompt).not.toMatch(/should I eat chocolate/i);
+    expect(prompt).not.toMatch(/suggest resting and noting their symptoms/i);
   });
 
   it("tool mode (default) emits the legal SMS consent flow; simulated mode emits the ask-once rule", () => {
@@ -215,12 +209,12 @@ describe("buildAgentSystemPrompt emotional support", () => {
         bookingLabel: "consultation"
       })
     );
-    expect(lawFirm).toContain("relevant to Harbor Legal Group's field");
-    expect(lawFirm).toContain("a consultation, a callback, or a message to the team");
+    expect(lawFirm).toContain("a consultation, a callback, a message to the team, or a human handoff");
+    expect(lawFirm).toContain("never diagnose a condition");
 
     const dental = buildAgentSystemPrompt(baseInput({ businessName: "Bright Smile Dental", businessType: "dental practice" }));
-    expect(dental).toContain("relevant to Bright Smile Dental's field");
-    expect(dental).toContain("an appointment, a callback, or a message to the team");
+    expect(dental).toContain("HEALTHCARE / CLINICAL BOUNDARY");
+    expect(dental).toContain("an appointment, a callback, a message to the team, or a human handoff");
   });
 
   it("compiles custom instructions, deduplicates core rules, and attaches the tail-anchor style guard", () => {
@@ -243,4 +237,44 @@ describe("buildAgentSystemPrompt emotional support", () => {
     expect(prompt).toContain("CONVERSATION STYLE & VOICE BOUNDARIES (OVERRIDING GOVERNING RULE):");
     expect(prompt.trim().endsWith("Respond directly to what the caller just asked or said.")).toBe(true);
   });
+});
+
+describe("buildAgentSystemPrompt cross-industry roster wording", () => {
+  it("uses generic team/provider language for non-healthcare businesses", () => {
+    const prompt = buildAgentSystemPrompt({
+      assistantName: "Lexi",
+      businessName: "Morgan Legal Group",
+      businessType: "Law Firms",
+      contactName: "Alex Morgan, Jamie Lee",
+      services: ["Case Consultation", "Document Review"],
+      faqs: [],
+      timezoneText: "America/New_York",
+      currentDateTimeText: "Monday, August 10, 2026 10:00 AM",
+      currentDateText: "2026-08-10",
+      tomorrowDateText: "2026-08-11",
+      capabilities: { canCheckAvailability: true, canBook: true, canText: false }
+    });
+
+    expect(prompt).toContain("Team / providers available at this business");
+    expect(prompt).toContain("Primary business contact / provider: Alex Morgan");
+    expect(prompt).not.toContain("Practicing Doctors & Specialists at this hospital");
+    expect(prompt).not.toContain("Primary / Lead Doctor");
+  });
+  it.each([
+    "Hospitals",
+    "Medical Clinics",
+    "Mental Health Clinics",
+    "Urgent Care Centers",
+    "Pediatric Clinics",
+    "Cardiology Clinics",
+    "Fertility Clinics"
+  ])("keeps %s administrative and non-diagnostic", (businessType) => {
+    const prompt = buildAgentSystemPrompt(baseInput({ businessType }));
+    expect(prompt).toContain("HEALTHCARE / CLINICAL BOUNDARY");
+    expect(prompt).toContain("administrative receptionist, not a clinician or triage service");
+    expect(prompt).toContain("Do not ask symptom-severity or diagnostic questions");
+    expect(prompt).toContain("contact their local emergency services now");
+    expect(prompt).not.toContain("988 Suicide and Crisis Lifeline");
+  });
+
 });

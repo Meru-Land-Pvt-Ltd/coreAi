@@ -1,3 +1,5 @@
+import { TRIVEN_AGENT_TAXONOMY, targetIndustryForSubindustry } from "./agent-industry-taxonomy";
+
 /**
  * Browse-layer industry taxonomy for marketplace grouping and architect
  * Industry → Category filtering. Does not replace AGENT_CATEGORIES /
@@ -31,16 +33,7 @@ export type BrowseIndustry = (typeof BROWSE_INDUSTRIES)[number];
  * Used when an Industry selector should narrow Category options.
  */
 export const INDUSTRY_CATEGORY_MAP: Record<BrowseIndustry, readonly string[]> = {
-  Healthcare: [
-    "Dental Clinics",
-    "Medical Clinics",
-    "Hospitals",
-    "Veterinary Clinics",
-    "Eye Clinics",
-    "Physiotherapy Clinics",
-    "Mental Health Clinics",
-    "Diagnostic Labs"
-  ],
+  Healthcare: TRIVEN_AGENT_TAXONOMY.Healthcare.map((entry) => entry.subindustry),
   "Beauty & Wellness": [
     "Hair Salons",
     "Barber Shops",
@@ -51,16 +44,11 @@ export const INDUSTRY_CATEGORY_MAP: Record<BrowseIndustry, readonly string[]> = 
   ],
   Fitness: ["Gyms", "Yoga Studios", "Personal Training", "Sports Clubs"],
   Hospitality: ["Hotels", "Restaurants", "Cafes", "Bars", "Catering"],
-  "Real Estate": [
-    "Residential Brokerages",
-    "Commercial Brokerages",
-    "Property Management",
-    "Mortgage Brokers"
-  ],
-  Automotive: ["Auto Repair", "Car Dealerships", "Car Wash", "Towing"],
+  "Real Estate": TRIVEN_AGENT_TAXONOMY["Real Estate"].map((entry) => entry.subindustry),
+  Automotive: TRIVEN_AGENT_TAXONOMY.Automotive.map((entry) => entry.subindustry),
   Education: ["Schools", "Tutoring", "Coaching", "Online Courses"],
   Finance: ["Insurance", "Accounting", "Financial Advisors", "Banking"],
-  Legal: ["Law Firms", "Notaries", "Legal Aid"],
+  Legal: TRIVEN_AGENT_TAXONOMY.Legal.map((entry) => entry.subindustry),
   "Home Services": [
     "Plumbers",
     "HVAC",
@@ -85,14 +73,24 @@ export const INDUSTRY_CATEGORY_MAP: Record<BrowseIndustry, readonly string[]> = 
  * so Category selection still filters the current template data source.
  */
 export const VERTICAL_CATEGORY_TAGS: Record<string, readonly string[]> = {
-  "Dental Clinics": ["Dental"],
-  "Medical Clinics": ["Medical Clinic", "Medical"],
-  Hospitals: ["Medical Clinic", "Medical", "Urgent Care"],
-  "Veterinary Clinics": ["Veterinary"],
-  "Eye Clinics": ["Optometry"],
-  "Physiotherapy Clinics": ["Physiotherapy", "Chiropractor"],
-  "Mental Health Clinics": ["Medical Clinic", "Medical"],
-  "Diagnostic Labs": ["Medical Clinic", "Medical"],
+  "Dental Clinics": ["Dental Clinics", "Dental"],
+  "Medical Clinics": ["Medical Clinics", "Medical Clinic", "Medical"],
+  Hospitals: ["Hospitals", "Medical Clinic", "Medical", "Urgent Care"],
+  "Veterinary Clinics": ["Veterinary Clinics", "Veterinary"],
+  "Eye Clinics": ["Eye Clinics", "Optometry"],
+  "Physiotherapy Clinics": ["Physiotherapy Clinics", "Physiotherapy"],
+  "Mental Health Clinics": ["Mental Health Clinics", "Medical Clinic", "Medical"],
+  "Diagnostic Labs": ["Diagnostic Labs", "Medical Clinic", "Medical"],
+  "Orthopedic Clinics": ["Orthopedic Clinics", "Medical Clinic", "Medical"],
+  "Cosmetic Surgery Clinics": ["Cosmetic Surgery Clinics", "Medical Clinic", "Medical"],
+  "Plastic Surgery Clinics": ["Plastic Surgery Clinics", "Medical Clinic", "Medical"],
+  "Chiropractic Clinics": ["Chiropractic Clinics", "Chiropractor"],
+  "Urgent Care Centers": ["Urgent Care Centers", "Urgent Care", "Medical Clinic"],
+  "Pediatric Clinics": ["Pediatric Clinics", "Medical Clinic", "Medical"],
+  "Cardiology Clinics": ["Cardiology Clinics", "Medical Clinic", "Medical"],
+  "Dermatology Clinics": ["Dermatology Clinics", "Dermatology"],
+  "ENT Clinics": ["ENT Clinics", "Medical Clinic", "Medical"],
+  "Fertility Clinics": ["Fertility Clinics", "Medical Clinic", "Medical"],
   "Hair Salons": ["Salon"],
   "Barber Shops": ["Barbershop"],
   "Nail Salons": ["Salon"],
@@ -108,12 +106,16 @@ export const VERTICAL_CATEGORY_TAGS: Record<string, readonly string[]> = {
   Cafes: ["Restaurant"],
   Bars: ["Restaurant"],
   Catering: ["Restaurant", "Hotel / Hospitality"],
-  "Residential Brokerages": ["Real Estate"],
-  "Commercial Brokerages": ["Real Estate"],
+  "Residential Real Estate": ["Residential Real Estate", "Real Estate"],
+  "Residential Brokerages": ["Residential Real Estate", "Real Estate"],
+  "Commercial Real Estate": ["Commercial Real Estate", "Real Estate"],
+  "Commercial Brokerages": ["Commercial Real Estate", "Real Estate"],
   "Property Management": ["Property Management", "Real Estate"],
   "Mortgage Brokers": ["Mortgage Broker"],
-  "Auto Repair": ["Auto Repair", "Automotive"],
-  "Car Dealerships": ["Auto Repair", "Automotive"],
+  "Auto Service Centers": ["Auto Service Centers", "Auto Repair", "Automotive"],
+  "Auto Repair": ["Auto Service Centers", "Auto Repair", "Automotive"],
+  "Car Dealerships": ["Car Dealerships", "Automotive"],
+  "Car Rental Services": ["Car Rental Services", "Automotive"],
   "Car Wash": ["Auto Repair"],
   Towing: ["Auto Repair"],
   Schools: ["Custom"],
@@ -124,8 +126,9 @@ export const VERTICAL_CATEGORY_TAGS: Record<string, readonly string[]> = {
   Accounting: ["Custom"],
   "Financial Advisors": ["Insurance", "Mortgage Broker"],
   Banking: ["Mortgage Broker"],
-  "Law Firms": ["Law Firm", "Legal"],
-  Notaries: ["Law Firm", "Legal"],
+  "Law Firms": ["Law Firms", "Law Firm", "Legal"],
+  "Notary Services": ["Notary Services", "Law Firm", "Legal"],
+  Notaries: ["Notary Services", "Law Firm", "Legal"],
   "Legal Aid": ["Law Firm", "Legal"],
   Plumbers: ["Plumber", "Plumbing"],
   HVAC: ["HVAC"],
@@ -244,6 +247,13 @@ export function resolveBrowseIndustry(tag: string): BrowseIndustry | null {
   if ((BROWSE_INDUSTRIES as readonly string[]).includes(tag.trim())) {
     return tag.trim() as BrowseIndustry;
   }
+
+  // Exact target subindustries are first-class tags. This keeps parent-industry
+  // filtering correct even when a listing is created by a newer client while
+  // an older marketplace/client only understands the shared resolver.
+  const targetIndustry = targetIndustryForSubindustry(tag);
+  if (targetIndustry) return targetIndustry;
+
   return INDUSTRY_TAG_TO_BROWSE[key] ?? null;
 }
 
@@ -275,6 +285,19 @@ export function tagsMatchVerticalCategory(tags: readonly string[], category: str
   const expected = VERTICAL_CATEGORY_TAGS[category];
   if (!expected || expected.length === 0) return false;
   const normalizedTags = tags.map((tag) => normalizeIndustryKey(tag));
+
+  // New Triven launch listings persist their exact subindustry as a tag. When
+  // exact target-subindustry tags are present, do not let a broad compatibility
+  // alias such as "Automotive" or "Medical" make sibling subindustries match.
+  // Legacy listings that have no exact launch subindustry tag still fall back
+  // to the alias table below for backwards compatibility.
+  if (targetIndustryForSubindustry(category)) {
+    const hasExactTargetTag = tags.some((tag) => Boolean(targetIndustryForSubindustry(tag)));
+    if (hasExactTargetTag) {
+      return normalizedTags.includes(normalizeIndustryKey(category));
+    }
+  }
+
   return expected.some((label) => normalizedTags.includes(normalizeIndustryKey(label)));
 }
 
@@ -335,7 +358,9 @@ export function industryTagsForCategorySelection(
     .map((item) => item.trim())
     .filter((item) => item && item.toLowerCase() !== "custom");
   for (const item of categories) {
-    tags.push(...tagsForVerticalCategory(item));
+    const mapped = tagsForVerticalCategory(item);
+    if (mapped.length > 0) tags.push(item);
+    tags.push(...mapped);
   }
   return tags;
 }

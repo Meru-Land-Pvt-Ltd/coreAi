@@ -5,6 +5,7 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
+import { BROWSE_INDUSTRIES, getCategoriesForIndustry } from "@coreai/shared";
 import { clearBusinessOnboardingStatusCache } from "@/lib/business-onboarding-status";
 import { BusinessHoursSection } from "@/components/business/business-hours-section";
 import { BUSINESS_MARKETPLACE_PATH, businessAgentDetailPath } from "@/lib/routes";
@@ -27,46 +28,29 @@ const TRIVEN_LOGO_SRC = encodeURI("/triven.ai word logo transparent bg.PNG");
 const TEAM_SIZES = ["Just me", "2-5", "6-15", "16-50", "50+"];
 const MONTHLY_VOLUMES = ["Under 100", "100-300", "300-500", "500-1000", "1000+"];
 const SOFTWARE_OPTIONS = [
-  "Dentrix",
-  "Eaglesoft",
-  "Open Dental",
-  "Curve Dental",
-  "PracticeWorks",
-  "Other PMS",
-  "None / Paper-based",
+  "Google Calendar",
+  "Microsoft Outlook",
+  "CRM",
+  "Practice Management / EHR",
+  "Property CRM",
+  "Dealer Management System (DMS)",
+  "Legal / Case Management",
+  "Other",
+  "None / Not using software",
 ];
 
-const BUSINESS_TYPES = [
-  { value: "solo", label: "Solo dental practice" },
-  { value: "group", label: "Group dental practice (2–5 dentists)" },
-  { value: "dso", label: "Dental Service Organization (DSO)" },
-  { value: "ortho", label: "Orthodontics practice" },
-  { value: "pedo", label: "Pediatric dentistry" },
-  { value: "oral", label: "Oral surgery / Specialty" },
-  { value: "health", label: "Other healthcare" },
-  { value: "non-dental", label: "Non-dental business" },
-];
+const INDUSTRY_OPTIONS = [...BROWSE_INDUSTRIES];
 
 const PAIN_POINTS = [
-  [
-    "missed-calls",
-    PhoneCall,
-    "Missed calls & follow-ups",
-    "Patients call after hours and never call back",
-  ],
-  ["scheduling", CalendarDays, "Appointment scheduling", "Too much time spent on phone scheduling"],
-  [
-    "communication",
-    MessageSquare,
-    "Patient communication",
-    "Reminders, confirmations, and follow-ups",
-  ],
-  ["reviews", Star, "Online reviews", "Need more Google/Yelp reviews from happy patients"],
-  ["billing", Wallet, "Billing & collections", "Outstanding balances and payment follow-ups"],
-  ["intake", ClipboardList, "New patient intake", "Paper forms, manual data entry"],
-  ["analytics", ChartColumn, "Practice analytics", "No visibility into practice performance"],
-  ["recall", RefreshCcw, "Patient recall", "Patients overdue for hygiene/checkups"],
-  ["frontdesk", Bot, "Front desk automation", "Staff overwhelmed with repetitive tasks"],
+  ["missed-calls", PhoneCall, "Missed calls & follow-ups", "Customers call when your team is busy or unavailable"],
+  ["scheduling", CalendarDays, "Booking & scheduling", "Too much staff time is spent coordinating bookings"],
+  ["communication", MessageSquare, "Customer communication", "Confirmations, reminders, and follow-ups are repetitive"],
+  ["reviews", Star, "Reviews & reputation", "You want a consistent process for review requests and feedback"],
+  ["billing", Wallet, "Billing & payment follow-up", "Payment and account questions take time from your team"],
+  ["intake", ClipboardList, "Lead / client intake", "Manual intake and qualification slow down response time"],
+  ["analytics", ChartColumn, "Business analytics", "You need better visibility into calls, leads, and outcomes"],
+  ["recall", RefreshCcw, "Re-engagement", "Past customers or leads need timely follow-up"],
+  ["frontdesk", Bot, "Front desk automation", "Your team is overloaded with repetitive calls and questions"],
 ] as const;
 
 const PAIN_LABELS = Object.fromEntries(PAIN_POINTS.map(([id, , label]) => [id, label])) as Record<
@@ -225,12 +209,9 @@ export function BusinessOnboardingFlow() {
   const progress = step === "done" ? 100 : (Number(step) / 5) * 100;
   const firstName = greetingName(displayName);
 
-  const orderedRecommendations = useMemo(() => {
-    if (form.challenges.length === 0) return recommendations.slice(0, 3);
-    const matched = recommendations.filter((agent) => agent.matchedChallenges.length > 0);
-    const rest = recommendations.filter((agent) => agent.matchedChallenges.length === 0);
-    return [...matched, ...rest].slice(0, 3);
-  }, [form.challenges, recommendations]);
+  // Backend ranking already combines exact Industry/Subindustry fit, buyer
+  // challenges, installs, and rating. Preserve that authoritative order here.
+  const orderedRecommendations = useMemo(() => recommendations.slice(0, 3), [recommendations]);
 
   const resizeStage = useCallback(() => {
     const stage = stageRef.current;
@@ -340,10 +321,10 @@ export function BusinessOnboardingFlow() {
   async function handleContinueFromStep2() {
     const nextErrors: Record<string, boolean> = {};
     if (!form.businessName.trim()) nextErrors.name = true;
-    if (!form.businessType) nextErrors.type = true;
+    if (!form.industry.trim()) nextErrors.industry = true;
+    if (!form.businessType.trim()) nextErrors.type = true;
     if (!form.teamSize) nextErrors.team = true;
     if (!form.monthlyVolume) nextErrors.volume = true;
-    if (form.businessType === "non-dental" && !form.industry.trim()) nextErrors.industry = true;
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
@@ -594,7 +575,7 @@ export function BusinessOnboardingFlow() {
                 </h2>
 
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  This helps us recommend agents that actually fit your practice.
+                  This helps us recommend agents that actually fit your business.
                 </p>
 
                 <div className="mt-6 space-y-6">
@@ -631,79 +612,57 @@ export function BusinessOnboardingFlow() {
                   </div>
 
                   <div>
-                    <label
-                      htmlFor="bizType"
-                      className="mb-1.5 block text-sm font-medium text-slate-700"
-                    >
-                      Business type <span className="text-amber-500">*</span>
+                    <label htmlFor="bizIndustry" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Industry <span className="text-amber-500">*</span>
                     </label>
+                    <select
+                      id="bizIndustry"
+                      value={form.industry}
+                      onChange={(event) => {
+                        const industry = event.target.value;
+                        const validSubindustries = getCategoriesForIndustry(industry);
+                        setForm((current) => ({
+                          ...current,
+                          industry,
+                          businessType: validSubindustries.includes(current.businessType) ? current.businessType : "",
+                        }));
+                        setErrors((current) => ({ ...current, industry: false, type: false }));
+                      }}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900 transition focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                      data-testid="business-onboarding-industry"
+                    >
+                      <option value="" disabled>Select your industry…</option>
+                      {INDUSTRY_OPTIONS.map((industry) => (
+                        <option key={industry} value={industry}>{industry}</option>
+                      ))}
+                    </select>
+                    {errors.industry ? (
+                      <p className="mt-1 text-xs text-red-600">Choose your industry so we can tailor recommendations.</p>
+                    ) : null}
+                  </div>
 
+                  <div>
+                    <label htmlFor="bizType" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Subindustry <span className="text-amber-500">*</span>
+                    </label>
                     <select
                       id="bizType"
                       value={form.businessType}
+                      disabled={!form.industry}
                       onChange={(event) => {
-                        setForm((current) => ({
-                          ...current,
-                          businessType: event.target.value,
-                        }));
+                        setForm((current) => ({ ...current, businessType: event.target.value }));
                         setErrors((current) => ({ ...current, type: false }));
                       }}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900 transition focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900 transition focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30 disabled:bg-slate-50 disabled:text-slate-400"
                       data-testid="business-onboarding-business-type"
                     >
-                      <option value="" disabled>
-                        Select your practice type…
-                      </option>
-
-                      {BUSINESS_TYPES.map((item) => (
-                        <option key={item.value} value={item.value}>
-                          {item.label}
-                        </option>
+                      <option value="" disabled>{form.industry ? "Select your subindustry…" : "Select an industry first…"}</option>
+                      {getCategoriesForIndustry(form.industry).map((subindustry) => (
+                        <option key={subindustry} value={subindustry}>{subindustry}</option>
                       ))}
                     </select>
-
                     {errors.type ? (
-                      <p className="mt-1 text-xs text-red-600">
-                        Choose the option that best describes your business.
-                      </p>
-                    ) : null}
-
-                    {form.businessType === "non-dental" ? (
-                      <div className="mt-4">
-                        <label
-                          htmlFor="bizIndustry"
-                          className="mb-1.5 block text-sm font-medium text-slate-700"
-                        >
-                          Your industry <span className="text-amber-500">*</span>
-                        </label>
-
-                        <input
-                          id="bizIndustry"
-                          type="text"
-                          value={form.industry}
-                          onChange={(event) => {
-                            setForm((current) => ({
-                              ...current,
-                              industry: event.target.value,
-                            }));
-
-                            if (event.target.value.trim())
-                              setErrors((current) => ({
-                                ...current,
-                                industry: false,
-                              }));
-                          }}
-                          placeholder="e.g. Veterinary, med spa, law firm"
-                          className="w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900 transition placeholder:text-slate-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                          data-testid="business-onboarding-industry"
-                        />
-
-                        {errors.industry ? (
-                          <p className="mt-1 text-xs text-red-600">
-                            Tell us your industry so we can tailor recommendations.
-                          </p>
-                        ) : null}
-                      </div>
+                      <p className="mt-1 text-xs text-red-600">Choose the subindustry that best describes your business.</p>
                     ) : null}
                   </div>
 
@@ -741,12 +700,12 @@ export function BusinessOnboardingFlow() {
 
                   <div>
                     <span className="mb-2 block text-sm font-medium text-slate-700">
-                      Monthly patient volume <span className="text-amber-500">*</span>
+                      Monthly calls / leads / customer requests <span className="text-amber-500">*</span>
                     </span>
 
                     <div
                       role="radiogroup"
-                      aria-label="Monthly patient volume"
+                      aria-label="Monthly calls, leads, or customer requests"
                       className="flex flex-wrap gap-2 sm:gap-3"
                     >
                       {MONTHLY_VOLUMES.map((value) => (
@@ -858,7 +817,7 @@ export function BusinessOnboardingFlow() {
 
                 <div
                   role="group"
-                  aria-label="Practice challenges"
+                  aria-label="Business challenges"
                   className={`mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 ${
                     showPainHint ? "onboarding-shake" : ""
                   }`}

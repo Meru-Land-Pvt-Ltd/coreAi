@@ -788,12 +788,12 @@ function spokenDateForYmd(ymd: string, timeZone?: string | null): string {
 
 export function resolveRequestedProvider(args: Record<string, unknown>): string | null {
   const raw = argStr(args, [
+    "provider_name",
+    "providerName",
+    "provider",
     "doctor",
     "doctor_name",
     "doctorName",
-    "provider",
-    "provider_name",
-    "providerName",
     "practitioner",
     "dentist",
     "staff_member",
@@ -4440,9 +4440,9 @@ export async function runUpdateAppointmentContactTool(args: Record<string, unkno
     consent_status: "none",
     required_disclosure: verbalSmsConsentDisclosure(ctx.business?.businessName ?? ""),
     customerSpeechCode: "CONTACT_UPDATED" as const,
-    customerSafeMessage: `Done — your appointment now uses the number ending ${pending.slice(-4)}.`,
+    customerSafeMessage: `Done — your ${ctx.dental?.bookingLabel || "booking"} now uses the number ending ${pending.slice(-4)}.`,
     message:
-      "Appointment recipient updated. The new number has NO SMS consent yet — do not promise a text. If the caller wants a confirmation text, read the disclosure in required_disclosure word-for-word, then call record_sms_consent with only appointment_id and affirmative."
+      "Booking recipient updated. The new number has NO SMS consent yet — do not promise a text. If the caller wants a confirmation text, read the disclosure in required_disclosure word-for-word, then call record_sms_consent with only appointment_id and affirmative."
   };
 }
 
@@ -4530,6 +4530,8 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
     });
   }
 
+  const bookingNoun = (bookedAppointment?.service || ctx.dental?.bookingLabel || "booking").trim();
+
   const phone =
     bookedAppointment?.customerPhone ||
     consentContact.smsRecipientE164 ||
@@ -4543,7 +4545,7 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
       consent_recorded: false,
       sms_allowed: false,
       customerSpeechCode: "CONSENT_NO_RECIPIENT" as const,
-      customerSafeMessage: "Your appointment is still booked, but I couldn't set up the confirmation text.",
+      customerSafeMessage: `Your ${bookingNoun} is still confirmed, but I couldn't set up the confirmation text.`,
       message:
         "No canonical recipient is available from the appointment, confirmed call contact, or verified caller ID. Do NOT accept a spoken phone number here. If the caller needs a different number, call update_appointment_contact to correct it first, then call record_sms_consent again with only appointment_id and affirmative."
     };
@@ -4633,7 +4635,7 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
   const speech = declined
     ? {
       customerSpeechCode: "CONSENT_DECLINED" as const,
-      customerSafeMessage: "No problem — I won't send any texts. Your appointment is all set."
+      customerSafeMessage: `No problem — I won't send any texts. Your ${bookingNoun} is all set.`
     }
     : confirmationSmsSent
       ? {
@@ -4643,7 +4645,7 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
       : confirmationAttempted
         ? {
           customerSpeechCode: "CONFIRMATION_FAILED" as const,
-          customerSafeMessage: "Your appointment is still booked, but I couldn't send the confirmation text."
+          customerSafeMessage: `Your ${bookingNoun} is still confirmed, but I couldn't send the confirmation text.`
         }
         : {
           customerSpeechCode: "CONSENT_RECORDED" as const,

@@ -74,4 +74,8 @@ describe("buildAppointmentEventContent", () => {
     });
     expect(content.description).toBe("Custom description");
   });
+  it("prefers the cross-industry provider_name field", () => {
+    expect(resolveRequestedProvider({ provider_name: "  Alex  Morgan ", doctor: "Legacy Doctor" })).toBe("Alex Morgan");
+  });
+
 });

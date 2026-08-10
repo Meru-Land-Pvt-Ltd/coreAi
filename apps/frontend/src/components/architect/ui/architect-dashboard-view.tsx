@@ -100,7 +100,7 @@ export function ArchitectDashboardView() {
         actionLabel="Create Agent"
         actionHref="/architect/workflows/new"
         secondaryActionLabel="Publish Listing"
-        secondaryActionHref="/architect/agents/publish"
+        secondaryActionHref="/architect/workflows"
       />
 
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
@@ -165,7 +165,7 @@ export function ArchitectDashboardView() {
               ))}
             </div>
           ) : (
-            <ArchitectEmptyState title="No workflows yet" text="Start with a blank canvas or use the agent builder to create your first automation." actionLabel="Create workflow" actionHref="/architect/workflows/new" />
+            <ArchitectEmptyState title="No workflows yet" text="Start with a blank canvas or use the agent builder to create your first automation." actionLabel="Create workflow" actionHref="/architect/workflows" />
           )}
         </ArchitectCard>
 
@@ -186,7 +186,7 @@ export function ArchitectDashboardView() {
               ))}
             </div>
           ) : (
-            <ArchitectEmptyState title="No listings yet" text="Package a workflow as an agent and submit it for review." actionLabel="Publish agent" actionHref="/architect/agents/publish" />
+            <ArchitectEmptyState title="No listings yet" text="Package a workflow as an agent and submit it for review." actionLabel="Publish agent" actionHref="/architect/workflows" />
           )}
         </ArchitectCard>
 

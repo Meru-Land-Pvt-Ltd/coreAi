@@ -366,18 +366,6 @@ export function getArchitectListings() {
   return apiGet<{ listings: ArchitectListing[] }>("/architect/listings");
 }
 
-export function createArchitectListing(body: {
-  workflowId?: string;
-  name: string;
-  shortDescription: string;
-  description?: string;
-  priceCents: number;
-  tags: string[];
-  requiredConnectors: string[];
-  supportedLlms: string[];
-}) {
-  return apiPost<{ listing: ArchitectListing }>("/architect/listings", body);
-}
 
 export function updateArchitectListingStatus(
   agentId: string,

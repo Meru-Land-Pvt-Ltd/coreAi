@@ -753,7 +753,7 @@ function PublishingStatusContent() {
     router.push(
       (headerAgent.workflowId
         ? `/architect/workflows/${headerAgent.workflowId}/builder`
-        : "/architect/agents/publish") as Route
+        : "/architect/workflows") as Route
     );
   }
 

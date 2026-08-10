@@ -536,30 +536,27 @@ Analyze the business details provided. Generate a JSON object containing:
 1. "welcomeMessage": A friendly, helpful welcome message for the bot. Do not use emojis.
 2. "fallbackMessage": A fallback message when the bot doesn't understand a message. Do not use emojis.
 3. "commands": An array of up to 7 commands. Each command has:
-   - "command": lowercase alphanumeric command name (e.g. "services", "doctors", "team", "book", "hours", "contact", "pricing", "location", "insurance", "faq"). Do not include leading slash. Do not include "start" or "help" or "commands" as they are reserved/automatic.
+   - "command": lowercase alphanumeric command name (e.g. "services", "team", "book", "hours", "contact", "pricing", "location", "faq"). Do not include leading slash. Do not include "start" or "help" or "commands" as they are reserved/automatic.
    - "description": A brief explanation of the command for the Telegram menu. Do not use emojis.
    - "action": "reply" (for static responses) or "book" (for dynamic AI actions).
    - "response": 
      - If action is "reply", this must be the exact, fully detailed static response text. Do not use emojis. Use clean, professional plain text formatting.
-     - If action is "book", this must be custom instructions for the AI on how to handle the request (e.g., "Guide the user to book a dental cleaning, ask for name/phone, and check availability").
+     - If action is "book", this must be custom instructions for the AI on how to handle the request (e.g., "Guide the user to book the requested service or consultation, collect only the required contact details, and check availability").
 
 CRITICAL FORMATTING & INFORMATION SEPARATION RULES:
 1. ABSOLUTELY NO EMOJIS. Keep all responses formal, professional, and clean.
 2. DEDICATED COMMANDS FOR SEPARATE CONCEPTS:
-   - If there are doctors, practitioners, or team members in the text, you MUST generate a dedicated "doctors" or "team" command listing them (e.g. "• Dr. Emily Carter: Specialist in Orthodontics"). Do NOT mix doctor names into the "services" command response.
+   - If there are providers or team members in the text (for example clinicians, attorneys, notaries, brokers, sales/service contacts, or other staff), you MUST generate a dedicated "team" command listing them (e.g. "• Alex Morgan: Attorney"). Do NOT mix team-member names into the "services" command response.
    - The "services" command response must ONLY list SERVICE CATEGORIES (not individual service items). Group all individual services under their parent category. Each bullet must be: "• Category Name: Service 1, Service 2, Service 3". ALL services from the document must be included under the correct category. Do not omit any.
-   - Example for a dental clinic services response:
-     Our dental services:
-     • Preventive Dentistry: Dental Exams, Professional Cleaning, Fluoride Treatment, Sealants, Oral Cancer Screening
-     • Cosmetic Dentistry: Teeth Whitening, Porcelain Veneers, Smile Design, Cosmetic Bonding
-     • Restorative Dentistry: Tooth-Colored Fillings, Dental Crowns, Dental Bridges, Root Canal Treatment, Dentures
-     • Orthodontics: Invisalign, Clear Aligners, Retainers
-     • Oral Surgery: Tooth Extraction, Wisdom Tooth Removal, Dental Implants
-     • Pediatric Dentistry: Children's Exams, Fluoride Treatment, Fillings
+   - Generic grouping example:
+     Our services:
+     • Consultations: Initial Consultation, Follow-up Consultation
+     • Appointments / Reservations: Standard Booking, Priority Booking
+     • Support Services: Document Review, Status Update
    - NEVER list individual services as their own bullet points. Always group under a named category.
-   - Do not mix unrelated concepts (hours, address, doctor profiles) in a single response. Each command response must stay focused on its topic.
+   - Do not mix unrelated concepts (hours, address, team profiles) in a single response. Each command response must stay focused on its topic.
 3. For FAQ command: each bullet must be "• Question: Answer" format.
-4. For doctors/team command: each bullet must be "• Name: Role or Specialization" format.
+4. For the team command: each bullet must be "• Name: Role or Specialization" format.
 5. Use structured grouped lists for all multi-item responses.
 
 Format the output strictly as a JSON object matching this schema:

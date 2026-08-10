@@ -628,7 +628,7 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
 }
 
 function builderHrefFor(agent: ArchitectListing): Route {
-  return (agent.workflowId ? `/architect/workflows/${agent.workflowId}/builder` : "/architect/agents/publish") as Route;
+  return (agent.workflowId ? `/architect/workflows/${agent.workflowId}/builder` : "/architect/workflows") as Route;
 }
 
 function FooterActions({

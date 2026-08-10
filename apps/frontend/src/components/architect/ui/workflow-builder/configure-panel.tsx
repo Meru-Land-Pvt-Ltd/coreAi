@@ -15,12 +15,14 @@ import {
   generateIncludedFeaturesFromWorkflow,
   getCategoriesForIndustry,
   industryTagsForCategorySelection,
+  isTrivenTargetIndustry,
   normalizeBuyerSetupKey,
   normalizeIndustryTags,
   RECEPTIONIST_DEFAULT_FULL_DESCRIPTION,
   RECEPTIONIST_DEFAULT_SHORT_DESCRIPTION,
   RECEPTIONIST_DEFAULT_TAGLINE,
   resolveBrowseIndustries,
+  suggestedAgentNameForSubindustry,
   validateBuyerSetupFields,
   validateConfigureForSubmit,
   validateConfigureForTemplateGallery,
@@ -456,6 +458,11 @@ export function ConfigurePanel({
     return [...getCategoriesForIndustry(browseIndustry), ...customCategories, AGENT_CATEGORY_CUSTOM];
   }, [browseIndustry, customCategories]);
 
+  const suggestedAgentName = useMemo(() => {
+    if (selectedPresetCategories.length !== 1) return null;
+    return suggestedAgentNameForSubindustry(selectedPresetCategories[0]);
+  }, [selectedPresetCategories]);
+
   const selectedCategoryPills = useMemo(() => {
     const selected = [...selectedPresetCategories, ...customCategories];
     if (categoryIsCustom) selected.push(AGENT_CATEGORY_CUSTOM);
@@ -528,7 +535,9 @@ export function ConfigurePanel({
     }
     const presets = selectedPresetCategories.includes(option)
       ? selectedPresetCategories.filter((item) => item !== option)
-      : [...selectedPresetCategories, option];
+      : isTrivenTargetIndustry(browseIndustry)
+        ? [option]
+        : [...selectedPresetCategories, option];
     syncIndustryCategorySelection({
       nextBrowse: browseIndustry,
       presets,
@@ -1188,7 +1197,7 @@ export function ConfigurePanel({
                   maxLength={50}
                   value={configure.basics.agentName}
                   disabled={isLocked}
-                  placeholder="e.g. After-Hours AI Receptionist"
+                  placeholder={suggestedAgentName ?? "e.g. After-Hours AI Receptionist"}
                   onChange={(event) => updateBasics({ agentName: event.target.value })}
                   className={fieldClass(Boolean(fieldErrors.agentName))}
                 />
@@ -1246,10 +1255,12 @@ export function ConfigurePanel({
               {browseIndustry ? (
                 <div>
                   <span className="mb-1 block text-[13.5px] font-semibold text-slate-700">
-                    Category <span className="text-amber-500">*</span>
+                    Subindustry <span className="text-amber-500">*</span>
                   </span>
                   <p className="mb-3 text-[12.5px] text-slate-400">
-                    Pick one or more categories under {browseIndustry}.
+                    {isTrivenTargetIndustry(browseIndustry)
+                      ? `Choose the subindustry this agent is built for under ${browseIndustry}.`
+                      : `Pick one or more subindustries under ${browseIndustry}.`}
                   </p>
                   <IndustryPills
                     options={categoryOptions}
@@ -1258,6 +1269,11 @@ export function ConfigurePanel({
                     onToggle={toggleCategory}
                     testIdPrefix="configure-category-pill"
                   />
+                  {suggestedAgentName ? (
+                    <p className="mt-2 text-[12.5px] font-medium text-amber-700">
+                      Suggested agent name: <span className="font-semibold">{suggestedAgentName}</span>
+                    </p>
+                  ) : null}
                   {categoryIsCustom ? (
                     <input
                       id="configure-custom-category"
@@ -1266,7 +1282,7 @@ export function ConfigurePanel({
                       maxLength={80}
                       value={customCategoryDraft}
                       disabled={isLocked}
-                      placeholder="Type a category and press Enter"
+                      placeholder="Type a subindustry and press Enter"
                       onChange={(event) => setCustomCategoryDraft(event.target.value)}
                       onKeyDown={(event) => {
                         if (event.key !== "Enter") return;
@@ -2046,7 +2062,7 @@ export function ConfigurePanel({
                     rows={[
                       { label: "Name", value: configure.basics.agentName.trim() || undefined },
                       { label: "Tagline", value: configure.basics.tagline.trim() || undefined },
-                      { label: "Category", value: configure.basics.category },
+                      { label: "Subindustry", value: configure.basics.category },
                       { label: "Industry", value: configure.basics.industryTags[0] || undefined }
                     ]}
                   />
@@ -2320,7 +2336,7 @@ export function ConfigurePanel({
                               updateBasics({ agentName: event.target.value });
                               clearTemplateModalFieldError("agentName");
                             }}
-                            placeholder="e.g. After-Hours AI Receptionist"
+                            placeholder={suggestedAgentName ?? "e.g. After-Hours AI Receptionist"}
                             className={fieldClass(Boolean(templateModalErrors.agentName))}
                           />
                           <FieldError message={templateModalErrors.agentName} testId="configure-template-error-agent-name" />
@@ -2406,7 +2422,7 @@ export function ConfigurePanel({
                         {browseIndustry ? (
                           <div className="sm:col-span-2">
                             <span className="mb-2 block text-[13px] font-semibold text-slate-700">
-                              Category <span className="text-amber-500">*</span>
+                              Subindustry <span className="text-amber-500">*</span>
                             </span>
                             <IndustryPills
                               options={categoryOptions}
@@ -2417,6 +2433,11 @@ export function ConfigurePanel({
                               }}
                               testIdPrefix="configure-template-category-pill"
                             />
+                            {suggestedAgentName ? (
+                              <p className="mt-2 text-[12px] font-medium text-amber-700">
+                                Suggested agent name: <span className="font-semibold">{suggestedAgentName}</span>
+                              </p>
+                            ) : null}
                             {categoryIsCustom ? (
                               <input
                                 id="template-modal-custom-category"
@@ -2434,7 +2455,7 @@ export function ConfigurePanel({
                                   commitCustomCategoryDraft();
                                   clearTemplateModalFieldError("category");
                                 }}
-                                placeholder="Type a category and press Enter"
+                                placeholder="Type a subindustry and press Enter"
                                 className={`mt-3 ${fieldClass(Boolean(templateModalErrors.category))}`}
                               />
                             ) : null}

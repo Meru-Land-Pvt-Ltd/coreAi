@@ -383,7 +383,7 @@ export function buildVapiVariableValues({
     callerIsReturning: callerContext?.callerIsReturning ? "true" : "false",
     hasUpcomingAppointment: callerContext?.hasUpcomingAppointment ? "true" : "false",
     existingAppointmentCount: String(callerContext?.existingAppointmentCount ?? 0),
-    existingAppointmentsSummary: callerContext?.existingAppointmentsSummary || "No upcoming appointments found for this phone number."
+    existingAppointmentsSummary: callerContext?.existingAppointmentsSummary || "No upcoming bookings found for this phone number."
   };
 }
 
@@ -793,13 +793,13 @@ export function genericAssistantTools() {
       function: {
         name: VOICE_TOOL_NAMES.checkAvailability,
         description:
-          "Check the connected business calendar. Without a time it returns a SAMPLE of free times across the whole day plus the total count — unlisted times are NOT booked. When the caller asks about a specific time ('Is 5 PM available?', 'anything after 4?', 'the latest appointment'), call again WITH the time parameter for a direct truthful check.",
+          "Check the connected business calendar. Without a time it returns a SAMPLE of free times across the whole day plus the total count — unlisted times are NOT booked. When the caller asks about a specific time ('Is 5 PM available?', 'anything after 4?', 'the latest available time'), call again WITH the time parameter for a direct truthful check.",
         parameters: {
           type: "object",
           properties: {
             date: {
               type: "string",
-              description: "Appointment date in YYYY-MM-DD. Resolve today/tomorrow using runtime variables; never ask the caller for today's date."
+              description: "Booking date in YYYY-MM-DD. Resolve today/tomorrow using runtime variables; never ask the caller for today's date."
             },
             time: {
               type: "string",
@@ -807,11 +807,11 @@ export function genericAssistantTools() {
             },
             service_type: {
               type: "string",
-              description: "Requested service or appointment type."
+              description: "Requested service or booking type."
             },
             duration_minutes: {
               type: "number",
-              description: "Requested appointment length in minutes."
+              description: "Requested booking length in minutes."
             }
           },
           required: ["date"]
@@ -823,13 +823,13 @@ export function genericAssistantTools() {
       messages: [
         {
           type: "request-start",
-          content: "Just a moment while I book that appointment for you."
+          content: "Just a moment while I save that booking for you."
         }
       ],
       function: {
         name: VOICE_TOOL_NAMES.bookAppointment,
         description:
-          "Book an appointment in the connected business calendar after the caller confirms a slot. Only call this after collecting the caller's real name and confirmed date/time.",
+          "Create the confirmed booking in the connected business calendar. Only call this after collecting the caller's real name and confirmed date/time.",
         parameters: {
           type: "object",
           properties: {
@@ -853,24 +853,28 @@ export function genericAssistantTools() {
             },
             date: {
               type: "string",
-              description: "Appointment date in YYYY-MM-DD. Resolve today/tomorrow using runtime variables; never ask the caller for today's date."
+              description: "Booking date in YYYY-MM-DD. Resolve today/tomorrow using runtime variables; never ask the caller for today's date."
             },
             time: {
               type: "string",
-              description: "Appointment time in 24-hour HH:mm format."
+              description: "Booking time in 24-hour HH:mm format."
             },
             service_type: {
               type: "string",
-              description: "Requested service or appointment type."
+              description: "Requested service or booking type."
+            },
+            provider_name: {
+              type: "string",
+              description:
+                "The selected provider or team member, exactly as listed in business context (for example a clinician, attorney, broker, sales representative, service advisor, or other staff member). Omit when there is no preference — never invent a name."
             },
             doctor: {
               type: "string",
-              description:
-                "The doctor, practitioner, or staff member the caller chose, exactly as listed in the business context (e.g. \"Dr. Patel\"). Omit when the business lists only one provider or the caller has no preference — never invent a name."
+              description: "Legacy compatibility alias for provider_name. Prefer provider_name for new calls."
             },
             duration_minutes: {
               type: "number",
-              description: "Appointment length in minutes."
+              description: "Booking length in minutes."
             }
           },
           required: ["customer_name", "customer_phone", "date", "time"]
@@ -888,14 +892,14 @@ export function genericAssistantTools() {
       function: {
         name: VOICE_TOOL_NAMES.cancelAppointment,
         description:
-          "Look up and cancel the caller's upcoming appointment. Identity is verified SERVER-SIDE from the number the caller is calling from — never pass a phone number, and never treat a phone number the caller says out loud as verification. Step 1: call with no arguments (optionally date or service_type to narrow) to find the caller's cancellable appointments. Step 2: ONLY after the caller clearly and unambiguously says yes to cancelling a specific appointment, call again with that appointment_id and confirmed=true. A no, hesitation, silence, or unclear answer means DO NOT set confirmed=true.",
+          "Look up and cancel the caller's upcoming booking. Identity is verified SERVER-SIDE from the number the caller is calling from — never pass a phone number, and never treat a phone number the caller says out loud as verification. Step 1: call with no arguments (optionally date or service_type to narrow) to find the caller's cancellable bookings. Step 2: ONLY after the caller clearly and unambiguously says yes to cancelling a specific booking, call again with that appointment_id and confirmed=true. A no, hesitation, silence, or unclear answer means DO NOT set confirmed=true.",
         parameters: {
           type: "object",
           properties: {
             appointment_id: {
               type: "string",
               description:
-                "Internal appointment id returned by a previous cancel_appointment lookup in THIS call. Never invent or guess this value."
+                "Internal booking id returned by a previous cancel_appointment lookup in THIS call (legacy field name: appointment_id). Never invent or guess this value."
             },
             date: {
               type: "string",
@@ -908,7 +912,7 @@ export function genericAssistantTools() {
             confirmed: {
               type: "boolean",
               description:
-                "true ONLY after the caller clearly agreed to cancel the selected appointment."
+                "true ONLY after the caller clearly agreed to cancel the selected booking."
             },
             cancellation_reason: {
               type: "string",
@@ -930,18 +934,18 @@ export function genericAssistantTools() {
       function: {
         name: VOICE_TOOL_NAMES.rescheduleAppointment,
         description:
-          "Look up and move the caller's upcoming appointment to a new date/time. Identity is verified SERVER-SIDE from the number the caller is calling from — never pass a phone number, and never treat a phone number the caller says out loud as verification. Step 1: call with no arguments (optionally date or service_type to narrow) to find the caller's appointments. Step 2: collect the new day and time the caller wants (use check_availability if they ask what's open). Step 3: ONLY after the caller clearly agrees to move a specific appointment to a specific new date/time, call again with that appointment_id, new_date, new_time and confirmed=true. A no, hesitation, silence, or unclear answer means DO NOT set confirmed=true.",
+          "Look up and move the caller's upcoming booking to a new date/time. Identity is verified SERVER-SIDE from the number the caller is calling from — never pass a phone number, and never treat a phone number the caller says out loud as verification. Step 1: call with no arguments (optionally date or service_type to narrow) to find the caller's bookings. Step 2: collect the new day and time the caller wants (use check_availability if they ask what's open). Step 3: ONLY after the caller clearly agrees to move a specific booking to a specific new date/time, call again with that appointment_id, new_date, new_time and confirmed=true. A no, hesitation, silence, or unclear answer means DO NOT set confirmed=true.",
         parameters: {
           type: "object",
           properties: {
             appointment_id: {
               type: "string",
               description:
-                "Internal appointment id returned by a previous reschedule_appointment lookup in THIS call. Never invent or guess this value."
+                "Internal booking id returned by a previous reschedule_appointment lookup in THIS call (legacy field name: appointment_id). Never invent or guess this value."
             },
             date: {
               type: "string",
-              description: "Optional YYYY-MM-DD filter when the caller mentions which day the EXISTING appointment is on."
+              description: "Optional YYYY-MM-DD filter when the caller mentions which day the EXISTING booking is on."
             },
             service_type: {
               type: "string",
@@ -949,16 +953,16 @@ export function genericAssistantTools() {
             },
             new_date: {
               type: "string",
-              description: "The NEW appointment date in YYYY-MM-DD. Resolve today/tomorrow using runtime variables; never ask the caller for today's date."
+              description: "The NEW booking date in YYYY-MM-DD. Resolve today/tomorrow using runtime variables; never ask the caller for today's date."
             },
             new_time: {
               type: "string",
-              description: "The NEW appointment time in 24-hour HH:mm format."
+              description: "The NEW booking time in 24-hour HH:mm format."
             },
             confirmed: {
               type: "boolean",
               description:
-                "true ONLY after the caller clearly agreed to move the selected appointment to the stated new date and time."
+                "true ONLY after the caller clearly agreed to move the selected booking to the stated new date and time."
             }
           },
           required: []
@@ -976,14 +980,14 @@ export function genericAssistantTools() {
       function: {
         name: VOICE_TOOL_NAMES.updateAppointmentContact,
         description:
-          "Correct the phone number on the caller's CURRENT booking. Two steps: (1) PREPARE — call with corrected_phone (full E.164 with country code) and confirmed omitted/false to validate it; you'll get back the masked old and new numbers to read aloud. (2) COMMIT — ONLY after the caller clearly confirms, call again with confirmed=true and NO phone (the validated number is loaded server-side). This moves the appointment's number and the text recipient together. The new number has NO SMS consent — after committing, read the SMS disclosure again before any text. Never guess a number; ask the caller to repeat it with the country code.",
+          "Correct the phone number on the caller's CURRENT booking. Two steps: (1) PREPARE — call with corrected_phone (full E.164 with country code) and confirmed omitted/false to validate it; you'll get back the masked old and new numbers to read aloud. (2) COMMIT — ONLY after the caller clearly confirms, call again with confirmed=true and NO phone (the validated number is loaded server-side). This moves the booking's number and the text recipient together. The new number has NO SMS consent — after committing, read the SMS disclosure again before any text. Never guess a number; ask the caller to repeat it with the country code.",
         parameters: {
           type: "object",
           properties: {
             appointment_id: {
               type: "string",
               description:
-                "REQUIRED. The internal appointment id (appointment_ref) of the booking to correct in THIS call."
+                "REQUIRED. The internal booking id (legacy field name: appointment_id / appointment_ref) of the booking to correct in THIS call."
             },
             corrected_phone: {
               type: "string",
@@ -1018,7 +1022,7 @@ export function genericAssistantTools() {
             appointment_id: {
               type: "string",
               description:
-                "REQUIRED. The internal appointment id (appointment_ref) returned by book_appointment in THIS call. The recipient is resolved server-side from that appointment and verified caller ID — do NOT pass a spoken phone number. If the caller wants a different number, use update_appointment_contact first."
+                "REQUIRED. The internal booking id (legacy field name: appointment_id / appointment_ref) returned by book_appointment in THIS call. The recipient is resolved server-side from that booking and verified caller ID — do NOT pass a spoken phone number. If the caller wants a different number, use update_appointment_contact first."
             }
           },
           required: ["appointment_id", "affirmative"]
@@ -1044,7 +1048,7 @@ export function genericAssistantTools() {
               type: "string",
               enum: ["normal", "urgent", "emergency"],
               description:
-                "Set 'urgent' for an urgent after-hours request, 'emergency' when the caller was directed to 911/emergency care and asked for the team to be notified. Marks the INTERNAL team notification only — it never sends the customer anything."
+                "Set 'urgent' for an urgent after-hours request, 'emergency' when the caller was directed to local emergency services and asked for the team to be notified. Marks the INTERNAL team notification only — it never sends the customer anything."
             },
             reason: {
               type: "string",
@@ -1068,11 +1072,11 @@ export function genericAssistantTools() {
             },
             appointment_date: {
               type: "string",
-              description: "Appointment date."
+              description: "Booking/service date."
             },
             appointment_time: {
               type: "string",
-              description: "Appointment time."
+              description: "Booking/service time."
             },
             service: {
               type: "string",
@@ -1098,13 +1102,13 @@ export function genericAssistantTools() {
       function: {
         name: VOICE_TOOL_NAMES.verifyAndLookupAppointment,
         description:
-          "Verify caller identity using Full Name and Booking Phone Number when managing an appointment booked under a different line.",
+          "Verify caller identity using Full Name and Booking Phone Number when managing a booking created under a different line.",
         parameters: {
           type: "object",
           properties: {
             full_name: {
               type: "string",
-              description: "Full name of the person who booked the appointment."
+              description: "Full name of the person who made the booking."
             },
             booking_phone: {
               type: "string",

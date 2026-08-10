@@ -105,7 +105,10 @@ export const DEFAULT_DENTAL_AFTER_HOURS_POLICY: AfterHoursPolicy = Object.freeze
 
 export const DEFAULT_MEDICAL_AFTER_HOURS_POLICY: AfterHoursPolicy = Object.freeze({
   ...PLATFORM_DEFAULT_BASE,
-  emergencyScreeningEnabled: true,
+  // Medical agents are administrative receptionists by default, not triage
+  // systems. They react to explicitly reported immediate danger using the
+  // global safety rules, but do not proactively ask symptom/severity questions.
+  emergencyScreeningEnabled: false,
   emergencyCategory: "MEDICAL"
 });
 
@@ -143,8 +146,9 @@ const ANIMAL_CARE_BUSINESS_TYPE =
 
 /**
  * Which emergency category a business type warrants BEFORE anyone configures a
- * policy. Only human clinical practices get proactive screening; everything
- * else falls to NONE.
+ * policy. Dental practices retain the legacy proactive screening flow. Human medical
+ * practices are categorized as MEDICAL for safety language, but their platform
+ * default does not proactively triage symptoms. Everything else falls to NONE.
  */
 export function emergencyCategoryForBusinessType(
   businessType: string | null | undefined
