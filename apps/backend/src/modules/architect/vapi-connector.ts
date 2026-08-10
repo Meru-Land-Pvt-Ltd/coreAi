@@ -1058,6 +1058,10 @@ export function genericAssistantTools() {
               type: "string",
               description: "Customer name."
             },
+            customer_email: {
+              type: "string",
+              description: "Customer email address, collected, spelled back, and confirmed during the call."
+            },
             patient_phone: {
               type: "string",
               description: "Backward-compatible alias for customer_phone."

@@ -2,8 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   listingFindUniqueMock,
+  listingFindFirstMock,
+  listingDeleteMock,
   listingUpdateMock,
   workflowUpdateMock,
+  workflowDeleteManyMock,
+  installedAgentFindManyMock,
+  installedAgentDeleteManyMock,
+  agentUsageExecutionDeleteManyMock,
+  platformPhoneUpdateManyMock,
+  cleanupUpdateManyMock,
+  businessProfileUpdateManyMock,
+  architectEarningUpdateManyMock,
   transactionMock,
   userFindUniqueMock,
   pseudonymizeDisclosureConsentsMock,
@@ -11,8 +21,18 @@ const {
   deleteUserWorkspaceMock
 } = vi.hoisted(() => ({
   listingFindUniqueMock: vi.fn(),
+  listingFindFirstMock: vi.fn(),
+  listingDeleteMock: vi.fn(),
   listingUpdateMock: vi.fn(),
   workflowUpdateMock: vi.fn(),
+  workflowDeleteManyMock: vi.fn(),
+  installedAgentFindManyMock: vi.fn(),
+  installedAgentDeleteManyMock: vi.fn(),
+  agentUsageExecutionDeleteManyMock: vi.fn(),
+  platformPhoneUpdateManyMock: vi.fn(),
+  cleanupUpdateManyMock: vi.fn(),
+  businessProfileUpdateManyMock: vi.fn(),
+  architectEarningUpdateManyMock: vi.fn(),
   transactionMock: vi.fn(),
   userFindUniqueMock: vi.fn(),
   pseudonymizeDisclosureConsentsMock: vi.fn(),
@@ -68,7 +88,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   listingFindUniqueMock.mockResolvedValue({
     id: "listing-1",
+    name: "Reception Agent",
     workflowId: "workflow-1",
+    architectUserId: "architect-1",
     submittedAt: new Date("2026-07-20T00:00:00.000Z"),
     approvedAt: null,
     publishedAt: null,
@@ -76,6 +98,16 @@ beforeEach(() => {
     rejectionReason: null
   });
   workflowUpdateMock.mockResolvedValue({ id: "workflow-1" });
+  listingFindFirstMock.mockResolvedValue(null);
+  listingDeleteMock.mockResolvedValue({ id: "listing-1" });
+  workflowDeleteManyMock.mockResolvedValue({ count: 1 });
+  installedAgentFindManyMock.mockResolvedValue([]);
+  installedAgentDeleteManyMock.mockResolvedValue({ count: 0 });
+  agentUsageExecutionDeleteManyMock.mockResolvedValue({ count: 0 });
+  platformPhoneUpdateManyMock.mockResolvedValue({ count: 0 });
+  cleanupUpdateManyMock.mockResolvedValue({ count: 0 });
+  businessProfileUpdateManyMock.mockResolvedValue({ count: 0 });
+  architectEarningUpdateManyMock.mockResolvedValue({ count: 0 });
   userFindUniqueMock.mockResolvedValue({
     id: "architect-1",
     email: "architect@example.com",
@@ -100,8 +132,36 @@ beforeEach(() => {
   }));
   transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) =>
     callback({
-      agentListing: { update: listingUpdateMock },
-      workflowDefinition: { update: workflowUpdateMock }
+      agentListing: {
+        update: listingUpdateMock,
+        findFirst: listingFindFirstMock,
+        delete: listingDeleteMock
+      },
+      workflowDefinition: {
+        update: workflowUpdateMock,
+        deleteMany: workflowDeleteManyMock
+      },
+      installedAgent: {
+        findMany: installedAgentFindManyMock,
+        deleteMany: installedAgentDeleteManyMock
+      },
+      platformPhoneNumber: { updateMany: platformPhoneUpdateManyMock },
+      businessPhoneNumber: { updateMany: cleanupUpdateManyMock },
+      payment: { updateMany: cleanupUpdateManyMock },
+      businessUsageInvoice: { updateMany: cleanupUpdateManyMock },
+      appointment: { updateMany: cleanupUpdateManyMock },
+      businessKnowledgeFile: { updateMany: cleanupUpdateManyMock },
+      businessKnowledgeBase: { updateMany: cleanupUpdateManyMock },
+      vapiCall: { updateMany: cleanupUpdateManyMock },
+      testCalendarEvent: { updateMany: cleanupUpdateManyMock },
+      emailMessage: { updateMany: cleanupUpdateManyMock },
+      businessEmailAlias: { updateMany: cleanupUpdateManyMock },
+      smsExecution: { updateMany: cleanupUpdateManyMock },
+      smsConsent: { updateMany: cleanupUpdateManyMock },
+      phoneProvisioningRequest: { updateMany: cleanupUpdateManyMock },
+      agentUsageExecution: { deleteMany: agentUsageExecutionDeleteManyMock },
+      businessProfile: { updateMany: businessProfileUpdateManyMock },
+      architectEarning: { updateMany: architectEarningUpdateManyMock }
     })
   );
 });
@@ -187,6 +247,68 @@ describe("admin agent moderation decisions", () => {
       reviewStatus: "REJECTED",
       rejectionReason: "The listing does not pass the safety review."
     });
+  });
+});
+
+describe("admin agent deletion", () => {
+  it("permanently deletes any listing and its live installations without confirmation or status gates", async () => {
+    installedAgentFindManyMock
+      .mockResolvedValueOnce([
+        {
+          id: "installed-1",
+          businessId: "business-1",
+          configJson: { vapiAssistantId: "assistant-1" }
+        }
+      ])
+      .mockResolvedValueOnce([]);
+    installedAgentDeleteManyMock.mockResolvedValueOnce({ count: 1 });
+    agentUsageExecutionDeleteManyMock.mockResolvedValueOnce({ count: 4 });
+    platformPhoneUpdateManyMock.mockResolvedValueOnce({ count: 1 });
+
+    const response = await adminRoutes.request("/agents/listing-1", { method: "DELETE" });
+    const body = await response.json() as {
+      data: {
+        deleted: boolean;
+        listingId: string;
+        workflowDeleted: boolean;
+        installedAgentsDeleted: number;
+        phoneNumbersReleased: number;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(agentUsageExecutionDeleteManyMock).toHaveBeenCalledWith({
+      where: { installedAgentId: { in: ["installed-1"] } }
+    });
+    expect(platformPhoneUpdateManyMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ installedAgentId: { in: ["installed-1"] } })
+    }));
+    expect(installedAgentDeleteManyMock).toHaveBeenCalledWith({
+      where: { id: { in: ["installed-1"] } }
+    });
+    expect(listingDeleteMock).toHaveBeenCalledWith({ where: { id: "listing-1" } });
+    expect(workflowDeleteManyMock).toHaveBeenCalledWith({ where: { id: "workflow-1" } });
+    expect(logAdminActionMock).toHaveBeenCalledWith(expect.objectContaining({
+      action: "AGENT_DELETED",
+      targetId: "listing-1"
+    }));
+    expect(body.data).toMatchObject({
+      deleted: true,
+      listingId: "listing-1",
+      workflowDeleted: true,
+      installedAgentsDeleted: 1,
+      phoneNumbersReleased: 1
+    });
+  });
+
+  it("returns not found without starting deletion when the listing does not exist", async () => {
+    listingFindUniqueMock.mockResolvedValueOnce(null);
+
+    const response = await adminRoutes.request("/agents/missing", { method: "DELETE" });
+
+    expect(response.status).toBe(404);
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(listingDeleteMock).not.toHaveBeenCalled();
   });
 });
 
