@@ -14,7 +14,8 @@ import {
   resetMarketplaceDemoLimits,
   startMarketplaceDemoCall,
   startPublicMarketplaceDemoCall,
-  buildDemoSystemPrompt
+  buildDemoSystemPrompt,
+  normalizeDemoCallCustomInfo
 } from "./marketplace-demo";
 
 
@@ -127,7 +128,8 @@ beforeAll(async () => {
       status: "APPROVED",
       pricingModel: "ONE_TIME",
       priceCents: 4900,
-      industryTags: ["Dental"],
+      category: "Dental Clinics",
+      industryTags: ["Healthcare", "Dental Clinics", "Dental"],
       architectUserId: architectId,
       workflowId: voiceWorkflow.id,
       requiredConnectors: [],
@@ -284,8 +286,7 @@ describe("startPublicMarketplaceDemoCall (DB)", () => {
 
     const customInfo = {
       businessName: "City General Hospital",
-      doctorName: "Dr. Gregory House",
-      businessType: "Medical clinic",
+      contactName: "Dr. Gregory House",
       address: "100 Princeton Ave, NJ",
       services: "Diagnostics, Consultations"
     };
@@ -296,10 +297,11 @@ describe("startPublicMarketplaceDemoCall (DB)", () => {
     expect(session.demoBusinessName).toBe("City General Hospital");
 
     // Check captured Vapi payload contains custom firstMessage and system prompt
-    const vapiCall = calls.find((c) => c.url.includes("/assistant"));
+    const vapiCall = calls.find((c) => c.method === "POST" && c.url.includes("/assistant"));
     if (vapiCall?.body) {
       expect(String(vapiCall.body.firstMessage)).toContain("City General Hospital");
-      expect(String(vapiCall.body.firstMessage)).toContain("Dr. Gregory House");
+      const model = vapiCall.body.model as { messages?: Array<{ content?: string }> } | undefined;
+      expect(String(model?.messages?.[0]?.content ?? "")).toContain("Dr. Gregory House");
     }
   });
 
@@ -347,11 +349,33 @@ describe("POST /business/marketplace/listings/:listingId/demo-call (DB)", () => 
   });
 });
 
+
+describe("normalizeDemoCallCustomInfo", () => {
+  it("uses contactName canonically and sanitizes oversized/control-character input", () => {
+    const normalized = normalizeDemoCallCustomInfo({
+      businessName: "  Morgan\n& Lee Law  ",
+      contactName: "Alex\tMorgan",
+      services: "x".repeat(800)
+    });
+
+    expect(normalized.businessName).toBe("Morgan & Lee Law");
+    expect(normalized.contactName).toBe("Alex Morgan");
+    expect(normalized.services?.length).toBe(600);
+  });
+
+  it("accepts doctorName only as a backward-compatible alias", () => {
+    const normalized = normalizeDemoCallCustomInfo({ doctorName: "Dr. Rao" });
+    expect(normalized.contactName).toBe("Dr. Rao");
+    expect(normalized.doctorName).toBeUndefined();
+  });
+});
+
 describe("buildDemoSystemPrompt", () => {
   const base = {
     assistantName: "June",
     demoBusinessName: "Demo Dental Studio",
-    industry: "dental",
+    industry: "Healthcare",
+    subindustry: "Dental Clinics",
     listingName: "AI Receptionist",
     listingDescription: "Answers missed calls and books appointments."
   };
@@ -361,15 +385,16 @@ describe("buildDemoSystemPrompt", () => {
 
     expect(prompt).toContain("LIVE DEMO");
     expect(prompt).toContain("Answers missed calls and books appointments.");
-    expect(prompt).toContain("what happens on a real call");
-    expect(prompt).toContain("plausible examples");
+    expect(prompt).toContain("Triven Marketplace browser demo");
+    expect(prompt).toContain("hypothetical example");
+    expect(prompt).toContain("Subindustry: Dental Clinics");
   });
 
   it("never tells the agent to deflect questions about itself", () => {
     const prompt = buildDemoSystemPrompt(base);
 
     expect(prompt).not.toContain("Stay strictly in character");
-    expect(prompt).toContain("You ARE allowed to talk about being a demo");
+    expect(prompt).toContain("answer honestly that this is a Triven Marketplace browser demo");
   });
 
   it("keeps the buyer's personalized details alongside the demo framing", () => {
@@ -377,8 +402,7 @@ describe("buildDemoSystemPrompt", () => {
       ...base,
       customInfo: {
         businessName: "Bright Smile Dental",
-        doctorName: "Dr. Rao",
-        businessType: "dental clinic",
+        contactName: "Dr. Rao",
         address: "12 Park Street",
         services: "Cleaning, Whitening"
       }
@@ -394,7 +418,20 @@ describe("buildDemoSystemPrompt", () => {
   it("forbids claiming a text or booking actually happened", () => {
     const prompt = buildDemoSystemPrompt(base);
 
-    expect(prompt).toContain("cannot actually finalize bookings or send texts");
-    expect(prompt).toContain("Never pretend a text, booking, or email was actually sent");
+    expect(prompt).toContain("SANDBOXED in Marketplace Demo");
+    expect(prompt).toContain("never claim that a real appointment, message, email, or CRM record was created");
+  });
+
+  it("preserves architect safety instructions while adding demo isolation", () => {
+    const prompt = buildDemoSystemPrompt({
+      ...base,
+      industry: "Legal",
+      subindustry: "Law Firms",
+      baseSystemPrompt: "Never provide legal advice. Escalate requests outside administrative intake."
+    });
+
+    expect(prompt).toContain("Never provide legal advice");
+    expect(prompt).toContain("Law Firms");
+    expect(prompt).toContain("Preserve all safety, compliance, escalation, and scope boundaries");
   });
 });

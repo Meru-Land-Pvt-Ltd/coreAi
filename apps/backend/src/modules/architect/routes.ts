@@ -8,7 +8,7 @@ import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { apiErrorStatus } from "../../lib/error-utils";
 import { prisma } from "../../lib/prisma";
-import { MarketplaceDemoError, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
+import { MarketplaceDemoError, normalizeDemoCallCustomInfo, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import {
   isImageUploadConfigured,
@@ -464,13 +464,7 @@ architectRoutes.post("/listings/public/:id/demo-call", async (c) => {
     // Body optional
   }
 
-  const customInfo = {
-    businessName: typeof body.businessName === "string" ? body.businessName : undefined,
-    doctorName: typeof body.doctorName === "string" ? body.doctorName : undefined,
-    businessType: typeof body.businessType === "string" ? body.businessType : undefined,
-    address: typeof body.address === "string" ? body.address : undefined,
-    services: typeof body.services === "string" ? body.services : undefined
-  };
+  const customInfo = normalizeDemoCallCustomInfo(body);
 
   try {
     const session = await startPublicMarketplaceDemoCall(clientIp, listingId, customInfo);

@@ -98,7 +98,7 @@ import {
   type KnowledgeFileKind
 } from "./knowledge-files";
 import { getProviderEngine } from "../ai-provider-engine/provider-engine";
-import { MarketplaceDemoError, startMarketplaceDemoCall } from "./marketplace-demo";
+import { MarketplaceDemoError, normalizeDemoCallCustomInfo, startMarketplaceDemoCall } from "./marketplace-demo";
 import {
   buildInstalledAgentChatTestSetup,
   deployInstalledAgentVoiceAssistant,
@@ -2347,13 +2347,7 @@ businessRoutes.post("/marketplace/listings/:listingId/demo-call", async (c) => {
     // Body optional
   }
 
-  const customInfo = {
-    businessName: typeof body.businessName === "string" ? body.businessName : undefined,
-    doctorName: typeof body.doctorName === "string" ? body.doctorName : undefined,
-    businessType: typeof body.businessType === "string" ? body.businessType : undefined,
-    address: typeof body.address === "string" ? body.address : undefined,
-    services: typeof body.services === "string" ? body.services : undefined
-  };
+  const customInfo = normalizeDemoCallCustomInfo(body);
 
   try {
     const session = await startMarketplaceDemoCall(authUser.id, listingId, customInfo);
