@@ -2,8 +2,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const API_BASE = (process.env.TRIVEN_API_BASE || "http://192.168.1.47:8787").replace(/\/$/, "");
-const APP_BASE = (process.env.TRIVEN_APP_BASE || "http://192.168.1.47:3000").replace(/\/$/, "");
+const API_BASE = (
+  process.env.TRIVEN_API_BASE || "https://triven.ai/api"
+).replace(/\/$/, "");
+
+const APP_BASE = (
+  process.env.TRIVEN_APP_BASE || "https://triven.ai"
+).replace(/\/$/, "");
 const TOKEN = (process.env.TRIVEN_ARCHITECT_TOKEN || "").trim();
 const UPDATE_EXISTING = /^(1|true|yes)$/i.test(process.env.UPDATE_EXISTING || "");
 const SUBMIT_REVIEW = /^(1|true|yes)$/i.test(process.env.SUBMIT_REVIEW || "");
@@ -83,7 +88,7 @@ function resolveIconDirectory() {
 
   throw new Error(
     `Agent icon folder not found. Expected the extracted triven_25_agent_icons folder. ` +
-      `Set AGENT_ICON_DIR=/absolute/path/to/triven_25_agent_icons if it is stored elsewhere.`
+    `Set AGENT_ICON_DIR=/absolute/path/to/triven_25_agent_icons if it is stored elsewhere.`
   );
 }
 
@@ -467,7 +472,7 @@ async function main() {
     const icon = iconsByAgent.get(agent.name);
     console.log(
       `${String(index + 1).padStart(2, "0")}. [${agent.industry}] ${agent.subindustry} -> ${agent.name}` +
-        ` | tagline ${buildTagline(agent).length} chars | icon ${(icon.bytes / 1024).toFixed(1)} KB`
+      ` | tagline ${buildTagline(agent).length} chars | icon ${(icon.bytes / 1024).toFixed(1)} KB`
     );
   }
 
