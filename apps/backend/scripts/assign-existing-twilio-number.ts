@@ -299,7 +299,7 @@ async function main() {
     });
 
   if (
-    existingRouting &&
+    existingRouting?.isActive &&
     existingRouting.businessId !== business.id
   ) {
     fail(
@@ -309,7 +309,8 @@ async function main() {
   }
 
   if (
-    existingRouting?.installedAgentId &&
+    existingRouting?.isActive &&
+    existingRouting.installedAgentId &&
     existingRouting.installedAgentId !== installedAgent.id
   ) {
     fail(
@@ -318,8 +319,6 @@ async function main() {
     );
   }
 
-  // One Business may hold several numbers as long as each belongs to a
-  // different InstalledAgent — the per-business cap was intentionally removed.
   const otherActiveAgentNumber =
     await prisma.businessPhoneNumber.findFirst({
       where: {
