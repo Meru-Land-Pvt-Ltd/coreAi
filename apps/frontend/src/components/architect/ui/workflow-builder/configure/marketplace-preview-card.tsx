@@ -1,4 +1,6 @@
 import type { AgentConfigureData } from "@coreai/shared";
+import { resolveBrowseIndustries } from "@coreai/shared";
+import { CategoryTagsPill } from "@/components/common/category-tags-pill";
 import { BuilderIcon } from "../icons";
 
 /* eslint-disable @next/next/no-img-element -- icons/screenshots can be data URLs, which next/image does not support */
@@ -22,6 +24,18 @@ export function MarketplacePreviewCard({
         ? `$${price.toLocaleString("en-US")}/mo`
         : `$${price.toLocaleString("en-US")}`;
   const cover = configure.media.screenshotUrls[0] ?? null;
+  const industryLabel =
+    resolveBrowseIndustries(configure.basics.industryTags)[0] ??
+    configure.basics.industryTags[0]?.trim() ??
+    "";
+  const categoryLabels = [
+    ...new Set(
+      configure.basics.category
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+    )
+  ];
 
   return (
     <div
@@ -37,9 +51,18 @@ export function MarketplacePreviewCard({
             data-testid="configure-preview-default-cover"
           />
         )}
-        <span className="absolute right-2.5 top-2.5 z-10 rounded-full bg-white/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 shadow-sm backdrop-blur">
-          {configure.basics.category || "Category"}
-        </span>
+        <div className="absolute right-2.5 top-2.5 z-10 flex max-w-[calc(100%-1.25rem)] min-w-0 flex-nowrap items-center justify-end gap-1.5 overflow-hidden">
+          <span className="shrink-0 whitespace-nowrap rounded-full bg-white/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 shadow-sm backdrop-blur">
+            {industryLabel || "Industry"}
+          </span>
+          <CategoryTagsPill
+            labels={categoryLabels}
+            compact
+            className="min-w-0 max-w-[12rem]"
+            testId="configure-preview-category-tags"
+            emptyLabel="Category"
+          />
+        </div>
       </div>
 
       <div className="relative z-10 px-4 pb-4 pt-0">

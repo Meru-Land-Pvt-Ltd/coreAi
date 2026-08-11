@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { getWorkflowConfigure } from "@/components/architect/features/api";
 import type { AgentConfigurePricing } from "@coreai/shared";
+import { resolveBrowseIndustries } from "@coreai/shared";
+import { CategoryTagsPill } from "@/components/common/category-tags-pill";
 import { BuilderIcon } from "./icons";
-import { Dot } from "lucide-react";
 
 function formatPricingText(pricing: AgentConfigurePricing | null, fallbackPrice: string): string {
   if (!pricing) {
@@ -93,12 +94,16 @@ export function PublishPanel({
     : Number(price) > 0 || price.trim() === "0";
   const hasCoverImage = Boolean(coverUrl);
 
-
-  const previewTags = [...new Set([...tags].filter(Boolean))];
-  if (previewTags.length === 0) previewTags.push("Business Automation");
-  const visiblePreviewTags = previewTags.slice(0, 3);
-  const extraPreviewTagCount = Math.max(0, previewTags.length - 3);
-  const coverCategory = category || previewTags[0];
+  const industryLabel = resolveBrowseIndustries(tags)[0] ?? tags[0] ?? "";
+  const categoryLabels = [
+    ...new Set(
+      category
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+    )
+  ];
+  const coverCategory = categoryLabels[0] || industryLabel || "Category";
   const pricingText = formatPricingText(pricing, price);
 
   return (
@@ -146,50 +151,24 @@ export function PublishPanel({
                       <BuilderIcon name="message" className="h-8 w-8 text-white" />
                     )}
                   </div>
-                  <div className="group/tags relative pb-1">
-                    <div className="inline-flex max-w-full flex-wrap items-center rounded-full bg-amber-50 px-2.5 py-0.5">
-                      {visiblePreviewTags.map((tag, index) => (
-                        <span
-                          key={tag}
-                          className="flex items-center text-[11px] font-semibold text-amber-700"
-                          data-testid="architect-ui-workflow-builder-publish-panel-category-text"
-                        >
-                          {tag}
-                          {index < visiblePreviewTags.length - 1 || extraPreviewTagCount > 0 ? (
-                            <span className="text-amber-700">
-                              <Dot className="h-3 w-3" />
-                            </span>
-                          ) : null}
-                        </span>
-                      ))}
-                      {extraPreviewTagCount > 0 ? (
-                        <span
-                          className="text-[11px] font-bold text-amber-700"
-                          data-testid="publish-panel-tags-more"
-                          aria-label={`${extraPreviewTagCount} more tags`}
-                        >
-                          +{extraPreviewTagCount}
-                        </span>
-                      ) : null}
-                    </div>
-                    {extraPreviewTagCount > 0 ? (
-                      <div
-                        role="tooltip"
-                        className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden max-w-[min(100%,18rem)] rounded-xl border border-amber-100 bg-white px-3 py-2 shadow-lg group-hover/tags:block"
-                        data-testid="publish-panel-tags-tooltip"
+                  <div className="flex w-full min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-hidden pb-1">
+                    {industryLabel ? (
+                      <span
+                        className="shrink-0 whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600"
+                        data-testid="architect-ui-workflow-builder-publish-panel-industry-text"
                       >
-                        <div className="flex flex-wrap gap-1.5">
-                          {previewTags.map((tag) => (
-                            <span
-                              key={tag}
-                              className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
+                        {industryLabel}
+                      </span>
                     ) : null}
+                    <CategoryTagsPill
+                      labels={categoryLabels}
+                      compact
+                      className="min-w-0"
+                      testId="architect-ui-workflow-builder-publish-panel-category-text"
+                      moreTestId="publish-panel-category-more"
+                      tooltipTestId="publish-panel-category-tooltip"
+                      emptyLabel="Category not set"
+                    />
                   </div>
                 </div>
                 <h3 className="mt-3 text-lg font-bold text-slate-900" data-testid="architect-ui-workflow-builder-publish-panel-agent-heading">{agentName}</h3>
