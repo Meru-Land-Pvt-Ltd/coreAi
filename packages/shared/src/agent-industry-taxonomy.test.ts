@@ -14,16 +14,15 @@ import {
 import { normalizeAgentConfigure } from "./agent-configure";
 
 describe("Triven target agent taxonomy", () => {
-  it("contains the requested 25 Architect-created agent targets", () => {
-    expect(TRIVEN_AGENT_TAXONOMY_ENTRIES).toHaveLength(25);
-    expect(TRIVEN_AGENT_TAXONOMY.Healthcare).toHaveLength(18);
+  it("contains the requested 24 Architect-created agent targets", () => {
+    expect(TRIVEN_AGENT_TAXONOMY_ENTRIES).toHaveLength(24);
+    expect(TRIVEN_AGENT_TAXONOMY.Healthcare).toHaveLength(17);
     expect(TRIVEN_AGENT_TAXONOMY["Real Estate"]).toHaveLength(2);
     expect(TRIVEN_AGENT_TAXONOMY.Automotive).toHaveLength(3);
     expect(TRIVEN_AGENT_TAXONOMY.Legal).toHaveLength(2);
   });
 
   it("maps exact subindustries to the expected suggested agent names", () => {
-    expect(suggestedAgentNameForSubindustry("Dental Clinics")).toBe("Dental AI Receptionist");
     expect(suggestedAgentNameForSubindustry("Commercial Real Estate")).toBe("Commercial Property AI Agent");
     expect(suggestedAgentNameForSubindustry("Car Rental Services")).toBe("Car Rental Reservation AI");
     expect(suggestedAgentNameForSubindustry("Notary Services")).toBe("Notary Appointment AI");

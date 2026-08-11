@@ -35,9 +35,9 @@ const taglines = new Set();
 const fullDescriptions = new Set();
 const shortDescriptions = new Set();
 
-assert.equal(AGENTS.length, 25, "The creator must define exactly 25 agents");
-assert.equal(new Set(AGENTS.map((agent) => agent.name)).size, 25, "Agent names must be unique");
-assert.equal(new Set(AGENTS.map((agent) => `${agent.industry}/${agent.subindustry}`)).size, 25, "Industry targets must be unique");
+assert.equal(AGENTS.length, 24, "The creator must define exactly 24 agents");
+assert.equal(new Set(AGENTS.map((agent) => agent.name)).size, 24, "Agent names must be unique");
+assert.equal(new Set(AGENTS.map((agent) => `${agent.industry}/${agent.subindustry}`)).size, 24, "Industry targets must be unique");
 
 for (const agent of AGENTS) {
   const taxonomy = expectedTaxonomy.get(agent.name);
@@ -143,7 +143,7 @@ for (const agent of AGENTS) {
   }
 }
 
-assert.equal(taglines.size, 25);
-assert.equal(fullDescriptions.size, 25);
-assert.equal(shortDescriptions.size, 25);
-console.log("Triven agent creator production contract: PASS (25/25 workflows, copy, setup, icons, and safety)");
+assert.equal(taglines.size, 24);
+assert.equal(fullDescriptions.size, 24);
+assert.equal(shortDescriptions.size, 24);
+console.log("Triven agent creator production contract: PASS (24/24 workflows, copy, setup, icons, and safety)");

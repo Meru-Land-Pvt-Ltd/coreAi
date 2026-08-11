@@ -44,7 +44,7 @@ describe("Triven catalog — cross-industry genericity", () => {
   it("covers every industry the catalog claims to serve", () => {
     const industries = [...new Set(AGENTS.map((agent) => agent.industry))].sort();
     expect(industries).toEqual(["Automotive", "Healthcare", "Legal", "Real Estate"]);
-    expect(AGENTS).toHaveLength(25);
+    expect(AGENTS).toHaveLength(24);
   });
 
   it.each(NON_HEALTHCARE)(

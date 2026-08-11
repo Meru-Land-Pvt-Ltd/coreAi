@@ -1,15 +1,5 @@
-/**
- * Triven's initial cross-industry voice-agent taxonomy.
- *
- * Architects still create the actual workflows/agents themselves. This file is
- * only the canonical Industry -> Subindustry -> suggested agent-name mapping
- * shared by Architect Configure, marketplace filtering, buyer setup, and the
- * backend API/runtime. Keeping it in @coreai/shared prevents frontend/backend
- * taxonomy drift.
- */
 export const TRIVEN_AGENT_TAXONOMY = {
   Healthcare: [
-    { subindustry: "Dental Clinics", agentName: "Dental AI Receptionist" },
     { subindustry: "Medical Clinics", agentName: "Medical AI Receptionist" },
     { subindustry: "Hospitals", agentName: "Hospital AI Receptionist" },
     { subindustry: "Veterinary Clinics", agentName: "Veterinary AI Receptionist" },
