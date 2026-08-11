@@ -55,15 +55,24 @@ async function main() {
         continue;
       }
 
-      // BusinessProfile holds ONE row per business. Copying it onto every agent
-      // of a MULTI-agent business is the very bug this split removes: the row
-      // reflects whichever agent saved last, so a wedding planner would inherit
-      // the nail salon's booking URL, team phone and escalation rules.
-      //
-      // One agent  -> the profile genuinely is that agent's context; copy it.
-      // Many agents -> keep only what the agent already owns and leave the rest
-      //                blank for the buyer to fill in per agent.
-      const shared = business.installedAgents.length > 1
+      const multiAgent = business.installedAgents.length > 1;
+
+      const ownsSomething = ["services", "faqs", "tone", "escalationRules", "bookingUrl", "teamPhone", "hours"]
+        .some((key) => {
+          const value = details[key];
+          if (Array.isArray(value)) return value.length > 0;
+          return typeof value === "string" ? value.trim().length > 0 : value != null;
+        });
+
+      if (multiAgent && !ownsSomething) {
+        console.log(
+          `SKIP (multi-agent, no own context — keeps profile fallback) ${business.name} / ${agent.name}`
+        );
+        skipped += 1;
+        continue;
+      }
+
+      const shared = multiAgent
         ? {}
         : {
           services: profile.services ?? [],
@@ -86,7 +95,7 @@ async function main() {
       // hold — the merge means the agent's own values usually win.
       const writtenServices = Array.isArray(nextDetails.services) ? nextDetails.services.length : 0;
       const writtenFaqs = Array.isArray(nextDetails.faqs) ? nextDetails.faqs.length : 0;
-      const source = business.installedAgents.length > 1 ? "own-only (multi-agent)" : "own+profile";
+      const source = multiAgent ? "own-only (multi-agent)" : "own+profile";
 
       console.log(
         `${APPLY ? "UPDATE" : "WOULD UPDATE"} ${business.name} / ${agent.name} (${agent.id}) ` +
