@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canPromoteProvisionalExecution,
   canonicalExecutionKey,
   invoiceAttachedExecutions,
   normalizeUsageInvoiceStatus,
@@ -87,7 +88,36 @@ describe("canonical execution billing", () => {
     expect(usageBalanceIsCollectible(500_000)).toBe(true);
   });
 
-  it("uses only invoice-attached executions on billing-facing screens", () => {
+  it("promotes only an unattached provisional zero-fee row when final pricing arrives", () => {
+    const provisional = {
+      usageInvoiceId: null,
+      billable: false,
+      amountMicroUsd: 0,
+      freeReason: "NO_EXECUTION_FEE",
+      pricedUsageMicroUsd: 340_000
+    };
+    expect(canPromoteProvisionalExecution(provisional)).toBe(true);
+    expect(
+      canPromoteProvisionalExecution({
+        ...provisional,
+        freeReason: "TRIAL_ALLOWANCE"
+      })
+    ).toBe(false);
+    expect(
+      canPromoteProvisionalExecution({
+        ...provisional,
+        usageInvoiceId: "invoice-1"
+      })
+    ).toBe(false);
+    expect(
+      canPromoteProvisionalExecution({
+        ...provisional,
+        pricedUsageMicroUsd: 0
+      })
+    ).toBe(false);
+  });
+
+  it("can isolate payable rows without removing free activity from usage totals", () => {
     const executions = Array.from({ length: 22 }, (_, index) => ({
       id: `execution-${index + 1}`,
       usageInvoiceId: index < 17 ? "invoice-1" : null

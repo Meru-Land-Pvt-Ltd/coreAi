@@ -11,14 +11,6 @@ import { AgentPauseConfirmationModal } from "@/components/business/agent-pause-c
 import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { BUSINESS_AGENTS_PATH, BUSINESS_BILLING_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH, businessSetupPath, businessAgentDetailPath } from "@/lib/routes";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
-import {
-    billingMonthKey,
-    canonicalAgentBilledCostMicroUsd,
-    canonicalAgentExecutionCount,
-    canonicalTotalExecutionCount,
-    findCanonicalAgentUsage,
-    type CanonicalExecutionUsage
-} from "@/components/business/canonical-execution-usage";
 
 type ApiPurchasedAgent = {
     purchaseId: string;
@@ -366,30 +358,14 @@ function formatUsageCostUsd(microUsd: number): string {
     return `$${(microUsd / 1_000_000).toFixed(2)}`;
 }
 
-function mapPurchasedToDashboardAgent(
-    entry: ApiPurchasedAgent,
-    usage: CanonicalExecutionUsage | null
-): Agent {
+function mapPurchasedToDashboardAgent(entry: ApiPurchasedAgent): Agent {
     const { listing } = entry;
-    const canonicalUsage = usage
-        ? findCanonicalAgentUsage(usage, entry.installedAgentId)
-        : null;
-    const hasCanonicalAgentScope =
-        usage !== null && Boolean(entry.installedAgentId);
-    const runsThisMonth = hasCanonicalAgentScope
-        ? canonicalUsage
-            ? canonicalAgentExecutionCount(canonicalUsage)
-            : 0
-        : entry.stats?.runsThisMonth ?? 0;
-    // Missing usage data must never render as a misleading $0.00.
-    const hasUsageData =
-        hasCanonicalAgentScope ||
-        typeof entry.stats?.costThisMonthMicroUsd === "number";
-    const costMicroUsd = hasCanonicalAgentScope
-        ? canonicalUsage
-            ? canonicalAgentBilledCostMicroUsd(canonicalUsage)
-            : 0
-        : entry.stats?.costThisMonthMicroUsd ?? 0;
+    // These figures come from the same LIVE Vapi call rows as the activity
+    // chart. Invoice attachment is a billing concern and must not make a real
+    // call disappear from the dashboard.
+    const runsThisMonth = entry.stats?.runsThisMonth ?? 0;
+    const hasUsageData = typeof entry.stats?.costThisMonthMicroUsd === "number";
+    const costMicroUsd = entry.stats?.costThisMonthMicroUsd ?? 0;
     const trialEnded = isTrialEnded(
         entry.purchasedAt,
         entry.purchaseStatus,
@@ -426,8 +402,6 @@ export default function BusinessDashboardPage() {
     const [overviewState, setOverviewState] = useState<"loading" | "ready" | "error">("loading");
     const [agents, setAgents] = useState<Agent[]>([]);
     const [agentsState, setAgentsState] = useState<"loading" | "ready" | "error">("loading");
-    const [canonicalUsage, setCanonicalUsage] = useState<CanonicalExecutionUsage | null>(null);
-    const [previousCanonicalUsage, setPreviousCanonicalUsage] = useState<CanonicalExecutionUsage | null>(null);
 
     const {
         pricing: executionPricing,
@@ -461,15 +435,10 @@ export default function BusinessDashboardPage() {
         const totalSpendCents = overview?.totalSpendCents ?? 0;
         const monthly = overview?.monthlyMetrics;
         const bookingsThisMonth = monthly?.bookings ?? overview?.bookings?.total ?? 0;
-        // Never flash the dashboard API's broader raw-call count while the
-        // invoice-backed usage request is loading. Billing & Usage is the one
-        // canonical source displayed everywhere.
-        const callsHandled = canonicalUsage
-            ? canonicalTotalExecutionCount(canonicalUsage)
-            : null;
-        const callsHandledPrevMonth = previousCanonicalUsage
-            ? canonicalTotalExecutionCount(previousCanonicalUsage)
-            : null;
+        // The dashboard API and activity chart share the same LIVE call
+        // scope, so Calls Handled cannot lag behind invoice settlement.
+        const callsHandled = monthly?.callsHandled ?? null;
+        const callsHandledPrevMonth = monthly?.callsHandledPrevMonth ?? null;
 
         return metrics.map((metric) => {
             if (metric.label === "Total Spend") {
@@ -495,8 +464,6 @@ export default function BusinessDashboardPage() {
             return metric;
         });
     }, [
-        canonicalUsage,
-        previousCanonicalUsage,
         overview?.totalSpendCents,
         overview?.bookings?.total,
         overview?.monthlyMetrics
@@ -545,32 +512,11 @@ export default function BusinessDashboardPage() {
 
         async function loadAgents() {
             setAgentsState("loading");
-            const [result, usageResult, previousUsageResult] = await Promise.all([
-                apiGet<MyAgentsResponse>("/payments/my-agents"),
-                apiGet<CanonicalExecutionUsage>(
-                    `/business/billing/usage?month=${encodeURIComponent(billingMonthKey(0))}`
-                ),
-                apiGet<CanonicalExecutionUsage>(
-                    `/business/billing/usage?month=${encodeURIComponent(billingMonthKey(-1))}`
-                )
-            ]);
+            const result = await apiGet<MyAgentsResponse>("/payments/my-agents");
             if (!active) return;
 
-            const currentUsage =
-                usageResult.success && usageResult.data ? usageResult.data : null;
-            const previousUsage =
-                previousUsageResult.success && previousUsageResult.data
-                    ? previousUsageResult.data
-                    : null;
-            setCanonicalUsage(currentUsage);
-            setPreviousCanonicalUsage(previousUsage);
-
             if (result.success && result.data) {
-                setAgents(
-                    (result.data.agents ?? []).map((agent) =>
-                        mapPurchasedToDashboardAgent(agent, currentUsage)
-                    )
-                );
+                setAgents((result.data.agents ?? []).map(mapPurchasedToDashboardAgent));
                 setAgentsState("ready");
             } else {
                 setAgents([]);

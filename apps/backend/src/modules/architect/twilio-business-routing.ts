@@ -5298,17 +5298,98 @@ export async function handleVapiWebhook(c: Context) {
     const isEndOfCallEvent = /end-of-call-report|end|ended|report/i.test(messageType ?? "");
     const settleLiveEndOfCall = async () => {
       if (!businessContext?.businessId || !callId || executionMode !== "LIVE" || !isEndOfCallEvent) return;
+      const liveBusinessId = businessContext.businessId;
 
-      const installedAgent = await (metadataInstalledAgentId
-        ? prisma.installedAgent.findFirst({
-          where: { id: metadataInstalledAgentId, businessId: businessContext.businessId },
-          select: { id: true, workflowId: true }
-        })
-        : latestActiveInstalledAgent(businessContext.businessId)
-      ).catch((error) => {
+      const installedAgent = await (async () => {
+        const storedCall = await prisma.vapiCall.findUnique({
+          where: { callId },
+          select: { installedAgentId: true }
+        });
+        const directIds = [metadataInstalledAgentId, storedCall?.installedAgentId]
+          .filter((id): id is string => Boolean(id));
+        if (directIds.length > 0) {
+          const directAgents = await prisma.installedAgent.findMany({
+            where: {
+              businessId: liveBusinessId,
+              id: { in: [...new Set(directIds)] }
+            },
+            select: { id: true, workflowId: true }
+          });
+          const directById = new Map(directAgents.map((agent) => [agent.id, agent]));
+          for (const id of directIds) {
+            const direct = directById.get(id);
+            if (direct) return direct;
+          }
+        }
+
+        const assistantId = firstNestedString(body, [
+          ["message", "call", "assistantId"],
+          ["call", "assistantId"],
+          ["assistantId"]
+        ]);
+        if (assistantId) {
+          const assistantAgent = await prisma.installedAgent.findFirst({
+            where: {
+              businessId: liveBusinessId,
+              configJson: { path: ["vapiAssistantId"], equals: assistantId }
+            },
+            select: { id: true, workflowId: true }
+          });
+          if (assistantAgent) return assistantAgent;
+        }
+
+        const assignedPhoneNumber =
+          typeof metadata.assignedPhoneNumber === "string"
+            ? metadata.assignedPhoneNumber
+            : null;
+        if (assignedPhoneNumber) {
+          const phone = await prisma.businessPhoneNumber.findFirst({
+            where: {
+              businessId: liveBusinessId,
+              phoneNumber: assignedPhoneNumber,
+              installedAgentId: { not: null }
+            },
+            select: { installedAgentId: true }
+          });
+          if (phone?.installedAgentId) {
+            const phoneAgent = await prisma.installedAgent.findFirst({
+              where: {
+                id: phone.installedAgentId,
+                businessId: liveBusinessId
+              },
+              select: { id: true, workflowId: true }
+            });
+            if (phoneAgent) return phoneAgent;
+          }
+        }
+
+        const workflowId =
+          typeof metadata.workflowId === "string" ? metadata.workflowId : null;
+        if (workflowId) {
+          const workflowAgent = await prisma.installedAgent.findFirst({
+            where: { businessId: liveBusinessId, workflowId },
+            select: { id: true, workflowId: true }
+          });
+          if (workflowAgent) return workflowAgent;
+        }
+
+        return latestActiveInstalledAgent(liveBusinessId);
+      })().catch((error) => {
         console.error("[vapi-webhook] installed agent resolution failed", { callId, error });
         return null;
       });
+
+      if (installedAgent) {
+        await prisma.vapiCall.updateMany({
+          where: { callId, businessId: liveBusinessId },
+          data: { installedAgentId: installedAgent.id }
+        }).catch((error) => {
+          console.error("[vapi-webhook] installed agent backfill failed (non-fatal)", {
+            callId,
+            error
+          });
+        });
+      }
 
       /* The WorkflowRun IS the execution record several screens count. It used
          to be written AFTER usage settlement inside one try/catch, so any
@@ -5323,7 +5404,7 @@ export async function handleVapiWebhook(c: Context) {
             create: {
               workflowId: installedAgent.workflowId,
               installedAgentId: installedAgent.id,
-              businessId: businessContext.businessId,
+              businessId: liveBusinessId,
               mode: "LIVE",
               status: "COMPLETED",
               callProvider: "VAPI",
@@ -5339,7 +5420,7 @@ export async function handleVapiWebhook(c: Context) {
 
       try {
         await recordVapiCallUsage({
-          businessId: businessContext.businessId,
+          businessId: liveBusinessId,
           installedAgentId: installedAgent?.id,
           callId,
           customerPhone,
@@ -5348,7 +5429,7 @@ export async function handleVapiWebhook(c: Context) {
       } catch (error) {
         console.error("[vapi-webhook] USAGE SETTLEMENT FAILED — needs reconciliation", {
           callId,
-          businessId: businessContext.businessId,
+          businessId: liveBusinessId,
           error: error instanceof Error ? error.message : error
         });
       }

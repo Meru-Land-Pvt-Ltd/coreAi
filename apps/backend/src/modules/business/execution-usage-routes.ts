@@ -8,11 +8,11 @@ import {
 } from "../payments/stripe";
 import {
   billingMonthFor,
-  invoiceAttachedExecutions,
   MICRO_USD_PER_CENT,
   monthBounds,
   monthLabel,
   normalizeUsageInvoiceStatus,
+  reconcileBusinessExecutionUsage,
   rollupExecutions,
   usageBalanceIsCollectible
 } from "./execution-billing";
@@ -131,6 +131,21 @@ export async function getBusinessExecutionUsage(c: Context) {
     });
   }
 
+  // Heal webhook/repricing gaps before projecting usage. The reconciliation
+  // is advisory-lock protected and idempotent, so concurrent Billing and
+  // invoice requests can safely repair the same call without double charging.
+  try {
+    await reconcileBusinessExecutionUsage(business.id, month, {
+      since: selectedBounds.start
+    });
+  } catch (error) {
+    console.error("[execution-usage] current-month reconciliation failed (non-fatal)", {
+      businessId: business.id,
+      month,
+      error
+    });
+  }
+
   const [
     executions,
     calls,
@@ -239,13 +254,18 @@ export async function getBusinessExecutionUsage(c: Context) {
   const agentsForMonth = business.installedAgents.filter(
     (agent) => agent.createdAt < selectedBounds.end
   );
-  // Billing-facing screens must use the same execution scope as the invoice.
-  // Trial/free/history rows are canonical activity, but they are not attached
-  // to a usage invoice and must not inflate the payable execution count.
-  const invoicedExecutions = invoiceAttachedExecutions(executions);
-  const statsByAgent = rollupExecutions(invoicedExecutions);
+  // Usage describes real canonical LIVE activity. Invoice attachment controls
+  // whether an amount is payable; it must never hide a free/trial execution or
+  // a call whose settlement link is still being repaired.
+  const visibleExecutions = executions;
+  const statsByAgent = rollupExecutions(visibleExecutions);
+  const canonicalCallIds = new Set(
+    visibleExecutions
+      .filter((execution) => execution.source === "VAPI")
+      .map((execution) => execution.sourceId)
+  );
   const chargedCallIds = new Set(
-    invoicedExecutions
+    visibleExecutions
       .filter(
         (execution) =>
           execution.source === "VAPI" &&
@@ -253,21 +273,19 @@ export async function getBusinessExecutionUsage(c: Context) {
       )
       .map((execution) => execution.sourceId)
   );
-  const invoicedCalls = calls.filter((call) => chargedCallIds.has(call.callId));
-  /* PENDING/UNPRICED calls with no charged execution yet (legacy stuck rows,
-     trial/zero-fee agents) were fetched above and then filtered away here —
-     defeating the point of fetching them. They are appended for DISPLAY only:
-     rollups and totals keep reading invoicedCalls, so they add zero to any sum. */
+  const executionCalls = calls.filter((call) => canonicalCallIds.has(call.callId));
+  // Unpriced calls without a resolvable agent remain visible for diagnostics,
+  // but do not invent a per-agent execution or customer charge.
   const visibleCalls = [
-    ...invoicedCalls,
+    ...executionCalls,
     ...calls.filter(
       (call) =>
-        !chargedCallIds.has(call.callId) &&
+        !canonicalCallIds.has(call.callId) &&
         (call.pricingState === "PENDING" || call.pricingState === "UNPRICED")
     )
   ];
   const callDurationByAgent = new Map<string, number>();
-  for (const call of invoicedCalls) {
+  for (const call of executionCalls) {
     if (!call.installedAgentId) continue;
     callDurationByAgent.set(
       call.installedAgentId,
@@ -298,7 +316,7 @@ export async function getBusinessExecutionUsage(c: Context) {
       legacyBilledCostMicroUsd: 0,
       displayCostMicroUsd: 0
     };
-    const recordedLineItemGroups = invoicedCalls
+    const recordedLineItemGroups = executionCalls
       .filter(
         (call) =>
           call.installedAgentId === agent.id &&
@@ -396,18 +414,18 @@ export async function getBusinessExecutionUsage(c: Context) {
     (sum, agent) => sum + agent.billedCostMicroUsd,
     0
   );
-  const totalActualMicroUsd = invoicedExecutions.reduce(
+  const totalActualMicroUsd = visibleExecutions.reduce(
     (sum, row) => sum + row.actualCostMicroUsd,
     0
   );
-  const totalDurationMinutes = invoicedCalls.reduce(
+  const totalDurationMinutes = executionCalls.reduce(
     (sum, call) => sum + (call.durationMinutes ?? 0),
     0
   );
-  const totalExecutions = invoicedExecutions.length;
+  const totalExecutions = visibleExecutions.length;
   const totalCostUsd = microUsdToUsd(totalMicroUsd);
   const executionByCallId = new Map(
-    invoicedExecutions
+    visibleExecutions
       .filter((execution) => execution.source === "VAPI")
       .map((execution) => [execution.sourceId, execution])
   );
@@ -435,11 +453,11 @@ export async function getBusinessExecutionUsage(c: Context) {
       totalExecutions > 0 ? totalCostUsd / totalExecutions : 0,
     averageCostPerCustomerInteractionUsd:
       totalExecutions > 0 ? totalCostUsd / totalExecutions : 0,
-    updatedAt: invoicedExecutions[0]?.occurredAt.toISOString() ?? null,
+    updatedAt: visibleExecutions[0]?.occurredAt.toISOString() ?? null,
     standaloneSms: { count: standaloneSmsCount },
     agentRollup,
     serviceRollup: rollupRecordedUsageLineItems(
-      invoicedCalls
+      executionCalls
         .filter(
           (call) =>
             chargedCallIds.has(call.callId) &&
@@ -462,7 +480,7 @@ export async function getBusinessExecutionUsage(c: Context) {
         service.billedCostMicroUsd / MICRO_USD_PER_CENT
       )
     })),
-    executions: invoicedExecutions.map((execution) => ({
+    executions: visibleExecutions.map((execution) => ({
       id: execution.id,
       installedAgentId: execution.installedAgentId,
       agentName: agentsById.get(execution.installedAgentId)?.name ?? "Agent",
@@ -495,7 +513,9 @@ export async function getBusinessExecutionUsage(c: Context) {
               (sum, item) => sum + item.billedCostMicroUsd,
               0
             )
-          : execution?.amountMicroUsd ?? 0;
+          : execution
+            ? execution.amountMicroUsd + execution.legacyBilledCostMicroUsd
+            : 0;
       return {
         callId: call.callId,
         customerPhone: call.customerPhone,
@@ -632,6 +652,20 @@ export async function getBusinessExecutionInvoices(c: Context) {
   const authUser = c.get("authUser");
   const business = await loadOwnedBusiness(authUser.id);
   if (!business) return successResponse(c, { invoices: [] });
+
+  const currentMonth = billingMonthFor(new Date());
+  const currentBounds = monthBounds(currentMonth)!;
+  try {
+    await reconcileBusinessExecutionUsage(business.id, currentMonth, {
+      since: currentBounds.start
+    });
+  } catch (error) {
+    console.error("[execution-invoices] reconciliation failed (non-fatal)", {
+      businessId: business.id,
+      currentMonth,
+      error
+    });
+  }
 
   const [invoices, usageServices] = await Promise.all([
     prisma.businessUsageInvoice.findMany({
