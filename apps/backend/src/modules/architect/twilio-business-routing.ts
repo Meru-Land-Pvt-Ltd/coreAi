@@ -326,7 +326,11 @@ function faqStrings(value: unknown): string[] {
   return [];
 }
 
-function buildBusinessContext(
+function cleanAgentId(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+export function buildBusinessContext(
   business: any,
   phoneNumber?: string | null,
   installedAgent?: { id?: string; listingId?: string | null; configJson?: unknown } | null
@@ -357,21 +361,17 @@ function buildBusinessContext(
     teamPhone: profile?.teamPhone ?? env.TWILIO_DEFAULT_TEAM_PHONE ?? undefined,
     calendarId: profile?.calendarId ?? env.GOOGLE_CALENDAR_ID ?? "primary",
     timeZone: profile?.timeZone ?? env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
-    vapiAssistantId:
-      (typeof agentConfig.vapiAssistantId === "string" ? agentConfig.vapiAssistantId.trim() : "") ||
-      profile?.vapiAssistantId ||
-      undefined,
-    vapiPhoneNumberId:
-      (typeof agentConfig.vapiPhoneNumberId === "string" ? agentConfig.vapiPhoneNumberId.trim() : "") ||
-      profile?.vapiPhoneNumberId ||
-      undefined,
+    vapiAssistantId: installedAgent
+      ? cleanAgentId(agentConfig.vapiAssistantId)
+      : cleanAgentId(agentConfig.vapiAssistantId) || profile?.vapiAssistantId || undefined,
+    vapiPhoneNumberId: installedAgent
+      ? cleanAgentId(agentConfig.vapiPhoneNumberId)
+      : cleanAgentId(agentConfig.vapiPhoneNumberId) || profile?.vapiPhoneNumberId || undefined,
     services: jsonStringArray(profile?.services),
     faqs: faqStrings(profile?.faqsJson),
     tone: profile?.tone ?? "friendly",
     escalationRules: profile?.escalationRules ?? undefined,
     hours: profile?.hoursJson ?? undefined,
-    // Shared formatter — the live tool context reads the same knowledge set
-    // (manual + document chunks) as the deployed prompt and browser tests.
     knowledge: formatKnowledgeEntries(knowledgeBases)
   };
 }
