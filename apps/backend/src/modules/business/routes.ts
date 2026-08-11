@@ -3175,6 +3175,35 @@ function buildSetupReadiness(
   return { requiredConnectors, checklist, readyToDeploy, blockers };
 }
 
+/** Per-agent business context saved by the setup wizard. */
+function agentBusinessDetails(configJson: unknown): Record<string, unknown> {
+  const config =
+    configJson && typeof configJson === "object" && !Array.isArray(configJson)
+      ? (configJson as Record<string, unknown>)
+      : {};
+  const details = config.businessDetails;
+
+  return details && typeof details === "object" && !Array.isArray(details)
+    ? (details as Record<string, unknown>)
+    : {};
+}
+
+/** True once an agent owns its business context (set on save, or by backfill). */
+function hasAgentBusinessDetails(configJson: unknown): boolean {
+  return Object.keys(agentBusinessDetails(configJson)).length > 0;
+}
+
+function resolveSetupAgent<T extends { listingId: string | null }>(
+  installedAgents: T[] | undefined | null,
+  listingId?: string | null
+): T | null {
+  const agents = installedAgents ?? [];
+
+  if (listingId) return agents.find((agent) => agent.listingId === listingId) ?? null;
+
+  return agents.length === 1 ? agents[0]! : null;
+}
+
 function serializeSetup(
   business: LoadedBusiness | null,
   calendar: { connected: boolean; email: string | null },
@@ -3185,11 +3214,6 @@ function serializeSetup(
   const installedAgent = listingId
     ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
     : business?.installedAgents?.[0] ?? null;
-  /* One number per agent. Reading phoneNumbers[0] here handed the SECOND
-     agent's wizard whichever number the business happened to own first —
-     normally the first agent's — so it looked already provisioned and the buyer
-     was never offered a number of its own. Only this agent's own assignment
-     counts; an unassigned spare is offered to an agent that has none yet. */
   const phone = installedAgent
     ? business?.phoneNumbers?.find((row) => row.installedAgentId === installedAgent.id) ?? null
     : business?.phoneNumbers?.find((row) => !row.installedAgentId) ?? null;
@@ -3217,23 +3241,39 @@ function serializeSetup(
       ? config.assistantName.trim()
       : DEFAULT_ASSISTANT_NAME;
 
+  const agentDetails = agentBusinessDetails(installedAgent?.configJson);
+  const ownsBusinessContext = hasAgentBusinessDetails(installedAgent?.configJson);
+
   return {
     business: business
       ? { id: business.id, name: business.name, type: business.type }
       : null,
     profile: profile
       ? {
-        bookingUrl: profile.bookingUrl,
-        teamPhone: profile.teamPhone,
+        // Business-level: one physical business, one calendar and timezone.
         calendarId: profile.calendarId,
         timeZone: normalizeTimeZone(profile.timeZone),
-        tone: profile.tone,
-        escalationRules: profile.escalationRules,
-        services: profile.services,
-        faqs: profile.faqsJson ?? [],
-        hours: profile.hoursJson ?? [],
         vapiAssistantId: profile.vapiAssistantId,
-        vapiPhoneNumberId: profile.vapiPhoneNumberId
+        vapiPhoneNumberId: profile.vapiPhoneNumberId,
+        ...(ownsBusinessContext
+          ? {
+            bookingUrl: cleanOptional(agentDetails.bookingUrl as string | undefined) ?? null,
+            teamPhone: cleanOptional(agentDetails.teamPhone as string | undefined) ?? null,
+            tone: (agentDetails.tone as string | undefined) ?? profile.tone,
+            escalationRules: cleanOptional(agentDetails.escalationRules as string | undefined) ?? null,
+            services: Array.isArray(agentDetails.services) ? agentDetails.services : [],
+            faqs: Array.isArray(agentDetails.faqs) ? agentDetails.faqs : [],
+            hours: Array.isArray(agentDetails.hours) ? agentDetails.hours : profile.hoursJson ?? []
+          }
+          : {
+            bookingUrl: profile.bookingUrl,
+            teamPhone: profile.teamPhone,
+            tone: profile.tone,
+            escalationRules: profile.escalationRules,
+            services: profile.services,
+            faqs: profile.faqsJson ?? [],
+            hours: profile.hoursJson ?? []
+          })
       }
       : null,
     phoneNumber: phone
@@ -3473,9 +3513,7 @@ businessRoutes.get("/setup", async (c) => {
 
   // Scope the number picker to THIS agent, so a second agent is never shown the
   // first agent's number as already selected.
-  const setupAgent = listingId
-    ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
-    : business?.installedAgents?.[0] ?? null;
+  const setupAgent = resolveSetupAgent(business?.installedAgents, listingId);
   const phoneOptions = await loadPhoneOptions(business?.id ?? null, setupAgent?.id ?? null);
   let setupVisibility = deriveSetupVisibility(null);
 
@@ -3542,9 +3580,7 @@ businessRoutes.post("/setup", async (c) => {
       }
     });
 
-    const phoneAgentForSetup = input.listingId
-      ? existing?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
-      : existing?.installedAgents?.[0] ?? null;
+    const phoneAgentForSetup = resolveSetupAgent(existing?.installedAgents, input.listingId);
     const existingPhone = phoneAgentForSetup
       ? existing?.phoneNumbers?.find((row) => row.installedAgentId === phoneAgentForSetup.id) ?? null
       : null;
@@ -3721,9 +3757,6 @@ businessRoutes.post("/setup", async (c) => {
       input.knowledge.map((item) => ({ title: item.title, content: item.content }))
     );
 
-    // One authoritative Business Address: written here AND from Business
-    // Settings — both interfaces always show the same saved value. A save
-    // without the field never clears an existing address.
     let addressLiveSync: Awaited<ReturnType<typeof refreshLiveAssistantKnowledge>> | null = null;
     if (input.businessAddress) {
       await saveBusinessAddress(business.id, input.businessAddress);
@@ -3732,9 +3765,7 @@ businessRoutes.post("/setup", async (c) => {
 
     // Existing agent config — settings not sent by this save are preserved,
     // never silently overwritten.
-    const existingAgentRow = input.listingId
-      ? existing?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
-      : existing?.installedAgents?.[0] ?? null;
+    const existingAgentRow = resolveSetupAgent(existing?.installedAgents, input.listingId);
     const existingAgentConfig =
       existingAgentRow?.configJson && typeof existingAgentRow.configJson === "object" && !Array.isArray(existingAgentRow.configJson)
         ? (existingAgentRow.configJson as Record<string, unknown>)
@@ -3786,8 +3817,6 @@ businessRoutes.post("/setup", async (c) => {
       ...(emailRecipients ? { emailRecipients } : {}),
       ...(input.scheduling ? { scheduling: input.scheduling } : {}),
       ...(input.appointmentSchedule ? { appointmentSchedule: input.appointmentSchedule } : {}),
-      // Conditional spread: omitting afterHoursPolicy on a save preserves the
-      // stored policy (same MERGE contract as scheduling/emailRecipients).
       ...(input.afterHoursPolicy
         ? { afterHoursPolicy: normalizeAfterHoursPolicy(input.afterHoursPolicy) }
         : {}),
@@ -3813,12 +3842,26 @@ businessRoutes.post("/setup", async (c) => {
             }
           }
         : {}),
+      // Per-agent business context. BusinessProfile holds ONE row per business,
+      // so two agents under one business shared — and overwrote — each other's
+      // services, FAQs, tone and escalation rules. These are now the
+      // authoritative per-agent values; readBuyerConfig already prefers
+      // businessDetails.* at deploy time. The BusinessProfile copy remains only
+      // as the business-level view (public booking page, settings, exports) and
+      // as the fallback for agents installed before this split.
       businessDetails: {
+        ...agentBusinessDetails(existingAgentConfig),
         assistantName,
         businessName: input.businessName,
         businessType: input.businessType,
         contactName: resolveContactName(input.contactName, input.allContactNames),
-        services: input.services
+        services: input.services,
+        faqs: input.faqs,
+        tone: input.tone,
+        escalationRules: cleanOptional(input.escalationRules),
+        bookingUrl: cleanOptional(input.bookingUrl),
+        teamPhone: cleanOptional(input.teamPhone),
+        ...(input.hours.length > 0 ? { hours: input.hours } : {})
       },
       silence: {
         repromptCount: input.silenceRepromptCount ?? 2,

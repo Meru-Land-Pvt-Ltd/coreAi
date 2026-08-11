@@ -330,6 +330,23 @@ function cleanAgentId(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+/** Per-agent business context saved by the buyer setup wizard. */
+function readAgentBusinessDetails(configJson: unknown): Record<string, unknown> {
+  const config =
+    configJson && typeof configJson === "object" && !Array.isArray(configJson)
+      ? (configJson as Record<string, unknown>)
+      : {};
+  const details = config.businessDetails;
+
+  return details && typeof details === "object" && !Array.isArray(details)
+    ? (details as Record<string, unknown>)
+    : {};
+}
+
+function agentDetailString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 export function buildBusinessContext(
   business: any,
   phoneNumber?: string | null,
@@ -341,6 +358,7 @@ export function buildBusinessContext(
     installedAgent?.configJson && typeof installedAgent.configJson === "object" && !Array.isArray(installedAgent.configJson)
       ? (installedAgent.configJson as Record<string, unknown>)
       : {};
+  const agentDetails = readAgentBusinessDetails(installedAgent?.configJson);
   const executionMode: BusinessRuntimeContext["executionMode"] =
     agentConfig.executionMode === "ARCHITECT_DRY_RUN" || agentConfig.executionMode === "BUSINESS_TEST"
       ? agentConfig.executionMode
@@ -357,8 +375,16 @@ export function buildBusinessContext(
     businessName: business?.name ?? env.TWILIO_DEFAULT_BUSINESS_NAME ?? "the business",
     businessType: business?.type ?? undefined,
     businessPhoneNumber: phoneNumber ?? undefined,
-    bookingUrl: profile?.bookingUrl ?? env.TWILIO_DEFAULT_BOOKING_URL ?? undefined,
-    teamPhone: profile?.teamPhone ?? env.TWILIO_DEFAULT_TEAM_PHONE ?? undefined,
+    bookingUrl:
+      agentDetailString(agentDetails.bookingUrl) ??
+      profile?.bookingUrl ??
+      env.TWILIO_DEFAULT_BOOKING_URL ??
+      undefined,
+    teamPhone:
+      agentDetailString(agentDetails.teamPhone) ??
+      profile?.teamPhone ??
+      env.TWILIO_DEFAULT_TEAM_PHONE ??
+      undefined,
     calendarId: profile?.calendarId ?? env.GOOGLE_CALENDAR_ID ?? "primary",
     timeZone: profile?.timeZone ?? env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
     vapiAssistantId: installedAgent
@@ -367,11 +393,14 @@ export function buildBusinessContext(
     vapiPhoneNumberId: installedAgent
       ? cleanAgentId(agentConfig.vapiPhoneNumberId)
       : cleanAgentId(agentConfig.vapiPhoneNumberId) || profile?.vapiPhoneNumberId || undefined,
-    services: jsonStringArray(profile?.services),
-    faqs: faqStrings(profile?.faqsJson),
-    tone: profile?.tone ?? "friendly",
-    escalationRules: profile?.escalationRules ?? undefined,
-    hours: profile?.hoursJson ?? undefined,
+    services: agentDetails.services
+      ? jsonStringArray(agentDetails.services)
+      : jsonStringArray(profile?.services),
+    faqs: agentDetails.faqs ? faqStrings(agentDetails.faqs) : faqStrings(profile?.faqsJson),
+    tone: agentDetailString(agentDetails.tone) ?? profile?.tone ?? "friendly",
+    escalationRules:
+      agentDetailString(agentDetails.escalationRules) ?? profile?.escalationRules ?? undefined,
+    hours: agentDetails.hours ?? profile?.hoursJson ?? undefined,
     knowledge: formatKnowledgeEntries(knowledgeBases)
   };
 }

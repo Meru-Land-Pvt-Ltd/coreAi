@@ -356,8 +356,12 @@ async function buildInstalledAgentAssistantPlan(
       ? `Verified business facts (answer these directly and exactly; NEVER invent a street, city, state, postal code, landmark, or link that is not listed):\n${facts.promptLines.map((line) => `- ${line}`).join("\n")}`
       : "";
 
+  // Escalation rules are per-agent (configJson.businessDetails), falling back to
+  // the shared BusinessProfile only for agents installed before that split.
+  const agentDetails = recordOf(recordOf(installedAgent.configJson).businessDetails);
   const customInstructions = (
     buyer.customInstructions ||
+    cleanString(agentDetails.escalationRules) ||
     cleanString(business.profile?.escalationRules) ||
     ""
   ).trim();
@@ -409,9 +413,10 @@ async function buildInstalledAgentAssistantPlan(
     servicesList: services.join(", "),
     businessHours,
     bookingLabel: bookingLabel ?? "appointment",
+    // Calendar stays business-level; the contact points are per-agent.
     calendarId: cleanString(business.profile?.calendarId) || "primary",
-    teamPhone: cleanString(business.profile?.teamPhone) ?? "",
-    bookingUrl: cleanString(business.profile?.bookingUrl) ?? ""
+    teamPhone: cleanString(agentDetails.teamPhone) ?? cleanString(business.profile?.teamPhone) ?? "",
+    bookingUrl: cleanString(agentDetails.bookingUrl) ?? cleanString(business.profile?.bookingUrl) ?? ""
   };
   const fillDeployTemplate = (text: string): string =>
     fillPromptTemplateTokens(text, deployTokenValues, {
