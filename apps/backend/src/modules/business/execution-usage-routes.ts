@@ -326,9 +326,35 @@ export async function getBusinessExecutionUsage(c: Context) {
       .map(
         (call) => call.usageLineItemsJson as unknown as UsageLineItem[]
       );
-    const detailedServiceCosts = rollupRecordedUsageLineItems(
+    const detailedServiceCostsRaw = rollupRecordedUsageLineItems(
       recordedLineItemGroups
-    ).map((service) => ({
+    );
+    const repricedInvoiceServices = rollupCustomerUsageLineItems(
+      recordedLineItemGroups.map((items) =>
+        repriceUsageInvoiceLineItems(items, invoiceBillingCosts)
+      ),
+      invoiceLabels
+    );
+
+    if (stats.billableExecutions > 0 && agent.executionFeeCents > 0) {
+      const executionFeeMicroUsd = agent.executionFeeCents * MICRO_USD_PER_CENT;
+      const billedExecutionCostMicroUsd = executionFeeMicroUsd * stats.billableExecutions;
+      const executionService = {
+        serviceCode: "agent_execution",
+        serviceName: "Usage service",
+        invoiceLabel: "Usage service",
+        unit: "PER_UNIT" as const,
+        quantity: stats.billableExecutions,
+        billingRateMicroUsd: executionFeeMicroUsd,
+        actualRateMicroUsd: executionFeeMicroUsd,
+        actualCostMicroUsd: billedExecutionCostMicroUsd,
+        billedCostMicroUsd: billedExecutionCostMicroUsd
+      } as any;
+      detailedServiceCostsRaw.push(executionService);
+      repricedInvoiceServices.push(executionService);
+    }
+
+    const detailedServiceCosts = detailedServiceCostsRaw.map((service) => ({
       serviceCode: service.serviceCode,
       serviceName: service.serviceName,
       unit: service.unit,
@@ -340,12 +366,7 @@ export async function getBusinessExecutionUsage(c: Context) {
         service.billedCostMicroUsd / MICRO_USD_PER_CENT
       )
     }));
-    const repricedInvoiceServices = rollupCustomerUsageLineItems(
-      recordedLineItemGroups.map((items) =>
-        repriceUsageInvoiceLineItems(items, invoiceBillingCosts)
-      ),
-      invoiceLabels
-    );
+
     const invoiceBilledCostMicroUsd =
       repricedInvoiceServices.length > 0
         ? repricedInvoiceServices.reduce(

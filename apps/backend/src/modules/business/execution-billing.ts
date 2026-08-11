@@ -144,6 +144,7 @@ type ExecutionBillingAgent = {
   businessId: string;
   listingId: string | null;
   createdAt: Date;
+  executionFeeCents: number;
   business: { ownerId: string };
 };
 
@@ -252,6 +253,31 @@ async function addExecutionChargeToInvoice(
             0,
             Math.round(item.billingRateMicroUsd ?? 0)
           ),
+          amountMicroUsd: amount
+        }
+      });
+    }
+
+    if (input.agent.executionFeeCents > 0) {
+      const amount = Math.max(0, input.agent.executionFeeCents) * MICRO_USD_PER_CENT;
+      await tx.businessUsageInvoiceLineItem.upsert({
+        where: {
+          invoiceId_serviceCode: {
+            invoiceId: invoice.id,
+            serviceCode: "agent_execution"
+          }
+        },
+        update: {
+          quantity: { increment: 1 },
+          amountMicroUsd: { increment: amount }
+        },
+        create: {
+          invoiceId: invoice.id,
+          serviceCode: "agent_execution",
+          serviceName: "Usage service",
+          unit: "PER_UNIT",
+          quantity: 1,
+          unitPriceMicroUsd: amount,
           amountMicroUsd: amount
         }
       });
@@ -425,6 +451,7 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
             businessId: true,
             listingId: true,
             installSource: true,
+            executionFeeCents: true,
             executionBillingStartedAt: true,
             createdAt: true,
             business: { select: { ownerId: true } }
@@ -577,9 +604,9 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
     const executionNumber = (latestExecution?.executionNumber ?? 0) + 1;
     // Metered calls are billed from their immutable Admin Pricing snapshots.
     // Non-metered workflow executions retain the listing's per-run fee.
+    const executionFeeMicroUsd = Math.max(0, agent.executionFeeCents) * MICRO_USD_PER_CENT;
     const unitPriceMicroUsd =
-      pricedUsageMicroUsd ??
-      Math.max(0, agent.executionFeeCents) * MICRO_USD_PER_CENT;
+      (pricedUsageMicroUsd ?? 0) + executionFeeMicroUsd;
     const billable =
       !beforeBillingCutover &&
       !activityBlocked &&

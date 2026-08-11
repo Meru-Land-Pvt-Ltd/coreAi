@@ -86,7 +86,7 @@ export function attachDeepgramLiveProxy(server: {
         return;
       }
 
-      wss.handleUpgrade(req, socket, head, (clientWs) => {
+      wss.handleUpgrade(req, socket, head, (clientWs: any) => {
         const query = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
         const model = query.get("model")?.trim() || "nova-3";
         const language = query.get("language")?.trim() || "en";
@@ -152,7 +152,7 @@ export function attachDeepgramLiveProxy(server: {
           }
         });
 
-        deepgramWs.on("unexpected-response", (_req, res) => {
+        const upgradeToDeepgramLive = (_req: any, res: any) => {
           const dgError = readHeader(res, "dg-error") || readHeader(res, "DG-Error");
           const statusCode = typeof res.statusCode === "number" ? res.statusCode : 400;
           deepgramRejectReason =
@@ -164,9 +164,11 @@ export function attachDeepgramLiveProxy(server: {
             // ignore
           }
           closeBoth();
-        });
+        };
 
-        deepgramWs.on("message", (data) => {
+        deepgramWs.on("unexpected-response", upgradeToDeepgramLive);
+
+        deepgramWs.on("message", (data: any) => {
           if (clientWs.readyState !== WebSocket.OPEN) return;
           try {
             const raw = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
@@ -247,7 +249,7 @@ export function attachDeepgramLiveProxy(server: {
           }
         });
 
-        deepgramWs.on("error", (err) => {
+        deepgramWs.on("error", (err: any) => {
           sendClientError(err instanceof Error ? err.message : "Deepgram live connection failed.");
           closeBoth();
         });
