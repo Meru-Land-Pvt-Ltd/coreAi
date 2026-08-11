@@ -1,9 +1,11 @@
 import { env, isProduction } from "../../config/env";
+import { countries } from "../../lib/countrydata";
 import { prisma } from "../../lib/prisma";
 import { twilioRestAuthHeader } from "../architect/twilio-connector";
 
 const TWILIO_API_BASE = "https://api.twilio.com/2010-04-01";
 const TWILIO_PRICING_API_BASE = "https://pricing.twilio.com/v1";
+const TWILIO_LOOKUPS_API_BASE = "https://lookups.twilio.com/v2";
 
 /** Webhook paths every platform number points at (shared, multi-tenant). */
 const VOICE_WEBHOOK_PATH = "/architect/connectors/twilio/voice";
@@ -30,15 +32,6 @@ export function normalizeE164(raw: string): string {
   return `+${digits}`;
 }
 
-/* ----------------------------- A2P / compliance ---------------------------- */
-
-/**
- * Canonical A2P 10DLC registration states. Twilio's IncomingPhoneNumbers API
- * (the only one this service currently calls) does NOT report campaign
- * registration, so numbers stay UNKNOWN/PENDING until the status is confirmed
- * in the Twilio Console (Messaging → Regulatory Compliance) or a Messaging
- * Compliance API sync is added. Statuses are never faked as REGISTERED.
- */
 export const A2P_STATUS_VALUES = ["UNKNOWN", "UNREGISTERED", "PENDING", "REGISTERED", "FAILED"] as const;
 export type A2pStatus = (typeof A2P_STATUS_VALUES)[number];
 
@@ -187,6 +180,46 @@ async function twilioApiRequest<T>(
   }
 
   return json;
+}
+
+/* ---------------------------- country resolution -------------------------- */
+
+type TwilioLookupNumber = { country_code?: string };
+
+function countryFromUnambiguousCallingCode(e164: string): string | null {
+  const digits = e164.replace(/\D/g, "");
+  if (!digits) return null;
+
+  for (let length = Math.min(4, digits.length); length >= 1; length -= 1) {
+    const prefix = digits.slice(0, length);
+    const matches = countries.filter(
+      (country) => country.countryCallingCode.replace(/\D/g, "") === prefix
+    );
+    if (matches.length === 1) return matches[0]!.countryCode.trim().toUpperCase();
+    if (matches.length > 1) return null;
+  }
+
+  return null;
+}
+
+export async function resolveTwilioNumberCountry(e164: string): Promise<string | null> {
+  const number = e164.trim();
+  if (!number.startsWith("+")) return null;
+
+  try {
+    const lookup = await twilioApiRequest<TwilioLookupNumber>(
+      `${TWILIO_LOOKUPS_API_BASE}/PhoneNumbers/${encodeURIComponent(number)}`
+    );
+    const code = lookup.country_code?.trim().toUpperCase();
+    if (code) return code;
+  } catch (error) {
+    console.warn("[phone-service] Twilio Lookup could not resolve the number's country", {
+      phoneNumber: number,
+      error: error instanceof Error ? error.message : error
+    });
+  }
+
+  return countryFromUnambiguousCallingCode(number);
 }
 
 /* -------------------------------- pricing --------------------------------- */

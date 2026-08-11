@@ -17,7 +17,14 @@ type DemoSession = {
     demo: true;
 };
 
-type VapiEventName = "call-start" | "call-end" | "speech-start" | "speech-end" | "message" | "error";
+type VapiEventName =
+    | "call-start"
+    | "call-end"
+    | "speech-start"
+    | "speech-end"
+    | "message"
+    | "error"
+    | "call-start-failed";
 
 type VapiWebClient = {
     start: (assistantId: string, overrides?: Record<string, unknown>) => Promise<unknown>;
@@ -116,6 +123,30 @@ function demoEndReasonMessage(reason: string): string | null {
     return "The demo call ended unexpectedly. Please try again.";
 }
 
+function demoStartFailureMessage(stage: string, detail: string): string {
+    const reason = detail.trim().replace(/\s+/g, " ").slice(0, 160);
+
+    if (/notallowed|notfound|permission|denied|microphone|\bmic\b/i.test(`${stage} ${reason}`)) {
+        return "Microphone access was blocked. Allow the microphone for this site, then try the demo again.";
+    }
+
+    // Vapi rejects POST /call/web on an exhausted wallet before it validates
+    // anything else, so a funding problem surfaces here and nowhere else.
+    if (/wallet balance|purchase more credits|upgrade your plan|insufficient|requested-payment|billing/i.test(reason)) {
+        return "The demo voice service is temporarily unavailable. Please try again shortly.";
+    }
+
+    if (stage === "web-call-creation") {
+        return `The demo voice service rejected the call request${reason ? ` (${reason})` : ""}. Please try again shortly.`;
+    }
+
+    if (stage === "daily-call-object-creation" || stage === "daily-call-join") {
+        return `The demo could not connect the browser voice session${reason ? ` (${reason})` : ""}. Reload the page and try again.`;
+    }
+
+    return `Could not start the demo call. Please try again.${reason ? ` (${reason})` : ""}`;
+}
+
 type DemoState = "idle" | "starting" | "live" | "ended";
 
 export type DemoCallCustomInputs = {
@@ -194,6 +225,8 @@ export function AgentDemoCall({
         setMessage("");
         setState("starting");
 
+        const startFailure = { stage: "unknown", reason: "" };
+
         try {
             const endpoint =
                 mode === "authenticated"
@@ -225,6 +258,13 @@ export function AgentDemoCall({
             clientRef.current = client;
 
             let failureHandled = false;
+
+            const onCallStartFailed = (payload?: unknown) => {
+                const event = asRecord(payload);
+                startFailure.stage = typeof event.stage === "string" ? event.stage : "unknown";
+                startFailure.reason = readVapiError(payload);
+                console.warn("[marketplace-demo] Vapi call start failed", { ...startFailure });
+            };
 
             const onCallStart = () => {
                 setState("live");
@@ -283,6 +323,7 @@ export function AgentDemoCall({
             client.on("call-end", onCallEnd);
             client.on("message", onMessage);
             client.on("error", onError);
+            client.on("call-start-failed", onCallStartFailed);
 
             detachRef.current = () => {
                 detachRef.current = null;
@@ -294,6 +335,7 @@ export function AgentDemoCall({
                         client.off("call-end", onCallEnd);
                         client.off("message", onMessage);
                         client.off("error", onError);
+                        client.off("call-start-failed", onCallStartFailed);
                     } else {
                         client.removeAllListeners?.();
                     }
@@ -307,19 +349,32 @@ export function AgentDemoCall({
                 metadata: { listingId: session.listingId, purpose: "MARKETPLACE_DEMO" }
             };
 
-            const started = await client.start(session.assistantId, startOverrides);
+            let started = await client.start(session.assistantId, startOverrides);
+            if (!started && !failureHandled) {
+                await stopDemoVapiClient(client);
+                started = await client.start(session.assistantId, startOverrides);
+            }
+
             if (!started && !failureHandled) {
                 failureHandled = true;
+                console.error("[marketplace-demo] Vapi start returned no call", {
+                    listingId: session.listingId,
+                    assistantId: session.assistantId
+                });
                 setMessage("Could not start the demo call. Please try again.");
                 endDemo();
             }
         } catch (error) {
-            const text = error instanceof Error ? error.message : "";
-            setMessage(
-                /notallowed|permission|denied/i.test(text)
-                    ? "Microphone access was blocked. Allow the microphone for this site, then try the demo again."
-                    : "Could not start the demo call. Please try again."
-            );
+            const text = error instanceof Error ? error.message : String(error ?? "");
+            const reason = startFailure.reason || text;
+
+            console.error("[marketplace-demo] could not start demo call", {
+                stage: startFailure.stage,
+                reason,
+                stack: error instanceof Error ? error.stack : undefined
+            });
+
+            setMessage(demoStartFailureMessage(startFailure.stage, reason));
             detachRef.current?.();
             await stopDemoVapiClient(clientRef.current);
             setState("idle");

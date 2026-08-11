@@ -2368,11 +2368,21 @@ export function customBookingLabelOf(configJson: Record<string, unknown>): strin
 }
 
 /** Fill [Bracketed] tokens in an SMS/confirmation template. */
+/**
+ * An empty value is treated as UNRESOLVED, not as a substitution. Blanking the
+ * placeholder would ship "Confirmed: on at with Acme." to a real caller; leaving
+ * "[Service]" in place lets the caller detect the gap and fall back.
+ */
 function applyBracketTemplate(template: string, values: Record<string, string>): string {
   return template.replace(/\[([^\]]+)\]/g, (match, key: string) => {
-    const normalized = key.trim().toLowerCase();
-    return values[normalized] ?? match;
+    const value = values[key.trim().toLowerCase()];
+    return value && value.trim() ? value : match;
   });
+}
+
+/** True when a resolved template still carries unfilled [Placeholder] slots. */
+function hasUnresolvedBrackets(text: string): boolean {
+  return /\[[^\]]+\]/.test(text);
 }
 
 function bracketTemplateValues(input: {
@@ -3156,19 +3166,31 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
     time: spokenTimeLabel
   });
 
-  const confirmation = ctx.dental?.confirmationMessage
+  const configuredConfirmation = ctx.dental?.confirmationMessage
     ? applyBracketTemplate(ctx.dental.confirmationMessage, bookingTemplateValues)
-    : `Perfect, ${patientName} — you're booked for ${service}${providerName ? ` with ${providerName}` : ""} on ${whenLabel}.`;
+    : "";
+
+  const confirmation =
+    configuredConfirmation && !hasUnresolvedBrackets(configuredConfirmation)
+      ? configuredConfirmation
+      : `Perfect, ${patientName} — you're booked for ${service}${providerName ? ` with ${providerName}` : ""} on ${whenLabel}.`;
 
   const bookingFacts = ctx.business?.businessId ? await loadBusinessFacts(ctx.business.businessId).catch(() => null) : null;
 
-  const eventTitleOverride = ctx.dental?.eventTitleFormat
+  const configuredEventTitle = ctx.dental?.eventTitleFormat
     ? applyBracketTemplate(ctx.dental.eventTitleFormat, bookingTemplateValues).trim()
     : "";
 
-  const eventDescription = ctx.dental?.eventDescription
+  const eventTitleOverride = hasUnresolvedBrackets(configuredEventTitle) ? "" : configuredEventTitle;
+
+  const configuredEventDescription = ctx.dental?.eventDescription
     ? applyBracketTemplate(ctx.dental.eventDescription, bookingTemplateValues)
-    : [
+    : "";
+
+  const eventDescription =
+    configuredEventDescription && !hasUnresolvedBrackets(configuredEventDescription)
+      ? configuredEventDescription
+      : [
       ...(bookingFacts?.addressFormatted ? [`Location: ${bookingFacts.addressFormatted}`] : []),
       `Customer: ${patientName}`,
       `Phone: ${patientPhone || "not provided"}`,

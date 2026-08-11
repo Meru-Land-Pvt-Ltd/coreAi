@@ -113,7 +113,7 @@ import { deleteTestCalendarEvent } from "../architect/test-calendar-events";
 import { ensureBusinessAndAgent, loadOwnedListing } from "../setup/routes";
 import {
   findBuyerPlatformNumber,
-  getPhoneNumberFeeForPlatformNumber,
+  getPhoneNumberFeeWithSnapshotFallback,
   workflowNeedsPhoneNumber
 } from "./phone-provisioning";
 import {
@@ -1920,10 +1920,7 @@ businessRoutes.post("/phone-numbers/assign", async (c) => {
         "PHONE_NUMBER_TAKEN"
       );
     }
-    const phoneNumberFee = await getPhoneNumberFeeForPlatformNumber(
-      pricingNumber.id,
-      { refreshFromTwilio: true }
-    );
+    const phoneNumberFee = await getPhoneNumberFeeWithSnapshotFallback(pricingNumber.id);
 
     const assigned = await prisma.$transaction(async (tx) => {
       // Same lock the purchase flow takes — assignment and provisioning must
@@ -3989,9 +3986,7 @@ businessRoutes.post("/setup", async (c) => {
       )?.id ??
       null;
     const selectedPhoneFee = selectedPlatformNumberId
-      ? await getPhoneNumberFeeForPlatformNumber(selectedPlatformNumberId, {
-          refreshFromTwilio: true
-        })
+      ? await getPhoneNumberFeeWithSnapshotFallback(selectedPlatformNumberId)
       : null;
 
     if (targetPlatform) {
