@@ -342,7 +342,7 @@ async function listPublicMarketplaceListings(c: Context) {
     toMarketplaceCard(listing, installCountByListing.get(listing.id) ?? 0)
   );
 
-  c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+  c.header("Cache-Control", "public, max-age=15, must-revalidate");
   return successResponse(c, { listings });
 }
 
@@ -440,7 +440,7 @@ async function listCompletedMarketplaceListings(c: Context) {
     toMarketplaceCard(listing, installCountByListing.get(listing.id) ?? 0)
   );
 
-  c.header("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
+  c.header("Cache-Control", "private, max-age=15, must-revalidate");
   return successResponse(c, { listings });
 }
 
