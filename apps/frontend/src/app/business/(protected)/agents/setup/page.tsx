@@ -3895,6 +3895,10 @@ function PreviewCallSection({
   /** Reports the session outcome ("passed" once a call completed, "failed" on errors) to the test summary. */
   onOutcome?: (outcome: "passed" | "failed") => void;
 }) {
+  // Scope the preview to the agent this wizard is configuring. Without it the
+  // backend picks any ACTIVE agent, so a half-configured agent gets tested
+  // using a live sibling's assistant.
+  const listingId = useSearchParams().get("listingId") ?? "";
   const [state, setState] = useState<PreviewCallState>("idle");
   const [error, setError] = useState("");
   const [agentSpeaking, setAgentSpeaking] = useState(false);
@@ -3992,7 +3996,10 @@ function PreviewCallSection({
     setState("starting");
 
     try {
-      const res = await startBusinessSetupPreviewCall({ simulateBusinessHoursState: afterHoursSimulation });
+      const res = await startBusinessSetupPreviewCall({
+        simulateBusinessHoursState: afterHoursSimulation,
+        ...(listingId ? { listingId } : {})
+      });
 
       if (!res.success || !res.data?.session) {
         setState("idle");
@@ -4827,6 +4834,8 @@ function WorkflowVoiceStepPanel({
   labels: ReturnType<typeof getAnsweringLabels>;
   onBrowserOutcome?: (outcome: "passed" | "failed") => void;
 }) {
+  // Scope the preview to the agent this wizard is configuring (see above).
+  const listingId = useSearchParams().get("listingId") ?? "";
   const [agentSpeaking, setAgentSpeaking] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -4991,7 +5000,7 @@ function WorkflowVoiceStepPanel({
     onCallStateChange("in-progress");
 
     try {
-      const res = await startBusinessSetupPreviewCall();
+      const res = await startBusinessSetupPreviewCall(listingId ? { listingId } : undefined);
       if (!res.success || !res.data?.session) {
         onCallStateChange("idle");
         setError(res.error ?? "The preview call is unavailable right now. Please save your setup and try again.");

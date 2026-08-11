@@ -969,6 +969,8 @@ export type BusinessPreviewCallSession = {
 export function startBusinessSetupPreviewCall(options?: {
   /** After-hours simulation for the preview ("current" = real configured hours). */
   simulateBusinessHoursState?: "current" | "open" | "closed";
+  /** The agent being configured — without it the preview may speak as a sibling. */
+  listingId?: string;
 }) {
   return apiPost<{ session: BusinessPreviewCallSession }>("/business/setup/preview-call", options ?? {});
 }

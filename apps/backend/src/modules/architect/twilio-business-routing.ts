@@ -386,8 +386,12 @@ export function buildBusinessContext(
     installedAgentId: installedAgent?.id,
     listingId: installedAgent?.listingId ?? undefined,
     executionMode,
-    businessName: business?.name ?? env.TWILIO_DEFAULT_BUSINESS_NAME ?? "the business",
-    businessType: business?.type ?? undefined,
+    businessName:
+      agentDetailString(agentDetails.businessName) ??
+      business?.name ??
+      env.TWILIO_DEFAULT_BUSINESS_NAME ??
+      "the business",
+    businessType: agentDetailString(agentDetails.businessType) ?? business?.type ?? undefined,
     businessPhoneNumber: phoneNumber ?? undefined,
     bookingUrl:
       agentDetailString(agentDetails.bookingUrl) ??
@@ -5495,32 +5499,41 @@ export async function handleVapiWebhook(c: Context) {
       await settleLiveEndOfCall();
       await clearAfterHoursOnCallEnd();
 
-      if (businessContext?.businessId && /end|ended|report/.test(messageType) && (summary || transcript)) {
-        enqueueEmail(
-          {
-            kind: "internal_notification",
-            input: {
-              businessId: businessContext.businessId,
-              businessName: businessContext.businessName,
-              purpose: "CALL_SUMMARY",
-              idempotencyKey: callId ? `call_summary:${callId}:business-email` : null,
-              fields: {
-                caller: null,
-                phone: customerPhone || null,
-                email: null,
-                requestedService: null,
-                summary: summary || transcript?.slice(0, 2000) || null,
-                nextAction: "Review the call summary and follow up if needed"
-              }
-            }
-          },
-          { idempotencyKey: callId ? `call_summary:${callId}:business-email` : null }
-        )
-          .then((result) => {
-            if (!result.ok) console.log(`[vapi-webhook] call summary email skipped: ${result.error}`);
-          })
-          .catch((error) => console.error("[vapi-webhook] call summary email failed (non-fatal)", error));
-      }
+      // DISABLED: the per-call "AI call summary" email to the buyer.
+      //
+      // This fired on every ended call, independently of the Email node and of
+      // the buyer's own notification settings. Appointment cancellation,
+      // reschedule and lead-capture notifications are NOT affected — they are
+      // separate INTERNAL_NOTIFICATION sends elsewhere in this file.
+      //
+      // To re-enable, uncomment the block below.
+      //
+      // if (businessContext?.businessId && /end|ended|report/.test(messageType) && (summary || transcript)) {
+      //   enqueueEmail(
+      //     {
+      //       kind: "internal_notification",
+      //       input: {
+      //         businessId: businessContext.businessId,
+      //         businessName: businessContext.businessName,
+      //         purpose: "CALL_SUMMARY",
+      //         idempotencyKey: callId ? `call_summary:${callId}:business-email` : null,
+      //         fields: {
+      //           caller: null,
+      //           phone: customerPhone || null,
+      //           email: null,
+      //           requestedService: null,
+      //           summary: summary || transcript?.slice(0, 2000) || null,
+      //           nextAction: "Review the call summary and follow up if needed"
+      //         }
+      //       }
+      //     },
+      //     { idempotencyKey: callId ? `call_summary:${callId}:business-email` : null }
+      //   )
+      //     .then((result) => {
+      //       if (!result.ok) console.log(`[vapi-webhook] call summary email skipped: ${result.error}`);
+      //     })
+      //     .catch((error) => console.error("[vapi-webhook] call summary email failed (non-fatal)", error));
+      // }
 
       console.log("[vapi-webhook] response status", 200, agentPaused ? "(non-tool event, paused settle)" : "(non-tool event)");
       return c.json(agentPaused ? { ok: true, paused: true } : { ok: true });

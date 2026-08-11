@@ -1,23 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildBusinessContext } from "./twilio-business-routing";
 
-/**
- * Business context is per InstalledAgent, not per Business.
- *
- * BusinessProfile holds ONE row per business, so two agents under one business
- * shared a single set of services, FAQs, tone and escalation rules: the second
- * agent's setup wizard showed the first agent's answers, and saving one
- * overwrote the other. Agents now own their context under
- * configJson.businessDetails; the profile survives only as the business-level
- * view and as the fallback for agents installed before the split.
- */
-
 function business() {
   return {
     id: "biz-1",
     ownerId: "owner-1",
-    name: "DreamDayWeddings",
-    type: "Wedding Planning",
+    // The account was RENAMED while the second agent was being set up — this is
+    // the state that made the first agent speak as the wrong business.
+    name: "Aurélie Nail Atelier",
+    type: "Nail Salon",
     profile: {
       services: ["Wedding planning", "Venue booking"],
       faqsJson: [{ question: "Do you do venues?", answer: "Yes." }],
@@ -141,6 +132,24 @@ describe("per-agent business context", () => {
     expect(context.bookingUrl).toBe("https://dreamday.example/book");
     expect(context.teamPhone).toBe("+15550000001");
     expect(context.faqs.join(" ")).toContain("venues");
+  });
+
+  it("speaks and signs as its OWN business name, not the renamed account", () => {
+    const context = buildBusinessContext(business(), "+17252245895", {
+      id: "agent-wedding",
+      configJson: {
+        businessDetails: {
+          contextVersion: 2,
+          businessName: "DreamDayWeddings",
+          businessType: "Wedding Planning",
+          services: ["Wedding planning"]
+        }
+      }
+    });
+
+    expect(context.businessName).toBe("DreamDayWeddings");
+    expect(context.businessName).not.toBe("Aurélie Nail Atelier");
+    expect(context.businessType).toBe("Wedding Planning");
   });
 
   it("keeps calendar and timezone business-level — one business, one clock", () => {

@@ -2563,14 +2563,21 @@ businessRoutes.post("/setup/preview-call", async (c) => {
     // only): {"simulateBusinessHoursState": "open" | "closed" | "current"}.
     const previewBody = await c.req.json().catch(() => null);
     const previewOptions = z
-      .object({ simulateBusinessHoursState: z.enum(["current", "open", "closed"]).optional() })
+      .object({
+        simulateBusinessHoursState: z.enum(["current", "open", "closed"]).optional(),
+        listingId: z.string().trim().min(1).optional()
+      })
       .safeParse(previewBody ?? {});
     const simulateBusinessHoursState =
       previewOptions.success && previewOptions.data.simulateBusinessHoursState !== "current"
         ? previewOptions.data.simulateBusinessHoursState ?? null
         : null;
+    const previewListingId = previewOptions.success ? previewOptions.data.listingId ?? null : null;
 
-    const session = await startInstalledAgentPreviewCall(business.id, { simulateBusinessHoursState });
+    const session = await startInstalledAgentPreviewCall(business.id, {
+      simulateBusinessHoursState,
+      listingId: previewListingId
+    });
     return successResponse(c, { session }, "Preview call ready");
   } catch (error) {
     if (error instanceof SetupPreviewCallError) {
