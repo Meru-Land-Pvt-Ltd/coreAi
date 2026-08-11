@@ -497,32 +497,24 @@ function BusinessPaymentSuccessContent() {
                 </section>
 
                 <section className="rise mt-9" style={{ animationDelay: "1.2s" }} aria-label="Receipt">
-                    <p className="inline-flex items-center gap-2 text-sm text-slate-600">
-                        <svg className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <div className="mx-auto flex w-fit max-w-full items-start gap-2 text-sm text-slate-600">
+                        <svg className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                             <path d="M20 6 9 17l-5-5" />
                         </svg>
-                        {isFree ? (
-                            <>
-                                Confirmation sent to <span className="font-medium text-slate-800">{email}</span>
-                                <span className="block mt-1 text-xs text-slate-500" data-testid="payment-success-receipt-note">
-                                    Your installation confirmation shows $0.00 due today.
-                                </span>
-                            </>
-                        ) : (
-                            <>
-                                Receipt sent to <span className="font-medium text-slate-800">{email}</span>
-                                {isTrial ? (
-                                    <span className="block mt-1 text-xs text-slate-500" data-testid="payment-success-receipt-note">
-                                        Your trial confirmation shows $0.00 due today.
-                                    </span>
-                                ) : (
-                                    <span className="block mt-1 text-xs text-slate-500" data-testid="payment-success-receipt-note">
-                                        Your receipt shows the amount paid today.
-                                    </span>
-                                )}
-                            </>
-                        )}
-                    </p>
+                        <div className="min-w-0 text-left">
+                            <p className="leading-5">
+                                {isFree ? "Confirmation sent to " : "Receipt sent to "}
+                                <span className="break-words font-medium text-slate-800">{email}</span>
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-slate-500" data-testid="payment-success-receipt-note">
+                                {isFree
+                                    ? "Your installation confirmation shows $0.00 due today."
+                                    : isTrial
+                                        ? "Your trial confirmation shows $0.00 due today."
+                                        : "Your receipt shows the amount paid today."}
+                            </p>
+                        </div>
+                    </div>
                 </section>
 
                 <div className="rise mt-10" style={{ animationDelay: "1.3s" }}>
