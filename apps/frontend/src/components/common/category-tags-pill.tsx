@@ -147,34 +147,26 @@ export function CategoryTagsPill({
     );
   }
 
-  const tooltipLabels =
-    hiddenLabels.length > 0 ? hiddenLabels : truncateSingle ? labels : [];
-
   return (
     <div
       ref={rootRef}
-      className={`group/tags relative inline-flex min-w-0 ${truncateSingle ? "max-w-full" : "shrink-0"} ${className}`}
+      className={`group/tags relative z-10 inline-flex min-w-0 overflow-visible ${truncateSingle ? "max-w-full" : "shrink-0"} ${className}`}
       data-testid={testId}
     >
       <span
         className={pillClass}
-        title={
-          showTooltip
-            ? (hiddenLabels.length > 0 ? hiddenLabels : labels).join(", ")
-            : undefined
-        }
         data-testid={extraCount > 0 ? moreTestId : undefined}
       >
         {lineText}
       </span>
-      {showTooltip && tooltipLabels.length > 0 ? (
+      {showTooltip ? (
         <div
           role="tooltip"
-          className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden w-max max-w-[min(100vw,18rem)] rounded-xl border border-amber-100 bg-white px-3 py-2 shadow-lg group-hover/tags:block"
+          className="pointer-events-none absolute left-0 top-full z-50 mt-1.5 hidden w-max max-w-[min(100vw,18rem)] rounded-xl border border-amber-100 bg-white px-3 py-2 shadow-lg group-hover/tags:block"
           data-testid={tooltipTestId}
         >
           <div className="flex flex-wrap gap-1.5">
-            {tooltipLabels.map((label, index) => (
+            {labels.map((label, index) => (
               <span
                 key={`${label}-${index}`}
                 className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"

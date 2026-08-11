@@ -816,7 +816,7 @@ function AgentCard({
         }
       }}
       style={animate ? { animationDelay: `${Math.min(index * 35, 280)}ms` } : undefined}
-      className={`ma-card group relative cursor-pointer overflow-hidden rounded-2xl border ${dashed} bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${
+      className={`ma-card group relative cursor-pointer overflow-hidden rounded-2xl border hover:overflow-visible ${dashed} bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${
         animate ? "ma-entering" : ""
       }`}
     >
@@ -856,9 +856,9 @@ function AgentCard({
         <h3 className="truncate text-base font-semibold text-slate-900" data-testid="architect-ui-my-agents-view-agent-heading">
           {title}
         </h3>
-        <div className="mt-2 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden">
+        <div className="mt-2 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-visible">
           <span
-            className="flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500"
+            className="shrink-0 whitespace-nowrap rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600"
             data-testid={`my-agents-industry-${agent.id}`}
           >
             {industryLabel ?? "Industry not set"}

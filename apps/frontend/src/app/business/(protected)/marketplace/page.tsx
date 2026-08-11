@@ -281,7 +281,7 @@ const broadIndustryGroups: Record<string, string[]> = {
 
 function filterPillClass(active: boolean) {
   return [
-    "inline-flex shrink-0 items-center gap-1.5 rounded-xl border bg-white px-3.5 py-2 text-sm font-medium transition",
+    "inline-flex max-w-full shrink-0 items-center gap-1.5 rounded-xl border bg-white px-3 py-1.5 text-xs font-medium transition sm:px-3.5 sm:py-2 sm:text-sm",
     active
       ? "border-amber-300 bg-amber-50 text-amber-700"
       : "border-gray-200 text-slate-600 hover:border-amber-300 hover:text-slate-900",
@@ -477,12 +477,21 @@ function getCardIndustryLabel(agent: Agent): string {
 function getCardCategoryLabels(agent: Agent): string[] {
   const raw = (agent.category ?? "").trim();
   if (!raw) return [];
+  const industryExclusion = new Set<string>(
+    [
+      ...resolveBrowseIndustries(agent.industries),
+      browseIndustryFromSlug(agent.industry) ?? "",
+      agent.industry !== "all" ? formatLabel(agent.industry) : ""
+    ].filter(Boolean)
+  );
+  const industryExclusionLower = new Set<string>([...industryExclusion].map((value) => value.toLowerCase()));
   return [
     ...new Set(
       raw
         .split(",")
         .map((part) => part.trim())
         .filter(Boolean)
+        .filter((part) => !industryExclusionLower.has(part.toLowerCase()))
     )
   ];
 }
@@ -1184,9 +1193,9 @@ export default function MarketplacePage() {
 
       <section className="sticky top-[73px] z-20 overflow-visible border-y border-gray-100 bg-white/95 backdrop-blur transition-shadow">
         <div className="mx-auto max-w-7xl px-3 sm:px-4">
-          <div className="relative flex flex-col gap-3 overflow-visible py-3 sm:flex-row sm:flex-wrap sm:items-center">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <div className="relative">
+          <div className="relative flex flex-col gap-2.5 overflow-visible py-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-2.5">
+              <div className="relative shrink-0">
                 <button
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "industry" ? null : "industry")}
@@ -1196,7 +1205,7 @@ export default function MarketplacePage() {
                   aria-haspopup="true"
                   aria-expanded={openFilter === "industry"}
                 >
-                  <span>{industryLabel}</span>
+                  <span className="max-w-[8.5rem] truncate sm:max-w-[14rem]">{industryLabel}</span>
                   <ChevronIcon open={openFilter === "industry"} />
                 </button>
 
@@ -1251,7 +1260,7 @@ export default function MarketplacePage() {
               </div>
 
               {subCategoryOptions.length > 0 ? (
-                <div className="relative">
+                <div className="relative shrink-0">
                   <button
                     type="button"
                     onClick={() => setOpenFilter(openFilter === "subCategory" ? null : "subCategory")}
@@ -1261,7 +1270,9 @@ export default function MarketplacePage() {
                     aria-haspopup="true"
                     aria-expanded={openFilter === "subCategory"}
                   >
-                    <span>{subCategory === "all" ? "Category" : subCategory}</span>
+                    <span className="max-w-[8.5rem] truncate sm:max-w-[14rem]">
+                      {subCategory === "all" ? "Category" : subCategory}
+                    </span>
                     <ChevronIcon open={openFilter === "subCategory"} />
                   </button>
 
@@ -1316,7 +1327,7 @@ export default function MarketplacePage() {
                 </div>
               ) : null}
 
-              <div className="relative">
+              <div className="relative shrink-0">
                 <button
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "price" ? null : "price")}
@@ -1326,7 +1337,7 @@ export default function MarketplacePage() {
                   aria-haspopup="true"
                   aria-expanded={openFilter === "price"}
                 >
-                  <span>
+                  <span className="whitespace-nowrap">
                     {priceActive
                       ? priceMax >= PRICE_MAX_DEFAULT
                         ? `$${priceMin}+`
@@ -1448,7 +1459,7 @@ export default function MarketplacePage() {
                 type="button"
                 onClick={() => setFreeTrialOnly((current) => !current)}
                 data-testid="marketplace-filter-free-trial"
-                className={filterPillClass(freeTrialOnly)}
+                className={`${filterPillClass(freeTrialOnly)} whitespace-nowrap`}
               >
                 Free trial
               </button>
@@ -1457,13 +1468,13 @@ export default function MarketplacePage() {
                 type="button"
                 onClick={() => setNewOnly((current) => !current)}
                 data-testid="marketplace-filter-new"
-                className={filterPillClass(newOnly)}
+                className={`${filterPillClass(newOnly)} whitespace-nowrap`}
               >
                 New this month
               </button>
             </div>
 
-            <div className="flex shrink-0 items-center justify-between gap-3 sm:ml-auto sm:justify-end sm:pl-2">
+            <div className="flex w-full shrink-0 items-center justify-between gap-2 sm:ml-auto sm:w-auto sm:justify-end sm:gap-3 sm:pl-2">
               <div className="flex items-center gap-0.5 rounded-lg border border-gray-200 p-0.5">
                 <button
                   type="button"
@@ -1488,18 +1499,18 @@ export default function MarketplacePage() {
                 </button>
               </div>
 
-              <div className="relative">
+              <div className="relative min-w-0">
                 <button
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "sort" ? null : "sort")}
                   data-testid="business-marketplace-filter-sort"
                   data-filter-trigger="sort"
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:border-amber-300 hover:text-slate-900"
+                  className="inline-flex max-w-full shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-amber-300 hover:text-slate-900 sm:px-3.5 sm:py-2 sm:text-sm"
                   aria-haspopup="true"
                   aria-expanded={openFilter === "sort"}
                 >
-                  Sort:
-                  <span className="font-semibold text-slate-800">{sortLabel}</span>
+                  <span className="hidden sm:inline">Sort:</span>
+                  <span className="truncate font-semibold text-slate-800">{sortLabel}</span>
                   <ChevronIcon open={openFilter === "sort"} />
                 </button>
 
@@ -1550,9 +1561,9 @@ export default function MarketplacePage() {
                   type="button"
                   onClick={() => clearFilter(filter.key)}
                   data-testid={`marketplace-active-filter-${filter.key}`}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100"
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100"
                 >
-                  {filter.label}
+                  <span className="max-w-[10rem] truncate sm:max-w-[16rem]">{filter.label}</span>
                   <XIcon />
                 </button>
               ))}
@@ -1744,11 +1755,8 @@ function AgentDetailsModal({
   }, [onClose]);
 
   const industryLabel =
-    agent.industries.length > 0
-      ? agent.industries.join(" · ")
-      : agent.industry === "all"
-        ? "All industries"
-        : formatLabel(agent.industry);
+    getCardIndustryLabel(agent) ||
+    (agent.industry === "all" ? "All industries" : formatLabel(agent.industry));
 
   const hasFreeTrial = !isOwned && Boolean(agent.freeTrialEnabled) && (agent.trialDays ?? 7) > 0 && agent.pricingModel !== "FREE";
   const trialDays = agent.trialDays ?? 7;
@@ -1803,14 +1811,20 @@ function AgentDetailsModal({
             </span>
 
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                  {agent.category}
-                </span>
-
-                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+              <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden">
+                <span className="shrink-0 whitespace-nowrap rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600">
                   {industryLabel}
                 </span>
+
+                <CategoryTagsPill
+                  labels={getCardCategoryLabels(agent)}
+                  compact
+                  className="min-w-0"
+                  testId="business-marketplace-agent-category-text-3"
+                  moreTestId={`business-marketplace-agent-category-more-${agent.id}`}
+                  tooltipTestId={`business-marketplace-agent-category-tooltip-${agent.id}`}
+                  emptyLabel="Category not set"
+                />
 
                 {hasFreeTrial ? (
                   <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700">
@@ -1962,9 +1976,9 @@ function AgentGridCard({
         }
       }}
       data-testid={`business-marketplace-agent-card-${agent.id}`}
-      className="group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-xl"
+      className="group relative z-0 flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:z-[5] hover:overflow-visible hover:-translate-y-2 hover:scale-[1.018] hover:border-amber-300 hover:shadow-[0_18px_42px_rgba(15,23,42,.11),0_8px_18px_rgba(15,23,42,.06),0_0_0_1px_rgba(245,158,11,.2)]"
     >
-      <div className="flex-1 min-w-0 p-6">
+      <div className="flex-1 min-w-0 overflow-visible p-6">
         <div className="flex items-start justify-between">
           <AgentCardIcon iconUrl={agent.iconUrl} size={12} />
 
@@ -2012,7 +2026,7 @@ function AgentGridCard({
           ) : null}
         </h3>
 
-        <div className="mt-2 flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-hidden">
+        <div className="mt-2 flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-visible">
           {industryLabel ? (
             <span
               className="shrink-0 whitespace-nowrap rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600"
@@ -2093,11 +2107,11 @@ function AgentListCard({
         }
       }}
       data-testid={`business-marketplace-agent-card-${agent.id}`}
-      className="group flex cursor-pointer flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-lg sm:flex-row sm:items-center"
+      className="group relative z-0 flex cursor-pointer flex-col gap-4 overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:z-[5] hover:overflow-visible hover:-translate-y-1 hover:scale-[1.01] hover:border-amber-300 hover:shadow-[0_18px_42px_rgba(15,23,42,.11),0_8px_18px_rgba(15,23,42,.06),0_0_0_1px_rgba(245,158,11,.2)] sm:flex-row sm:items-center"
     >
       <AgentCardIcon iconUrl={agent.iconUrl} size={14} />
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-visible">
         <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden">
           <h3
             className="min-w-0 shrink truncate text-base font-bold text-slate-900"
@@ -2116,7 +2130,7 @@ function AgentListCard({
           ) : null}
         </div>
 
-        <div className="mt-1.5 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden">
+        <div className="mt-1.5 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-visible">
           {getCardIndustryLabel(agent) ? (
             <span
               className="shrink-0 whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-600"

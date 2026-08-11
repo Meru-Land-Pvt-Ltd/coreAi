@@ -20,7 +20,7 @@ import {
   getIncludedItems,
   getListingAuthor,
   getListingCategory,
-  getListingTags,
+  formatLabel,
   getWorkflowFeatures,
   type ApiListing,
   type ListingApiResponse,
@@ -281,13 +281,19 @@ export default function BusinessAgentDescriptionPage() {
     [listing]
   );
 
-  const tags = useMemo(
-    () =>
-      listing
-        ? getListingTags(listing)
-        : [],
-    [listing]
-  );
+  const industryLabel = useMemo(() => {
+    if (!listing) return "";
+    return listing.industryTags?.[0]?.trim() ?? "";
+  }, [listing]);
+
+  const categories = useMemo(() => {
+    if (!listing?.category) return [];
+    return listing.category
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => formatLabel(part));
+  }, [listing]);
 
   const features = useMemo(
     () =>
@@ -528,7 +534,7 @@ export default function BusinessAgentDescriptionPage() {
       iconUrl={
         listing.iconUrl?.trim() || null
       }
-      category={category}
+      category={industryLabel || category}
       statusLabel={
         ownedAgent
           ? "In your account"
@@ -539,7 +545,7 @@ export default function BusinessAgentDescriptionPage() {
       installsLabel={installsLabel}
       heroDescription={heroDescription}
       agentDescription={agentDescription}
-      tags={tags}
+      tags={categories}
       features={features}
       includedItems={includedItems}
       price={price}
@@ -558,7 +564,7 @@ export default function BusinessAgentDescriptionPage() {
       }
       showDemo
       demoMode="authenticated"
-      demoIndustry={listing.industryTags?.[0] ?? tags[0] ?? ""}
+      demoIndustry={industryLabel}
       demoSubindustry={listing.category ?? category}
       demoVideoUrl={
         listing.demoVideoUrl ?? null

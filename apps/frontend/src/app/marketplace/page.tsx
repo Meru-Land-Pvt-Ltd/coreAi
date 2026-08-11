@@ -482,12 +482,21 @@ function getCardIndustryLabel(agent: Agent): string {
 function getCardCategoryLabels(agent: Agent): string[] {
   const raw = (agent.category ?? "").trim();
   if (!raw) return [];
+  const industryExclusion = new Set<string>(
+    [
+      ...resolveBrowseIndustries(agent.industries),
+      browseIndustryFromSlug(agent.industry) ?? "",
+      agent.industry !== "all" ? formatLabel(agent.industry) : ""
+    ].filter(Boolean)
+  );
+  const industryExclusionLower = new Set<string>([...industryExclusion].map((value) => value.toLowerCase()));
   return [
     ...new Set(
       raw
         .split(",")
         .map((part) => part.trim())
         .filter(Boolean)
+        .filter((part) => !industryExclusionLower.has(part.toLowerCase()))
     )
   ];
 }
@@ -1012,10 +1021,10 @@ export default function MarketplacePage() {
       </section>
 
       <section className="sticky top-[73px] z-[70] overflow-visible border-y border-gray-100 bg-white/95 backdrop-blur transition-shadow">
-        <div className="w-full max-w-none px-4 sm:px-6 lg:px-8">
-          <div className="relative flex flex-wrap items-center gap-3 overflow-visible py-3">
-            <div className="flex items-center gap-2.5">
-              <div className="relative">
+        <div className="w-full max-w-none px-3 sm:px-6 lg:px-8">
+          <div className="relative flex flex-col gap-2.5 overflow-visible py-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-2.5">
+              <div className="relative shrink-0">
                 <button
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "industry" ? null : "industry")}
@@ -1025,14 +1034,16 @@ export default function MarketplacePage() {
                   aria-haspopup="true"
                   aria-expanded={openFilter === "industry"}
                 >
-                  <span data-testid="marketplace-industry-label-text">{industryLabel}</span>
+                  <span className="max-w-[8.5rem] truncate sm:max-w-[14rem]" data-testid="marketplace-industry-label-text">
+                    {industryLabel}
+                  </span>
                   <ChevronIcon open={openFilter === "industry"} />
                 </button>
 
                 {openFilter === "industry" ? (
                   <div
                     data-filter-panel="industry"
-                    className="absolute left-0 top-full z-[90] mt-2 max-h-80 w-72 overflow-y-auto overscroll-contain rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                    className="absolute left-1/2 top-full z-[90] mt-2 max-h-80 w-[calc(100vw-2rem)] max-w-xs -translate-x-1/2 overflow-y-auto overscroll-contain rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)] sm:left-0 sm:w-72 sm:max-w-none sm:translate-x-0"
                   >
                     {dropdownIndustries.map((item) => {
                       const unlocked = isIndustryAvailable(item.id, agents);
@@ -1068,7 +1079,7 @@ export default function MarketplacePage() {
               </div>
 
               {subCategoryOptions.length > 0 ? (
-                <div className="relative">
+                <div className="relative shrink-0">
                   <button
                     type="button"
                     onClick={() => setOpenFilter(openFilter === "subCategory" ? null : "subCategory")}
@@ -1078,7 +1089,7 @@ export default function MarketplacePage() {
                     aria-haspopup="true"
                     aria-expanded={openFilter === "subCategory"}
                   >
-                    <span data-testid="marketplace-subcategory-label-text">
+                    <span className="max-w-[8.5rem] truncate sm:max-w-[14rem]" data-testid="marketplace-subcategory-label-text">
                       {subCategory === "all" ? "Category" : subCategory}
                     </span>
                     <ChevronIcon open={openFilter === "subCategory"} />
@@ -1088,7 +1099,7 @@ export default function MarketplacePage() {
                     <div
                       data-filter-panel="subCategory"
                       data-testid="marketplace-subcategory-filters"
-                      className="absolute left-0 top-full z-[90] mt-2 max-h-80 w-72 overflow-y-auto overscroll-contain rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                      className="absolute left-1/2 top-full z-[90] mt-2 max-h-80 w-[calc(100vw-2rem)] max-w-xs -translate-x-1/2 overflow-y-auto overscroll-contain rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)] sm:left-0 sm:w-72 sm:max-w-none sm:translate-x-0"
                     >
                       <button
                         type="button"
@@ -1123,7 +1134,7 @@ export default function MarketplacePage() {
                 </div>
               ) : null}
 
-              <div className="relative">
+              <div className="relative shrink-0">
                 <button
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "price" ? null : "price")}
@@ -1133,7 +1144,7 @@ export default function MarketplacePage() {
                   aria-haspopup="true"
                   aria-expanded={openFilter === "price"}
                 >
-                  <span data-testid="marketplace-price-active-price-max-200-price-min-text">
+                  <span className="whitespace-nowrap" data-testid="marketplace-price-active-price-max-200-price-min-text">
                     {priceActive
                       ? priceMax >= 200
                         ? `$${priceMin}+`
@@ -1146,7 +1157,7 @@ export default function MarketplacePage() {
                 {openFilter === "price" ? (
                   <div
                     data-filter-panel="price"
-                    className="absolute left-0 top-full z-50 mt-2 w-72 rounded-2xl border border-slate-100 bg-white p-3 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                    className="absolute left-1/2 top-full z-50 mt-2 w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 rounded-2xl border border-slate-100 bg-white p-3 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)] sm:left-0 sm:w-72 sm:max-w-none sm:translate-x-0"
                   >
                     <div className="mb-2 flex items-center justify-between px-1">
                       <span className="text-sm font-semibold text-slate-700" data-testid="marketplace-price-range-text">Price range</span>
@@ -1207,7 +1218,7 @@ export default function MarketplacePage() {
                       />
                     </div>
 
-                    <div className="mt-2 grid grid-cols-3 gap-1.5">
+                    <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
                       {[
                         { label: "Under $80", min: 0, max: 80 },
                         { label: "$80–120", min: 80, max: 120 },
@@ -1235,7 +1246,7 @@ export default function MarketplacePage() {
                 type="button"
                 onClick={() => setFreeTrialOnly((current) => !current)}
                 data-testid="marketplace-filter-free-trial"
-                className={filterPillClass(freeTrialOnly)}
+                className={`${filterPillClass(freeTrialOnly)} whitespace-nowrap`}
               >
                 Free trial
               </button>
@@ -1244,13 +1255,13 @@ export default function MarketplacePage() {
                 type="button"
                 onClick={() => setNewOnly((current) => !current)}
                 data-testid="marketplace-filter-new"
-                className={filterPillClass(newOnly)}
+                className={`${filterPillClass(newOnly)} whitespace-nowrap`}
               >
                 New this month
               </button>
             </div>
 
-            <div className="ml-auto flex shrink-0 items-center gap-3 pl-2">
+            <div className="flex w-full shrink-0 items-center justify-between gap-2 sm:ml-auto sm:w-auto sm:justify-end sm:gap-3 sm:pl-2">
               <div className="flex items-center gap-0.5 rounded-lg border border-gray-200 p-0.5">
                 <button
                   type="button"
@@ -1275,25 +1286,27 @@ export default function MarketplacePage() {
                 </button>
               </div>
 
-              <div className="relative">
+              <div className="relative min-w-0">
                 <button
                   type="button"
                   onClick={() => setOpenFilter(openFilter === "sort" ? null : "sort")}
                   data-testid="marketplace-filter-sort"
                   data-filter-trigger="sort"
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-600 transition hover:border-amber-300 hover:text-slate-900"
+                  className="inline-flex max-w-full shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-amber-300 hover:text-slate-900 sm:px-3.5 sm:py-2 sm:text-sm"
                   aria-haspopup="true"
                   aria-expanded={openFilter === "sort"}
                 >
-                  Sort:
-                  <span className="font-semibold text-slate-800" data-testid="marketplace-sort-label-text">{sortLabel}</span>
+                  <span className="hidden sm:inline">Sort:</span>
+                  <span className="truncate font-semibold text-slate-800" data-testid="marketplace-sort-label-text">
+                    {sortLabel}
+                  </span>
                   <ChevronIcon open={openFilter === "sort"} />
                 </button>
 
                 {openFilter === "sort" ? (
                   <div
                     data-filter-panel="sort"
-                    className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]"
+                    className="absolute right-0 top-full z-50 mt-2 w-[calc(100vw-2rem)] max-w-xs rounded-2xl border border-slate-100 bg-white p-2 shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)] sm:w-64"
                   >
                     {sortOptions.map((item) => (
                       <button
@@ -1326,9 +1339,9 @@ export default function MarketplacePage() {
                   type="button"
                   onClick={() => clearFilter(filter.key)}
                   data-testid={`marketplace-active-filter-${filter.key}`}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100"
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100"
                 >
-                  {filter.label}
+                  <span className="max-w-[10rem] truncate sm:max-w-[16rem]">{filter.label}</span>
                   <XIcon />
                 </button>
               ))}
@@ -1496,7 +1509,7 @@ function AgentGridCard({
 
   return (
     <article
-      className="group flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+      className="group relative z-0 flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:z-[2] hover:-translate-y-2 hover:scale-[1.018] hover:border-amber-300 hover:shadow-[0_18px_42px_rgba(15,23,42,.11),0_8px_18px_rgba(15,23,42,.06),0_0_0_1px_rgba(245,158,11,.2)]"
     >
       <div className="flex-1 min-w-0 p-6">
         <div className="flex items-start justify-between">
@@ -1586,7 +1599,7 @@ function AgentListCard({
   onViewDetails: () => void;
 }) {
   return (
-    <article className="group flex flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg sm:flex-row sm:items-center">
+    <article className="group relative z-0 flex flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-all duration-300 hover:z-[2] hover:-translate-y-1 hover:scale-[1.01] hover:border-amber-300 hover:shadow-[0_18px_42px_rgba(15,23,42,.11),0_8px_18px_rgba(15,23,42,.06),0_0_0_1px_rgba(245,158,11,.2)] sm:flex-row sm:items-center">
       <AgentCardIcon iconUrl={agent.iconUrl} size={14} />
 
       <div className="min-w-0 flex-1">
@@ -1678,11 +1691,9 @@ function AgentDetailsModal({
   }, [onClose]);
 
   const industryLabel =
-    agent.industries && agent.industries.length > 0
-      ? agent.industries.join(" · ")
-      : agent.industry === "all"
-        ? "All industries"
-        : getIndustryDisplayLabel(agent.industry);
+    getCardIndustryLabel(agent) ||
+    (agent.industry === "all" ? "All industries" : getIndustryDisplayLabel(agent.industry));
+  const categoryLabels = getCardCategoryLabels(agent);
 
   const hasFreeTrial = Boolean(agent.freeTrialEnabled) && (agent.trialDays ?? 7) > 0 && agent.pricingModel !== "FREE";
   const trialDays = agent.trialDays ?? 7;
@@ -1721,14 +1732,22 @@ function AgentDetailsModal({
             </span>
 
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600" data-testid="marketplace-agent-category-text-3">
-                  {agent.category}
-                </span>
-
-                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700" data-testid="marketplace-agent-industry-all-industries-agent-industry-text-2">
+              <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden">
+                <span className="shrink-0 whitespace-nowrap rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600" data-testid="marketplace-agent-industry-all-industries-agent-industry-text-2">
                   {industryLabel}
                 </span>
+
+                {categoryLabels.length > 0 ? (
+                  <CategoryTagsPill
+                    labels={categoryLabels}
+                    compact
+                    className="min-w-0"
+                    testId="marketplace-agent-category-text-3"
+                    moreTestId={`marketplace-agent-category-more-modal-${agent.id}`}
+                    tooltipTestId={`marketplace-agent-category-tooltip-modal-${agent.id}`}
+                    emptyLabel="Category not set"
+                  />
+                ) : null}
 
                 {hasFreeTrial ? (
                   <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700" data-testid="marketplace-free-trial-text">
@@ -1859,7 +1878,7 @@ function FooterGroup({ title, items }: { title: string; items: string[] }) {
 
 function filterPillClass(active: boolean) {
   return [
-    "inline-flex shrink-0 items-center gap-1.5 rounded-xl border bg-white px-3.5 py-2 text-sm font-medium transition",
+    "inline-flex max-w-full shrink-0 items-center gap-1.5 rounded-xl border bg-white px-3 py-1.5 text-xs font-medium transition sm:px-3.5 sm:py-2 sm:text-sm",
     active
       ? "border-amber-300 bg-amber-50 text-amber-700"
       : "border-gray-200 text-slate-600 hover:border-amber-300 hover:text-slate-900"
