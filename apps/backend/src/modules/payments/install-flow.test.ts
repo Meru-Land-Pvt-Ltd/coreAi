@@ -203,7 +203,7 @@ describe("free agent installation (DB)", () => {
     const first = await authedPost("/payments/purchase", {
       listingId: freeListingId,
       paymentMethodId: "free_installation",
-      ...BILLING
+      billingEmail: BILLING.billingEmail
     });
 
     expect(first.status).toBe(201);
@@ -225,11 +225,21 @@ describe("free agent installation (DB)", () => {
     expect(agent?.installSource).toBe("FREE_INSTALL");
     expect(agent?.businessId).toBe(buyer.businessId);
 
+    const businessAfterFreeInstall = await prisma.business.findUnique({
+      where: { id: buyer.businessId },
+      select: { billingName: true, billingAddress: true, billingPostalCode: true }
+    });
+    expect(businessAfterFreeInstall).toEqual({
+      billingName: null,
+      billingAddress: null,
+      billingPostalCode: null
+    });
+
     // Repeated request reuses the same InstalledAgent — no duplicates.
     const second = await authedPost("/payments/purchase", {
       listingId: freeListingId,
       paymentMethodId: "free_installation",
-      ...BILLING
+      billingEmail: BILLING.billingEmail
     });
     expect(second.status).toBe(200);
     const secondBody = (await second.json()) as {

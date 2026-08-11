@@ -1414,18 +1414,16 @@ export default function BusinessBillingUsagePage() {
                     ) : (
                         <div className="mt-4 flex items-center gap-3 text-sm text-slate-500">
                             <CardBrandIcon brand="" />
-                            No payment method on file.
+                            No payment details
                         </div>
                     )}
 
-                    {(billing?.businessName || billing?.billingAddress || billing?.billingEmail) ? (
+                    {(billing?.businessName || billing?.billingEmail || billing?.billingAddress) ? (
                         <div className="mt-4 border-t border-gray-50 pt-4">
                             {billing?.businessName ? (
                                 <div className="text-sm font-medium text-slate-800" data-testid="billing-saved-name">{billing.businessName}</div>
                             ) : null}
-                            {billing?.billingAddress ? (
-                                <div className="text-sm text-slate-500" data-testid="billing-saved-address">{billing.billingAddress}</div>
-                            ) : null}
+                            <div className="text-sm text-slate-500" data-testid="billing-saved-address">{billing.billingAddress || "No address"}</div>
                             {billing?.billingEmail ? (
                                 <div className="text-sm text-slate-500" data-testid="billing-saved-email">{billing.billingEmail}</div>
                             ) : null}

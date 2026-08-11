@@ -439,7 +439,7 @@ describe("POST /payments/purchase duplicate protection (DB)", () => {
     return app;
   }
 
-  it("returns the existing purchase instead of charging again (free listing)", async () => {
+  it("returns the existing free purchase without saving placeholder billing details", async () => {
     if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
     stubNoNetwork();
 
@@ -484,9 +484,9 @@ describe("POST /payments/purchase duplicate protection (DB)", () => {
       select: { billingName: true, billingAddress: true, billingPostalCode: true }
     });
     expect(business).toMatchObject({
-      billingName: "Test Buyer",
-      billingAddress: "1 Test Street",
-      billingPostalCode: "90210"
+      billingName: null,
+      billingAddress: null,
+      billingPostalCode: null
     });
   });
 });
