@@ -2274,6 +2274,23 @@ async function findBusinessByVapiWebhook(body: Record<string, unknown>) {
       console.log("[vapi-webhook] business resolved via assistantId", assistantId);
       return business;
     }
+
+    const agent = await prisma.installedAgent.findFirst({
+      where: { configJson: { path: ["vapiAssistantId"], equals: assistantId } },
+      select: { businessId: true }
+    });
+
+    if (agent?.businessId) {
+      const agentBusiness = await prisma.business.findUnique({
+        where: { id: agent.businessId },
+        include: { profile: true, knowledgeBases: true }
+      });
+
+      if (agentBusiness) {
+        console.log("[vapi-webhook] business resolved via installed agent assistantId", assistantId);
+        return agentBusiness;
+      }
+    }
   }
 
   console.log("[vapi-webhook] business not resolved (no metadata.businessId or assistantId match)");
