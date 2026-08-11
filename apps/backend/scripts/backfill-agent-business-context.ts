@@ -55,23 +55,42 @@ async function main() {
         continue;
       }
 
-      // Merge onto whatever the agent already has: its own saved values win,
-      // the shared profile only fills what was never per-agent.
+      // BusinessProfile holds ONE row per business. Copying it onto every agent
+      // of a MULTI-agent business is the very bug this split removes: the row
+      // reflects whichever agent saved last, so a wedding planner would inherit
+      // the nail salon's booking URL, team phone and escalation rules.
+      //
+      // One agent  -> the profile genuinely is that agent's context; copy it.
+      // Many agents -> keep only what the agent already owns and leave the rest
+      //                blank for the buyer to fill in per agent.
+      const shared = business.installedAgents.length > 1
+        ? {}
+        : {
+          services: profile.services ?? [],
+          faqs: profile.faqsJson ?? [],
+          tone: profile.tone ?? null,
+          escalationRules: profile.escalationRules ?? null,
+          bookingUrl: profile.bookingUrl ?? null,
+          teamPhone: profile.teamPhone ?? null,
+          ...(profile.hoursJson ? { hours: profile.hoursJson } : {})
+        };
+
+      // The agent's own saved values always win over anything shared.
       const nextDetails = {
-        services: profile.services ?? [],
-        faqs: profile.faqsJson ?? [],
-        tone: profile.tone ?? null,
-        escalationRules: profile.escalationRules ?? null,
-        bookingUrl: profile.bookingUrl ?? null,
-        teamPhone: profile.teamPhone ?? null,
-        ...(profile.hoursJson ? { hours: profile.hoursJson } : {}),
+        ...shared,
         ...details,
         contextVersion: AGENT_BUSINESS_CONTEXT_VERSION
       };
 
+      // Report what will actually be WRITTEN, not what the profile happens to
+      // hold — the merge means the agent's own values usually win.
+      const writtenServices = Array.isArray(nextDetails.services) ? nextDetails.services.length : 0;
+      const writtenFaqs = Array.isArray(nextDetails.faqs) ? nextDetails.faqs.length : 0;
+      const source = business.installedAgents.length > 1 ? "own-only (multi-agent)" : "own+profile";
+
       console.log(
         `${APPLY ? "UPDATE" : "WOULD UPDATE"} ${business.name} / ${agent.name} (${agent.id}) ` +
-          `services=${(profile.services ?? []).length} faqs=${Array.isArray(profile.faqsJson) ? profile.faqsJson.length : 0}`
+          `services=${writtenServices} faqs=${writtenFaqs} [${source}]`
       );
 
       if (APPLY) {
