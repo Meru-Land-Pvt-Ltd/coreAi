@@ -16,6 +16,7 @@ import {
   startMarketplaceDemoCall,
   startPublicMarketplaceDemoCall,
   buildDemoSystemPrompt,
+  withDemoGreeting,
   normalizeDemoCallCustomInfo
 } from "./marketplace-demo";
 
@@ -434,6 +435,25 @@ describe("buildDemoSystemPrompt", () => {
     expect(prompt).toContain("never claim that a real appointment, message, email, or CRM record was created");
   });
 
+  it("establishes the demo framing before the architect's production prompt", () => {
+    const architectPrompt = "You are the receptionist for this practice. Book callers into the calendar.";
+    const prompt = buildDemoSystemPrompt({ ...base, baseSystemPrompt: architectPrompt });
+
+    // A full production receptionist prompt placed first makes the model adopt
+    // the live-agent role and drop the demo narration entirely.
+    expect(prompt.indexOf("TRIVEN MARKETPLACE LIVE DEMO")).toBeLessThan(
+      prompt.indexOf("ARCHITECT AGENT INSTRUCTIONS")
+    );
+    expect(prompt).toContain("You are showing the agent off, not running it for a real business");
+  });
+
+  it("tells the agent to contrast the real action with the demo one", () => {
+    const prompt = buildDemoSystemPrompt(base);
+
+    expect(prompt).toContain("but since this is a demo");
+    expect(prompt).toContain("Name what the real agent would do, then what you are doing instead");
+  });
+
   it("preserves architect safety instructions while adding demo isolation", () => {
     const prompt = buildDemoSystemPrompt({
       ...base,
@@ -462,5 +482,22 @@ describe("buildDemoSystemPrompt", () => {
     expect(prompt).toContain("You are June for Polished Nail Studio in Dental Clinics.");
     expect(prompt).toContain("Hours: not configured in this demo.");
     expect(prompt).not.toContain("{{");
+  });
+});
+
+describe("withDemoGreeting", () => {
+  it("says it is a demo in the opening line", () => {
+    expect(withDemoGreeting("Thank you for calling Demo Dental Studio. How can I help you today?")).toBe(
+      "Thank you for calling Demo Dental Studio. How can I help you today? This is a live demo, so ask me anything."
+    );
+  });
+
+  it("does not repeat itself when the architect greeting already says demo", () => {
+    const greeting = "Hi, you've reached our demo line — what can I do for you?";
+    expect(withDemoGreeting(greeting)).toBe(greeting);
+  });
+
+  it("still greets when the template resolved to nothing", () => {
+    expect(withDemoGreeting("   ")).toBe("This is a live demo, so ask me anything.");
   });
 });

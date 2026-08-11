@@ -1,11 +1,3 @@
-/**
- * Prompt Compiler & Sanitizer Pipeline
- *
- * Cleans, sanitizes, and deduplicates custom instructions entered in setup.
- * Prevents raw user inputs from conflicting with base engine rules (greetings, booking validation, caller ID verification).
- */
-
-/** Patterns that duplicate built-in system prompt engine capabilities and rules. */
 const REDUNDANT_BUILTIN_PATTERNS = [
   /always greet by business name/i,
   /greet caller by business name/i,
@@ -19,29 +11,29 @@ const REDUNDANT_BUILTIN_PATTERNS = [
   /do not say (you are|as) an ai/i
 ];
 
+const LIST_MARKER = /^\s*(?:[-*•]|\d+[.)])\s+/;
+
+function isPurelyRedundant(line: string): boolean {
+  for (const pattern of REDUNDANT_BUILTIN_PATTERNS) {
+    if (!pattern.test(line)) continue;
+    const remainder = line.replace(pattern, " ").replace(/[\s.,;:!—–-]+/g, "");
+    if (!remainder) return true;
+  }
+  return false;
+}
+
 export function compileCustomInstructions(rawInstructions?: string | null): string {
   if (!rawInstructions || typeof rawInstructions !== "string") return "";
 
   const trimmed = rawInstructions.trim();
   if (!trimmed) return "";
 
-  // Split into lines/bullets
   const lines = trimmed
     .split(/\r?\n/)
-    .map((line) => line.replace(/^[\s\-*•\d+.]+/, "").trim())
+    .map((line) => line.replace(LIST_MARKER, "").trim())
     .filter((line) => line.length > 0);
 
-  const compiledLines: string[] = [];
-
-  for (const line of lines) {
-    // Check if line duplicates built-in core rules
-    const isRedundant = REDUNDANT_BUILTIN_PATTERNS.some((pattern) => pattern.test(line));
-    if (isRedundant) {
-      continue; // Filter out direct duplicate commands
-    }
-
-    compiledLines.push(`- ${line}`);
-  }
+  const compiledLines = lines.filter((line) => !isPurelyRedundant(line)).map((line) => `- ${line}`);
 
   if (compiledLines.length === 0) return "";
 
