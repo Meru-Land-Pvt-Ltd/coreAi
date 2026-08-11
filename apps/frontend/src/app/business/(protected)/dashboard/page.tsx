@@ -587,8 +587,13 @@ export default function BusinessDashboardPage() {
 
     const userFirstName = getFirstName(currentUser);
 
-    function setupAgent(agent: Agent) {
-        router.push(businessSetupPath(agent.listingId));
+    function isSetupCompleted(agent: Agent) {
+        const status = (agent.installedAgentStatus ?? "").toUpperCase();
+        return Boolean(agent.installedAgentId) && (status === "ACTIVE" || status === "PAUSED");
+    }
+
+    function setupAgent(agent: Agent, isEdit?: boolean) {
+        router.push(businessSetupPath(agent.listingId, isEdit ?? isSetupCompleted(agent)));
     }
 
     function openAgent(agent: Agent) {

@@ -402,8 +402,21 @@ export default function BusinessAgentDescriptionPage() {
   const checkoutPath =
     businessCheckoutPath(listing.id);
 
+  const installedAgentStatus =
+    (
+      ownedAgent?.installedAgentStatus ??
+      ""
+    ).toUpperCase();
+
+  const isSetupCompleted =
+    Boolean(ownedAgent?.installedAgentId) &&
+    (
+      installedAgentStatus === "ACTIVE" ||
+      installedAgentStatus === "PAUSED"
+    );
+
   const setupPath =
-    businessSetupPath(listing.id);
+    businessSetupPath(listing.id, isSetupCompleted);
 
   const trialInfo = ownedAgent
     ? getTrialInfo(
@@ -439,18 +452,6 @@ export default function BusinessAgentDescriptionPage() {
     ownedAgent && isPaid
   );
 
-  const installedAgentStatus =
-    (
-      ownedAgent?.installedAgentStatus ??
-      ""
-    ).toUpperCase();
-
-  const isSetupCompleted =
-    Boolean(ownedAgent?.installedAgentId) &&
-    (
-      installedAgentStatus === "ACTIVE" ||
-      installedAgentStatus === "PAUSED"
-    );
 
   const canStartTrial =
     !ownedAgent &&
