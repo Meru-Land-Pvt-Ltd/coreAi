@@ -89,7 +89,7 @@ const BLACKLISTED_NAME_PHRASES = [
 const JOB_TITLE_SUFFIXES = /\s+(?:general|experience|dentist|surgeon|cardiologist|pediatric|orthodontist|physician|specialist|director|doctor|practitioner|owner|consultant|staff|team|lead|senior|attorney|lawyer|notary|broker|realtor|agent|advisor|sales|manager|technician|therapist)\b/gi;
 
 const COMMON_SERVICE_KEYWORDS = [
-  "Teeth Cleaning", "Dental Cleaning", "Root Canal", "Teeth Whitening", "Dental Implants",
+  "Teeth Cleaning", "Dental Cleaning", "Root Canal Therapy", "Root Canal", "Teeth Whitening", "Dental Implants",
   "Crowns", "Bridges", "Extractions", "Dental Extraction", "Fillings", "Scaling & Polishing", "Dentures",
   "Dental X-Ray", "Pediatric Dentistry", "Orthodontics", "Invisalign", "Braces", "Periodontics", "Endodontics",
   "General Checkup", "Vaccination", "Lab Tests", "Haircut", "Hair Coloring", "Manicure", "Pedicure", "Facial", "Massage",
@@ -162,6 +162,10 @@ function extractFallbackServices(fullText: string): string[] {
  * AI-powered extraction attempt using Gemma-4-31b-it (or configurable via OCR_MODEL env var)
  */
 async function extractProfileWithAI(fullText: string): Promise<Partial<DocumentProfileSuggestion> | null> {
+  // Profile extraction tests exercise the deterministic parser and must never
+  // spend provider quota or become dependent on a developer's local API key.
+  if (process.env.VITEST) return null;
+
   const apiKey = llmProviderApiKey("gemini") || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) return null;
 
@@ -238,24 +242,35 @@ export function extractProfileFallbackFromText(fullText: string): Pick<
   const doctorCandidates = new Set<string>();
   const businessNameCandidates = new Set<string>();
 
-  const strictDrRegex = /\bDr\.\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b/g;
-  const strictCredRegex = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}),?\s+(?:M\.?D\.?|D\.?D\.?S\.?|D\.?M\.?D\.?|M\.?B\.?B\.?S\.?|D\.?O\.?|N\.?P\.?|Ph\.?D\.?|J\.?D\.?|Esq\.?)\b/g;
-  const rolePrefixRegex = /\b(?:Attorney|Lawyer|Notary|Broker|Realtor|Real Estate Agent|Property Agent|Sales Manager|Sales Representative|Service Advisor|Technician|Therapist|Physiotherapist|Physical Therapist|Veterinarian|Veterinary Doctor|Provider|Practitioner)\s*[:\-–—]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b/g;
-  const roleSuffixRegex = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s*(?:,|\-|–|—)\s*(?:Attorney|Lawyer|Notary|Broker|Realtor|Real Estate Agent|Property Agent|Sales Manager|Sales Representative|Service Advisor|Technician|Therapist|Physiotherapist|Physical Therapist|Veterinarian|Veterinary Doctor|Provider|Practitioner)\b/g;
+  // Horizontal whitespace is intentional: names must never absorb words from
+  // the organization or service on an adjacent line.
+  const strictDrRegex = /\bDr\.[ \t]+([A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+){1,3})\b/g;
+  const strictCredRegex = /\b([A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+){1,2}),?[ \t]+(?:M\.?D\.?|D\.?D\.?S\.?|D\.?M\.?D\.?|M\.?B\.?B\.?S\.?|D\.?O\.?|N\.?P\.?|Ph\.?D\.?|J\.?D\.?|Esq\.?)\b/g;
+  const rolePrefixRegex = /\b(?:Attorney|Lawyer|Notary|Broker|Realtor|Real Estate Agent|Property Agent|Sales Manager|Sales Representative|Service Advisor|Technician|Therapist|Physiotherapist|Physical Therapist|Veterinarian|Veterinary Doctor|Provider|Practitioner)[ \t]*[:\-–—][ \t]*([A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+){1,3})\b/g;
+  const roleSuffixRegex = /\b([A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+){1,3})[ \t]*(?:,|\-|–|—)[ \t]*(?:Attorney|Lawyer|Notary|Broker|Realtor|Real Estate Agent|Property Agent|Sales Manager|Sales Representative|Service Advisor|Technician|Therapist|Physiotherapist|Physical Therapist|Veterinarian|Veterinary Doctor|Provider|Practitioner)\b/g;
+
+  const candidateKeys = new Set<string>();
+  const addDoctorCandidate = (candidate: string | null) => {
+    if (!candidate) return;
+    const key = candidate.replace(/^Dr\.?[ \t]+/i, "").toLowerCase();
+    if (candidateKeys.has(key)) return;
+    candidateKeys.add(key);
+    doctorCandidates.add(candidate);
+  };
 
   let match: RegExpExecArray | null;
   while ((match = strictDrRegex.exec(fullText)) !== null) {
     const cleaned = sanitizeDoctorName(match[0]);
-    if (cleaned) doctorCandidates.add(cleaned);
+    addDoctorCandidate(cleaned);
   }
   while ((match = strictCredRegex.exec(fullText)) !== null) {
     const cleaned = sanitizeDoctorName(match[0]);
-    if (cleaned) doctorCandidates.add(cleaned);
+    addDoctorCandidate(cleaned);
   }
   for (const pattern of [rolePrefixRegex, roleSuffixRegex]) {
     while ((match = pattern.exec(fullText)) !== null) {
       const cleaned = sanitizeDoctorName(match[1] ?? "");
-      if (cleaned) doctorCandidates.add(cleaned);
+      addDoctorCandidate(cleaned);
     }
   }
 
@@ -268,7 +283,7 @@ export function extractProfileFallbackFromText(fullText: string): Pick<
     );
   if (organizationLine) businessNameCandidates.add(organizationLine.replace(/^[#*\-\s]+/, "").trim());
 
-  const regMatch = fullText.match(/\b(?:reg(?:istration)?\.?|lic(?:ense)?\.?|npi|tax\s*id)\s*[:#\-]?\s*([a-z0-9\-]{5,20})\b/i);
+  const regMatch = fullText.match(/\b(?:reg(?:istration)?\.?|lic(?:ense)?\.?|npi|tax\s*id)(?:[ \t]+(?:no\.?|number))?[ \t]*[:#\-]?[ \t]*([a-z0-9\-]{5,20})\b/i);
   const lower = fullText.toLowerCase();
   const fallbackTypeRules: Array<[RegExp, string]> = [
     [/\bnotary\b/, "Notary Services"],
@@ -297,6 +312,9 @@ export function extractProfileFallbackFromText(fullText: string): Pick<
     [/\bhospital\b/, "Hospitals"],
     [/\b(medical|clinic|physician)\b/, "Medical Clinics"]
   ];
+  const organizationType = organizationLine
+    ? fallbackTypeRules.find(([pattern]) => pattern.test(organizationLine.toLowerCase()))?.[1]
+    : null;
   const doctorNames = Array.from(doctorCandidates);
   return {
     businessName: Array.from(businessNameCandidates)[0] ?? null,
@@ -304,7 +322,9 @@ export function extractProfileFallbackFromText(fullText: string): Pick<
     primaryDoctor: doctorNames[0] ?? null,
     doctorNames,
     multipleDoctorsDetected: doctorNames.length > 1,
-    businessType: fallbackTypeRules.find(([pattern]) => pattern.test(lower))?.[1] ?? null,
+    // Prefer the organization's own line over a staff member's specialty.
+    // A dental clinic that employs a cardiologist is still a dental clinic.
+    businessType: organizationType ?? fallbackTypeRules.find(([pattern]) => pattern.test(lower))?.[1] ?? null,
     services: extractFallbackServices(fullText),
     registrationNumber: regMatch?.[1]?.trim() ?? null
   };

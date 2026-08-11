@@ -2,9 +2,24 @@ import { Redis } from "ioredis";
 import { VOICE_NODE_TYPES, resolveBrowseIndustries, resolveBrowseIndustry } from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
-import { deployVapiAssistant, isVapiConfigured } from "../architect/vapi-connector";
+import { fillPromptTemplateTokens } from "../agent-runtime/prompt-builder";
+import {
+  deployVapiAssistant,
+  isVapiConfigured,
+  resolveVapiModel
+} from "../architect/vapi-connector";
 
 export const MARKETPLACE_DEMO_PURPOSE = "MARKETPLACE_DEMO";
+
+/**
+ * Marketplace demos must not depend on an architect's third-party TTS billing.
+ * Installed/live agents still use the voice selected in their workflow; only
+ * the free browser sample uses Vapi's hosted voice.
+ */
+export const MARKETPLACE_DEMO_VOICE = "Savannah";
+
+/** Bump when the persisted demo assistant's stable configuration changes. */
+const MARKETPLACE_DEMO_ASSISTANT_VERSION = 2;
 
 /** Hard cap per demo call — long enough to evaluate, too short to abuse. */
 export const DEMO_MAX_DURATION_SECONDS = 180;
@@ -173,6 +188,7 @@ export function resetMarketplaceDemoLimits() {
   memoryCounters.clear();
   redisClient?.disconnect();
   redisClient = undefined;
+  demoAssistantByListing.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +220,7 @@ async function findExistingDemoAssistant(listingId: string): Promise<string | nu
       if (
         metadata.purpose === MARKETPLACE_DEMO_PURPOSE &&
         metadata.listingId === listingId &&
+        metadata.demoAssistantVersion === MARKETPLACE_DEMO_ASSISTANT_VERSION &&
         typeof assistant.id === "string"
       ) {
         demoAssistantByListing.set(listingId, assistant.id);
@@ -289,12 +306,35 @@ export function buildDemoSystemPrompt(params: {
     params.customInfo?.doctorName?.trim();
   const address = params.customInfo?.address?.trim();
   const services = params.customInfo?.services?.trim();
-  const baseSystemPrompt = params.baseSystemPrompt
-    ?.trim()
-    .replace(/\{\{\s*business\.name\s*\}\}/gi, bizName)
-    .replace(/\{\{\s*businessName\s*\}\}/gi, bizName)
-    .replace(/\{\{\s*industry\s*\}\}/gi, params.industry)
-    .replace(/\{\{\s*subindustry\s*\}\}/gi, params.subindustry);
+  const now = new Date();
+  const currentDate = now.toISOString().slice(0, 10);
+  const baseSystemPrompt = params.baseSystemPrompt?.trim()
+    ? fillPromptTemplateTokens(
+        params.baseSystemPrompt.trim(),
+        {
+          assistantName: params.assistantName,
+          businessName: bizName,
+          businessType: params.subindustry,
+          industry: params.industry,
+          subindustry: params.subindustry,
+          contactName: contactName ?? "the business team",
+          services: services ?? "not configured in this demo",
+          servicesList: services ?? "not configured in this demo",
+          businessHours: "not configured in this demo",
+          calendarBookingRules: "Demo simulation only; do not create real calendar events.",
+          fallbackResponse: "Let me take a message for the business team.",
+          silencePolicy: "Ask once whether the caller is still there, then end politely.",
+          customInstructions: "",
+          calendarId: "demo-calendar",
+          timeZone: "UTC",
+          currentDateTime: `${currentDate} UTC`,
+          currentDate,
+          todayDate: currentDate,
+          bookingLabel: "appointment"
+        },
+        { stripUnresolved: true }
+      )
+    : undefined;
 
   const businessFacts = [
     `Business Name: ${bizName}`,
@@ -309,7 +349,7 @@ export function buildDemoSystemPrompt(params: {
     baseSystemPrompt ? `ARCHITECT AGENT INSTRUCTIONS:
 ${baseSystemPrompt}` : `You are ${params.assistantName}, an AI voice agent for ${params.subindustry}.`,
     ``,
-    `TRIVEN MARKETPLACE DEMO MODE — these demo rules override any conflicting instruction above:`,
+    `TRIVEN MARKETPLACE LIVE DEMO MODE — these demo rules override any conflicting instruction above:`,
     `- You are demonstrating "${params.listingName}" exactly as configured for the ${params.subindustry} subindustry within ${params.industry}.`,
     `- Preserve all safety, compliance, escalation, and scope boundaries from the Architect agent instructions. Never weaken them for the demo.`,
     `- Speak naturally and concisely for a phone call. Use the business facts below and do not invent real prices, staff, addresses, inventory, availability, policies, medical facts, legal conclusions, or other business facts that were not provided.`,
@@ -429,14 +469,9 @@ async function startDemoCallInternal(params: {
   }
 
   const { industry, subindustry } = demoTaxonomy(listing);
-  // Default the demo persona's name to the selected voice so the spoken name
-  // always matches the voice's gender (e.g. the "adam" preset introduces
-  // itself as Adam, never as a female fallback name).
-  const voicePresetName = str(voiceNode, "voiceName", str(voiceNode, "voice"));
-  const fallbackName =
-    voicePresetName && voicePresetName !== "custom" && voicePresetName !== "triven-default"
-      ? voicePresetName.replace(/^./, (ch) => ch.toUpperCase())
-      : "Alex";
+  // When the workflow has no explicit persona name, match the hosted demo
+  // voice rather than inheriting a name from an unavailable custom voice.
+  const fallbackName = MARKETPLACE_DEMO_VOICE;
   const assistantName = str(voiceNode, "assistantName", fallbackName);
   const demoBusinessName =
     customInfo?.businessName?.trim() ||
@@ -453,50 +488,96 @@ async function startDemoCallInternal(params: {
     customInfo
   });
 
-  const customBizName = customInfo?.businessName?.trim();
   const configuredFirstMessage = str(voiceNode, "firstMessage");
   const messageTemplate = configuredFirstMessage || "Thank you for calling {{business.name}}. How can I help you today?";
-  const firstMessage = messageTemplate
-    .replace(/\{\{\s*business\.name\s*\}\}/gi, customBizName || demoBusinessName)
-    .replace(/\{\{\s*businessName\s*\}\}/gi, customBizName || demoBusinessName);
+  const firstMessage = fillPromptTemplateTokens(
+    messageTemplate,
+    {
+      assistantName,
+      businessName: demoBusinessName,
+      businessType: subindustry,
+      contactName: customInfo?.contactName?.trim() || "the business team",
+      services: customInfo?.services?.trim() || "not configured in this demo",
+      servicesList: customInfo?.services?.trim() || "not configured in this demo"
+    },
+    { stripUnresolved: true }
+  );
 
   const existingAssistantId = await findExistingDemoAssistant(listing.id);
 
-  const assistant = await deployVapiAssistant({
-    name: `Marketplace Demo — ${listing.name}`,
-    firstMessage,
-    systemPrompt,
-    model: str(voiceNode, "model", "gpt-4o-mini"),
-    voice: str(voiceNode, "voice"),
-    voiceProvider: str(voiceNode, "voiceProvider"),
-    voiceId: str(voiceNode, "voiceId"),
-    language: str(voiceNode, "language"),
-    speakingSpeed: str(voiceNode, "speakingSpeed"),
-    serverUrl: `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`,
-    existingAssistantId,
-    metadata: { purpose: MARKETPLACE_DEMO_PURPOSE, listingId: listing.id, industry, subindustry },
-    // The demo converses only: no booking, no SMS, no notifications.
-    includeTools: { checkAvailability: false, bookAppointment: false, sendNotification: false, knowledgeLookup: false },
-    silenceTimeoutSeconds: 30,
-    maxDurationSeconds,
-    recordingEnabled: false
-  });
+  // The assistant's stable configuration is shared per listing. Personalized
+  // prompt/greeting values are call overrides below, so concurrent demos never
+  // PATCH the same assistant or leak one visitor's sample details to another.
+  let assistantId = existingAssistantId;
+  if (!assistantId) {
+    const baseDemoBusinessName = defaultDemoBusinessName(industry, subindustry);
+    const baseSystemPrompt = buildDemoSystemPrompt({
+      assistantName,
+      demoBusinessName: baseDemoBusinessName,
+      industry,
+      subindustry,
+      listingName: listing.name,
+      listingDescription: listing.shortDescription || listing.description || "an AI voice agent",
+      baseSystemPrompt: str(voiceNode, "systemPrompt")
+    });
+    const baseFirstMessage = fillPromptTemplateTokens(
+      messageTemplate,
+      {
+        assistantName,
+        businessName: baseDemoBusinessName,
+        businessType: subindustry,
+        contactName: "the business team",
+        services: "not configured in this demo",
+        servicesList: "not configured in this demo"
+      },
+      { stripUnresolved: true }
+    );
 
-  demoAssistantByListing.set(listing.id, assistant.id);
+    const assistant = await deployVapiAssistant({
+      name: `Marketplace Demo — ${listing.name}`,
+      firstMessage: baseFirstMessage,
+      systemPrompt: baseSystemPrompt,
+      model: str(voiceNode, "model", "gpt-4o-mini"),
+      // A free marketplace sample must remain available even when a listing's
+      // Cartesia/ElevenLabs account is unfunded or its custom voice was removed.
+      voice: MARKETPLACE_DEMO_VOICE,
+      voiceProvider: "vapi",
+      voiceId: "",
+      language: str(voiceNode, "language"),
+      serverUrl: `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`,
+      metadata: {
+        purpose: MARKETPLACE_DEMO_PURPOSE,
+        listingId: listing.id,
+        industry,
+        subindustry,
+        demoAssistantVersion: MARKETPLACE_DEMO_ASSISTANT_VERSION
+      },
+      // The demo converses only: no booking, no SMS, no notifications.
+      includeTools: { checkAvailability: false, bookAppointment: false, sendNotification: false, knowledgeLookup: false },
+      silenceTimeoutSeconds: 30,
+      maxDurationSeconds: DEMO_MAX_DURATION_SECONDS,
+      recordingEnabled: false
+    });
+    assistantId = assistant.id;
+    demoAssistantByListing.set(listing.id, assistantId);
+  }
+
+  const resolvedModel = resolveVapiModel(str(voiceNode, "model", "gpt-4o-mini"));
 
   // Real-time assistant overrides passed to vapi.start() to guarantee custom form values are applied instantly
   const assistantOverrides = {
     firstMessage,
     model: {
-      provider: "openai",
-      model: str(voiceNode, "model", "gpt-4o-mini"),
+      provider: resolvedModel.provider,
+      model: resolvedModel.model,
       messages: [
         {
           role: "system",
           content: systemPrompt
         }
       ]
-    }
+    },
+    maxDurationSeconds
   };
 
   // Consume the allowance only after the assistant deployed successfully.
@@ -505,14 +586,14 @@ async function startDemoCallInternal(params: {
 
   console.log("[marketplace-demo] session ready", {
     listingId: listing.id,
-    assistantId: assistant.id,
+    assistantId,
     scopeKey,
     remainingToday
   });
 
   return {
     publicKey: env.VAPI_PUBLIC_KEY,
-    assistantId: assistant.id,
+    assistantId,
     assistantOverrides,
     listingId: listing.id,
     listingName: listing.name,

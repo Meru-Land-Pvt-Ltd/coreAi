@@ -9,9 +9,13 @@ import userEvent from "@testing-library/user-event";
  * saves every changed section and names the section when one fails.
  */
 
+const { setupLocation } = vi.hoisted(() => ({
+  setupLocation: { search: "listingId=listing-test-1&mode=edit" }
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams("listingId=listing-test-1")
+  useSearchParams: () => new URLSearchParams(setupLocation.search)
 }));
 
 const BH_DATA = {
@@ -125,7 +129,7 @@ vi.mock("@/components/business/features/api", () => ({
   syncBusinessHoursToLiveAgent: vi.fn().mockResolvedValue({ success: true, data: { sync: { status: "not_deployed" } } }),
   getBusinessPhoneAssignment: vi.fn().mockResolvedValue({ success: true, data: { assigned: false } }),
   getBusinessSetup: vi.fn(),
-  getMarketplaceListing: vi.fn().mockResolvedValue({ success: true, data: { listing: null } }),
+  getMarketplaceListing: vi.fn(),
   getPhoneCountries: vi.fn().mockResolvedValue({ success: true, data: { countries: [], note: "" } }),
   getPhoneStates: vi.fn().mockResolvedValue({ success: true, data: { states: [], supportsCityFilter: false } }),
   getPhoneCities: vi.fn().mockResolvedValue({ success: true, data: { cities: [] } }),
@@ -176,7 +180,7 @@ function setupData(overrides: Record<string, unknown> = {}) {
       phoneNumber: { phoneNumber: "+12135550999", forwardToPhone: "123456789", twilioPhoneNumberSid: null },
       installedAgent: null,
       knowledge: [],
-      calendar: { connected: false, email: null },
+      calendar: { connected: true, email: "calendar@example.com" },
       webhooks: null,
       requiredConnectors: [
         { connector: "twilio", label: "Phone", ownedBy: "platform", note: "" },
@@ -195,6 +199,37 @@ function setupData(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function marketplaceListing() {
+  return {
+    success: true as const,
+    data: {
+      listing: {
+        name: "Appointment Booking Voice Agent",
+        requiredConnectors: ["twilio", "vapi", "google_calendar"],
+        requiredBuyerSetup: [],
+        buyerSetupInstructions: "",
+        workflowJson: {
+          nodes: [
+            { id: "trigger", data: { type: "trigger.phone_call", nodeKind: "trigger" } },
+            { id: "voice", data: { type: "ai.voice_conversation", nodeKind: "ai" } },
+            { id: "availability", data: { type: "calendar.availability", nodeKind: "connector" } },
+            { id: "book", data: { type: "calendar.book_appointment", nodeKind: "connector" } },
+            { id: "sms", data: { type: "communication.send_sms", nodeKind: "connector" } },
+            { id: "end", data: { type: "flow.end", nodeKind: "output" } }
+          ],
+          edges: [
+            { id: "e1", source: "trigger", target: "voice" },
+            { id: "e2", source: "voice", target: "availability" },
+            { id: "e3", source: "availability", target: "book" },
+            { id: "e4", source: "book", target: "sms" },
+            { id: "e5", source: "sms", target: "end" }
+          ]
+        }
+      }
+    }
+  };
+}
+
 async function openConfigure(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByTestId("business-setup-wizard");
   await waitFor(() => {
@@ -206,6 +241,18 @@ async function openConfigure(user: ReturnType<typeof userEvent.setup>) {
 
 async function expandSection(user: ReturnType<typeof userEvent.setup>, id: string) {
   await user.click(screen.getByTestId(`business-configure-section-${id}-toggle`));
+}
+
+async function completeNewInstallConfiguration(user: ReturnType<typeof userEvent.setup>) {
+  await openConfigure(user);
+  const name = screen.getByTestId("business-setup-input-assistant-name");
+  await user.clear(name);
+  await user.type(name, "Test Booking Assistant");
+  await user.click(screen.getByTestId("business-setup-voice-select"));
+  await user.click(await screen.findByTestId("business-setup-voice-option-skylar"));
+  await waitFor(() => {
+    expect((screen.getByTestId("business-setup-dot-3") as HTMLButtonElement).disabled).toBe(false);
+  });
 }
 
 /** Appointment-schedule payload with overridable booking-rule numbers. */
@@ -247,10 +294,11 @@ function apptSchedule(fields: Partial<Record<string, number>> = {}) {
 beforeEach(() => {
   cleanup();
   window.sessionStorage.clear();
+  setupLocation.search = "listingId=listing-test-1&mode=edit";
   vi.mocked(getBusinessSetup).mockReset().mockResolvedValue(setupData() as never);
   vi.mocked(getMarketplaceListing)
     .mockReset()
-    .mockResolvedValue({ success: true, data: { listing: null } } as never);
+    .mockResolvedValue(marketplaceListing() as never);
   vi.mocked(getBusinessHours).mockReset().mockResolvedValue({ success: true, data: BH_DATA } as never);
   vi.mocked(putBusinessHours)
     .mockReset()
@@ -403,14 +451,14 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
     await waitFor(() => {
-      expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz");
+      expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Appointment Booking Voice Agent");
     });
     await user.click(screen.getByTestId("business-setup-dot-3"));
 
     expect(await screen.findByTestId("business-setup-preview-call")).toBeTruthy();
     expect(screen.getByTestId("business-setup-preview-start")).toBeTruthy();
     expect(screen.getByTestId("business-setup-test-flow")).toBeTruthy();
-    expect(screen.getAllByTestId("business-setup-test-flow-step")).toHaveLength(3);
+    expect(screen.getAllByTestId("business-setup-test-flow-step")).toHaveLength(4);
     expect(screen.getByTestId("business-setup-preview-call")).toBeTruthy();
 
     // The missed-call text-back simulation is gone.
@@ -454,16 +502,19 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     expect(saveBusinessSetup).toHaveBeenCalled();
   });
 
-  it("editing a Configure field updates agent name in header", async () => {
+  it("editing the business name keeps the marketplace agent title stable", async () => {
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
     await openConfigure(user);
 
-    await user.type(screen.getByTestId("business-setup-input-name"), "!");
-    expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz!");
+    const input = screen.getByTestId("business-setup-input-name") as HTMLInputElement;
+    await user.type(input, "!");
+    expect(input.value).toBe("Test Biz!");
+    expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Appointment Booking Voice Agent");
   });
 
   it("a purchased but never-deployed agent shows Go live, not Redeploy", async () => {
+    setupLocation.search = "listingId=listing-test-1";
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({
         // Straight from checkout: row exists, PROVISIONING, no assistant.
@@ -474,7 +525,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
 
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
-    await screen.findByTestId("business-setup-wizard");
+    await completeNewInstallConfiguration(user);
     expect((screen.getByTestId("business-setup-dot-4") as HTMLButtonElement).disabled).toBe(true);
 
     await user.click(screen.getByTestId("business-setup-dot-3"));
@@ -488,6 +539,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
    * to make every OTHER agent of that business look deployed.
    */
   it("does not treat a sibling agent's deployment as this agent's", async () => {
+    setupLocation.search = "listingId=listing-test-1";
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({
         // Another agent of this business is live, so the profile carries an id.
@@ -500,7 +552,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
 
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
-    await screen.findByTestId("business-setup-wizard");
+    await completeNewInstallConfiguration(user);
     expect((screen.getByTestId("business-setup-dot-4") as HTMLButtonElement).disabled).toBe(true);
 
     await user.click(screen.getByTestId("business-setup-dot-3"));
@@ -536,7 +588,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
     await waitFor(() => {
-      expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz");
+      expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Appointment Booking Voice Agent");
     });
 
     // Step 4 is locked while editing
@@ -567,6 +619,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
   });
 
   it("marks the Test step complete after a successful Go live and shows dedicated live confirmation screen without redeploy banner", async () => {
+    setupLocation.search = "listingId=listing-test-1";
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({ installedAgent: null, installedAgentId: null }) as never
     );
@@ -577,9 +630,9 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
 
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
-    await screen.findByTestId("business-setup-wizard");
+    await completeNewInstallConfiguration(user);
     await waitFor(() => {
-      expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz");
+      expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Appointment Booking Voice Agent");
     });
 
     // Check that editing banner is NOT visible during first time setup
@@ -646,7 +699,7 @@ describe("Configure step — one Business Hours editor, clear separation", () =>
     const user = userEvent.setup();
     await screen.findByTestId("business-setup-wizard");
     await waitFor(() => {
-      expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Test Biz");
+      expect(screen.getByTestId("business-setup-agent-name").textContent).toBe("Appointment Booking Voice Agent");
     });
     await waitFor(() => {
       expect((screen.getByTestId("business-setup-dot-3") as HTMLButtonElement).disabled).toBe(false);

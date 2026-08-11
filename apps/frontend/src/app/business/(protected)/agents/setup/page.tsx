@@ -919,7 +919,9 @@ function SetupWizard() {
         setAssistantName(readAssistantName(data));
       }
 
-      if (!isNewInstall && data.business) {
+      // Name and type belong to the business, so every agent installation
+      // should reuse them. Agent-specific configuration still starts fresh.
+      if (data.business) {
         setBusinessName(data.business.name);
         setBusinessType(data.business.type);
       }
@@ -992,15 +994,15 @@ function SetupWizard() {
           setGoodbyeMessage(data.silence.goodbye ?? "");
         }
 
-        if (data.phoneNumber) {
-          setForwardToPhone(data.phoneNumber.forwardToPhone ?? "");
-          setAssignedNumber(data.phoneNumber.phoneNumber ?? null);
-          setExistingPhoneNumber(data.phoneNumber.forwardToPhone ?? "");
-        }
       }
 
       // Always load available phone numbers and connection states — they reflect
       // shared business infrastructure, not the previous agent's configuration.
+      if (data.phoneNumber) {
+        setForwardToPhone(data.phoneNumber.forwardToPhone ?? "");
+        setAssignedNumber(data.phoneNumber.phoneNumber ?? null);
+        setExistingPhoneNumber(data.phoneNumber.forwardToPhone ?? "");
+      }
       setPhoneNumbers(data.availablePhoneNumbers ?? []);
       setSelectedPhoneId(isNewInstall ? "" : (data.selectedPlatformPhoneNumberId ?? ""));
       setCalendar(data.calendar ?? { connected: false, email: null });
@@ -2293,7 +2295,9 @@ function SetupWizard() {
                     onKnowledgeChanged={handleKnowledgeChanged}
                     hoursSuggestionReady={businessHours.suggestion}
                     onReviewHours={() => jumpToConfigureSection("hours-availability")}
-                    clearAddressOnMount={isNewInstall}
+                    // The address is stored on the business, not an installed
+                    // agent. Reuse it when the business adds another agent.
+                    clearAddressOnMount={false}
                   />
                 </ConfigureSectionCard>
               )}

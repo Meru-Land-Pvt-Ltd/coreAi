@@ -347,7 +347,7 @@ export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewList
     }
 
     let iconBg = "bg-amber-50 text-amber-600";
-    let icon = <ChannelIcon channel={preview.channel} />;
+    const icon = <ChannelIcon channel={preview.channel} />;
     if (preview.channel === "whatsapp") {
       iconBg = "bg-emerald-50 text-emerald-600";
     } else if (preview.channel === "email") {
@@ -430,5 +430,4 @@ export function AgentWorkflowPreview({ listing }: { listing: WorkflowPreviewList
     </div>
   );
 }
-
 

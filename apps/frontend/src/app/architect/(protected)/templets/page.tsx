@@ -7,7 +7,7 @@ import {
   getArchitectTemplate,
   getArchitectTemplates,
   submitArchitectTemplateRequest,
-  useArchitectTemplate,
+  useArchitectTemplate as instantiateArchitectTemplate,
   type TemplateCard
 } from "@/components/architect/features/api";
 import { BROWSE_INDUSTRIES, getCategoriesForIndustry, resolveBrowseIndustries, tagsMatchVerticalCategory } from "@coreai/shared";
@@ -425,11 +425,11 @@ export default function ArchitectTemplateGalleryPage() {
   }
 
   // Clone the template's workflowJson into a new workflow, then open the builder.
-  async function useTemplate(slug: string | undefined) {
+  async function openTemplate(slug: string | undefined) {
     if (!slug || usingSlug) return;
     setUsingSlug(slug);
     setToast("Opening template in Agent Builder…");
-    const result = await useArchitectTemplate(slug);
+    const result = await instantiateArchitectTemplate(slug);
     if (result.success && result.data) {
       router.push(`/architect/workflows/${result.data.workflowId}/builder` as Route);
       return;
@@ -567,7 +567,7 @@ export default function ArchitectTemplateGalleryPage() {
                 <div className="mt-6 flex flex-wrap items-center gap-4 sm:mt-8">
                   <button
                     type="button"
-                    onClick={() => useTemplate(featured.slug)}
+                    onClick={() => openTemplate(featured.slug)}
                     disabled={usingSlug === featured.slug}
                     data-testid="architect-templates-featured-use"
                     className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white shadow-[0_10px_26px_-8px_rgba(245,158,11,.55)] transition hover:bg-amber-600 hover:shadow-lg active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
@@ -747,7 +747,7 @@ export default function ArchitectTemplateGalleryPage() {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            void useTemplate(t.slug);
+                            void openTemplate(t.slug);
                           }}
                           disabled={usingSlug === t.slug}
                           data-testid={`architect-templates-use-${t.id}`}
@@ -925,7 +925,7 @@ export default function ArchitectTemplateGalleryPage() {
               <div className="border-t border-slate-100 bg-white p-5 sm:p-6">
                 <button
                   type="button"
-                  onClick={() => useTemplate(modalTemplate.slug)}
+                  onClick={() => openTemplate(modalTemplate.slug)}
                   disabled={usingSlug === modalTemplate.slug}
                   data-testid="architect-templates-modal-use"
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-5 py-3.5 text-sm font-bold text-white shadow-[0_10px_26px_-8px_rgba(245,158,11,.55)] transition hover:bg-amber-600 active:scale-[.99] disabled:cursor-not-allowed disabled:opacity-70"

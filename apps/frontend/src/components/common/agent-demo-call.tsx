@@ -17,11 +17,11 @@ type DemoSession = {
     demo: true;
 };
 
-type VapiEventName = "call-start" | "call-end" | "speech-start" | "speech-end" | "error";
+type VapiEventName = "call-start" | "call-end" | "speech-start" | "speech-end" | "message" | "error";
 
 type VapiWebClient = {
     start: (assistantId: string, overrides?: Record<string, unknown>) => Promise<unknown>;
-    stop: () => void;
+    stop: () => void | Promise<void>;
     on: (event: VapiEventName, listener: (payload?: unknown) => void) => unknown;
     off?: (event: VapiEventName, listener: (payload?: unknown) => void) => unknown;
     removeAllListeners?: (event?: VapiEventName) => unknown;
@@ -30,21 +30,26 @@ type VapiWebClient = {
 let sharedDemoClient: VapiWebClient | null = null;
 let sharedDemoClientKey = "";
 
+async function stopDemoVapiClient(client: VapiWebClient | null): Promise<void> {
+    if (!client) return;
+    try {
+        await client.stop();
+    } catch {
+        // already stopped
+    }
+}
+
 async function getDemoVapiClient(publicKey: string): Promise<VapiWebClient> {
+    if (sharedDemoClient && sharedDemoClientKey === publicKey) return sharedDemoClient;
+
     if (sharedDemoClient) {
-        try {
-            sharedDemoClient.stop();
-        } catch {
-            // already stopped
-        }
+        await stopDemoVapiClient(sharedDemoClient);
         try {
             sharedDemoClient.removeAllListeners?.();
         } catch {
             // no listeners
         }
     }
-
-    if (sharedDemoClient && sharedDemoClientKey === publicKey) return sharedDemoClient;
 
     const mod = await import("@vapi-ai/web");
     const VapiCtor = mod.default as unknown as new (key: string) => VapiWebClient;
@@ -53,6 +58,62 @@ async function getDemoVapiClient(publicKey: string): Promise<VapiWebClient> {
     sharedDemoClientKey = publicKey;
 
     return sharedDemoClient;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+}
+
+function readVapiError(payload: unknown): string {
+    const record = asRecord(payload);
+    const error = asRecord(record.error);
+    const nestedError = asRecord(error.error);
+    const errorMessage = error.message;
+
+    return (
+        (typeof record.errorMsg === "string" && record.errorMsg) ||
+        (typeof record.message === "string" && record.message) ||
+        (typeof record.error === "string" && record.error) ||
+        (typeof error.errorMsg === "string" && error.errorMsg) ||
+        (typeof errorMessage === "string" && errorMessage) ||
+        (typeof asRecord(errorMessage).msg === "string" && (asRecord(errorMessage).msg as string)) ||
+        (typeof nestedError.message === "string" && nestedError.message) ||
+        "The Vapi browser call hit an error."
+    );
+}
+
+function demoEndReasonMessage(reason: string): string | null {
+    const normalized = reason.trim().toLowerCase();
+    if (!normalized) return null;
+
+    if (
+        normalized.includes("customer-ended-call") ||
+        normalized.includes("assistant-ended-call") ||
+        normalized.includes("max-duration") ||
+        normalized.includes("silence-timed-out")
+    ) {
+        return null;
+    }
+
+    if (normalized.includes("requested-payment") || normalized.includes("insufficient") || normalized.includes("billing")) {
+        return "The demo voice service is temporarily unavailable. Please try again shortly.";
+    }
+
+    if (normalized.includes("did-not-receive-customer-audio") || normalized.includes("microphone")) {
+        return "The demo could not hear your microphone. Check the browser microphone permission and input device, then try again.";
+    }
+
+    if (normalized.includes("assistant-not-found") || normalized.includes("invalid-assistant")) {
+        return "The demo session expired. Please try the demo again.";
+    }
+
+    if (normalized.includes("pipeline-error") || normalized.includes("providerfault") || normalized.includes("provider-fault")) {
+        return "The demo voice service had a temporary provider problem. Please try again shortly.";
+    }
+
+    return "The demo call ended unexpectedly. Please try again.";
 }
 
 type DemoState = "idle" | "starting" | "live" | "ended";
@@ -103,7 +164,7 @@ export function AgentDemoCall({
             detachRef.current?.();
             if (timerRef.current) clearInterval(timerRef.current);
             try {
-                clientRef.current?.stop();
+                void stopDemoVapiClient(clientRef.current);
             } catch {
                 // best-effort cleanup
             }
@@ -120,11 +181,7 @@ export function AgentDemoCall({
     function endDemo() {
         stopTimer();
         detachRef.current?.();
-        try {
-            clientRef.current?.stop();
-        } catch {
-            // already stopped
-        }
+        void stopDemoVapiClient(clientRef.current);
         setAgentSpeaking(false);
         setState("ended");
     }
@@ -164,12 +221,10 @@ export function AgentDemoCall({
             const client = await getDemoVapiClient(session.publicKey);
 
             detachRef.current?.();
-            try {
-                client.stop();
-            } catch {
-                // no active call
-            }
+            await stopDemoVapiClient(client);
             clientRef.current = client;
+
+            let failureHandled = false;
 
             const onCallStart = () => {
                 setState("live");
@@ -189,8 +244,36 @@ export function AgentDemoCall({
             const onSpeechStart = () => setAgentSpeaking(true);
             const onSpeechEnd = () => setAgentSpeaking(false);
             const onCallEnd = () => endDemo();
-            const onError = () => {
-                setMessage("The demo call hit a problem. Try again, or buy the agent to test it with your own setup.");
+            const onMessage = (payload?: unknown) => {
+                const event = asRecord(payload);
+                if (event.type !== "status-update" || event.status !== "ended") return;
+
+                const endedReason = typeof event.endedReason === "string" ? event.endedReason : "";
+                const friendlyMessage = demoEndReasonMessage(endedReason);
+                if (friendlyMessage) {
+                    failureHandled = true;
+                    console.warn("[marketplace-demo] Vapi call ended", { endedReason });
+                    setMessage(friendlyMessage);
+                }
+                endDemo();
+            };
+            const onError = (payload?: unknown) => {
+                if (failureHandled) return;
+
+                const errorText = readVapiError(payload);
+                const errorType = asRecord(payload).type;
+                failureHandled = true;
+                console.warn("[marketplace-demo] Vapi browser error", {
+                    errorType: typeof errorType === "string" ? errorType : "unknown",
+                    errorMessage: errorText
+                });
+                setMessage(
+                    /notallowed|notfound|permission|denied|microphone|\bmic\b/i.test(errorText)
+                        ? "Microphone access was blocked. Allow the microphone for this site, then try the demo again."
+                        : /eject|meeting has ended/i.test(errorText)
+                            ? "The demo voice service ended the call unexpectedly. Please try again shortly."
+                            : "The demo call hit a problem. Please try again."
+                );
                 endDemo();
             };
 
@@ -198,6 +281,7 @@ export function AgentDemoCall({
             client.on("speech-start", onSpeechStart);
             client.on("speech-end", onSpeechEnd);
             client.on("call-end", onCallEnd);
+            client.on("message", onMessage);
             client.on("error", onError);
 
             detachRef.current = () => {
@@ -208,6 +292,7 @@ export function AgentDemoCall({
                         client.off("speech-start", onSpeechStart);
                         client.off("speech-end", onSpeechEnd);
                         client.off("call-end", onCallEnd);
+                        client.off("message", onMessage);
                         client.off("error", onError);
                     } else {
                         client.removeAllListeners?.();
@@ -222,7 +307,12 @@ export function AgentDemoCall({
                 metadata: { listingId: session.listingId, purpose: "MARKETPLACE_DEMO" }
             };
 
-            await client.start(session.assistantId, startOverrides);
+            const started = await client.start(session.assistantId, startOverrides);
+            if (!started && !failureHandled) {
+                failureHandled = true;
+                setMessage("Could not start the demo call. Please try again.");
+                endDemo();
+            }
         } catch (error) {
             const text = error instanceof Error ? error.message : "";
             setMessage(
@@ -231,6 +321,7 @@ export function AgentDemoCall({
                     : "Could not start the demo call. Please try again."
             );
             detachRef.current?.();
+            await stopDemoVapiClient(clientRef.current);
             setState("idle");
         } finally {
             startInFlightRef.current = false;

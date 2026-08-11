@@ -18,6 +18,7 @@
     "repair:phone-agent-links": "tsx scripts/repair-phone-agent-links.ts",
     "verify:webhook-url": "tsx scripts/verify-webhook-url.ts",
     "list:numbers": "tsx scripts/list-platform-numbers.ts",
+    "list:agents": "tsx scripts/list-installed-agents.ts",
     "seed:admin": "tsx scripts/seed-admin.ts",
     "seed:calling-agents": "tsx scripts/seed-calling-agents.ts",
     "seed:countries": "tsx scripts/seed-countries.ts",

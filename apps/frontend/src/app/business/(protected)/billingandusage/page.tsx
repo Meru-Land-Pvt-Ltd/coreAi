@@ -672,7 +672,6 @@ export default function BusinessBillingUsagePage() {
         showToast("Preparing invoices…");
 
         for (const invoice of invoices) {
-            // eslint-disable-next-line no-await-in-loop
             await downloadInvoice(invoice);
         }
     }

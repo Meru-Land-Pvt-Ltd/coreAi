@@ -32,7 +32,7 @@ function log(
   });
 }
 
-/** Resolve {{variable}} references in node templates from the runtime context. */
+/** Resolve both runtime {{variable}} and builder [Label] references. */
 export function resolveTemplate(template: string, context: AgentRuntimeContext): string {
   const values: Record<string, string> = {
     "customer.name": stringVariable(context, "customer.name") || context.caller.name,
@@ -61,6 +61,23 @@ export function resolveTemplate(template: string, context: AgentRuntimeContext):
   for (const [key, value] of Object.entries(values)) {
     resolved = resolved.replaceAll(`{{${key}}}`, value);
   }
+
+  const bracketValues: Record<string, string> = {
+    "customer name": values["customer.name"],
+    "patient name": values["customer.name"],
+    "customer phone": values["customer.phone"],
+    "patient phone": values["customer.phone"],
+    service: values.service,
+    date: values["appointment.date"],
+    time: values["appointment.time"],
+    "business name": values["business.name"],
+    "assistant name": values.assistantName,
+    "confirmation id": values["appointment.confirmation_id"]
+  };
+
+  resolved = resolved.replace(/\[([^\]]+)\]/g, (match, rawKey: string) => {
+    return bracketValues[rawKey.trim().toLowerCase()] ?? match;
+  });
 
   return resolved;
 }

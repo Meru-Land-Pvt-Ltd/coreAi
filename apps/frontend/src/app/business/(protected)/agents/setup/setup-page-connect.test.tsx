@@ -270,6 +270,7 @@ describe("Connect step — number-first flow", () => {
     const user = userEvent.setup();
 
     await screen.findByTestId("business-setup-wizard");
+    await user.click(screen.getByTestId("business-setup-routing-direct"));
 
     const configureStep = screen.getByTestId("business-setup-dot-2");
     expect(configureStep.getAttribute("aria-disabled")).toBeNull();
@@ -309,8 +310,13 @@ describe("Connect step — number-first flow", () => {
     render(<BusinessAgentSetupPage />);
     const user = userEvent.setup();
 
-    // Direct mode: routing card visible, no phone input required or shown.
+    // New installations start in forwarding mode and do not inherit another
+    // agent's direct-routing preference.
     expect(await screen.findByTestId("business-setup-routing-card")).toBeTruthy();
+    expect(screen.getByTestId("business-setup-existing-phone")).toBeTruthy();
+
+    // Direct mode needs no existing phone.
+    await user.click(screen.getByTestId("business-setup-routing-direct"));
     expect(screen.queryByTestId("business-setup-existing-phone")).toBeNull();
 
     // Switching to forwarding reveals the optional existing-phone input.
@@ -373,6 +379,7 @@ describe("Connect step — number-first flow", () => {
 
     await screen.findByTestId("business-setup-routing-card");
 
+    await user.click(screen.getByTestId("business-setup-routing-direct"));
     await user.click(screen.getByTestId("business-setup-next"));
     // Step 2 (Configure) becomes active — no "add your phone" error blocked us.
     await waitFor(() => expect(screen.getByTestId("business-setup-input-name")).toBeTruthy());
@@ -416,7 +423,7 @@ describe("Connect step — number-first flow", () => {
     expect(payload.timeZone).toBe("America/Chicago");
   });
 
-  it("a live agent's timezone change persists via the hours endpoint — no false 'Progress saved' toast", async () => {
+  it("a live agent's timezone change persists through hours and setup without a false toast", async () => {
     vi.mocked(getBusinessSetup).mockResolvedValue(
       setupData({
         vapiAssistantId: "vapi-live-1",
@@ -459,14 +466,15 @@ describe("Connect step — number-first flow", () => {
     await user.selectOptions(select, "America/Denver");
     await user.click(screen.getByTestId("business-setup-next"));
 
-    // The timezone rides the live-safe hours endpoint; the main setup save is
-    // skipped for live agents and no false success toast appears.
+    // The timezone rides the live-safe hours endpoint, then the main setup
+    // payload saves the remaining configuration without resending timezone.
     await waitFor(() => expect(putBusinessHours).toHaveBeenCalled());
     const put = vi.mocked(putBusinessHours).mock.calls[0][0] as Record<string, any>;
     expect(put.timeZone).toBe("America/Denver");
     expect(put.hours.length).toBeGreaterThan(0);
-    expect(saveBusinessSetup).not.toHaveBeenCalled();
-    expect(screen.queryByText("Progress saved")).toBeNull();
+    expect(saveBusinessSetup).toHaveBeenCalledTimes(1);
+    expect((vi.mocked(saveBusinessSetup).mock.calls[0][0] as Record<string, any>).timeZone).toBeUndefined();
+    expect(screen.getByText("Progress saved")).toBeTruthy();
   });
 
   it("an off-list stored IANA timezone stays displayed and selectable", async () => {

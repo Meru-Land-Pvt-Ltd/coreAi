@@ -8,6 +8,20 @@ import {
   type AgentPromptInput
 } from "./prompt-builder";
 
+const baseInput = (overrides: Partial<AgentPromptInput> = {}): AgentPromptInput => ({
+  assistantName: "Ava",
+  businessName: "Cool Breeze HVAC",
+  businessType: "AC repair company",
+  services: ["AC installation", "AC repair"],
+  faqs: [],
+  timezoneText: "America/New_York",
+  currentDateTimeText: "Tuesday, July 22, 2026 10:00 AM",
+  currentDateText: "2026-07-22",
+  tomorrowDateText: "2026-07-23",
+  capabilities: { canCheckAvailability: true, canBook: true, canText: false },
+  ...overrides
+});
+
 describe("fillPromptTemplateTokens", () => {
   const values = {
     assistantName: "Ava",
@@ -101,20 +115,6 @@ describe("custom first message survives variable filling", () => {
 });
 
 describe("buildAgentSystemPrompt emotional support", () => {
-  const baseInput = (overrides: Partial<AgentPromptInput> = {}): AgentPromptInput => ({
-    assistantName: "Ava",
-    businessName: "Cool Breeze HVAC",
-    businessType: "AC repair company",
-    services: ["AC installation", "AC repair"],
-    faqs: [],
-    timezoneText: "America/New_York",
-    currentDateTimeText: "Tuesday, July 22, 2026 10:00 AM",
-    currentDateText: "2026-07-22",
-    tomorrowDateText: "2026-07-23",
-    capabilities: { canCheckAvailability: true, canBook: true, canText: false },
-    ...overrides
-  });
-
   it("keeps empathy brief while prioritizing the caller's actual business question", () => {
     const prompt = buildAgentSystemPrompt(baseInput());
     expect(prompt).toContain("Emotional support:");

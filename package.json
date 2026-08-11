@@ -35,7 +35,7 @@
     "postinstall": "npm run build:shared",
     "test": "npm run test:shared && npm run test --workspace=@coreai/backend && npm run test --workspace=@coreai/frontend",
     "verify:production": "npm run test && npm run typecheck && npm run build && npm run lint",
-    "test:shared": "npm run build:shared && node scripts/verify-industry-taxonomy.mjs"
+    "test:shared": "npm run build:shared && node scripts/verify-industry-taxonomy.mjs && node scripts/verify-triven-agent-creator.mjs"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

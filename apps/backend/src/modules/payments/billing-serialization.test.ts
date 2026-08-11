@@ -581,6 +581,10 @@ describe("POST /payments/invoices/:id/pay retry safety", () => {
 
 describe("payments routes source contract", () => {
   const routesSource = readFileSync(new URL("./routes.ts", import.meta.url), "utf8");
+  const invoiceSource = readFileSync(
+    new URL("../../lib/billing-invoices.ts", import.meta.url),
+    "utf8"
+  );
 
   it("uses the generated Prisma enums instead of free-form status strings", () => {
     expect(routesSource).toContain("UsageInvoiceStatus.OPEN");
@@ -596,8 +600,8 @@ describe("payments routes source contract", () => {
     expect(routesSource).toContain("function dateToIsoOrNull(");
     expect(routesSource).toContain("dateToIsoOrNull(business?.spendingAlertLastNotifiedAt)");
     expect(routesSource).toContain("dateToIsoOrNull(installedAgent?.pausedAt)");
-    expect(routesSource).toContain("dateToIsoOrNull(payment.periodEnd)");
     expect(routesSource).toContain("dateToIsoOrNull(activeTrial.periodEnd)");
+    expect(invoiceSource).toContain("payment.periodEnd?.toISOString() ?? null");
   });
 
   it("keeps the typed installed-agent map without unsafe casts", () => {

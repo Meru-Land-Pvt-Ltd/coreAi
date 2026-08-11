@@ -2355,11 +2355,15 @@ export async function loadDentalToolConfig(businessId: string): Promise<DentalTo
 }
 
 /** An architect-defined "Booking label" buyer setup field also sets the label. */
-function customBookingLabelOf(configJson: Record<string, unknown>): string | undefined {
+export function customBookingLabelOf(configJson: Record<string, unknown>): string | undefined {
   if (!Array.isArray(configJson.customFields)) return undefined;
   const match = (configJson.customFields as Array<Record<string, unknown>>)
     .filter((item) => typeof item === "object" && item !== null)
-    .find((item) => item.key === "booking-label" || item.key === "booking-type");
+    .find((item) => {
+      const key = typeof item.key === "string" ? item.key.replace(/[^a-z0-9]/gi, "").toLowerCase() : "";
+      const label = typeof item.label === "string" ? item.label.replace(/[^a-z0-9]/gi, "").toLowerCase() : "";
+      return key === "bookinglabel" || key === "bookingtype" || label === "bookinglabel" || label === "bookingtype";
+    });
   return typeof match?.value === "string" ? match.value : undefined;
 }
 
