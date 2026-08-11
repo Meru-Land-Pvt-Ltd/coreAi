@@ -122,6 +122,7 @@ model AgentListing {
   description            String?
   priceCents             Int                  @default(0)
   status                 ListingStatus        @default(DRAFT)
+  featuredAt             DateTime?
   requiredConnectors     String[]
   supportedLlms          String[]
   tags                   String[]

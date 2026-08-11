@@ -282,7 +282,11 @@ function deriveWorkflowCapabilities(workflowJson: unknown): string[] {
 }
 
 function toMarketplaceCard<
-  T extends { id: string; workflow?: { id: string; name: string; description: string | null; workflowJson?: unknown } | null }
+  T extends {
+    id: string;
+    featuredAt?: Date | null;
+    workflow?: { id: string; name: string; description: string | null; workflowJson?: unknown } | null;
+  }
 >(listing: T & { _count?: unknown }, installCount: number) {
   const { _count, workflow, ...rest } = listing as T & { _count?: unknown };
   return {
@@ -291,6 +295,7 @@ function toMarketplaceCard<
       ? { id: workflow.id, name: workflow.name, description: workflow.description }
       : null,
     capabilities: deriveWorkflowCapabilities(workflow?.workflowJson),
+    featured: Boolean(listing.featuredAt),
     installCount
   };
 }
