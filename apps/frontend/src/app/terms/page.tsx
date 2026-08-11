@@ -226,9 +226,18 @@ const termsSections: LegalSectionData[] = [
       "End-user SMS consent may be provided verbally during an inbound AI-assisted call (after the standardized consent disclosure is read aloud) or through a separate, optional consent checkbox on a public booking or service-request form that is unchecked by default and never required to submit the form.",
       "Consent is specific to the identified sending business and messaging program and is not shared or transferred to unrelated businesses for marketing or promotional purposes.",
       "Business Owners remain responsible for lawful calling, call recording, and messaging practices, including any notices and consents required by applicable law.",
-      "Triven.ai may disable or restrict messaging for invalid consent, end-user complaints, carrier requirements, or abuse.",
-      "Triven.ai SMS Program: Users who provide affirmative consent may receive appointment confirmations, reminders, booking updates, rescheduling notices, cancellations, service updates, and customer-support messages from the identified business through Triven.ai. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or"
-    ]
+      "Triven.ai may disable or restrict messaging for invalid consent, end-user complaints, carrier requirements, or abuse."
+    ],
+    afterNode: (
+      <>
+        Triven.ai SMS Program: Users who provide affirmative consent may receive appointment
+        confirmations, reminders, booking updates, rescheduling notices, cancellations, service
+        updates, and customer-support messages from the identified business through Triven.ai.
+        Message frequency varies. Message and data rates may apply. Reply <strong>STOP</strong> to
+        opt out or <strong>HELP</strong> for assistance. Consent is not a condition of purchase,
+        booking, or receiving services.
+      </>
+    )
   }
 ];
 

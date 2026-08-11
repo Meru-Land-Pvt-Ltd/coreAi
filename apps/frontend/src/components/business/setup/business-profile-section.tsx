@@ -3,27 +3,46 @@
 import { useEffect, useState } from "react";
 import { BusinessAddressSection } from "@/components/business/business-settings-view";
 import type { BusinessFaq } from "@/components/business/features/api";
+import { TRIVEN_AGENT_TAXONOMY_ENTRIES } from "@coreai/shared";
 import { DocumentUploadSection, FaqSection } from "./knowledge-section";
 import { FIELD, LABEL, SECTION_TITLE } from "./ui";
 import { InfoTooltip } from "./InfoTooltip";
 
 const SERVICE_MAP: Record<string, string[]> = {
   dental: ["Consultation", "Root canal", "Cleaning", "Whitening", "Braces"],
+  veterinary: ["Consultation", "Vaccination", "Wellness exam", "Diagnostics", "Follow-up visit"],
+  hospital: ["Appointment", "Specialist consultation", "Diagnostics", "Follow-up visit"],
+  diagnostic: ["Lab test", "Blood test", "Health panel", "Sample collection"],
+  "mental health": ["Initial consultation", "Therapy session", "Follow-up session"],
+  cosmetic: ["Consultation", "Treatment consultation", "Follow-up visit"],
+  plastic: ["Surgery consultation", "Procedure consultation", "Follow-up visit"],
+  clinic: ["Consultation", "General checkup", "Diagnostics", "Follow-up visit"],
+  "real estate": ["Property inquiry", "Property viewing", "Buyer consultation", "Seller consultation"],
+  dealership: ["Vehicle inquiry", "Test drive", "Sales consultation", "Trade-in inquiry"],
+  "auto service": ["Vehicle service", "Inspection", "Oil change", "Repair appointment"],
+  "car rental": ["Rental reservation", "Availability inquiry", "Reservation change"],
+  law: ["Consultation", "Case review", "Document review", "Follow-up consultation"],
+  notary: ["Notary appointment", "Document notarization", "Document review"],
   salon: ["Haircut", "Coloring", "Manicure", "Facial", "Massage"],
-  clinic: ["General checkup", "Vaccination", "Lab tests", "Follow-up visit"],
-  restaurant: ["Reservations", "Takeout orders", "Private events"],
-  law: ["Consultation", "Case review", "Document filing"],
-  realestate: ["Property viewing", "Listing inquiry", "Valuation"]
+  restaurant: ["Reservations", "Takeout orders", "Private events"]
 };
 
-const BUSINESS_TYPE_OPTIONS = [
-  { value: "dental", label: "Dental clinic" },
+const LEGACY_BUSINESS_TYPE_OPTIONS = [
+  { value: "dental", label: "Dental clinic (legacy)" },
+  { value: "clinic", label: "Medical clinic (legacy)" },
+  { value: "law", label: "Law firm (legacy)" },
+  { value: "realestate", label: "Real estate (legacy)" },
   { value: "salon", label: "Salon / spa" },
-  { value: "clinic", label: "Medical clinic" },
   { value: "restaurant", label: "Restaurant" },
-  { value: "law", label: "Law firm" },
-  { value: "realestate", label: "Real estate" },
   { value: "other", label: "Other" }
+];
+
+const BUSINESS_TYPE_OPTIONS = [
+  ...TRIVEN_AGENT_TAXONOMY_ENTRIES.map((entry) => ({
+    value: entry.subindustry,
+    label: `${entry.subindustry} · ${entry.industry}`
+  })),
+  ...LEGACY_BUSINESS_TYPE_OPTIONS
 ];
 
 export function BusinessProfileSection({
@@ -141,7 +160,7 @@ export function BusinessProfileSection({
         onApplyContactName={(rawNames) => {
           const names = rawNames.split(",").map((s) => s.trim()).filter(Boolean);
           if (names.length > 0) {
-            onContactName(names[0]); // Primary doctor ONLY in input box
+            onContactName(names[0]); // Primary provider/contact only in the input box
             onAllContactNames?.(names);
           }
           setShowDoctorChips(true);
@@ -177,7 +196,7 @@ export function BusinessProfileSection({
                   onAllContactNames?.([newName.trim(), ...existingOther]);
                 }
               }}
-              placeholder="Dr. John Doe"
+              placeholder="e.g. Jane Smith"
               className={FIELD}
             />
           </div>
@@ -192,7 +211,7 @@ export function BusinessProfileSection({
                 type="text"
                 value={businessName}
                 onChange={(e) => onBusinessName(e.target.value)}
-                placeholder="Central Perk Hospital"
+                placeholder="e.g. Acme Health or Main Street Realty"
                 className={`${FIELD} pr-10`}
               />
               {businessName.trim() && (
@@ -220,7 +239,7 @@ export function BusinessProfileSection({
             </select>
           </div>
 
-          {/* Clean & Minimal Doctor Roster Section */}
+          {/* Generic provider/team roster (works across healthcare, legal, real estate, automotive, etc.) */}
           {(() => {
             const primaryDoctor = contactName.trim();
             const detectedList = (profileSuggestion?.doctorNames ?? []).filter((d) => Boolean(d.trim()));
@@ -261,7 +280,7 @@ export function BusinessProfileSection({
               <div className="col-span-full border-t border-gray-100 pt-3.5 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-bold text-slate-800 uppercase tracking-wider inline-flex items-center gap-1.5">
-                    Practicing Doctors <span className="text-[11px] font-normal text-slate-400 normal-case">({activeRoster.length})</span>
+                    Team / Providers <span className="text-[11px] font-normal text-slate-400 normal-case">({activeRoster.length})</span>
                   </span>
                   <span className="text-[11px] text-slate-400 font-medium">
                     All selected stay in agent knowledge
@@ -301,7 +320,7 @@ export function BusinessProfileSection({
                             type="button"
                             onClick={() => setAsPrimary(docName)}
                             className="text-[10px] text-amber-600 hover:text-amber-700 font-semibold cursor-pointer border-l border-amber-200 pl-1.5"
-                            title="Make Primary Doctor"
+                            title="Make primary contact"
                           >
                             Make Primary
                           </button>

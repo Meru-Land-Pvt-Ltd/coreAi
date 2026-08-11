@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { VOICE_NODE_TYPES } from "@coreai/shared";
 import { buildEventReminders } from "./google-calendar-connector";
-import { workflowNodeDefaults } from "./twilio-business-routing";
+import { customBookingLabelOf, workflowNodeDefaults } from "./twilio-business-routing";
 
 function workflow(overrides: {
   booking?: Record<string, unknown>;
@@ -129,6 +129,23 @@ describe("buyer configuration still overrides the architect's node values", () =
     expect(cfg.patientTemplate).toBe("Architect copy");
     expect(cfg.sendToDentist).toBe("false");
     expect(cfg.reminderTiming).toBe("120");
+  });
+});
+
+describe("architect-defined booking labels", () => {
+  it("reads the camelCase bookingType key emitted by the 25-agent setup schema", () => {
+    expect(customBookingLabelOf({
+      customFields: [{ key: "bookingType", label: "Booking type", value: "Dental appointment" }]
+    })).toBe("Dental appointment");
+  });
+
+  it("keeps compatibility with legacy keys and label-based fields", () => {
+    expect(customBookingLabelOf({
+      customFields: [{ key: "booking-type", value: "Service visit" }]
+    })).toBe("Service visit");
+    expect(customBookingLabelOf({
+      customFields: [{ key: "custom-1", label: "Booking label", value: "Legal consultation" }]
+    })).toBe("Legal consultation");
   });
 });
 

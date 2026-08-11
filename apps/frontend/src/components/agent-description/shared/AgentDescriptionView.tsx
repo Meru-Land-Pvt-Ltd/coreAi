@@ -138,6 +138,8 @@ export type AgentDescriptionViewProps = {
   demoMode?:
     | "public"
     | "authenticated";
+  demoIndustry?: string;
+  demoSubindustry?: string;
   demoVideoUrl?: string | null;
 };
 
@@ -535,6 +537,8 @@ export function AgentDescriptionView(
     similarHref,
     showDemo,
     demoMode = "public",
+    demoIndustry,
+    demoSubindustry,
     demoVideoUrl
   } = props;
 
@@ -818,6 +822,8 @@ export function AgentDescriptionView(
                         listingName={
                           listingName
                         }
+                        industry={demoIndustry}
+                        subindustry={demoSubindustry}
                         mode={demoMode}
                       />
                     </div>

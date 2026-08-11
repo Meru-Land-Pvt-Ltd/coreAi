@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { COMMON_TIMEZONES, GOOGLE_CALENDAR_DISCLOSURE, GOOGLE_DISCLOSURE_ACTION_AGREED } from "@coreai/shared";
+import { AGENT_INDUSTRIES, COMMON_TIMEZONES, GOOGLE_CALENDAR_DISCLOSURE, GOOGLE_DISCLOSURE_ACTION_AGREED, TRIVEN_TARGET_SUBINDUSTRIES } from "@coreai/shared";
 import { GoogleDisclosureModal } from "@/components/common/google-disclosure-modal";
 import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
 import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
@@ -208,39 +208,14 @@ const TABS: Array<{ id: SettingsTab; label: string; danger?: boolean }> = [
   { id: "danger", label: "Danger Zone", danger: true }
 ];
 
-const INDUSTRIES = [
-  "Dental",
-  "Medical Clinic",
-  "Dermatology",
-  "Physiotherapy",
-  "Chiropractor",
-  "Optometry",
-  "Veterinary",
-  "Med Spa",
-  "Salon",
-  "Barbershop",
-  "Spa & Wellness",
-  "Yoga Studio",
-  "Gym / Fitness",
-  "Law Firm",
-  "Plumber",
-  "HVAC",
-  "Electrician",
-  "Garage Door",
-  "Roofing",
-  "Landscaping",
-  "Pool Service",
-  "Real Estate",
-  "Auto Repair",
-  "Restaurant",
-  "Insurance",
-  "Mortgage Broker",
-  "Urgent Care",
-  "Senior Care",
-  "Property Management",
-  "E-commerce",
-  "Other"
-];
+const INDUSTRIES = Array.from(
+  new Set([
+    ...TRIVEN_TARGET_SUBINDUSTRIES,
+    ...AGENT_INDUSTRIES.filter((industry) => industry !== "Custom"),
+    "E-commerce",
+    "Other"
+  ])
+);
 
 const BUSINESS_SIZES = [
   "Solo practitioner",

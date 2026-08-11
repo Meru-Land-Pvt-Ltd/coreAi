@@ -34,6 +34,11 @@ const ALWAYS_OPEN = [
   "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
 ].map((day) => ({ day, closed: false, open: "00:00", close: "23:59" }));
 
+function bookingDateWithinAdvanceWindow(): string {
+  const date = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(date);
+}
+
 function buildApp() {
   const app = new Hono();
   app.post("/architect/connectors/vapi/webhook", handleVapiWebhook);
@@ -117,7 +122,7 @@ describe("#8 call-state outage — deterministic fail-closed dispatch", () => {
     const { status, result } = await postTool(app, `${RUN}-ok`, "book_appointment", {
       customer_name: "Jim Test",
       customer_phone: CALLER,
-      date: "2026-07-27",
+      date: bookingDateWithinAdvanceWindow(),
       time: "10:00",
       service_type: "Cleaning"
     });
@@ -138,7 +143,7 @@ describe("#8 call-state outage — deterministic fail-closed dispatch", () => {
     const { status, result } = await postTool(app, `${RUN}-book-out`, "book_appointment", {
       customer_name: "Outage Caller",
       customer_phone: CALLER,
-      date: "2026-07-27",
+      date: bookingDateWithinAdvanceWindow(),
       time: "11:00",
       service_type: "Cleaning"
     });

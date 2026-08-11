@@ -372,6 +372,7 @@ export default function HelpPage() {
                         key={item.id}
                         type="button"
                         role="option"
+                        aria-selected={activeIndex === index}
                         data-testid={`help-search-result-${item.id}`}
                         onMouseEnter={() => setActiveIndex(index)}
                         onClick={() => selectResult(item)}

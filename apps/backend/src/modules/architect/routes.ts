@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys, workflowJsonForTemplate } from "@coreai/shared";
+import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys, TRIVEN_AGENT_TAXONOMY, workflowJsonForTemplate } from "@coreai/shared";
 import { llmCredentialStatus } from "../ai-provider-engine/llm-credentials";
 import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
 import { llmProviderAvailability } from "../ai-provider-engine/llm-probe";
@@ -8,7 +8,7 @@ import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { apiErrorStatus } from "../../lib/error-utils";
 import { prisma } from "../../lib/prisma";
-import { MarketplaceDemoError, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
+import { MarketplaceDemoError, normalizeDemoCallCustomInfo, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import {
   isImageUploadConfigured,
@@ -133,6 +133,13 @@ const voicePreviewSchema = z.object({
 import { getAllModelStatuses } from "../ai-provider-engine/model-quota-manager";
 
 export const architectRoutes = new Hono();
+
+// Canonical Architect taxonomy for non-web clients and future admin tooling.
+// The web app imports the same source from @coreai/shared, so both sides stay
+// aligned without seeding or auto-creating any agents.
+architectRoutes.get("/agent-taxonomy", (c) =>
+  successResponse(c, { industries: TRIVEN_AGENT_TAXONOMY })
+);
 
 architectRoutes.get("/model-statuses", (c) => {
   return successResponse(c, getAllModelStatuses());
@@ -457,13 +464,7 @@ architectRoutes.post("/listings/public/:id/demo-call", async (c) => {
     // Body optional
   }
 
-  const customInfo = {
-    businessName: typeof body.businessName === "string" ? body.businessName : undefined,
-    doctorName: typeof body.doctorName === "string" ? body.doctorName : undefined,
-    businessType: typeof body.businessType === "string" ? body.businessType : undefined,
-    address: typeof body.address === "string" ? body.address : undefined,
-    services: typeof body.services === "string" ? body.services : undefined
-  };
+  const customInfo = normalizeDemoCallCustomInfo(body);
 
   try {
     const session = await startPublicMarketplaceDemoCall(clientIp, listingId, customInfo);
@@ -2701,7 +2702,7 @@ function computeDraftProgress(configureJson: unknown, seed: { name?: string | nu
   const steps: Array<{ label: string; done: boolean }> = [
     { label: "Name", done: configure.basics.agentName.trim().length >= 2 },
     { label: "Tagline", done: configure.basics.tagline.trim().length >= 10 },
-    { label: "Category", done: Boolean(configure.basics.category.trim()) },
+    { label: "Subindustry", done: Boolean(configure.basics.category.trim()) },
     { label: "Industry", done: configure.basics.industryTags.length > 0 },
     { label: "Description", done: plainConfigureText(configure.media.fullDescription).length >= 100 },
     {
@@ -2972,84 +2973,12 @@ architectRoutes.get("/listings", async (c) => {
 });
 
 architectRoutes.post("/listings", async (c) => {
-  try {
-    const authUser = c.get("authUser");
-    const input = listingSchema.parse(await c.req.json());
-    const workflowId = input.workflowId || undefined;
-
-    const workflow = workflowId
-      ? await prisma.workflowDefinition.findFirst({
-        where: {
-          id: workflowId,
-          architectUserId: authUser.id
-        }
-      })
-      : null;
-
-    if (workflowId && !workflow) {
-      return errorResponse(c, "Agent workflow not found", 404, "WORKFLOW_NOT_FOUND");
-    }
-
-    const requiredConnectors = Array.from(
-      new Set([
-        ...input.requiredConnectors,
-        ...(workflow ? requiredConnectorKeys(workflow.workflowJson) : [])
-      ])
-    );
-
-    const existingListing = workflowId
-      ? await prisma.agentListing.findFirst({
-        where: {
-          architectUserId: authUser.id,
-          workflowId
-        },
-        orderBy: {
-          createdAt: "desc"
-        }
-      })
-      : null;
-
-    const listingData = {
-      name: input.name,
-      shortDescription: input.shortDescription,
-      description: input.description || null,
-      priceCents: input.priceCents,
-      tags: input.tags,
-      requiredConnectors,
-      supportedLlms: input.supportedLlms,
-      status: "PENDING_REVIEW" as const
-    };
-
-    if (existingListing) {
-      const listing = await prisma.agentListing.update({
-        where: { id: existingListing.id },
-        data: listingData
-      });
-
-      return successResponse(c, { listing }, "Agent listing updated and resubmitted for review");
-    }
-
-    const listing = await prisma.agentListing.create({
-      data: {
-        architectUserId: authUser.id,
-        workflowId,
-        ...listingData
-      }
-    });
-
-    return successResponse(c, { listing }, "Agent submitted for review", 201);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return errorResponse(
-        c,
-        error.issues[0]?.message ?? "Invalid agent listing input",
-        422,
-        "VALIDATION_ERROR"
-      );
-    }
-
-    return errorResponse(c, "Could not create agent listing", 500, "LISTING_CREATE_FAILED");
-  }
+  return errorResponse(
+    c,
+    "This legacy publish endpoint is retired. Open the workflow Builder, complete Configure, then submit from the Publish tab.",
+    409,
+    "USE_WORKFLOW_CONFIGURE"
+  );
 });
 
 const listingStatusUpdateSchema = z.object({

@@ -2,6 +2,7 @@ import "dotenv/config";
 import twilio from "twilio";
 import { prisma } from "../src/lib/prisma";
 import { userHasBusinessCapability } from "../src/lib/roles";
+import { resolveTwilioNumberCountry } from "../src/modules/admin/twilio-number-service";
 
 type Args = {
   installedAgentId?: string;
@@ -9,6 +10,7 @@ type Args = {
   twilioSid?: string;
   forwardTo?: string;
   backendUrl?: string;
+  country?: string;
   apply: boolean;
   skipTwilioWebhookUpdate: boolean;
 };
@@ -34,6 +36,7 @@ function parseArgs(): Args {
     twilioSid: argValue("twilio-sid"),
     forwardTo: argValue("forward-to"),
     backendUrl: argValue("backend-url"),
+    country: argValue("country")?.trim().toUpperCase(),
     apply: hasFlag("apply"),
     skipTwilioWebhookUpdate: hasFlag("skip-twilio-webhook-update")
   };
@@ -296,7 +299,7 @@ async function main() {
     });
 
   if (
-    existingRouting &&
+    existingRouting?.isActive &&
     existingRouting.businessId !== business.id
   ) {
     fail(
@@ -306,34 +309,13 @@ async function main() {
   }
 
   if (
-    existingRouting?.installedAgentId &&
+    existingRouting?.isActive &&
+    existingRouting.installedAgentId &&
     existingRouting.installedAgentId !== installedAgent.id
   ) {
     fail(
       "NUMBER_ROUTED_TO_ANOTHER_AGENT",
       `${phoneNumber} already routes to another InstalledAgent.`
-    );
-  }
-
-  const otherActiveBusinessNumber =
-    await prisma.businessPhoneNumber.findFirst({
-      where: {
-        businessId: business.id,
-        isActive: true,
-        NOT: {
-          phoneNumber
-        }
-      },
-      select: {
-        phoneNumber: true,
-        installedAgentId: true
-      }
-    });
-
-  if (otherActiveBusinessNumber) {
-    fail(
-      "BUSINESS_ALREADY_HAS_ACTIVE_NUMBER",
-      `This Business already has active number ${otherActiveBusinessNumber.phoneNumber}.`
     );
   }
 
@@ -371,6 +353,20 @@ async function main() {
     );
   }
 
+  // Twilio's owned-number API frequently omits isoCountry. Persisting null here
+  // dead-ends buyer setup later with PHONE_NUMBER_PRICING_COUNTRY_MISSING, so
+  // resolve it now (Twilio Lookup, then unambiguous calling code) and fail loudly
+  // rather than writing an unpriceable row.
+  const country =
+    args.country || incoming.isoCountry || (await resolveTwilioNumberCountry(phoneNumber));
+
+  if (!country) {
+    fail(
+      "NUMBER_COUNTRY_UNRESOLVED",
+      `Could not resolve the ISO country for ${phoneNumber}. Twilio Lookup failed and the calling code is ambiguous (+1 is US and CA). Re-run with --country=US (or the correct ISO code).`
+    );
+  }
+
   const plan = {
     mode: args.apply ? "APPLY" : "DRY_RUN",
     purchaseApiCalled: false,
@@ -388,7 +384,7 @@ async function main() {
     number: {
       phoneNumber,
       twilioSid: incoming.sid,
-      country: incoming.isoCountry ?? null,
+      country,
       capabilities
     },
     routing: {
@@ -423,27 +419,10 @@ async function main() {
   const result = await prisma.$transaction(
     async (tx) => {
       // Recheck inside the transaction so a repeated/manual second run is
-      // rejected before either assignment row is changed.
-      const activeBusinessNumber =
-        await tx.businessPhoneNumber.findFirst({
-          where: {
-            businessId: business.id,
-            isActive: true,
-            NOT: {
-              phoneNumber
-            }
-          },
-          select: {
-            phoneNumber: true
-          }
-        });
-
-      if (activeBusinessNumber) {
-        throw new Error(
-          `BUSINESS_ALREADY_HAS_ACTIVE_NUMBER: This Business already has active number ${activeBusinessNumber.phoneNumber}.`
-        );
-      }
-
+      // rejected before either assignment row is changed. The cap is per
+      // InstalledAgent, not per Business — migration
+      // 20260728120000_one_number_per_installed_agent dropped the per-business
+      // index in favour of "BusinessPhoneNumber_one_active_per_agent_key".
       const activeAgentNumber =
         await tx.businessPhoneNumber.findFirst({
           where: {
@@ -476,7 +455,7 @@ async function main() {
             status: "ASSIGNED",
             twilioSid: incoming.sid,
             providerNumberId: incoming.sid,
-            country: incoming.isoCountry ?? null,
+            country,
             capabilities,
             voiceEnabled: capabilities.voice,
             smsEnabled: capabilities.sms,
@@ -501,7 +480,7 @@ async function main() {
             status: "ASSIGNED",
             twilioSid: incoming.sid,
             providerNumberId: incoming.sid,
-            country: incoming.isoCountry ?? null,
+            country,
             capabilities,
             voiceEnabled: capabilities.voice,
             smsEnabled: capabilities.sms,

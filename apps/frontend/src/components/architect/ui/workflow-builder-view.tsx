@@ -54,7 +54,7 @@ import {
   submitWorkflowForReview,
   syncArchitectTelegramTestConnection,
   updateArchitectWorkflow,
-  useArchitectTemplate
+  useArchitectTemplate as instantiateArchitectTemplate
 } from "@/components/architect/features/api";
 import type { ArchitectTelegramTestConnection } from "@/components/architect/features/api";
 import type {
@@ -1225,7 +1225,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     setPreviewSlug(null);
     setMessage("Importing template...");
 
-    const result = await useArchitectTemplate(slug, { workflowId: currentWorkflowIdRef.current || undefined });
+    const result = await instantiateArchitectTemplate(slug, { workflowId: currentWorkflowIdRef.current || undefined });
 
     setImportingSlug(null);
 

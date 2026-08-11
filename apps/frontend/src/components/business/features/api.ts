@@ -3,20 +3,8 @@ import type { BuyerSetupField } from "@coreai/shared";
 import { apiClient, apiDelete, apiGet, apiPost, apiPut, type ApiResponse } from "@/lib/api";
 import type { WorkflowRunResult } from "@/components/architect/features/types";
 
-/**
- * POST multipart/form-data through the shared authenticated axios client.
- * The Content-Type header is intentionally NOT set here — axios drops the
- * instance-level JSON header for FormData bodies so the browser can set the
- * multipart boundary itself. Errors are normalized to the same ApiResponse
- * shape the JSON helpers in lib/api return.
- */
 async function apiPostFormData<T>(path: string, form: FormData): Promise<ApiResponse<T>> {
   try {
-    // The shared apiClient defaults Content-Type to application/json at the
-    // instance level, which axios keeps even for FormData bodies — the server
-    // then can't parse the multipart request. Overriding per-request with
-    // multipart/form-data makes axios hand the header to the browser, which
-    // sets the real boundary.
     const response = await apiClient.post<ApiResponse<T>>(path, form, {
       headers: { "Content-Type": "multipart/form-data" }
     });
@@ -325,6 +313,10 @@ export type MarketplaceListing = {
   id: string;
   name: string;
   shortDescription: string;
+  /** Architect-selected subindustry (persisted in the existing category column). */
+  category?: string | null;
+  /** Parent industry + exact subindustry + compatibility aliases. */
+  industryTags?: string[];
   requiredConnectors: string[];
   workflowId: string | null;
   /** The workflow graph — used to derive trigger kind for setup page UX. */

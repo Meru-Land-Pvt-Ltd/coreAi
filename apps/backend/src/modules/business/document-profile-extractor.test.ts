@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../../lib/prisma";
-import { extractProfileFromDocuments } from "./document-profile-extractor";
+import { extractProfileFallbackFromText, extractProfileFromDocuments } from "./document-profile-extractor";
 import { ingestKnowledgeFiles } from "./knowledge-files";
 
 const RUN = `docprofile-${process.pid}-${Date.now().toString(36)}`;
@@ -93,7 +93,7 @@ describe("document-profile-extractor", () => {
     expect(result!.doctorNames).toContain("Dr. Emily Watson");
     expect(result!.primaryDoctor).toBe("Dr. Sarah Jenkins");
     expect(result!.registrationNumber).toBe("REG-987654");
-    expect(result!.businessType).toBe("dental");
+    expect(result!.businessType).toBe("Dental Clinics");
     expect(result!.services).toContain("Root Canal Therapy");
     expect(result!.phone).toBe("(555) 234-5678");
   }, 40000);
@@ -120,4 +120,22 @@ describe("document-profile-extractor", () => {
 
     expect(res1).toEqual(res2);
   }, 40000);
+  it("fallback parser recognizes Legal, Real Estate, Automotive, and non-dental Healthcare contacts", () => {
+    const law = extractProfileFallbackFromText("Morgan & Lee Law Firm\nAlex Morgan, Esq.\nAttorney: Jamie Lee\nCase Consultation");
+    expect(law.businessType).toBe("Law Firms");
+    expect(law.doctorNames).toEqual(expect.arrayContaining(["Alex Morgan", "Jamie Lee"]));
+
+    const realEstate = extractProfileFallbackFromText("Summit Commercial Real Estate\nJordan Blake — Broker\nProperty Viewing");
+    expect(realEstate.businessType).toBe("Commercial Real Estate");
+    expect(realEstate.doctorNames).toContain("Jordan Blake");
+
+    const automotive = extractProfileFallbackFromText("Northside Motors Dealership\nSales Manager: Taylor Reed\nVehicle Test Drive");
+    expect(automotive.businessType).toBe("Car Dealerships");
+    expect(automotive.doctorNames).toContain("Taylor Reed");
+
+    const therapy = extractProfileFallbackFromText("Harbor Mental Health Clinic\nTherapist: Casey Stone\nConsultation");
+    expect(therapy.businessType).toBe("Mental Health Clinics");
+    expect(therapy.doctorNames).toContain("Casey Stone");
+  });
+
 });

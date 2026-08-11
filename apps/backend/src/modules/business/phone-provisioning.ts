@@ -3,7 +3,8 @@ import { requiredConnectorsForWorkflow } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
 import {
   fetchTwilioMonthlyNumberPrice,
-  PhoneNumberServiceError
+  PhoneNumberServiceError,
+  resolveTwilioNumberCountry
 } from "../admin/twilio-number-service";
 
 export const PHONE_NUMBER_SERVICE_CODE = "phone_number";
@@ -119,6 +120,8 @@ export async function getPhoneNumberFeeForPlatformNumber(
   const number = await prisma.platformPhoneNumber.findUnique({
     where: { id: platformPhoneNumberId },
     select: {
+      phoneNumber: true,
+      e164: true,
       provider: true,
       country: true,
       providerMonthlyPriceMicroUsd: true,
@@ -145,7 +148,21 @@ export async function getPhoneNumberFeeForPlatformNumber(
       "PHONE_NUMBER_PRICING_PROVIDER_UNSUPPORTED"
     );
   }
-  if (!number.country) {
+  // Numbers imported by the Twilio sync have no country (Twilio's owned-number
+  // API does not report one), which used to dead-end buyer setup. Resolve and
+  // persist it once instead of failing.
+  let country = number.country;
+  if (!country) {
+    country = await resolveTwilioNumberCountry(number.e164 ?? number.phoneNumber);
+    if (country) {
+      await prisma.platformPhoneNumber.update({
+        where: { id: platformPhoneNumberId },
+        data: { country }
+      });
+    }
+  }
+
+  if (!country) {
     throw new PhoneNumberServiceError(
       "The phone number has no country, so its monthly Twilio price cannot be resolved.",
       422,
@@ -154,7 +171,7 @@ export async function getPhoneNumberFeeForPlatformNumber(
   }
 
   const pricing = await fetchTwilioMonthlyNumberPrice({
-    country: number.country,
+    country,
     numberType: "local"
   });
   const updated = await prisma.platformPhoneNumber.update({
@@ -185,6 +202,33 @@ export async function getPhoneNumberFeeForPlatformNumber(
     );
   }
   return fee;
+}
+
+/**
+ * Buyer-facing paths want fresh Twilio pricing but must not lose a working
+ * setup when the refresh fails (Twilio down, pricing unavailable, country still
+ * unresolvable). Fall back to the stored snapshot and only surface the error
+ * when there is no usable price at all.
+ */
+export async function getPhoneNumberFeeWithSnapshotFallback(
+  platformPhoneNumberId: string
+): Promise<PhoneNumberFee> {
+  try {
+    return await getPhoneNumberFeeForPlatformNumber(platformPhoneNumberId, {
+      refreshFromTwilio: true
+    });
+  } catch (error) {
+    const snapshotFee = await getPhoneNumberFeeForPlatformNumber(platformPhoneNumberId).catch(
+      () => null
+    );
+    if (!snapshotFee) throw error;
+
+    console.warn("[phone-provisioning] pricing refresh failed — using the stored snapshot", {
+      platformPhoneNumberId,
+      error: error instanceof Error ? error.message : error
+    });
+    return snapshotFee;
+  }
 }
 
 export type PhoneNumberBillingState = {

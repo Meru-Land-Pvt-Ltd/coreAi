@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { apiPost } from "@/lib/api";
+import { getAgentDemoProfile } from "@/components/common/agent-demo-profile";
 
 type DemoSession = {
     publicKey: string;
@@ -16,11 +17,18 @@ type DemoSession = {
     demo: true;
 };
 
-type VapiEventName = "call-start" | "call-end" | "speech-start" | "speech-end" | "error";
+type VapiEventName =
+    | "call-start"
+    | "call-end"
+    | "speech-start"
+    | "speech-end"
+    | "message"
+    | "error"
+    | "call-start-failed";
 
 type VapiWebClient = {
     start: (assistantId: string, overrides?: Record<string, unknown>) => Promise<unknown>;
-    stop: () => void;
+    stop: () => void | Promise<void>;
     on: (event: VapiEventName, listener: (payload?: unknown) => void) => unknown;
     off?: (event: VapiEventName, listener: (payload?: unknown) => void) => unknown;
     removeAllListeners?: (event?: VapiEventName) => unknown;
@@ -29,21 +37,24 @@ type VapiWebClient = {
 let sharedDemoClient: VapiWebClient | null = null;
 let sharedDemoClientKey = "";
 
+async function stopDemoVapiClient(client: VapiWebClient | null): Promise<void> {
+    if (!client) return;
+    try {
+        await client.stop();
+    } catch {
+        // already stopped
+    }
+}
+
 async function getDemoVapiClient(publicKey: string): Promise<VapiWebClient> {
     if (sharedDemoClient) {
-        try {
-            sharedDemoClient.stop();
-        } catch {
-            // already stopped
-        }
+        await stopDemoVapiClient(sharedDemoClient);
         try {
             sharedDemoClient.removeAllListeners?.();
         } catch {
             // no listeners
         }
     }
-
-    if (sharedDemoClient && sharedDemoClientKey === publicKey) return sharedDemoClient;
 
     const mod = await import("@vapi-ai/web");
     const VapiCtor = mod.default as unknown as new (key: string) => VapiWebClient;
@@ -54,12 +65,91 @@ async function getDemoVapiClient(publicKey: string): Promise<VapiWebClient> {
     return sharedDemoClient;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+}
+
+function readVapiError(payload: unknown): string {
+    const record = asRecord(payload);
+    const error = asRecord(record.error);
+    const nestedError = asRecord(error.error);
+    const errorMessage = error.message;
+
+    return (
+        (typeof record.errorMsg === "string" && record.errorMsg) ||
+        (typeof record.message === "string" && record.message) ||
+        (typeof record.error === "string" && record.error) ||
+        (typeof error.errorMsg === "string" && error.errorMsg) ||
+        (typeof errorMessage === "string" && errorMessage) ||
+        (typeof asRecord(errorMessage).msg === "string" && (asRecord(errorMessage).msg as string)) ||
+        (typeof nestedError.message === "string" && nestedError.message) ||
+        "The Vapi browser call hit an error."
+    );
+}
+
+function demoEndReasonMessage(reason: string): string | null {
+    const normalized = reason.trim().toLowerCase();
+    if (!normalized) return null;
+
+    if (
+        normalized.includes("customer-ended-call") ||
+        normalized.includes("assistant-ended-call") ||
+        normalized.includes("max-duration") ||
+        normalized.includes("silence-timed-out")
+    ) {
+        return null;
+    }
+
+    if (normalized.includes("requested-payment") || normalized.includes("insufficient") || normalized.includes("billing")) {
+        return "The demo voice service is temporarily unavailable. Please try again shortly.";
+    }
+
+    if (normalized.includes("did-not-receive-customer-audio") || normalized.includes("microphone")) {
+        return "The demo could not hear your microphone. Check the browser microphone permission and input device, then try again.";
+    }
+
+    if (normalized.includes("assistant-not-found") || normalized.includes("invalid-assistant")) {
+        return "The demo session expired. Please try the demo again.";
+    }
+
+    if (normalized.includes("pipeline-error") || normalized.includes("providerfault") || normalized.includes("provider-fault")) {
+        return "The demo voice service had a temporary provider problem. Please try again shortly.";
+    }
+
+    return "The demo call ended unexpectedly. Please try again.";
+}
+
+function demoStartFailureMessage(stage: string, detail: string): string {
+    const reason = detail.trim().replace(/\s+/g, " ").slice(0, 160);
+
+    if (/notallowed|notfound|permission|denied|microphone|\bmic\b/i.test(`${stage} ${reason}`)) {
+        return "Microphone access was blocked. Allow the microphone for this site, then try the demo again.";
+    }
+
+    // Vapi rejects POST /call/web on an exhausted wallet before it validates
+    // anything else, so a funding problem surfaces here and nowhere else.
+    if (/wallet balance|purchase more credits|upgrade your plan|insufficient|requested-payment|billing/i.test(reason)) {
+        return "The demo voice service is temporarily unavailable. Please try again shortly.";
+    }
+
+    if (stage === "web-call-creation") {
+        return `The demo voice service rejected the call request${reason ? ` (${reason})` : ""}. Please try again shortly.`;
+    }
+
+    if (stage === "daily-call-object-creation" || stage === "daily-call-join") {
+        return `The demo could not connect the browser voice session${reason ? ` (${reason})` : ""}. Reload the page and try again.`;
+    }
+
+    return `Could not start the demo call. Please try again.${reason ? ` (${reason})` : ""}`;
+}
+
 type DemoState = "idle" | "starting" | "live" | "ended";
 
 export type DemoCallCustomInputs = {
     businessName?: string;
-    doctorName?: string;
-    businessType?: string;
+    contactName?: string;
     address?: string;
     services?: string;
 };
@@ -67,11 +157,15 @@ export type DemoCallCustomInputs = {
 export function AgentDemoCall({
     listingId,
     listingName,
+    industry,
+    subindustry,
     /** Public visitors are IP-limited (2 × 2 min). Authenticated buyers use the business route. */
     mode = "public"
 }: {
     listingId: string;
     listingName: string;
+    industry?: string;
+    subindustry?: string;
     mode?: "public" | "authenticated";
 }) {
     const [state, setState] = useState<DemoState>("idle");
@@ -83,10 +177,11 @@ export function AgentDemoCall({
     // Modal state
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [businessName, setBusinessName] = useState("");
-    const [doctorName, setDoctorName] = useState("");
-    const [businessType, setBusinessType] = useState("Medical clinic");
+    const [contactName, setContactName] = useState("");
     const [address, setAddress] = useState("");
     const [services, setServices] = useState("");
+
+    const demoProfile = getAgentDemoProfile({ listingName, industry, subindustry });
 
     const clientRef = useRef<VapiWebClient | null>(null);
     const detachRef = useRef<(() => void) | null>(null);
@@ -98,7 +193,7 @@ export function AgentDemoCall({
             detachRef.current?.();
             if (timerRef.current) clearInterval(timerRef.current);
             try {
-                clientRef.current?.stop();
+                void stopDemoVapiClient(clientRef.current);
             } catch {
                 // best-effort cleanup
             }
@@ -115,11 +210,7 @@ export function AgentDemoCall({
     function endDemo() {
         stopTimer();
         detachRef.current?.();
-        try {
-            clientRef.current?.stop();
-        } catch {
-            // already stopped
-        }
+        void stopDemoVapiClient(clientRef.current);
         setAgentSpeaking(false);
         setState("ended");
     }
@@ -132,6 +223,8 @@ export function AgentDemoCall({
         setMessage("");
         setState("starting");
 
+        const startFailure = { stage: "unknown", reason: "" };
+
         try {
             const endpoint =
                 mode === "authenticated"
@@ -140,8 +233,7 @@ export function AgentDemoCall({
 
             const payload: DemoCallCustomInputs = customInputs ?? {
                 businessName: businessName.trim() || undefined,
-                doctorName: doctorName.trim() || undefined,
-                businessType: businessType.trim() || undefined,
+                contactName: contactName.trim() || undefined,
                 address: address.trim() || undefined,
                 services: services.trim() || undefined
             };
@@ -160,12 +252,17 @@ export function AgentDemoCall({
             const client = await getDemoVapiClient(session.publicKey);
 
             detachRef.current?.();
-            try {
-                client.stop();
-            } catch {
-                // no active call
-            }
+            await stopDemoVapiClient(client);
             clientRef.current = client;
+
+            let failureHandled = false;
+
+            const onCallStartFailed = (payload?: unknown) => {
+                const event = asRecord(payload);
+                startFailure.stage = typeof event.stage === "string" ? event.stage : "unknown";
+                startFailure.reason = readVapiError(payload);
+                console.warn("[marketplace-demo] Vapi call start failed", { ...startFailure });
+            };
 
             const onCallStart = () => {
                 setState("live");
@@ -185,8 +282,36 @@ export function AgentDemoCall({
             const onSpeechStart = () => setAgentSpeaking(true);
             const onSpeechEnd = () => setAgentSpeaking(false);
             const onCallEnd = () => endDemo();
-            const onError = () => {
-                setMessage("The demo call hit a problem. Try again, or buy the agent to test it with your own setup.");
+            const onMessage = (payload?: unknown) => {
+                const event = asRecord(payload);
+                if (event.type !== "status-update" || event.status !== "ended") return;
+
+                const endedReason = typeof event.endedReason === "string" ? event.endedReason : "";
+                const friendlyMessage = demoEndReasonMessage(endedReason);
+                if (friendlyMessage) {
+                    failureHandled = true;
+                    console.warn("[marketplace-demo] Vapi call ended", { endedReason });
+                    setMessage(friendlyMessage);
+                }
+                endDemo();
+            };
+            const onError = (payload?: unknown) => {
+                if (failureHandled) return;
+
+                const errorText = readVapiError(payload);
+                const errorType = asRecord(payload).type;
+                failureHandled = true;
+                console.warn("[marketplace-demo] Vapi browser error", {
+                    errorType: typeof errorType === "string" ? errorType : "unknown",
+                    errorMessage: errorText
+                });
+                setMessage(
+                    /notallowed|notfound|permission|denied|microphone|\bmic\b/i.test(errorText)
+                        ? "Microphone access was blocked. Allow the microphone for this site, then try the demo again."
+                        : /eject|meeting has ended/i.test(errorText)
+                            ? "The demo voice service ended the call unexpectedly. Please try again shortly."
+                            : "The demo call hit a problem. Please try again."
+                );
                 endDemo();
             };
 
@@ -194,7 +319,9 @@ export function AgentDemoCall({
             client.on("speech-start", onSpeechStart);
             client.on("speech-end", onSpeechEnd);
             client.on("call-end", onCallEnd);
+            client.on("message", onMessage);
             client.on("error", onError);
+            client.on("call-start-failed", onCallStartFailed);
 
             detachRef.current = () => {
                 detachRef.current = null;
@@ -204,7 +331,9 @@ export function AgentDemoCall({
                         client.off("speech-start", onSpeechStart);
                         client.off("speech-end", onSpeechEnd);
                         client.off("call-end", onCallEnd);
+                        client.off("message", onMessage);
                         client.off("error", onError);
+                        client.off("call-start-failed", onCallStartFailed);
                     } else {
                         client.removeAllListeners?.();
                     }
@@ -218,15 +347,30 @@ export function AgentDemoCall({
                 metadata: { listingId: session.listingId, purpose: "MARKETPLACE_DEMO" }
             };
 
-            await client.start(session.assistantId, startOverrides);
+            const started = await client.start(session.assistantId, startOverrides);
+
+            if (!started && !failureHandled) {
+                failureHandled = true;
+                console.error("[marketplace-demo] Vapi start returned no call", {
+                    listingId: session.listingId,
+                    assistantId: session.assistantId
+                });
+                setMessage("Could not start the demo call. Please try again.");
+                endDemo();
+            }
         } catch (error) {
-            const text = error instanceof Error ? error.message : "";
-            setMessage(
-                /notallowed|permission|denied/i.test(text)
-                    ? "Microphone access was blocked. Allow the microphone for this site, then try the demo again."
-                    : "Could not start the demo call. Please try again."
-            );
+            const text = error instanceof Error ? error.message : String(error ?? "");
+            const reason = startFailure.reason || text;
+
+            console.error("[marketplace-demo] could not start demo call", {
+                stage: startFailure.stage,
+                reason,
+                stack: error instanceof Error ? error.stack : undefined
+            });
+
+            setMessage(demoStartFailureMessage(startFailure.stage, reason));
             detachRef.current?.();
+            await stopDemoVapiClient(clientRef.current);
             setState("idle");
         } finally {
             startInFlightRef.current = false;
@@ -310,6 +454,7 @@ export function AgentDemoCall({
                     data-testid="demo-setup-modal"
                     role="dialog"
                     aria-modal="true"
+                    aria-labelledby="demo-setup-modal-title"
                     onClick={(e) => {
                         if (e.target === e.currentTarget) setIsModalOpen(false);
                     }}
@@ -337,11 +482,11 @@ export function AgentDemoCall({
                                 </svg>
                             </div>
                             <div>
-                                <h3 className="text-base sm:text-lg font-bold text-slate-900" data-testid="demo-setup-modal-title">
-                                    Personalise Your Demo Assistant
+                                <h3 id="demo-setup-modal-title" className="text-base sm:text-lg font-bold text-slate-900" data-testid="demo-setup-modal-title">
+                                    Personalise {listingName} Demo
                                 </h3>
                                 <p className="text-xs text-slate-500 leading-normal mt-0.5">
-                                    Enter basic details so the AI speaks for your business during the demo.
+                                    Add sample {demoProfile.subindustry} details so the demo speaks in the right business context.
                                 </p>
                             </div>
                         </div>
@@ -354,89 +499,91 @@ export function AgentDemoCall({
                             }}
                             className="mt-10 space-y-6"
                         >
+                            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+                                <div className="flex flex-wrap gap-2">
+                                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                                        Industry: {demoProfile.industry}
+                                    </span>
+                                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
+                                        Subindustry: {demoProfile.subindustry}
+                                    </span>
+                                </div>
+                                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                                    This demo stays locked to the selected agent type so its terminology, safety rules, and example workflow match the listing you are evaluating.
+                                </p>
+                            </div>
+
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label htmlFor="demo-setup-biz-name" className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                        Hospital / Business Name <span className="text-amber-500">*</span>
+                                        {demoProfile.businessNameLabel} <span className="text-amber-500">*</span>
                                     </label>
                                     <input
                                         id="demo-setup-biz-name"
                                         type="text"
                                         value={businessName}
                                         onChange={(e) => setBusinessName(e.target.value)}
-                                        placeholder="e.g. Apex Health Clinic"
+                                        placeholder={demoProfile.businessNamePlaceholder}
                                         data-testid="demo-setup-input-biz-name"
+                                        maxLength={120}
+                                        required
                                         className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition"
                                     />
                                 </div>
 
                                 <div>
-                                    <label htmlFor="demo-setup-dr-name" className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                        Doctor / Manager Name <span className="text-slate-400 font-normal">(Optional)</span>
+                                    <label htmlFor="demo-setup-contact-name" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                                        {demoProfile.contactNameLabel} <span className="text-slate-400 font-normal">(Optional)</span>
                                     </label>
                                     <input
-                                        id="demo-setup-dr-name"
+                                        id="demo-setup-contact-name"
                                         type="text"
-                                        value={doctorName}
-                                        onChange={(e) => setDoctorName(e.target.value)}
-                                        placeholder="e.g. Dr. Sarah Jenkins"
-                                        data-testid="demo-setup-input-dr-name"
+                                        value={contactName}
+                                        onChange={(e) => setContactName(e.target.value)}
+                                        placeholder={demoProfile.contactNamePlaceholder}
+                                        data-testid="demo-setup-input-contact-name"
+                                        maxLength={120}
                                         className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition"
                                     />
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-1 gap-4">
-                                <div>
-                                    <label htmlFor="demo-setup-biz-type" className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                        Business Category
-                                    </label>
-                                    <select
-                                        id="demo-setup-biz-type"
-                                        value={businessType}
-                                        onChange={(e) => setBusinessType(e.target.value)}
-                                        data-testid="demo-setup-input-biz-type"
-                                        className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 text-xs font-medium text-slate-900 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition"
-                                    >
-                                        <option value="Medical clinic">Medical Clinic / Hospital</option>
-                                        <option value="Dental clinic">Dental Clinic</option>
-                                        <option value="Salon / spa">Salon & Spa</option>
-                                        <option value="Law firm">Law Firm</option>
-                                        <option value="Real estate">Real Estate</option>
-                                        <option value="Restaurant">Restaurant</option>
-                                        <option value="Other">Other Service</option>
-                                    </select>
-                                </div>
-
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label htmlFor="demo-setup-address" className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                        Address / City <span className="text-slate-400 font-normal">(Optional)</span>
+                                        {demoProfile.addressLabel} <span className="text-slate-400 font-normal">(Optional)</span>
                                     </label>
                                     <input
                                         id="demo-setup-address"
                                         type="text"
                                         value={address}
                                         onChange={(e) => setAddress(e.target.value)}
-                                        placeholder="e.g. 742 Evergreen Terrace, Springfield"
+                                        placeholder={demoProfile.addressPlaceholder}
                                         data-testid="demo-setup-input-address"
+                                        maxLength={180}
+                                        className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label htmlFor="demo-setup-services" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                                        {demoProfile.servicesLabel} <span className="text-slate-400 font-normal">(Optional)</span>
+                                    </label>
+                                    <input
+                                        id="demo-setup-services"
+                                        type="text"
+                                        value={services}
+                                        onChange={(e) => setServices(e.target.value)}
+                                        placeholder={demoProfile.servicesPlaceholder}
+                                        data-testid="demo-setup-input-services"
+                                        maxLength={600}
                                         className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition"
                                     />
                                 </div>
                             </div>
 
-                            <div>
-                                <label htmlFor="demo-setup-services" className="block text-xs font-semibold text-slate-700 mb-1.5">
-                                    Key Services Provided <span className="text-slate-400 font-normal">(Optional)</span>
-                                </label>
-                                <input
-                                    id="demo-setup-services"
-                                    type="text"
-                                    value={services}
-                                    onChange={(e) => setServices(e.target.value)}
-                                    placeholder="e.g. Consultations, Emergency Care, Tooth Extraction"
-                                    data-testid="demo-setup-input-services"
-                                    className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3.5 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition"
-                                />
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3.5 py-3 text-[11px] leading-relaxed text-emerald-900">
+                                Demo mode uses browser voice only. It can demonstrate the conversation and safely simulate booking or follow-up steps, but it does not create real appointments, send real messages, assign a buyer phone number, or create phone-number billing.
                             </div>
 
                             {/* Actions Footer */}
@@ -457,7 +604,7 @@ export function AgentDemoCall({
                                     <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                         <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
                                     </svg>
-                                    Start
+                                    Start Demo
                                 </button>
                             </div>
                         </form>

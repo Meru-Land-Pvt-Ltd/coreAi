@@ -32,7 +32,7 @@ function log(
   });
 }
 
-/** Resolve {{variable}} references in node templates from the runtime context. */
+/** Resolve both runtime {{variable}} and builder [Label] references. */
 export function resolveTemplate(template: string, context: AgentRuntimeContext): string {
   const values: Record<string, string> = {
     "customer.name": stringVariable(context, "customer.name") || context.caller.name,
@@ -62,7 +62,33 @@ export function resolveTemplate(template: string, context: AgentRuntimeContext):
     resolved = resolved.replaceAll(`{{${key}}}`, value);
   }
 
+  const bracketValues: Record<string, string> = {
+    "customer name": values["customer.name"],
+    "patient name": values["customer.name"],
+    "customer phone": values["customer.phone"],
+    "patient phone": values["customer.phone"],
+    service: values.service,
+    date: values["appointment.date"],
+    time: values["appointment.time"],
+    "business name": values["business.name"],
+    "assistant name": values.assistantName,
+    "confirmation id": values["appointment.confirmation_id"]
+  };
+
+  // An unset variable resolves to "", which would silently delete the
+  // placeholder and ship "Confirmed:  on  at  with Acme." to the customer.
+  // Leave the bracket intact instead so callers can detect and fall back.
+  resolved = resolved.replace(/\[([^\]]+)\]/g, (match, rawKey: string) => {
+    const value = bracketValues[rawKey.trim().toLowerCase()];
+    return value && value.trim() ? value : match;
+  });
+
   return resolved;
+}
+
+/** True when a resolved template still carries unfilled [Placeholder] slots. */
+export function hasUnresolvedPlaceholders(text: string): boolean {
+  return /\[[^\]]+\]/.test(text);
 }
 
 export function afterHoursBlocksActions(context: AgentRuntimeContext): boolean {
@@ -366,11 +392,18 @@ const handleSendSms: NodeHandler = async (node, context, providers) => {
     asString(node.data?.patientTemplate) ||
     asString(node.data?.smsBody);
 
-  const body = template
-    ? resolveTemplate(template, context)
-    : turn.bookedThisTurn
-      ? `Your ${stringVariable(context, "service")} is confirmed for ${humanSlotLabel(stringVariable(context, "selected.slot"), context.business.timezone)}. — ${context.business.name}`
-      : `Thanks for contacting ${context.business.name}. We will follow up shortly.`;
+  const resolvedTemplate = template ? resolveTemplate(template, context) : "";
+
+  // A configured template is only usable when every placeholder it references
+  // actually resolved. A non-booking follow-up SMS has no service/date/time,
+  // so a booking-shaped template must yield to the generic message rather than
+  // text the customer a confirmation with holes in it.
+  const body =
+    resolvedTemplate && !hasUnresolvedPlaceholders(resolvedTemplate)
+      ? resolvedTemplate
+      : turn.bookedThisTurn
+        ? `Your ${stringVariable(context, "service")} is confirmed for ${humanSlotLabel(stringVariable(context, "selected.slot"), context.business.timezone)}. — ${context.business.name}`
+        : `Thanks for contacting ${context.business.name}. We will follow up shortly.`;
 
   const to = stringVariable(context, "customer.phone") || context.caller.phone;
   const result = await providers.sms.send({ to, body });

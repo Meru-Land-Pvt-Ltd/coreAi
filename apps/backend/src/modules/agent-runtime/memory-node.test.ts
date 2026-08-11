@@ -27,7 +27,7 @@ describe("Memory Node Deterministic Aggregation", () => {
     expect(memoryText).toContain("policy.pdf: 24h cancellation notice required");
     expect(memoryText).toContain("[PREVIOUS STEPS]");
     expect(memoryText).toContain("[Phone Trigger]\nCall from +15550100");
-    expect(memoryText).toContain("[AI Brain]\nintent: booking, service: Teeth Cleaning");
+    expect(memoryText).toContain("[AI Brain]\nIntent: booking\nService: Teeth Cleaning");
     expect(memoryText).toContain("[KEY VARIABLES]");
     expect(memoryText).toContain("service: Teeth Cleaning");
   });

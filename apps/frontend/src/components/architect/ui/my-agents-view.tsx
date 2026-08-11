@@ -17,7 +17,9 @@ import {
 } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { architectPublishingStatusPath, architectAnalyticsPath, publicAgentPath } from "@/lib/routes";
-import { ArrowDown, ArrowUp, Dot } from "lucide-react";
+import { CategoryTagsPill } from "@/components/common/category-tags-pill";
+import { resolveBrowseIndustries } from "@coreai/shared";
+import { ArrowDown, ArrowUp } from "lucide-react";
 
 const EMPTY_AGENT_STATS: ArchitectAgentsStats = {
   totalAgents: 0,
@@ -628,7 +630,7 @@ function StatusBand({ agent }: { agent: ArchitectListing }) {
 }
 
 function builderHrefFor(agent: ArchitectListing): Route {
-  return (agent.workflowId ? `/architect/workflows/${agent.workflowId}/builder` : "/architect/agents/publish") as Route;
+  return (agent.workflowId ? `/architect/workflows/${agent.workflowId}/builder` : "/architect/workflows") as Route;
 }
 
 function FooterActions({
@@ -763,10 +765,9 @@ function AgentCard({
   onCancelSubmission: (agent: ArchitectListing) => void;
 }) {
   const style = STATUS_STYLES[agent.status];
-  const category = agent.category?.trim() || null;
   const dashed = agent.status === "DRAFT" ? "border-dashed border-gray-200" : "border-gray-100";
   const iconUrl = agent.iconUrl?.trim() || null;
-  const industryTags = (
+  const rawIndustryTags = (
     agent.industryTags?.length
       ? agent.industryTags
       : agent.tags?.length
@@ -775,6 +776,15 @@ function AgentCard({
   )
     .map((tag) => tag.trim())
     .filter(Boolean);
+  const industryLabel = resolveBrowseIndustries(rawIndustryTags)[0] ?? rawIndustryTags[0] ?? null;
+  const categoryLabels = [
+    ...new Set(
+      (agent.category ?? "")
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+    )
+  ];
   const title = agent.name?.trim() || "Untitled Agent";
   const hasDescription = Boolean(agent.shortDescription?.trim() || agent.tagline?.trim());
   const description = agent.tagline?.trim() || agent.shortDescription?.trim() || "No Tagline added yet.";
@@ -846,9 +856,21 @@ function AgentCard({
         <h3 className="truncate text-base font-semibold text-slate-900" data-testid="architect-ui-my-agents-view-agent-heading">
           {title}
         </h3>
-        <div className="mt-2 flex min-w-0 items-center gap-1.5">
-        <span className="flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">{category ?? "Industry not set"}</span>
-        <ResponsiveIndustryTags agentId={agent.id} tags={industryTags} />
+        <div className="mt-2 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden">
+          <span
+            className="flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500"
+            data-testid={`my-agents-industry-${agent.id}`}
+          >
+            {industryLabel ?? "Industry not set"}
+          </span>
+          <CategoryTagsPill
+            labels={categoryLabels}
+            className="min-w-0"
+            testId={`my-agents-category-${agent.id}`}
+            moreTestId={`my-agents-category-more-${agent.id}`}
+            tooltipTestId={`my-agents-category-tooltip-${agent.id}`}
+            emptyLabel="Category not set"
+          />
         </div>
 
         <p
@@ -901,188 +923,6 @@ function ShareIcon() {
 
 function isWorkflowOnlyDraft(agent: ArchitectListing): boolean {
   return agent.id.startsWith("draft-");
-}
-
-const TAG_CHAR_WIDTH = 6.5;
-const TAG_PILL_PAD_X = 16;
-const TAG_DOT_WIDTH = 14;
-const PLUS_BADGE_BASE = 20;
-
-function estimateTagTextWidth(text: string): number {
-  return text.length * TAG_CHAR_WIDTH;
-}
-
-function computeResponsiveTagLayout(
-  tags: string[],
-  availableWidth: number
-): { visibleCount: number; maxLen: number } {
-  if (tags.length === 0) return { visibleCount: 0, maxLen: 25 };
-
-  const budget = Math.max(0, availableWidth - TAG_PILL_PAD_X);
-  if (budget < 36) return { visibleCount: 0, maxLen: 6 };
-
-  for (let count = Math.min(3, tags.length); count >= 1; count -= 1) {
-    const hidden = tags.length - count;
-    const plusWidth = hidden > 0 ? PLUS_BADGE_BASE + String(hidden).length * TAG_CHAR_WIDTH : 0;
-    const dotsWidth = count > 1 ? (count - 1) * TAG_DOT_WIDTH : 0;
-    const textBudget = budget - plusWidth - dotsWidth;
-    if (textBudget <= 0) continue;
-
-    const perTag = textBudget / count;
-    const maxLen =
-      perTag < 42 ? 6 :
-      perTag < 58 ? 10 :
-      perTag < 78 ? 14 :
-      perTag < 108 ? 18 :
-      25;
-
-    for (let ml = maxLen; ml >= 4; ml -= 1) {
-      let totalTextWidth = 0;
-      for (let i = 0; i < count; i += 1) {
-        const { visible, overflow } = splitLongTag(tags[i], ml);
-        totalTextWidth += estimateTagTextWidth(visible + (overflow ? "…" : ""));
-      }
-      if (totalTextWidth + dotsWidth + plusWidth <= budget + 6) {
-        return { visibleCount: count, maxLen: ml };
-      }
-    }
-  }
-
-  return { visibleCount: 1, maxLen: 6 };
-}
-
-function ResponsiveIndustryTags({ agentId, tags }: { agentId: string; tags: string[] }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [layout, setLayout] = useState(() => ({
-    visibleCount: Math.min(3, tags.length),
-    maxLen: 25
-  }));
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const update = () => {
-      const width = el.getBoundingClientRect().width;
-      setLayout(computeResponsiveTagLayout(tags, width));
-    };
-
-    update();
-    const observer = new ResizeObserver(() => update());
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [tags]);
-
-  const visibleTags = tags.slice(0, layout.visibleCount);
-  const hiddenTags = tags.slice(layout.visibleCount);
-  const visibleTagParts = visibleTags.map((tag) => ({
-    full: tag,
-    ...splitLongTag(tag, layout.maxLen)
-  }));
-  const truncatedOverflowTags = visibleTagParts
-    .map((part) => part.overflow)
-    .filter((value): value is string => Boolean(value));
-  const popupTags = [...truncatedOverflowTags, ...hiddenTags];
-  const showTagsPopup = popupTags.length > 0;
-
-  if (tags.length === 0) {
-    return (
-      <div className="inline-flex rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1">
-        <span className="text-xs font-medium text-amber-700/70">Industry not set</span>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      ref={containerRef}
-      className="group/tags relative min-w-0 flex-1"
-      data-testid={`my-agents-industry-${agentId}`}
-    >
-      <div className="inline-flex max-w-full min-w-0 flex-nowrap items-center overflow-hidden rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
-        {visibleTagParts.map((part, index) => (
-          <span
-            key={part.full}
-            className="flex shrink-0 items-center whitespace-nowrap text-xs font-medium text-amber-700"
-            title={part.overflow ? part.full : undefined}
-          >
-            {part.visible}
-            {part.overflow ? "…" : null}
-            {index < visibleTagParts.length - 1 || hiddenTags.length > 0 ? (
-              <span className="text-amber-700">
-                <Dot className="h-3 w-3" />
-              </span>
-            ) : null}
-          </span>
-        ))}
-        {hiddenTags.length > 0 ? (
-          <span
-            className="shrink-0 text-xs font-semibold text-amber-700"
-            data-testid={`my-agents-industry-more-${agentId}`}
-            aria-label={`${hiddenTags.length} more industr${hiddenTags.length === 1 ? "y" : "ies"}`}
-          >
-            +{hiddenTags.length}
-          </span>
-        ) : null}
-      </div>
-      {showTagsPopup ? (
-        <div
-          role="tooltip"
-          className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden max-w-[min(100%,18rem)] rounded-xl border border-amber-100 bg-white px-3 py-2 shadow-lg group-hover/tags:block"
-          data-testid={`my-agents-industry-tooltip-${agentId}`}
-        >
-          <div className="flex flex-wrap gap-1.5">
-            {popupTags.map((tag) => (
-              <span
-                key={tag}
-                className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/** Keep words that fit in maxLen; remaining last word(s) go into the hover popup. */
-function splitLongTag(tag: string, maxLen = 25): { visible: string; overflow: string | null } {
-  const trimmed = tag.trim();
-  if (trimmed.length <= maxLen) return { visible: trimmed, overflow: null };
-
-  const words = trimmed.split(/\s+/).filter(Boolean);
-  if (words.length <= 1) {
-    return {
-      visible: trimmed.slice(0, maxLen).trimEnd(),
-      overflow: trimmed.slice(maxLen).trim() || trimmed
-    };
-  }
-
-  let visible = "";
-  const overflowWords: string[] = [];
-  for (const word of words) {
-    const next = visible ? `${visible} ${word}` : word;
-    if (!overflowWords.length && next.length <= maxLen) {
-      visible = next;
-    } else {
-      overflowWords.push(word);
-    }
-  }
-
-  if (!visible) {
-    const [first, ...rest] = words;
-    return {
-      visible: first.slice(0, maxLen).trimEnd(),
-      overflow: [first.slice(maxLen), ...rest].join(" ").trim() || first
-    };
-  }
-
-  return {
-    visible,
-    overflow: overflowWords.length ? overflowWords.join(" ") : null
-  };
 }
 
 function agentIsLive(agent: ArchitectListing): boolean {

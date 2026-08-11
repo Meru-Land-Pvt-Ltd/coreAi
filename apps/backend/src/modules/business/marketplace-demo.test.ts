@@ -8,13 +8,15 @@ import { businessRoutes } from "./routes";
 import {
   DEMO_DAILY_LIMIT,
   DEMO_MAX_DURATION_SECONDS,
+  MARKETPLACE_DEMO_VOICE,
   MARKETPLACE_DEMO_PURPOSE,
   PUBLIC_DEMO_DAILY_LIMIT,
   PUBLIC_DEMO_MAX_DURATION_SECONDS,
   resetMarketplaceDemoLimits,
   startMarketplaceDemoCall,
   startPublicMarketplaceDemoCall,
-  buildDemoSystemPrompt
+  buildDemoSystemPrompt,
+  normalizeDemoCallCustomInfo
 } from "./marketplace-demo";
 
 
@@ -99,8 +101,8 @@ beforeAll(async () => {
             data: {
               type: VOICE_NODE_TYPES.voiceConversation,
               assistantName: "Demo Ava",
-              voice: "adam",
-              voiceProvider: "11labs",
+              voice: "skylar",
+              voiceProvider: "cartesia",
               model: "gpt-4o-mini"
             }
           }
@@ -127,7 +129,8 @@ beforeAll(async () => {
       status: "APPROVED",
       pricingModel: "ONE_TIME",
       priceCents: 4900,
-      industryTags: ["Dental"],
+      category: "Dental Clinics",
+      industryTags: ["Healthcare", "Dental Clinics", "Dental"],
       architectUserId: architectId,
       workflowId: voiceWorkflow.id,
       requiredConnectors: [],
@@ -199,7 +202,7 @@ describe("startMarketplaceDemoCall (DB)", () => {
       maxDurationSeconds: number;
       artifactPlan: { recordingEnabled: boolean };
       metadata: { purpose: string; listingId: string };
-      voice: { provider: string };
+      voice: { provider: string; voiceId: string };
     };
 
     // The demo must give away the experience, not the product.
@@ -208,7 +211,14 @@ describe("startMarketplaceDemoCall (DB)", () => {
     expect(body.artifactPlan.recordingEnabled).toBe(false);
     expect(body.metadata.purpose).toBe(MARKETPLACE_DEMO_PURPOSE);
     expect(body.metadata.listingId).toBe(demoListingId);
-    expect(body.voice.provider).toBe("11labs");
+    // Free browser demos use Vapi-hosted TTS so an architect's unfunded or
+    // deleted Cartesia/ElevenLabs voice cannot eject marketplace visitors.
+    expect(body.voice.provider).toBe("vapi");
+    expect(body.voice.voiceId).toBe(MARKETPLACE_DEMO_VOICE);
+    expect(session.assistantOverrides).toMatchObject({
+      model: { provider: "openai", model: "gpt-4o-mini" },
+      maxDurationSeconds: DEMO_MAX_DURATION_SECONDS
+    });
   });
 
   it("enforces the per-buyer daily demo limit", async () => {
@@ -284,8 +294,7 @@ describe("startPublicMarketplaceDemoCall (DB)", () => {
 
     const customInfo = {
       businessName: "City General Hospital",
-      doctorName: "Dr. Gregory House",
-      businessType: "Medical clinic",
+      contactName: "Dr. Gregory House",
       address: "100 Princeton Ave, NJ",
       services: "Diagnostics, Consultations"
     };
@@ -295,12 +304,17 @@ describe("startPublicMarketplaceDemoCall (DB)", () => {
     expect(session.demo).toBe(true);
     expect(session.demoBusinessName).toBe("City General Hospital");
 
-    // Check captured Vapi payload contains custom firstMessage and system prompt
-    const vapiCall = calls.find((c) => c.url.includes("/assistant"));
+    // The shared assistant stays generic; caller-entered values belong only in
+    // this session's real-time overrides so concurrent demos cannot leak data.
+    const vapiCall = calls.find((c) => c.method === "POST" && c.url.includes("/assistant"));
     if (vapiCall?.body) {
-      expect(String(vapiCall.body.firstMessage)).toContain("City General Hospital");
-      expect(String(vapiCall.body.firstMessage)).toContain("Dr. Gregory House");
+      expect(String(vapiCall.body.firstMessage)).not.toContain("City General Hospital");
     }
+    expect(String(session.assistantOverrides?.firstMessage)).toContain("City General Hospital");
+    const overrideModel = session.assistantOverrides?.model as
+      | { messages?: Array<{ content?: string }> }
+      | undefined;
+    expect(String(overrideModel?.messages?.[0]?.content ?? "")).toContain("Dr. Gregory House");
   });
 
   it("enforces 2 demos per IP per listing per day", async () => {
@@ -347,11 +361,33 @@ describe("POST /business/marketplace/listings/:listingId/demo-call (DB)", () => 
   });
 });
 
+
+describe("normalizeDemoCallCustomInfo", () => {
+  it("uses contactName canonically and sanitizes oversized/control-character input", () => {
+    const normalized = normalizeDemoCallCustomInfo({
+      businessName: "  Morgan\n& Lee Law  ",
+      contactName: "Alex\tMorgan",
+      services: "x".repeat(800)
+    });
+
+    expect(normalized.businessName).toBe("Morgan & Lee Law");
+    expect(normalized.contactName).toBe("Alex Morgan");
+    expect(normalized.services?.length).toBe(600);
+  });
+
+  it("accepts doctorName only as a backward-compatible alias", () => {
+    const normalized = normalizeDemoCallCustomInfo({ doctorName: "Dr. Rao" });
+    expect(normalized.contactName).toBe("Dr. Rao");
+    expect(normalized.doctorName).toBeUndefined();
+  });
+});
+
 describe("buildDemoSystemPrompt", () => {
   const base = {
     assistantName: "June",
     demoBusinessName: "Demo Dental Studio",
-    industry: "dental",
+    industry: "Healthcare",
+    subindustry: "Dental Clinics",
     listingName: "AI Receptionist",
     listingDescription: "Answers missed calls and books appointments."
   };
@@ -361,15 +397,16 @@ describe("buildDemoSystemPrompt", () => {
 
     expect(prompt).toContain("LIVE DEMO");
     expect(prompt).toContain("Answers missed calls and books appointments.");
-    expect(prompt).toContain("what happens on a real call");
-    expect(prompt).toContain("plausible examples");
+    expect(prompt).toContain("Triven Marketplace browser demo");
+    expect(prompt).toContain("hypothetical example");
+    expect(prompt).toContain("Subindustry: Dental Clinics");
   });
 
   it("never tells the agent to deflect questions about itself", () => {
     const prompt = buildDemoSystemPrompt(base);
 
     expect(prompt).not.toContain("Stay strictly in character");
-    expect(prompt).toContain("You ARE allowed to talk about being a demo");
+    expect(prompt).toContain("answer honestly that this is a Triven Marketplace browser demo");
   });
 
   it("keeps the buyer's personalized details alongside the demo framing", () => {
@@ -377,8 +414,7 @@ describe("buildDemoSystemPrompt", () => {
       ...base,
       customInfo: {
         businessName: "Bright Smile Dental",
-        doctorName: "Dr. Rao",
-        businessType: "dental clinic",
+        contactName: "Dr. Rao",
         address: "12 Park Street",
         services: "Cleaning, Whitening"
       }
@@ -394,7 +430,37 @@ describe("buildDemoSystemPrompt", () => {
   it("forbids claiming a text or booking actually happened", () => {
     const prompt = buildDemoSystemPrompt(base);
 
-    expect(prompt).toContain("cannot actually finalize bookings or send texts");
-    expect(prompt).toContain("Never pretend a text, booking, or email was actually sent");
+    expect(prompt).toContain("SANDBOXED in Marketplace Demo");
+    expect(prompt).toContain("never claim that a real appointment, message, email, or CRM record was created");
+  });
+
+  it("preserves architect safety instructions while adding demo isolation", () => {
+    const prompt = buildDemoSystemPrompt({
+      ...base,
+      industry: "Legal",
+      subindustry: "Law Firms",
+      baseSystemPrompt: "Never provide legal advice. Escalate requests outside administrative intake."
+    });
+
+    expect(prompt).toContain("Never provide legal advice");
+    expect(prompt).toContain("Law Firms");
+    expect(prompt).toContain("Preserve all safety, compliance, escalation, and scope boundaries");
+  });
+
+  it("resolves workflow template variables before sending the demo prompt to Vapi", () => {
+    const prompt = buildDemoSystemPrompt({
+      ...base,
+      baseSystemPrompt:
+        "You are {{assistant_name}} for {{business_name}} in {{business_type}}. Hours: {{business_hours}}. Unknown: {{not_configured}}.",
+      customInfo: {
+        businessName: "Polished Nail Studio",
+        contactName: "Avery",
+        services: "Manicures and pedicures"
+      }
+    });
+
+    expect(prompt).toContain("You are June for Polished Nail Studio in Dental Clinics.");
+    expect(prompt).toContain("Hours: not configured in this demo.");
+    expect(prompt).not.toContain("{{");
   });
 });

@@ -558,6 +558,8 @@ export default function BusinessAgentDescriptionPage() {
       }
       showDemo
       demoMode="authenticated"
+      demoIndustry={listing.industryTags?.[0] ?? tags[0] ?? ""}
+      demoSubindustry={listing.category ?? category}
       demoVideoUrl={
         listing.demoVideoUrl ?? null
       }

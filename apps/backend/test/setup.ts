@@ -9,4 +9,4 @@ process.env.JWT_SECRET = process.env.JWT_SECRET ?? "test-jwt-secret-at-least-24-
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? "test-encryption-key-24-chars!";
 process.env.SES_DRY_RUN = "true";
 // Tests never talk to Redis — email jobs dispatch inline.
-delete process.env.REDIS_URL;
+process.env.REDIS_URL = "";

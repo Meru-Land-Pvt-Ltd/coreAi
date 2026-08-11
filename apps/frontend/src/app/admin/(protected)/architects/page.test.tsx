@@ -6,22 +6,16 @@ import AdminArchitectsPage from "./page";
 const {
   getAdminArchitectsMock,
   getAdminSummaryMock,
-  updateAdminArchitectStatusMock,
-  updateAdminUserSuspensionMock,
   deleteAdminArchitectMock
 } = vi.hoisted(() => ({
   getAdminArchitectsMock: vi.fn(),
   getAdminSummaryMock: vi.fn(),
-  updateAdminArchitectStatusMock: vi.fn(),
-  updateAdminUserSuspensionMock: vi.fn(),
   deleteAdminArchitectMock: vi.fn()
 }));
 
 vi.mock("@/components/admin/features/api", () => ({
   getAdminArchitects: getAdminArchitectsMock,
   getAdminSummary: getAdminSummaryMock,
-  updateAdminArchitectStatus: updateAdminArchitectStatusMock,
-  updateAdminUserSuspension: updateAdminUserSuspensionMock,
   deleteAdminArchitect: deleteAdminArchitectMock
 }));
 
@@ -58,14 +52,6 @@ beforeEach(() => {
     success: true,
     data: { pendingAgentListings: 2 }
   });
-  updateAdminArchitectStatusMock.mockReset().mockResolvedValue({
-    success: true,
-    data: { architectProfile: { approvalStatus: "APPROVED" } }
-  });
-  updateAdminUserSuspensionMock.mockReset().mockResolvedValue({
-    success: true,
-    data: { user: { isSuspended: true } }
-  });
   deleteAdminArchitectMock.mockReset().mockResolvedValue({
     success: true,
     data: { deleted: true, userId: "architect-1", accountRemoved: true, remainingRoles: [] }
@@ -100,7 +86,7 @@ describe("Admin architect management", () => {
     expect(screen.getByText("Showing 1–2 of 2")).toBeTruthy();
   });
 
-  it("debounces search and filters the loaded architects by status", async () => {
+  it("debounces search and refreshes the complete architect result set", async () => {
     getAdminArchitectsMock.mockResolvedValueOnce(page([
       architect(),
       architect({
@@ -118,62 +104,24 @@ describe("Admin architect management", () => {
     render(<AdminArchitectsPage />);
     await screen.findByText("Approved Builder");
 
-    const filterGroup = screen.getByRole("group", { name: "Filter architects by status" });
-    await userEvent.setup().click(within(filterGroup).getByRole("button", { name: "Pending" }));
-    expect(screen.getByText("Ada Builder")).toBeTruthy();
-    expect(screen.queryByText("Approved Builder")).toBeNull();
-
     await userEvent.setup().type(screen.getByTestId("admin-architects-search"), "ada");
     await waitFor(() => {
       expect(getAdminArchitectsMock).toHaveBeenCalledWith({ search: "ada", limit: 100 });
     });
   });
 
-  it("updates an architect approval status through the live action", async () => {
-    render(<AdminArchitectsPage />);
-    await screen.findByText("Ada Builder");
+  it("sorts the loaded architect table by name", async () => {
     getAdminArchitectsMock.mockResolvedValue(page([
-      architect({
-        architectProfile: {
-          title: "Voice automation architect",
-          approvalStatus: "APPROVED",
-          rating: 4.8,
-          completedJobs: 12
-        }
-      })
+      architect({ id: "architect-z", email: "zoe@example.com", fullName: "Zoe Builder" }),
+      architect()
     ]));
-
-    await userEvent.setup().selectOptions(
-      screen.getByRole("combobox", { name: "Update status for ada@example.com" }),
-      "APPROVED"
-    );
-
-    await waitFor(() => {
-      expect(updateAdminArchitectStatusMock).toHaveBeenCalledWith("architect-1", "APPROVED");
-    });
-    expect(await screen.findByText("ada@example.com status changed to Approved.")).toBeTruthy();
-    const row = screen.getByRole("row", { name: /Ada Builder/ });
-    expect(within(row).getAllByText("Approved").length).toBeGreaterThan(0);
-  });
-
-  it("shows architect details and suspends the account from the profile", async () => {
     render(<AdminArchitectsPage />);
     await screen.findByText("Ada Builder");
 
-    await userEvent.setup().click(screen.getByRole("button", { name: "View" }));
-    const dialog = screen.getByRole("dialog", { name: "Architect Profile" });
-    expect(within(dialog).getByText("Voice automation architect")).toBeTruthy();
-    expect(within(dialog).getByText("4.8")).toBeTruthy();
-    expect(within(dialog).getByText("12")).toBeTruthy();
-
-    getAdminArchitectsMock.mockResolvedValue(page([architect({ isSuspended: true })]));
-    await userEvent.setup().click(within(dialog).getByRole("button", { name: "Suspend account" }));
-
-    await waitFor(() => {
-      expect(updateAdminUserSuspensionMock).toHaveBeenCalledWith("architect-1", true);
-    });
-    expect(await screen.findByText("ada@example.com suspended.")).toBeTruthy();
-    expect(screen.queryByRole("dialog", { name: "Architect Profile" })).toBeNull();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Architect" }));
+    const rows = screen.getAllByRole("row");
+    expect(rows[1].textContent).toContain("Ada Builder");
+    expect(rows[2].textContent).toContain("Zoe Builder");
   });
 
   it("shows the architect-specific error state", async () => {

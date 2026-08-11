@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarketplaceFeaturedSection } from "@/components/common/marketplace-featured-section";
+import { CategoryTagsPill } from "@/components/common/category-tags-pill";
 import {
   BUSINESS_AGENTS_PATH,
   BUSINESS_LOGIN_PATH,
@@ -15,9 +16,22 @@ import {
   businessSetupPath,
   publicAgentPath,
 } from "@/lib/routes";
-import { getConnectorIncludedItem, getLlmIncludedItem } from "@coreai/shared";
+import {
+  BROWSE_INDUSTRIES,
+  BROWSE_INDUSTRY_ICONS,
+  BROWSE_INDUSTRY_TILE_INITIAL_COUNT,
+  browseIndustryFromSlug,
+  browseIndustrySlug,
+  getCategoriesForIndustry,
+  getConnectorIncludedItem,
+  getLlmIncludedItem,
+  resolveBrowseIndustries,
+  resolveBrowseIndustry,
+  tagsMatchVerticalCategory,
+  type BrowseIndustry,
+} from "@coreai/shared";
 import { getWorkflowFeatures } from "@/components/agent-description/shared/agent-listing";
-import { X, Check, Dot, Download, Search, BotIcon } from "lucide-react";
+import { X, Check, Download, Search, BotIcon } from "lucide-react";
 import {
   ExecutionPricingSummary,
   useBuyerExecutionPricing,
@@ -140,7 +154,6 @@ type Industry = {
 };
 
 const LISTINGS_API_PATH = "/architect/listings/public";
-const PAGE_SIZE = 6;
 const PRICE_MAX_DEFAULT = 10000;
 
 const sortOptions = [
@@ -151,7 +164,7 @@ const sortOptions = [
 ] as const;
 
 type SortValue = (typeof sortOptions)[number]["value"];
-type OpenFilter = "industry" | "price" | "rating" | "sort" | null;
+type OpenFilter = "industry" | "subCategory" | "price" | "rating" | "sort" | null;
 
 const baseIndustries: Omit<Industry, "count">[] = [
   { id: "all", label: "All industries", icon: "✨" },
@@ -405,6 +418,10 @@ function industryMatchesFilter(agentIndustry: string, selectedIndustry: string) 
 
 function agentMatchesIndustry(agent: Agent, industryId: string) {
   if (industryId === "all") return true;
+  const browse = browseIndustryFromSlug(industryId);
+  if (browse) {
+    return resolveBrowseIndustries(agent.industries).includes(browse);
+  }
   if (industryMatchesFilter(agent.industry, industryId)) return true;
   return agent.industries.some((label) =>
     industryMatchesFilter(normalizeIndustryId(label), industryId),
@@ -419,6 +436,55 @@ function getIndustryAgentCount(industryId: string, agents: Agent[]) {
 function isIndustryAvailable(id: string, agents: Agent[]) {
   if (id === "all") return true;
   return getIndustryAgentCount(id, agents) > 0;
+}
+
+function buildBrowseIndustryTiles(agents: Agent[]): Industry[] {
+  return BROWSE_INDUSTRIES.map((label) => {
+    const id = browseIndustrySlug(label);
+    return {
+      id,
+      label,
+      icon: BROWSE_INDUSTRY_ICONS[label],
+      count: getIndustryAgentCount(id, agents),
+    };
+  });
+}
+
+function resolveSelectedBrowseIndustry(
+  industryId: string,
+  options: Omit<Industry, "count">[] | Industry[],
+): BrowseIndustry | null {
+  if (industryId === "all") return null;
+  const fromSlug = browseIndustryFromSlug(industryId);
+  if (fromSlug) return fromSlug;
+  const label = options.find((item) => item.id === industryId)?.label;
+  if (label) return resolveBrowseIndustry(label);
+  return resolveBrowseIndustry(industryId);
+}
+
+/** First chip on marketplace agent cards: browse industry label. */
+function getCardIndustryLabel(agent: Agent): string {
+  const fromBrowse = resolveBrowseIndustries(agent.industries);
+  if (fromBrowse[0]) return fromBrowse[0];
+  const fromSlug = browseIndustryFromSlug(agent.industry);
+  if (fromSlug) return fromSlug;
+  const raw = (agent.industries[0] ?? "").trim();
+  if (raw && raw.toLowerCase() !== "all") return raw;
+  return "";
+}
+
+/** Category chips on marketplace agent cards (all selected categories). */
+function getCardCategoryLabels(agent: Agent): string[] {
+  const raw = (agent.category ?? "").trim();
+  if (!raw) return [];
+  return [
+    ...new Set(
+      raw
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+    )
+  ];
 }
 
 /** Prefer AgentListing.industryTags; fall back to legacy industry:/plain tags. */
@@ -576,10 +642,10 @@ function AgentCardIcon({ iconUrl, size = 12 }: { iconUrl?: string | null; size?:
 }
 
 function buildIndustriesWithCounts(agents: Agent[]): Industry[] {
-  return baseIndustries.map((item) => ({
-    ...item,
-    count: getIndustryAgentCount(item.id, agents),
-  }));
+  return [
+    { id: "all", label: "All industries", icon: "✨", count: agents.length },
+    ...buildBrowseIndustryTiles(agents),
+  ];
 }
 function buildFilterIndustriesWithCounts(agents: Agent[]): Industry[] {
   return filterIndustries.map((item) => ({
@@ -611,7 +677,8 @@ export default function MarketplacePage() {
   const [setupPendingListingIds, setSetupPendingListingIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [showAllBrowseIndustries, setShowAllBrowseIndustries] = useState(false);
+  const [subCategory, setSubCategory] = useState("all");
 
   const scrollToAgents = useCallback(() => {
     agentListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -796,8 +863,28 @@ export default function MarketplacePage() {
   }
 
   const industries = useMemo(() => buildIndustriesWithCounts(agents), [agents]);
-  const filterIndustryOptions = useMemo(() => buildFilterIndustriesWithCounts(agents), [agents]);
+  const filterIndustryOptions = useMemo(
+    () => [
+      { id: "all", label: "All industries", icon: "✨", count: agents.length },
+      ...buildBrowseIndustryTiles(agents),
+    ],
+    [agents],
+  );
   const featuredAgent = agents[0] ?? null;
+
+  const selectedBrowseIndustry = useMemo(
+    () => resolveSelectedBrowseIndustry(industry, filterIndustryOptions),
+    [industry, filterIndustryOptions],
+  );
+
+  const subCategoryOptions = useMemo(
+    () => (selectedBrowseIndustry ? [...getCategoriesForIndustry(selectedBrowseIndustry)] : []),
+    [selectedBrowseIndustry],
+  );
+
+  useEffect(() => {
+    setSubCategory("all");
+  }, [industry]);
 
   const industryLabel =
     filterIndustryOptions.find((item) => item.id === industry)?.label ??
@@ -812,6 +899,7 @@ export default function MarketplacePage() {
   const activeFilters = [
     query.trim() ? { key: "query", label: `"${query.trim()}"` } : null,
     industry !== "all" ? { key: "industry", label: industryLabel } : null,
+    subCategory !== "all" ? { key: "subCategory", label: subCategory } : null,
     priceActive
       ? {
           key: "price",
@@ -825,7 +913,11 @@ export default function MarketplacePage() {
 
   function clearFilter(key: string) {
     if (key === "query") setQuery("");
-    if (key === "industry") setIndustry("all");
+    if (key === "industry") {
+      setIndustry("all");
+      setSubCategory("all");
+    }
+    if (key === "subCategory") setSubCategory("all");
     if (key === "price") {
       setPriceMin(0);
       setPriceMax(PRICE_MAX_DEFAULT);
@@ -838,6 +930,7 @@ export default function MarketplacePage() {
   function clearAllFilters() {
     setQuery("");
     setIndustry("all");
+    setSubCategory("all");
     setPriceMin(0);
     setPriceMax(PRICE_MAX_DEFAULT);
     setMinRating(0);
@@ -857,6 +950,8 @@ export default function MarketplacePage() {
           .includes(cleanQuery);
 
       const matchesIndustry = industry === "all" || agentMatchesIndustry(agent, industry);
+      const matchesSubCategory =
+        subCategory === "all" || tagsMatchVerticalCategory(agent.industries, subCategory);
 
       const matchesPrice =
         agent.price >= priceMin && (priceMax >= PRICE_MAX_DEFAULT || agent.price <= priceMax);
@@ -867,6 +962,7 @@ export default function MarketplacePage() {
       return (
         matchesQuery &&
         matchesIndustry &&
+        matchesSubCategory &&
         matchesPrice &&
         matchesRating &&
         matchesTrial &&
@@ -883,12 +979,7 @@ export default function MarketplacePage() {
 
       return b.installs - a.installs;
     });
-  }, [agents, query, industry, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
-
-  // Reset visible count whenever the filtered list changes (filter/sort/search applied)
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [query, industry, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
+  }, [agents, query, industry, subCategory, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
 
   if (!authReady) {
     return <main className="min-h-screen bg-white" />;
@@ -968,6 +1059,12 @@ export default function MarketplacePage() {
               <div className="mt-10 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
                 {industries
                   .filter((item) => item.id !== "all")
+                  .slice(
+                    0,
+                    showAllBrowseIndustries
+                      ? undefined
+                      : BROWSE_INDUSTRY_TILE_INITIAL_COUNT,
+                  )
                   .map((item) => {
                     const hasAgents = item.count > 0;
 
@@ -980,6 +1077,7 @@ export default function MarketplacePage() {
                         onClick={() => {
                           if (!hasAgents) return;
                           setIndustry(item.id);
+                          setSubCategory("all");
                           scrollToAgents();
                         }}
                         className={`group relative rounded-2xl border bg-white p-6 text-center shadow-sm transition-all duration-300 ${
@@ -1009,6 +1107,20 @@ export default function MarketplacePage() {
                     );
                   })}
               </div>
+
+              {industries.filter((item) => item.id !== "all").length >
+              BROWSE_INDUSTRY_TILE_INITIAL_COUNT ? (
+                <div className="mt-8 flex justify-center">
+                  <button
+                    type="button"
+                    data-testid="marketplace-browse-industry-show-more"
+                    onClick={() => setShowAllBrowseIndustries((prev) => !prev)}
+                    className="inline-flex items-center gap-2 rounded-xl border-2 border-gray-200 px-8 py-3 font-semibold text-slate-600 transition hover:border-amber-300 hover:text-amber-600"
+                  >
+                    {showAllBrowseIndustries ? "Show less" : "Show More"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           </section>
 
@@ -1117,6 +1229,7 @@ export default function MarketplacePage() {
                           onClick={() => {
                             if (!unlocked) return;
                             setIndustry(item.id);
+                            setSubCategory("all");
                             setOpenFilter(null);
                           }}
                           className={
@@ -1136,6 +1249,72 @@ export default function MarketplacePage() {
                   </div>
                 ) : null}
               </div>
+
+              {subCategoryOptions.length > 0 ? (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setOpenFilter(openFilter === "subCategory" ? null : "subCategory")}
+                    data-testid="marketplace-filter-subcategory"
+                    data-filter-trigger="subCategory"
+                    className={filterPillClass(subCategory !== "all")}
+                    aria-haspopup="true"
+                    aria-expanded={openFilter === "subCategory"}
+                  >
+                    <span>{subCategory === "all" ? "Category" : subCategory}</span>
+                    <ChevronIcon open={openFilter === "subCategory"} />
+                  </button>
+
+                  {openFilter === "subCategory" ? (
+                    <div
+                      data-filter-panel="subCategory"
+                      data-testid="marketplace-subcategory-filters"
+                      className="
+        absolute top-full z-[90] mt-2
+        left-1/2 -translate-x-1/2
+        sm:left-0 sm:translate-x-0
+
+        w-[calc(100vw-2rem)]
+        max-w-xs
+        sm:w-72
+
+        max-h-80 overflow-y-auto overscroll-contain
+        rounded-2xl border border-slate-100 bg-white p-2
+        shadow-[0_24px_50px_-16px_rgba(15,23,42,.22)]
+    "
+                    >
+                      <button
+                        type="button"
+                        data-testid="marketplace-subcategory-all"
+                        onClick={() => {
+                          setSubCategory("all");
+                          setOpenFilter(null);
+                        }}
+                        className={popoverOptionClass(subCategory === "all")}
+                      >
+                        <span>All categories</span>
+                      </button>
+                      {subCategoryOptions.map((option) => {
+                        const slug = option.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            data-testid={`marketplace-subcategory-${slug}`}
+                            onClick={() => {
+                              setSubCategory(option);
+                              setOpenFilter(null);
+                            }}
+                            className={popoverOptionClass(subCategory === option)}
+                          >
+                            <span>{option}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="relative">
                 <button
@@ -1427,57 +1606,44 @@ export default function MarketplacePage() {
           ) : filteredAgents.length ? (
             <>
               <div
+                data-testid="marketplace-agent-list"
                 className={
                   view === "grid"
                     ? "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
                     : "flex flex-col gap-4"
                 }
               >
-                {filteredAgents
-                  .slice(0, visibleCount)
-                  .map((agent) =>
-                    view === "grid" ? (
-                      <AgentGridCard
-                        key={agent.id}
-                        agent={agent}
-                        onOpen={() => openAgentPage(agent)}
-                        onViewDetails={() => openDetailsModal(agent)}
-                        executionPricing={executionPricing}
-                        executionPricingLoading={executionPricingLoading}
-                        executionPricingUnavailable={executionPricingError}
-                      />
-                    ) : (
-                      <AgentListCard
-                        key={agent.id}
-                        agent={agent}
-                        onOpen={() => openAgentPage(agent)}
-                        onViewDetails={() => openDetailsModal(agent)}
-                        executionPricing={executionPricing}
-                        executionPricingLoading={executionPricingLoading}
-                        executionPricingUnavailable={executionPricingError}
-                      />
-                    ),
-                  )}
+                {filteredAgents.map((agent) =>
+                  view === "grid" ? (
+                    <AgentGridCard
+                      key={agent.id}
+                      agent={agent}
+                      onOpen={() => openAgentPage(agent)}
+                      onViewDetails={() => openDetailsModal(agent)}
+                      executionPricing={executionPricing}
+                      executionPricingLoading={executionPricingLoading}
+                      executionPricingUnavailable={executionPricingError}
+                    />
+                  ) : (
+                    <AgentListCard
+                      key={agent.id}
+                      agent={agent}
+                      onOpen={() => openAgentPage(agent)}
+                      onViewDetails={() => openDetailsModal(agent)}
+                      executionPricing={executionPricing}
+                      executionPricingLoading={executionPricingLoading}
+                      executionPricingUnavailable={executionPricingError}
+                    />
+                  ),
+                )}
               </div>
 
-              {/* Load more + counter */}
               <div className="mt-10 flex flex-col items-center gap-3">
-                {visibleCount < filteredAgents.length && (
-                  <button
-                    type="button"
-                    data-testid="marketplace-load-more"
-                    onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
-                    className="inline-flex items-center gap-2 rounded-xl border-2 border-gray-200 px-8 py-3 font-semibold text-slate-600 transition hover:border-amber-300 hover:text-amber-600 disabled:cursor-default disabled:border-gray-100 disabled:text-slate-300 disabled:hover:border-gray-100 disabled:hover:text-slate-300"
-                  >
-                    Load more agents
-                  </button>
-                )}
                 <p
                   className="text-sm text-slate-400"
                   data-testid="business-protected-marketplace-showing-filtered-agents-of-agents-text"
                 >
-                  Showing {Math.min(visibleCount, filteredAgents.length)} of {filteredAgents.length}{" "}
-                  agents
+                  Showing {filteredAgents.length} of {filteredAgents.length} agents
                 </p>
               </div>
             </>
@@ -1781,14 +1947,8 @@ function AgentGridCard({
   executionPricingLoading: boolean;
   executionPricingUnavailable: boolean;
 }) {
-  const category = agent.category;
-  const otherTags = Array.from(
-    new Set(
-      [...(agent.industries ?? []), ...(agent.tags ?? [])].map((t) => t.trim()).filter(Boolean),
-    ),
-  ).filter((tag) => tag.toLowerCase() !== category.toLowerCase());
-  const visibleOtherTags = otherTags.slice(0, 3);
-  const extraOtherTagsCount = Math.max(0, otherTags.length - 3);
+  const industryLabel = getCardIndustryLabel(agent);
+  const categoryLabels = getCardCategoryLabels(agent);
 
   return (
     <article
@@ -1804,7 +1964,7 @@ function AgentGridCard({
       data-testid={`business-marketplace-agent-card-${agent.id}`}
       className="group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-amber-200 hover:shadow-xl"
     >
-      <div className="flex-1 p-6">
+      <div className="flex-1 min-w-0 p-6">
         <div className="flex items-start justify-between">
           <AgentCardIcon iconUrl={agent.iconUrl} size={12} />
 
@@ -1852,62 +2012,24 @@ function AgentGridCard({
           ) : null}
         </h3>
 
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {category ? (
+        <div className="mt-2 flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-hidden">
+          {industryLabel ? (
             <span
-              className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600"
-              data-testid="business-protected-marketplace-agent-category-text"
+              className="shrink-0 whitespace-nowrap rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600"
+              data-testid="business-protected-marketplace-agent-industry-text"
             >
-              {category}
+              {industryLabel}
             </span>
           ) : null}
 
-          {otherTags.length > 0 ? (
-            <div
-              className="group/tags relative"
-              data-testid={`business-marketplace-agent-tags-container-${agent.id}`}
-            >
-              <div className="inline-flex max-w-full flex-wrap items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
-                {visibleOtherTags.map((tag, index) => (
-                  <span
-                    key={`${tag}-${index}`}
-                    className="flex items-center text-[11px] font-semibold text-amber-700"
-                  >
-                    {tag}
-                    {index < visibleOtherTags.length - 1 || extraOtherTagsCount > 0 ? (
-                      <span className="mx-1 text-amber-700 font-bold">·</span>
-                    ) : null}
-                  </span>
-                ))}
-                {extraOtherTagsCount > 0 ? (
-                  <span
-                    className="text-[11px] font-bold text-amber-700"
-                    data-testid={`business-marketplace-agent-tags-more-${agent.id}`}
-                    aria-label={`${extraOtherTagsCount} more tags`}
-                  >
-                    +{extraOtherTagsCount}
-                  </span>
-                ) : null}
-              </div>
-              {extraOtherTagsCount > 0 ? (
-                <div
-                  role="tooltip"
-                  className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 hidden max-w-[min(100%,18rem)] rounded-xl border border-amber-100 bg-white px-3 py-2 shadow-lg group-hover/tags:block"
-                  data-testid={`business-marketplace-agent-tags-tooltip-${agent.id}`}
-                >
-                  <div className="flex flex-wrap gap-1.5">
-                    {otherTags.map((tag, index) => (
-                      <span
-                        key={`${tag}-${index}`}
-                        className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
+          {categoryLabels.length > 0 ? (
+            <CategoryTagsPill
+              labels={categoryLabels}
+              className="min-w-0"
+              testId="business-protected-marketplace-agent-category-text"
+              moreTestId={`business-marketplace-agent-category-more-${agent.id}`}
+              tooltipTestId={`business-marketplace-agent-category-tooltip-${agent.id}`}
+            />
           ) : null}
         </div>
 
@@ -1976,28 +2098,43 @@ function AgentListCard({
       <AgentCardIcon iconUrl={agent.iconUrl} size={14} />
 
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden">
           <h3
-            className="text-base font-bold text-slate-900"
+            className="min-w-0 shrink truncate text-base font-bold text-slate-900"
             data-testid="business-protected-marketplace-agent-heading"
           >
             {agent.name}
           </h3>
 
-          <span
-            className="rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-600"
-            data-testid="business-protected-marketplace-agent-category-text-2"
-          >
-            {agent.category} 
-          </span>
-
           {agent.isNew ? (
             <span
-              className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold uppercase text-amber-700"
+              className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold uppercase text-amber-700"
               data-testid="business-protected-marketplace-new-text-2"
             >
               New
             </span>
+          ) : null}
+        </div>
+
+        <div className="mt-1.5 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden">
+          {getCardIndustryLabel(agent) ? (
+            <span
+              className="shrink-0 whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-600"
+              data-testid="business-protected-marketplace-agent-industry-text-2"
+            >
+              {getCardIndustryLabel(agent)}
+            </span>
+          ) : null}
+
+          {getCardCategoryLabels(agent).length > 0 ? (
+            <CategoryTagsPill
+              labels={getCardCategoryLabels(agent)}
+              compact
+              className="min-w-0"
+              testId="business-protected-marketplace-agent-category-text-2"
+              moreTestId={`business-marketplace-agent-category-more-list-${agent.id}`}
+              tooltipTestId={`business-marketplace-agent-category-tooltip-list-${agent.id}`}
+            />
           ) : null}
         </div>
 

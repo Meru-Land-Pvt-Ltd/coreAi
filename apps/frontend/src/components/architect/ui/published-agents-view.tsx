@@ -47,7 +47,7 @@ export function PublishedAgentsView() {
         title="Published Agents"
         description="Approved agents are live-ready for business buyers. This page mirrors the public storefront style with clean marketplace cards."
         actionLabel="Publish Agent"
-        actionHref="/architect/agents/publish"
+        actionHref="/architect/workflows"
       />
 
       <div className="mb-5 grid gap-5 sm:grid-cols-3">

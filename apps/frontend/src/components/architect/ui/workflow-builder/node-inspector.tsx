@@ -2650,11 +2650,15 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData, variableNodePrefixes 
   );
 }
 
-function AiProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
-  if (selectedNode.data.type === "ai.memory") {
-    return <MemoryNodeProps selectedNode={selectedNode} onUpdateNodeData={onUpdateNodeData} variableNodePrefixes={variableNodePrefixes} />;
+function AiProps(props: NodePropsPanel) {
+  if (props.selectedNode.data.type === "ai.memory") {
+    return <MemoryNodeProps {...props} />;
   }
 
+  return <StandardAiProps {...props} />;
+}
+
+function StandardAiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const lastOutput = str("lastTestOutput");
 

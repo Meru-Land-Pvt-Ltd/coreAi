@@ -2,11 +2,21 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "../../lib/prisma";
 import { PhoneNumberServiceError } from "../admin/twilio-number-service";
 import { assignPlatformNumber } from "./phone-assignment";
-import { findBuyerPlatformNumber } from "./phone-provisioning";
+import {
+  findBuyerPlatformNumber,
+  getPhoneNumberFeeWithSnapshotFallback
+} from "./phone-provisioning";
 
 const RUN = `phonetest-${process.pid}-${Date.now().toString(36)}`;
 const sharedNumber = `+1777${String(Date.now()).slice(-7)}`;
 const normalNumber = `+1778${String(Date.now()).slice(-7)}`;
+/**
+ * Imported by the Twilio sync, so it has pricing but no country. `+99` is not a
+ * real calling code, so neither Twilio Lookup nor the prefix fallback can
+ * resolve one — the reprice fails the same way whether or not the test
+ * environment has Twilio credentials.
+ */
+const countrylessNumber = `+99${String(Date.now()).slice(-9)}`;
 
 let dbAvailable = false;
 let buyerUserId = "";
@@ -53,12 +63,31 @@ beforeAll(async () => {
       isPlatformSmsSender: false
     }
   });
+  await prisma.platformPhoneNumber.create({
+    data: {
+      phoneNumber: countrylessNumber,
+      e164: countrylessNumber,
+      provider: "TWILIO",
+      status: "AVAILABLE",
+      voiceEnabled: true,
+      smsEnabled: true,
+      isPlatformSmsSender: false,
+      country: null,
+      // Deliberately unlike any real Twilio price, so a successful reprice
+      // could never be mistaken for the snapshot fallback.
+      providerMonthlyPriceMicroUsd: 6_770_000,
+      billingMonthlyPriceMicroUsd: 7_770_000,
+      pricingCurrency: "usd",
+      pricingNumberType: "local",
+      pricingFetchedAt: new Date()
+    }
+  });
 }, 30_000);
 
 afterAll(async () => {
   if (dbAvailable) {
-    await prisma.businessPhoneNumber.deleteMany({ where: { phoneNumber: { in: [sharedNumber, normalNumber] } } });
-    await prisma.platformPhoneNumber.deleteMany({ where: { phoneNumber: { in: [sharedNumber, normalNumber] } } });
+    await prisma.businessPhoneNumber.deleteMany({ where: { phoneNumber: { in: [sharedNumber, normalNumber, countrylessNumber] } } });
+    await prisma.platformPhoneNumber.deleteMany({ where: { phoneNumber: { in: [sharedNumber, normalNumber, countrylessNumber] } } });
     if (businessId) await prisma.business.deleteMany({ where: { id: businessId } });
     if (buyerUserId) await prisma.user.deleteMany({ where: { id: buyerUserId } });
   }
@@ -104,5 +133,23 @@ describe("shared SMS sender protection", () => {
 
     const routingRow = await prisma.businessPhoneNumber.findUnique({ where: { phoneNumber: sharedNumber } });
     expect(routingRow).toBeNull();
+  });
+});
+
+describe("buyer setup pricing", () => {
+  it("falls back to the stored price when a country-less number cannot be repriced", async () => {
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently (#2).");
+
+    const number = await prisma.platformPhoneNumber.findUnique({
+      where: { phoneNumber: countrylessNumber },
+      select: { id: true, country: true }
+    });
+    expect(number?.country).toBeNull();
+
+    // Used to throw PHONE_NUMBER_PRICING_COUNTRY_MISSING (422) and block setup.
+    const fee = await getPhoneNumberFeeWithSnapshotFallback(number!.id);
+
+    expect(fee.amountCents).toBe(777);
+    expect(fee.serviceCode).toBe("phone_number");
   });
 });

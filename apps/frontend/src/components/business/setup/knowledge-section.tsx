@@ -75,7 +75,7 @@ export function DocumentUploadSection({
   const [liveSyncWarning, setLiveSyncWarning] = useState<string | null>(null);
   const [liveSyncOk, setLiveSyncOk] = useState(false);
   const [syncRetrying, setSyncRetrying] = useState(false);
-  const [selectedDoctorIndex, setSelectedDoctorIndex] = useState<number>(0);
+  const [selectedTeamMemberIndex, setSelectedTeamMemberIndex] = useState<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [facts, setFacts] = useState<BusinessFactsData | null>(null);
@@ -533,8 +533,8 @@ export function DocumentUploadSection({
                 <div className="min-w-0">
                   <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
                     {facts.profileSuggestion.doctorNames.length > 1
-                      ? `Doctors (${facts.profileSuggestion.doctorNames.length} detected)`
-                      : "Doctor Name"}
+                      ? `Team members (${facts.profileSuggestion.doctorNames.length} detected)`
+                      : "Team member"}
                   </span>
                   <p className="text-xs text-slate-800 font-bold truncate mt-0.5">
                     {facts.profileSuggestion.doctorNames.join(", ")}
@@ -552,7 +552,7 @@ export function DocumentUploadSection({
                       }}
                       className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs"
                     >
-                      Add Doctors
+                      Add Team
                     </button>
                   ) : null}
                   <button
@@ -571,7 +571,7 @@ export function DocumentUploadSection({
             {!dismissedKeys.has("businessName") && facts?.profileSuggestion?.businessName ? (
               <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100">
                 <div className="min-w-0">
-                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Business / Hospital Name</span>
+                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Business Name</span>
                   <p className="text-xs text-slate-800 font-bold truncate mt-0.5">
                     {facts.profileSuggestion.businessName}
                   </p>
@@ -606,7 +606,7 @@ export function DocumentUploadSection({
               <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100">
                 <div className="min-w-0">
                   <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
-                    Services ({facts.profileSuggestion.services.length} procedures detected)
+                    Services ({facts.profileSuggestion.services.length} detected)
                   </span>
                   <p className="text-xs text-slate-700 font-medium truncate mt-0.5">
                     {facts.profileSuggestion.services.slice(0, 5).join(" · ")}

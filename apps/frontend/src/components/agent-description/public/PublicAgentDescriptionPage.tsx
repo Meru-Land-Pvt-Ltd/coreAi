@@ -258,6 +258,8 @@ export default function PublicAgentDescriptionPage() {
       similarHref={(id) => publicAgentPath(id)}
       showDemo
       demoMode="public"
+      demoIndustry={listing.industryTags?.[0] ?? tags[0] ?? ""}
+      demoSubindustry={listing.category ?? category}
       demoVideoUrl={listing.demoVideoUrl ?? null}
     />
   );

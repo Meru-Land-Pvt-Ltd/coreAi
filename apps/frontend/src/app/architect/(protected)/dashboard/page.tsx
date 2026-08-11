@@ -25,7 +25,7 @@ const AGENTS_ROUTE = "/architect/agents" as Route;
 function builderHrefFor(agent: ArchitectListing): Route {
   return (agent.workflowId
     ? `/architect/workflows/${agent.workflowId}/builder`
-    : "/architect/agents/publish") as Route;
+    : "/architect/workflows") as Route;
 }
 
 function formatLabel(value: string) {

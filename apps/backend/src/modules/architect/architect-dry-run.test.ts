@@ -76,6 +76,12 @@ const FULL_BOOKING_MESSAGE =
 const FORM_SEEDED_MESSAGE =
   "Hi, I'd like to book a Test Appointment please. My name is Alex Tester and my number is 555-001-7777.";
 
+function nextBookableWeekday(): string {
+  const date = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+  while (date.getUTCDay() === 0) date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
 async function dbUp(): Promise<boolean> {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -301,7 +307,7 @@ describe("business test path", () => {
     const booking = await providers.calendar.bookAppointment({
       calendarId: "primary",
       timeZone: "Asia/Kolkata",
-      slot: "2026-07-25 3:00 PM",
+      slot: `${nextBookableWeekday()} 3:00 PM`,
       service: "Test Appointment",
       customerName: "Owner Tester",
       customerPhone: "+15550012222"

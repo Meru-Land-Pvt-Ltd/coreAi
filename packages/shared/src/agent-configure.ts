@@ -1,3 +1,5 @@
+import { BROWSE_INDUSTRIES, industryTagsForCategorySelection, resolveBrowseIndustries } from "./industry-browse";
+import { TRIVEN_TARGET_SUBINDUSTRIES } from "./agent-industry-taxonomy";
 import { getNodeDefinition } from "./node-registry";
 
 export type AgentPricingModel = "free" | "one_time" | "subscription";
@@ -54,6 +56,7 @@ export const REQUIRED_INTEGRATION_DEFS: RequiredIntegrationDef[] = [
   { key: "webhook", label: "Custom webhook", description: "Send events to the buyer's systems" }
 ];
 
+/** @deprecated Prefer industry-scoped categories from INDUSTRY_CATEGORY_MAP. Kept for legacy listings. */
 export const AGENT_CATEGORIES = [
   "Communication",
   "Scheduling",
@@ -65,7 +68,14 @@ export const AGENT_CATEGORIES = [
   "Custom"
 ] as const;
 
+/** Category option that unlocks a free-text input in Configure. */
+export const AGENT_CATEGORY_CUSTOM = "Custom";
+
 export const AGENT_INDUSTRIES = [
+  // Exact launch subindustries used by Architect Configure and marketplace
+  // filtering. They are stored alongside the parent browse industry and
+  // legacy aliases, so new and existing listings remain interoperable.
+  ...TRIVEN_TARGET_SUBINDUSTRIES,
   "Dental",
   "Medical Clinic",
   "Dermatology",
@@ -110,19 +120,47 @@ export const LEGACY_INDUSTRY_MAP: Record<string, string> = {
 };
 
 /**
- * Map legacy industry names to their canonical equivalents, keep only values
- * present in AGENT_INDUSTRIES, and dedupe — so configureJson saved before the
- * list changed still loads safely.
+ * Map legacy industry names to their canonical equivalents, keep AGENT_INDUSTRIES
+ * and browse-industry labels, and dedupe — so configureJson saved before the
+ * list changed still loads safely, and Industry → Category selections persist.
  */
 export function normalizeIndustryTags(tags: string[]): string[] {
   const canonical = new Set<string>(AGENT_INDUSTRIES);
+  const browse = new Set<string>(BROWSE_INDUSTRIES);
   const result: string[] = [];
   for (const tag of tags) {
     const trimmed = tag.trim();
-    const mapped = LEGACY_INDUSTRY_MAP[trimmed] ?? trimmed;
-    if (canonical.has(mapped) && !result.includes(mapped)) result.push(mapped);
+    // Parent browse industries (e.g. Legal, Automotive) are canonical in the
+    // new taxonomy and must win over same-word legacy aliases.
+    const mapped = browse.has(trimmed) ? trimmed : (LEGACY_INDUSTRY_MAP[trimmed] ?? trimmed);
+    if ((canonical.has(mapped) || browse.has(mapped)) && !result.includes(mapped)) {
+      result.push(mapped);
+    }
   }
   return result;
+}
+
+/**
+ * Keep parent Industry + exact Subindustry + legacy aliases in sync. The DB
+ * already has `category` and `industryTags`, so this gives us explicit
+ * Industry/Subindustry semantics without a migration or duplicated fields.
+ */
+export function alignIndustryTagsWithSubindustry(category: string, tags: string[]): string[] {
+  const normalized = normalizeIndustryTags(tags);
+  const browseIndustry = resolveBrowseIndustries(normalized)[0];
+  if (!browseIndustry || !category.trim()) return normalized;
+
+  const subindustries = category
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (subindustries.length === 0) return normalized;
+
+  const derived = normalizeIndustryTags(
+    industryTagsForCategorySelection(browseIndustry, subindustries)
+  );
+  return Array.from(new Set([...derived, ...normalized]));
 }
 
 export const SETUP_TIME_OPTIONS = ["Under 2 min", "2-5 min", "5-10 min", "10+ min"] as const;
@@ -870,7 +908,7 @@ export function defaultAgentConfigure(seed?: {
     basics: {
       agentName: seed?.name?.trim() || "",
       tagline: seed?.tagline?.trim() || "",
-      category: "Communication",
+      category: "",
       industryTags: [],
       iconUrl: "",
       visibility: "public",
@@ -963,13 +1001,19 @@ export function normalizeAgentConfigure(
     ? (pricing.pricingModel as AgentPricingModel)
     : base.pricing.pricingModel;
 
+  const normalizedCategory = cleanString(basics.category, base.basics.category);
+  const normalizedIndustryTags = alignIndustryTagsWithSubindustry(
+    normalizedCategory,
+    cleanStringArray(basics.industryTags, base.basics.industryTags)
+  );
+
   return {
     version: 1,
     basics: {
       agentName: cleanString(basics.agentName, base.basics.agentName),
       tagline: dedupeAdjacentSentences(cleanString(basics.tagline, base.basics.tagline)),
-      category: cleanString(basics.category, base.basics.category),
-      industryTags: normalizeIndustryTags(cleanStringArray(basics.industryTags, base.basics.industryTags)),
+      category: normalizedCategory,
+      industryTags: normalizedIndustryTags,
       iconUrl: cleanString(basics.iconUrl, base.basics.iconUrl),
       visibility: basics.visibility === "private" ? "private" : "public",
       shortDescription: dedupeAdjacentSentences(cleanString(basics.shortDescription, base.basics.shortDescription))
@@ -986,8 +1030,9 @@ export function normalizeAgentConfigure(
     },
     template: {
       templateType: cleanString(template.templateType, base.template.templateType),
-      supportedIndustries: normalizeIndustryTags(
-        cleanStringArray(template.supportedIndustries, base.template.supportedIndustries)
+      supportedIndustries: alignIndustryTagsWithSubindustry(
+        normalizedCategory,
+        cleanStringArray(template.supportedIndustries, normalizedIndustryTags)
       ),
       requiredBuyerSetup,
       setupTimeEstimate: cleanString(template.setupTimeEstimate, base.template.setupTimeEstimate),
@@ -1043,10 +1088,10 @@ export function validateConfigureForSubmit(data: AgentConfigureData): ConfigureV
     issues.push({ step: 1, field: "tagline", message: "Tagline must be at least 10 characters." });
   }
   if (!data.basics.category.trim()) {
-    issues.push({ step: 1, field: "category", message: "Pick a category." });
+    issues.push({ step: 1, field: "category", message: "Select a subindustry." });
   }
   if (data.basics.industryTags.length === 0) {
-    issues.push({ step: 1, field: "industryTags", message: "Pick at least one industry tag." });
+    issues.push({ step: 1, field: "industryTags", message: "Select an industry." });
   }
 
   const plainDescription = data.media.fullDescription
@@ -1115,13 +1160,13 @@ export function validateConfigureForTemplateGallery(
     });
   }
   if (!data.basics.category.trim()) {
-    issues.push({ step: 1, field: "category", message: "Pick a category." });
+    issues.push({ step: 1, field: "category", message: "Select a subindustry." });
   }
   if (data.basics.industryTags.length === 0) {
     issues.push({
       step: 1,
       field: "industryTags",
-      message: "Pick at least one industry tag."
+      message: "Select an industry."
     });
   }
 

@@ -788,12 +788,12 @@ function spokenDateForYmd(ymd: string, timeZone?: string | null): string {
 
 export function resolveRequestedProvider(args: Record<string, unknown>): string | null {
   const raw = argStr(args, [
+    "provider_name",
+    "providerName",
+    "provider",
     "doctor",
     "doctor_name",
     "doctorName",
-    "provider",
-    "provider_name",
-    "providerName",
     "practitioner",
     "dentist",
     "staff_member",
@@ -2355,20 +2355,34 @@ export async function loadDentalToolConfig(businessId: string): Promise<DentalTo
 }
 
 /** An architect-defined "Booking label" buyer setup field also sets the label. */
-function customBookingLabelOf(configJson: Record<string, unknown>): string | undefined {
+export function customBookingLabelOf(configJson: Record<string, unknown>): string | undefined {
   if (!Array.isArray(configJson.customFields)) return undefined;
   const match = (configJson.customFields as Array<Record<string, unknown>>)
     .filter((item) => typeof item === "object" && item !== null)
-    .find((item) => item.key === "booking-label" || item.key === "booking-type");
+    .find((item) => {
+      const key = typeof item.key === "string" ? item.key.replace(/[^a-z0-9]/gi, "").toLowerCase() : "";
+      const label = typeof item.label === "string" ? item.label.replace(/[^a-z0-9]/gi, "").toLowerCase() : "";
+      return key === "bookinglabel" || key === "bookingtype" || label === "bookinglabel" || label === "bookingtype";
+    });
   return typeof match?.value === "string" ? match.value : undefined;
 }
 
 /** Fill [Bracketed] tokens in an SMS/confirmation template. */
+/**
+ * An empty value is treated as UNRESOLVED, not as a substitution. Blanking the
+ * placeholder would ship "Confirmed: on at with Acme." to a real caller; leaving
+ * "[Service]" in place lets the caller detect the gap and fall back.
+ */
 function applyBracketTemplate(template: string, values: Record<string, string>): string {
   return template.replace(/\[([^\]]+)\]/g, (match, key: string) => {
-    const normalized = key.trim().toLowerCase();
-    return values[normalized] ?? match;
+    const value = values[key.trim().toLowerCase()];
+    return value && value.trim() ? value : match;
   });
+}
+
+/** True when a resolved template still carries unfilled [Placeholder] slots. */
+function hasUnresolvedBrackets(text: string): boolean {
+  return /\[[^\]]+\]/.test(text);
 }
 
 function bracketTemplateValues(input: {
@@ -3152,19 +3166,31 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
     time: spokenTimeLabel
   });
 
-  const confirmation = ctx.dental?.confirmationMessage
+  const configuredConfirmation = ctx.dental?.confirmationMessage
     ? applyBracketTemplate(ctx.dental.confirmationMessage, bookingTemplateValues)
-    : `Perfect, ${patientName} — you're booked for ${service}${providerName ? ` with ${providerName}` : ""} on ${whenLabel}.`;
+    : "";
+
+  const confirmation =
+    configuredConfirmation && !hasUnresolvedBrackets(configuredConfirmation)
+      ? configuredConfirmation
+      : `Perfect, ${patientName} — you're booked for ${service}${providerName ? ` with ${providerName}` : ""} on ${whenLabel}.`;
 
   const bookingFacts = ctx.business?.businessId ? await loadBusinessFacts(ctx.business.businessId).catch(() => null) : null;
 
-  const eventTitleOverride = ctx.dental?.eventTitleFormat
+  const configuredEventTitle = ctx.dental?.eventTitleFormat
     ? applyBracketTemplate(ctx.dental.eventTitleFormat, bookingTemplateValues).trim()
     : "";
 
-  const eventDescription = ctx.dental?.eventDescription
+  const eventTitleOverride = hasUnresolvedBrackets(configuredEventTitle) ? "" : configuredEventTitle;
+
+  const configuredEventDescription = ctx.dental?.eventDescription
     ? applyBracketTemplate(ctx.dental.eventDescription, bookingTemplateValues)
-    : [
+    : "";
+
+  const eventDescription =
+    configuredEventDescription && !hasUnresolvedBrackets(configuredEventDescription)
+      ? configuredEventDescription
+      : [
       ...(bookingFacts?.addressFormatted ? [`Location: ${bookingFacts.addressFormatted}`] : []),
       `Customer: ${patientName}`,
       `Phone: ${patientPhone || "not provided"}`,
@@ -4440,9 +4466,9 @@ export async function runUpdateAppointmentContactTool(args: Record<string, unkno
     consent_status: "none",
     required_disclosure: verbalSmsConsentDisclosure(ctx.business?.businessName ?? ""),
     customerSpeechCode: "CONTACT_UPDATED" as const,
-    customerSafeMessage: `Done — your appointment now uses the number ending ${pending.slice(-4)}.`,
+    customerSafeMessage: `Done — your ${ctx.dental?.bookingLabel || "booking"} now uses the number ending ${pending.slice(-4)}.`,
     message:
-      "Appointment recipient updated. The new number has NO SMS consent yet — do not promise a text. If the caller wants a confirmation text, read the disclosure in required_disclosure word-for-word, then call record_sms_consent with only appointment_id and affirmative."
+      "Booking recipient updated. The new number has NO SMS consent yet — do not promise a text. If the caller wants a confirmation text, read the disclosure in required_disclosure word-for-word, then call record_sms_consent with only appointment_id and affirmative."
   };
 }
 
@@ -4530,6 +4556,8 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
     });
   }
 
+  const bookingNoun = (bookedAppointment?.service || ctx.dental?.bookingLabel || "booking").trim();
+
   const phone =
     bookedAppointment?.customerPhone ||
     consentContact.smsRecipientE164 ||
@@ -4543,7 +4571,7 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
       consent_recorded: false,
       sms_allowed: false,
       customerSpeechCode: "CONSENT_NO_RECIPIENT" as const,
-      customerSafeMessage: "Your appointment is still booked, but I couldn't set up the confirmation text.",
+      customerSafeMessage: `Your ${bookingNoun} is still confirmed, but I couldn't set up the confirmation text.`,
       message:
         "No canonical recipient is available from the appointment, confirmed call contact, or verified caller ID. Do NOT accept a spoken phone number here. If the caller needs a different number, call update_appointment_contact to correct it first, then call record_sms_consent again with only appointment_id and affirmative."
     };
@@ -4633,7 +4661,7 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
   const speech = declined
     ? {
       customerSpeechCode: "CONSENT_DECLINED" as const,
-      customerSafeMessage: "No problem — I won't send any texts. Your appointment is all set."
+      customerSafeMessage: `No problem — I won't send any texts. Your ${bookingNoun} is all set.`
     }
     : confirmationSmsSent
       ? {
@@ -4643,7 +4671,7 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
       : confirmationAttempted
         ? {
           customerSpeechCode: "CONFIRMATION_FAILED" as const,
-          customerSafeMessage: "Your appointment is still booked, but I couldn't send the confirmation text."
+          customerSafeMessage: `Your ${bookingNoun} is still confirmed, but I couldn't send the confirmation text.`
         }
         : {
           customerSpeechCode: "CONSENT_RECORDED" as const,

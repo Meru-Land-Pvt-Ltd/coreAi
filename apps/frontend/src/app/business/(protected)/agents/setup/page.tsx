@@ -16,6 +16,7 @@ import {
   normalizeBuyerSetupFields,
   normalizeTimeZone,
   resolveDeepgramMode,
+  TRIVEN_TARGET_SUBINDUSTRIES,
   validateBuyerSetupAnswers,
   VOICE_PRESETS,
   type WorkflowTriggerKind
@@ -103,6 +104,14 @@ const PLATFORM_DEFAULT_VOICE_ID = "triven-default";
 const TRIVEN_VOICE_NAME = "Triven Voice";
 const DEFAULT_VOICE_PROVIDER = "11labs";
 const DEFAULT_ASSISTANT_NAME = "AI Assistant";
+
+function inferBusinessTypeFromListing(listing: { category?: string | null; industryTags?: string[] } | null | undefined) {
+  if (!listing) return "";
+  const candidates = [listing.category ?? "", ...(listing.industryTags ?? [])]
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return candidates.find((value) => (TRIVEN_TARGET_SUBINDUSTRIES as readonly string[]).includes(value)) ?? "";
+}
 
 const STEPS = [
   { id: 1, title: "Connect", hint: "~60 seconds" },
@@ -910,7 +919,9 @@ function SetupWizard() {
         setAssistantName(readAssistantName(data));
       }
 
-      if (!isNewInstall && data.business) {
+      // Name and type belong to the business, so every agent installation
+      // should reuse them. Agent-specific configuration still starts fresh.
+      if (data.business) {
         setBusinessName(data.business.name);
         setBusinessType(data.business.type);
       }
@@ -983,15 +994,15 @@ function SetupWizard() {
           setGoodbyeMessage(data.silence.goodbye ?? "");
         }
 
-        if (data.phoneNumber) {
-          setForwardToPhone(data.phoneNumber.forwardToPhone ?? "");
-          setAssignedNumber(data.phoneNumber.phoneNumber ?? null);
-          setExistingPhoneNumber(data.phoneNumber.forwardToPhone ?? "");
-        }
       }
 
       // Always load available phone numbers and connection states — they reflect
       // shared business infrastructure, not the previous agent's configuration.
+      if (data.phoneNumber) {
+        setForwardToPhone(data.phoneNumber.forwardToPhone ?? "");
+        setAssignedNumber(data.phoneNumber.phoneNumber ?? null);
+        setExistingPhoneNumber(data.phoneNumber.forwardToPhone ?? "");
+      }
       setPhoneNumbers(data.availablePhoneNumbers ?? []);
       setSelectedPhoneId(isNewInstall ? "" : (data.selectedPlatformPhoneNumberId ?? ""));
       setCalendar(data.calendar ?? { connected: false, email: null });
@@ -1053,6 +1064,12 @@ function SetupWizard() {
 
         if (listingRes.success && listingRes.data?.listing) {
           setListing(listingRes.data.listing);
+
+          if (isNewInstall) {
+            const inferredBusinessType = inferBusinessTypeFromListing(listingRes.data.listing);
+            if (inferredBusinessType) setBusinessType(inferredBusinessType);
+          }
+
           if (listingRes.data.listing.setupTimeEstimate) {
             setSetupTimeEstimate(listingRes.data.listing.setupTimeEstimate);
           }
@@ -2278,7 +2295,9 @@ function SetupWizard() {
                     onKnowledgeChanged={handleKnowledgeChanged}
                     hoursSuggestionReady={businessHours.suggestion}
                     onReviewHours={() => jumpToConfigureSection("hours-availability")}
-                    clearAddressOnMount={isNewInstall}
+                    // The address is stored on the business, not an installed
+                    // agent. Reuse it when the business adds another agent.
+                    clearAddressOnMount={false}
                   />
                 </ConfigureSectionCard>
               )}
@@ -3379,7 +3398,7 @@ function MailSetupSection({
               id="mail-display-name"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              placeholder={businessName.trim() || "Smile Dental"}
+              placeholder={businessName.trim() || "Acme Business"}
               className="field w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
             />
           </div>
@@ -3395,7 +3414,7 @@ function MailSetupSection({
                 id="mail-alias"
                 value={localPart}
                 onChange={(e) => setLocalPart(e.target.value.toLowerCase())}
-                placeholder="smile-dental"
+                placeholder="acme-business"
                 className="w-full bg-transparent px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
               />
               <span className="flex items-center bg-slate-50 border-l border-gray-200 px-4 text-sm font-semibold text-slate-500 select-none">

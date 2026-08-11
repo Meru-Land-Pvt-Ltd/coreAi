@@ -21,11 +21,11 @@ describe("platform after-hours default is derived from the business type", () =>
     expect(policyScreensForEmergencies(policy)).toBe(true);
   });
 
-  it("a medical practice screens as MEDICAL, not DENTAL", () => {
+  it("a medical practice is categorized as MEDICAL but does not proactively triage by default", () => {
     const policy = resolveAfterHoursPolicy({ configJson: {}, businessType: "Pediatric clinic" });
     expect(policy).toBe(DEFAULT_MEDICAL_AFTER_HOURS_POLICY);
     expect(policy.emergencyCategory).toBe("MEDICAL");
-    expect(policyScreensForEmergencies(policy)).toBe(true);
+    expect(policyScreensForEmergencies(policy)).toBe(false);
   });
 
   it("non-clinical businesses get NO proactive screening, so booking is not gated", () => {

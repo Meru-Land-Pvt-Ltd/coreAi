@@ -88,14 +88,13 @@ export async function issueEmailVerificationCode(
     }
   });
 
-  // await sendVerificationEmail({
-  //   to: email,
-  //   code,
-  //   role,
-  //   purpose,
-  //   magicLinkUrl: magicLink ? buildMagicLinkUrl(magicLink.token) : undefined
-  // });
-  console.log(`[TESTING] OTP for ${email} (${role}): ${code}`);
+  await sendVerificationEmail({
+    to: email,
+    code,
+    role,
+    purpose,
+    magicLinkUrl: magicLink ? buildMagicLinkUrl(magicLink.token) : undefined
+  });
   return { email, role, sent: true as const };
 }
 

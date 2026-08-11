@@ -1,5 +1,7 @@
 /**
- * Real-database integration tests for Smart Memory (pgvector required).
+ * Real-database integration tests for Smart Memory's Postgres record store.
+ * Vector retrieval is covered with injected Pinecone-shaped dependencies so
+ * the suite remains hermetic and never calls a developer's external index.
  * These run against DATABASE_URL — they create their own fixtures under
  * unique test emails and clean up after themselves. Skipped automatically
  * when no database is reachable.
@@ -8,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "../../lib/prisma";
 import { env } from "../../config/env";
 import {
+  buildConversationScopeKey,
   buildScopeKey,
   buildSmartMemory,
   createSmartMemoryBuilder,
@@ -20,14 +23,9 @@ const dbAvailable = await prisma.$queryRaw`SELECT 1`.then(
   () => true,
   () => false
 );
-const pgvectorAvailable = dbAvailable
-  ? await prisma.$queryRaw`SELECT 1 FROM pg_extension WHERE extname = 'vector'`.then(
-      (rows) => Array.isArray(rows) && rows.length > 0,
-      () => false
-    )
-  : false;
-
-const d = describe.runIf(dbAvailable && pgvectorAvailable);
+const d = describe.runIf(dbAvailable);
+const originalPineconeApiKey = env.PINECONE_API_KEY;
+const originalProcessPineconeApiKey = process.env.PINECONE_API_KEY;
 
 const TEST_EMAIL = "smart-memory-itest@example.test";
 const ids = {
@@ -44,7 +42,9 @@ async function cleanupFixtures() {
 }
 
 beforeAll(async () => {
-  if (!dbAvailable || !pgvectorAvailable) return;
+  if (!dbAvailable) return;
+  env.PINECONE_API_KEY = undefined;
+  process.env.PINECONE_API_KEY = "";
   await cleanupFixtures();
   const user = await prisma.user.create({
     data: { email: TEST_EMAIL, role: "BUSINESS", fullName: "Smart Memory ITest" }
@@ -70,10 +70,16 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await cleanupFixtures();
+  env.PINECONE_API_KEY = originalPineconeApiKey;
+  if (originalProcessPineconeApiKey === undefined) {
+    delete process.env.PINECONE_API_KEY;
+  } else {
+    process.env.PINECONE_API_KEY = originalProcessPineconeApiKey;
+  }
 });
 
-d("real pgvector storage", () => {
-  test("stores full original records + chunks with tenant identity, dedupes on rerun", async () => {
+d("smart-memory storage and retrieval", () => {
+  test("stores full original records with tenant identity and dedupes on rerun", async () => {
     const input = {
       executedNodes: [
         { nodeId: "n1", label: "Research", status: "success", output: { text: "Implant pricing starts at $1,900." } }
@@ -86,17 +92,16 @@ d("real pgvector storage", () => {
     expect(first.storedRecords).toBeGreaterThanOrEqual(2);
     expect(first.memory).toContain("=== MEMORY ===");
 
-    const records = await prisma.memoryRecord.findMany({ where: { scopeKey: first.scopeKey } });
+    const records = await prisma.memoryRecord.findMany({
+      where: { scopeKey: buildConversationScopeKey(input.scope) }
+    });
     expect(records.length).toBe(first.storedRecords);
     const notes = records.find((r) => r.sourceType === "notes");
     expect(notes?.content).toBe("Mention the free first consult.");
     expect(notes?.businessId).toBe(ids.bizA);
     expect(notes?.installedAgentId).toBe(ids.agentA);
-    expect(notes?.embeddingStatus).toBe("pending");
-
-    const chunks = await prisma.memoryChunk.findMany({ where: { scopeKey: first.scopeKey } });
-    expect(chunks.length).toBeGreaterThanOrEqual(2);
-    expect(chunks.every((c) => c.recordId)).toBe(true);
+    expect(notes?.embeddingStatus).toBe("bypassed_short");
+    expect(first.storedChunks).toBe(0);
 
     const rerun = await buildSmartMemory(input);
     expect(rerun.storedRecords).toBe(0);
@@ -117,7 +122,9 @@ d("real pgvector storage", () => {
     });
     expect(a.scopeKey).not.toBe(b.scopeKey);
 
-    const crossRows = await prisma.memoryRecord.count({ where: { scopeKey: a.scopeKey, businessId: ids.bizB } });
+    const crossRows = await prisma.memoryRecord.count({
+      where: { scopeKey: buildConversationScopeKey({ businessId: ids.bizA, workflowId: ids.workflowId, nodeId: "m1", threadId: "itest-iso-A" }), businessId: ids.bizB }
+    });
     expect(crossRows).toBe(0);
   });
 
@@ -136,75 +143,35 @@ d("real pgvector storage", () => {
     expect(a.scopeKey).not.toBe(b.scopeKey);
   });
 
-  test("no-key embedding backfill reports pending honestly and search refuses", async () => {
+  test("search refuses honestly when Pinecone is not configured", async () => {
     const scope = { businessId: ids.bizA, workflowId: ids.workflowId, nodeId: "m2", threadId: "itest-embed-1" };
-    await buildSmartMemory({
-      executedNodes: [{ nodeId: "n1", label: "Step", status: "success", output: { text: "Needs embedding." } }],
-      scope
-    });
     const scopeKey = buildScopeKey(scope);
-
-    const progress = await defaultSmartMemoryDeps.embedPendingChunks(scopeKey, 10);
-    expect(progress.embedded).toBe(0);
-    expect(progress.pending).toBeGreaterThan(0);
 
     await expect(defaultSmartMemoryDeps.searchChunks(scopeKey, "anything", 20)).rejects.toThrow(
       /similarity retrieval unavailable/
     );
   });
 
-  test("synthetic vectors: cosine ordering works and resolveForQuery returns real vector mode", async () => {
-    const scope = { businessId: ids.bizA, workflowId: ids.workflowId, nodeId: "m3", threadId: "itest-vec-1" };
-    const scopeKey = buildScopeKey(scope);
-    await buildSmartMemory({
-      executedNodes: [
-        { nodeId: "n1", label: "Pricing", status: "success", output: { text: "Implants start at $1,900." } },
-        { nodeId: "n2", label: "Recovery", status: "success", output: { text: "Recovery takes 3 to 5 days." } },
-        { nodeId: "n3", label: "Hours", status: "success", output: { text: "Open 9am to 5pm weekdays." } }
-      ],
-      scope
-    });
-
-    const chunks = await prisma.memoryChunk.findMany({ where: { scopeKey }, orderBy: { createdAt: "asc" } });
-    expect(chunks.length).toBe(3);
-    for (let i = 0; i < chunks.length; i += 1) {
-      const vec = Array.from({ length: 1536 }, (_, dim) => (dim === i ? 1 : 0.001));
-      await prisma.$executeRaw`
-        UPDATE "MemoryChunk" SET "embedding" = ${`[${vec.join(",")}]`}::vector, "embeddingModel" = 'synthetic'
-        WHERE "id" = ${chunks[i].id}
-      `;
-    }
-
-    // Direct cosine ordering: query nearest to chunk index 1 ("Recovery").
-    const queryVec = Array.from({ length: 1536 }, (_, dim) => (dim === 1 ? 1 : 0.001));
-    const ordered = await prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT "id" FROM "MemoryChunk"
-      WHERE "scopeKey" = ${scopeKey} AND "embedding" IS NOT NULL
-      ORDER BY "embedding" <=> ${`[${queryVec.join(",")}]`}::vector
-      LIMIT 20
-    `;
-    expect(ordered[0].id).toBe(chunks[1].id);
-
-    // Full resolve path over threshold with a stubbed query-embedder.
+  test("injected vector results preserve provider relevance ordering", async () => {
+    const now = new Date();
     const builder = createSmartMemoryBuilder({
-      ...defaultSmartMemoryDeps,
-      async sumStoredTokens() {
-        return env.MEMORY_VECTOR_THRESHOLD_TOKENS + 1;
+      async storeCorpus() {
+        return { newRecords: 0, newChunks: 0 };
       },
-      async embedPendingChunks() {
-        return { embedded: 0, pending: 0 };
+      async searchChunks() {
+        return [
+          { id: "recovery", content: "Recovery takes 3 to 5 days.", sourceType: "node_output", sourceLabel: "Recovery", chunkIndex: 0, createdAt: now },
+          { id: "pricing", content: "Implants start at $1,900.", sourceType: "node_output", sourceLabel: "Pricing", chunkIndex: 0, createdAt: now }
+        ];
       },
-      async searchChunks(key, _query, topK) {
-        return prisma.$queryRaw`
-          SELECT "id", "content", "sourceType", "sourceLabel", "chunkIndex", "createdAt"
-          FROM "MemoryChunk"
-          WHERE "scopeKey" = ${key} AND "embedding" IS NOT NULL
-          ORDER BY "embedding" <=> ${`[${queryVec.join(",")}]`}::vector
-          LIMIT ${topK}
-        ` as never;
+      async sampleRecordsForTimeline() {
+        return [];
+      },
+      async countRecords() {
+        return 2;
       }
     });
-    const resolved = await builder.resolveForQuery({ scopeKey, query: "how long is recovery", rawMemory: "raw" });
+    const resolved = await builder.resolveForQuery({ scopeKey: "test-scope", query: "how long is recovery", rawMemory: "raw" });
     expect(resolved.mode).toBe("vector");
     expect(resolved.memory).toContain("[RELEVANT CONTEXT]");
     expect(resolved.memory.indexOf("Recovery takes 3 to 5 days.")).toBeGreaterThan(-1);
@@ -241,41 +208,6 @@ d("real pgvector storage", () => {
     expect(labels.some((label) => Number(label?.split(" ")[1]) >= 30)).toBe(true);
   });
 
-  test("retention: tenant token cap and TTL delete oldest records (chunks cascade)", async () => {
-    const scopeKey = "itest-retention-scope";
-    await prisma.memoryRecord.deleteMany({ where: { businessId: ids.bizB } });
-    const old = await prisma.memoryRecord.create({
-      data: {
-        scopeKey,
-        businessId: ids.bizB,
-        sourceType: "notes",
-        content: "very old note",
-        tokenCount: 400,
-        contentHash: "itest-ret-old",
-        createdAt: new Date("2020-01-01T00:00:00Z")
-      }
-    });
-    await prisma.memoryChunk.create({
-      data: { recordId: old.id, scopeKey, sourceType: "notes", content: "very old note", tokenCount: 400, contentHash: "itest-ret-old" }
-    });
-    await prisma.memoryRecord.create({
-      data: { scopeKey, businessId: ids.bizB, sourceType: "notes", content: "recent note", tokenCount: 400, contentHash: "itest-ret-new" }
-    });
-
-    const originalCap = env.MEMORY_MAX_TOKENS_PER_TENANT;
-    try {
-      (env as { MEMORY_MAX_TOKENS_PER_TENANT: number }).MEMORY_MAX_TOKENS_PER_TENANT = 500;
-      await defaultSmartMemoryDeps.enforceRetention({ businessId: ids.bizB });
-    } finally {
-      (env as { MEMORY_MAX_TOKENS_PER_TENANT: number }).MEMORY_MAX_TOKENS_PER_TENANT = originalCap;
-    }
-
-    const remaining = await prisma.memoryRecord.findMany({ where: { businessId: ids.bizB } });
-    // The 2020 record dies to BOTH the TTL and the cap; the recent one survives.
-    expect(remaining.map((r) => r.contentHash)).toEqual(["itest-ret-new"]);
-    expect(await prisma.memoryChunk.count({ where: { recordId: old.id } })).toBe(0);
-  });
-
   test("deleting a business cascades away all its memory", async () => {
     const doomed = await prisma.business.create({ data: { ownerId: ids.userId, name: "ITest Doomed", type: "gym" } });
     const stored = await buildSmartMemory({
@@ -287,27 +219,6 @@ d("real pgvector storage", () => {
     await prisma.business.delete({ where: { id: doomed.id } });
 
     expect(await prisma.memoryRecord.count({ where: { businessId: doomed.id } })).toBe(0);
-    expect(await prisma.memoryChunk.count({ where: { scopeKey: stored.scopeKey } })).toBe(0);
-  });
-
-  test("pruneScope keeps only the newest chunks in a scope", async () => {
-    const scopeKey = "itest-prune-scope";
-    await prisma.memoryChunk.deleteMany({ where: { scopeKey } });
-    for (let i = 0; i < 5; i += 1) {
-      await prisma.memoryChunk.create({
-        data: {
-          scopeKey,
-          sourceType: "notes",
-          content: `prune ${i}`,
-          tokenCount: 2,
-          contentHash: `itest-prune-${i}`,
-          createdAt: new Date(Date.UTC(2026, 0, 1 + i))
-        }
-      });
-    }
-    await defaultSmartMemoryDeps.pruneScope(scopeKey, 2);
-    const rows = await prisma.memoryChunk.findMany({ where: { scopeKey }, orderBy: { createdAt: "desc" } });
-    expect(rows.map((r) => r.content)).toEqual(["prune 4", "prune 3"]);
-    await prisma.memoryChunk.deleteMany({ where: { scopeKey } });
+    expect(stored.storedRecords).toBeGreaterThan(0);
   });
 });
