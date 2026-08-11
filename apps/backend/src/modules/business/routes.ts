@@ -3182,6 +3182,10 @@ function buildSetupReadiness(
   return { requiredConnectors, checklist, readyToDeploy, blockers };
 }
 
+function agentDetailText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 /** Per-agent business context saved by the setup wizard. */
 function agentBusinessDetails(configJson: unknown): Record<string, unknown> {
   const config =
@@ -3254,7 +3258,11 @@ function serializeSetup(
 
   return {
     business: business
-      ? { id: business.id, name: business.name, type: business.type }
+      ? {
+        id: business.id,
+        name: (ownsBusinessContext ? agentDetailText(agentDetails.businessName) : null) ?? business.name,
+        type: (ownsBusinessContext ? agentDetailText(agentDetails.businessType) : null) ?? business.type
+      }
       : null,
     profile: profile
       ? {
@@ -3743,10 +3751,13 @@ businessRoutes.post("/setup", async (c) => {
       ...(cleanOptional(input.vapiPhoneNumberId) ? { vapiPhoneNumberId: cleanOptional(input.vapiPhoneNumberId) } : {})
     };
 
+    const accountAgentCount = existing?.installedAgents?.length ?? 0;
+    const mayRenameAccount = accountAgentCount <= 1;
+
     const business = existing
       ? await prisma.business.update({
         where: { id: existing.id },
-        data: { name: input.businessName, type: input.businessType }
+        data: mayRenameAccount ? { name: input.businessName, type: input.businessType } : {}
       })
       : await prisma.business.create({
         data: { ownerId: authUser.id, name: input.businessName, type: input.businessType }
@@ -3762,7 +3773,9 @@ businessRoutes.post("/setup", async (c) => {
     // pipeline and survive every setup save.
     await replaceManualKnowledge(
       business.id,
-      input.knowledge.map((item) => ({ title: item.title, content: item.content }))
+      input.knowledge.map((item) => ({ title: item.title, content: item.content })),
+      // Same agent resolution used for the phone/config writes below.
+      phoneAgentForSetup?.id ?? null
     );
 
     let addressLiveSync: Awaited<ReturnType<typeof refreshLiveAssistantKnowledge>> | null = null;

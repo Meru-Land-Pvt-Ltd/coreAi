@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { COMMON_TIMEZONES } from "@coreai/shared";
 import { CompactWeeklyPreview } from "@/components/business/setup/weekly-preview";
 import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
@@ -153,6 +154,10 @@ export function BusinessHoursSection({
   registerApi?: (api: EmbeddedSectionApi | null) => void;
   refreshToken?: number;
 }) {
+  // In the setup wizard the URL carries ?listingId=, which scopes hours and
+  // closures to THAT agent. Business Settings has no listingId, so it keeps
+  // editing the business-wide schedule.
+  const hoursListingId = useSearchParams()?.get("listingId") ?? "";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -219,7 +224,7 @@ export function BusinessHoursSection({
 
   useEffect(() => {
     let mounted = true;
-    getBusinessHours().then((response) => {
+    getBusinessHours(hoursListingId || null).then((response) => {
       if (!mounted) return;
       if (response.success && response.data) {
         applyServerData(response.data);
@@ -248,7 +253,7 @@ export function BusinessHoursSection({
     refreshSeenRef.current = refreshToken;
 
     let cancelled = false;
-    getBusinessHours().then((response) => {
+    getBusinessHours(hoursListingId || null).then((response) => {
       if (cancelled || !response.success || !response.data) return;
       if (dirtyRef.current) {
         setSuggestion(filterSuggestion(response.data.suggestion ?? null));
@@ -506,7 +511,12 @@ export function BusinessHoursSection({
 
     setSaving(true);
     const persistedTimeZone = timeZoneOverride?.trim() && !persistOverrideTimeZone ? timeZone : effectiveTimeZone;
-    const response = await putBusinessHours({ hours: week, timeZone: persistedTimeZone, specialDates: dates });
+    const response = await putBusinessHours({
+      hours: week,
+      timeZone: persistedTimeZone,
+      specialDates: dates,
+      ...(hoursListingId ? { listingId: hoursListingId } : {})
+    });
     setSaving(false);
 
     if (!response.success || !response.data) {
@@ -1020,12 +1030,16 @@ export function BusinessHoursSection({
 
 /** Read-only weekly summary — for the go-live review and test summaries. */
 export function BusinessHoursSummary({ testIdPrefix = "business-hours-review" }: { testIdPrefix?: string }) {
+  // In the setup wizard the URL carries ?listingId=, which scopes hours and
+  // closures to THAT agent. Business Settings has no listingId, so it keeps
+  // editing the business-wide schedule.
+  const hoursListingId = useSearchParams()?.get("listingId") ?? "";
   const [data, setData] = useState<BusinessHoursData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let mounted = true;
-    getBusinessHours().then((response) => {
+    getBusinessHours(hoursListingId || null).then((response) => {
       if (!mounted) return;
       if (response.success && response.data) setData(response.data);
       setLoading(false);

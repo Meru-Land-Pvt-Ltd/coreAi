@@ -1048,7 +1048,10 @@ async function maybeStartVapiAfterMissedCall({
       ? await resolveAfterHoursPolicyForBusiness(businessId, agent.business.installedAgentId)
       : null;
     if (businessId && policy?.enabled) {
-      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: null });
+      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, {
+        simulate: null,
+        installedAgentId: agent.business.installedAgentId
+      });
       outboundHours = {
         state: snapshot.state.toLowerCase() as "open" | "closed" | "unknown",
         statusLine: snapshot.statusLine,
@@ -1312,7 +1315,10 @@ async function buildVapiAnswerTwiml({
       ? await resolveAfterHoursPolicyForBusiness(businessId, business.installedAgentId)
       : null;
     if (businessId && policy?.enabled) {
-      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: null });
+      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, {
+        simulate: null,
+        installedAgentId: business.installedAgentId
+      });
       hoursVariables = {
         state: snapshot.state.toLowerCase() as "open" | "closed" | "unknown",
         statusLine: snapshot.statusLine,

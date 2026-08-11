@@ -44,8 +44,27 @@ const specialSchema = z.object({
 const putHoursSchema = z.object({
   hours: z.array(daySchema).min(1).max(7),
   timeZone: z.string().trim().min(1),
-  specialDates: z.array(specialSchema).max(100).default([])
+  specialDates: z.array(specialSchema).max(100).default([]),
+  /**
+   * The agent these hours belong to. Without it the save is business-wide, so
+   * one agent's holiday closure shut down every sibling in the account.
+   */
+  listingId: z.string().trim().min(1).optional()
 });
+
+/** Resolve the agent a hours request is scoped to, if any. */
+async function resolveHoursAgentId(
+  businessId: string,
+  listingId?: string | null
+): Promise<string | null> {
+  if (!listingId) return null;
+  const agent = await prisma.installedAgent.findFirst({
+    where: { businessId, listingId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+  return agent?.id ?? null;
+}
 
 /* ---------------------------------- routes --------------------------------- */
 
@@ -98,7 +117,9 @@ businessHoursRoutes.get("/", async (c) => {
     });
   }
 
-  const state = await loadBusinessHoursState(business.id);
+  // ?listingId= scopes the editor to one agent's schedule and closures.
+  const hoursAgentId = await resolveHoursAgentId(business.id, c.req.query("listingId")?.trim() || null);
+  const state = await loadBusinessHoursState(business.id, hoursAgentId);
 
   // PDF-detected hours are ONLY a suggestion, and only while the buyer has
   // not confirmed a schedule themselves.
@@ -189,6 +210,7 @@ businessHoursRoutes.put("/", async (c) => {
 
   const stored = toStoredHoursJson(weekly) as never;
   const now = new Date();
+  const hoursAgentId = await resolveHoursAgentId(business.id, input.listingId);
 
   await prisma.$transaction(async (tx) => {
     await tx.businessProfile.upsert({
@@ -208,11 +230,16 @@ businessHoursRoutes.put("/", async (c) => {
       }
     });
 
-    await tx.businessSpecialHours.deleteMany({ where: { businessId: business.id } });
+    // Replace only THIS agent's closures. A business-wide save (no agent)
+    // still owns the legacy NULL-scoped rows; neither can clear the other.
+    await tx.businessSpecialHours.deleteMany({
+      where: { businessId: business.id, installedAgentId: hoursAgentId }
+    });
     if (specialEntries.length > 0) {
       await tx.businessSpecialHours.createMany({
         data: specialEntries.map((entry) => ({
           businessId: business.id,
+          installedAgentId: hoursAgentId,
           date: entry.date,
           kind: entry.kind,
           closed: entry.closed,

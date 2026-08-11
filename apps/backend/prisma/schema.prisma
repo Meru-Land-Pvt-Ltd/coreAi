@@ -344,6 +344,7 @@ model BusinessProfile {
 model BusinessSpecialHours {
   id          String   @id @default(cuid())
   businessId  String
+  installedAgentId String?
   /// "YYYY-MM-DD" calendar date in the business timezone.
   date        String
   /// "holiday" | "special" | "closure"
@@ -355,9 +356,11 @@ model BusinessSpecialHours {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
 
-  @@unique([businessId, date])
+  @@unique([businessId, installedAgentId, date])
   @@index([businessId])
+  @@index([installedAgentId])
 }
 
 model BusinessPhoneNumber {
@@ -398,6 +401,7 @@ model InstalledAgent {
   updatedAt                 DateTime                @updatedAt
   phoneNumbers              BusinessPhoneNumber[]
   knowledgeFiles            BusinessKnowledgeFile[]
+  specialHours              BusinessSpecialHours[]
   business                  Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
   listing                   AgentListing?           @relation(fields: [listingId], references: [id])
   workflow                  WorkflowDefinition      @relation(fields: [workflowId], references: [id], onDelete: Cascade)

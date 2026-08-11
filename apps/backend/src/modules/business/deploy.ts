@@ -366,7 +366,7 @@ async function buildInstalledAgentAssistantPlan(
     ""
   ).trim();
 
-  const hoursState = await loadBusinessHoursState(businessId);
+  const hoursState = await loadBusinessHoursState(businessId, installedAgent.id);
   const businessHours = hoursState.configured
     ? buildHoursPromptLines(hoursState).join("\n  ")
     : buildHoursPromptLines(hoursState)[0];
@@ -630,7 +630,7 @@ export async function buildInstalledAgentChatTestSetup(
   const chatFacts = await loadBusinessFacts(business.id);
   // Same structured Business Hours block the live assistant gets — the text
   // demo and voice tests must answer hour questions identically to live calls.
-  const chatHoursState = await loadBusinessHoursState(business.id);
+  const chatHoursState = await loadBusinessHoursState(business.id, installedAgent.id);
   const chatBusinessHours = chatHoursState.configured
     ? buildHoursPromptLines(chatHoursState).join("\n  ")
     : buildHoursPromptLines(chatHoursState)[0];
@@ -782,7 +782,10 @@ export async function startInstalledAgentPreviewCall(
   }
 
   const simulateHours = resolveSimulatedHoursState("BUSINESS_TEST", options?.simulateBusinessHoursState);
-  const previewSnapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: simulateHours });
+  const previewSnapshot = await buildAfterHoursSnapshotForBusiness(businessId, {
+    simulate: simulateHours,
+    installedAgentId: previewAgent?.id ?? null
+  });
 
   const plan = await buildInstalledAgentAssistantPlan(businessId, {
     ...(previewAgent ? { installedAgentId: previewAgent.id } : {}),

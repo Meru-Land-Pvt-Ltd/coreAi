@@ -509,9 +509,14 @@ export async function resolveScheduleForBusiness(input: {
       })
   ]);
 
+  const asRecord = (value: unknown): Record<string, unknown> =>
+    value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const agentDetails = asRecord(asRecord(agent?.configJson).businessDetails);
+  const agentHours = agentDetails.contextVersion === 2 ? agentDetails.hours : undefined;
+
   const schedule = resolveAppointmentSchedule({
     configJson: agent?.configJson ?? null,
-    hoursJson: business?.profile?.hoursJson ?? null,
+    hoursJson: agentHours !== undefined ? agentHours : business?.profile?.hoursJson ?? null,
     timeZone: business?.profile?.timeZone ?? null,
     calendarId: business?.profile?.calendarId ?? null
   });

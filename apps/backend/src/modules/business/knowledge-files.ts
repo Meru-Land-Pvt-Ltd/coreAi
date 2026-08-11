@@ -524,23 +524,25 @@ export async function deleteKnowledgeFile(businessId: string, fileId: string): P
   await prisma.businessKnowledgeFile.delete({ where: { id: file.id } });
 }
 
-/**
- * Replace the buyer's MANUALLY entered knowledge. Document-derived chunks
- * (sourceFileId set) are never touched — setup saves must not erase PDFs.
- */
 export async function replaceManualKnowledge(
   businessId: string,
-  entries: Array<{ title: string; content: string; contentJson?: unknown }>
+  entries: Array<{ title: string; content: string; contentJson?: unknown }>,
+  installedAgentId?: string | null
 ): Promise<void> {
   await prisma.$transaction([
     prisma.businessKnowledgeBase.deleteMany({
-      where: { businessId, sourceFileId: null }
+      where: {
+        businessId,
+        sourceFileId: null,
+        ...(installedAgentId ? { installedAgentId } : { installedAgentId: null })
+      }
     }),
     ...(entries.length > 0
       ? [
           prisma.businessKnowledgeBase.createMany({
             data: entries.map((item) => ({
               businessId,
+              installedAgentId: installedAgentId ?? null,
               title: item.title,
               content: item.content,
               contentJson: item.contentJson as never
