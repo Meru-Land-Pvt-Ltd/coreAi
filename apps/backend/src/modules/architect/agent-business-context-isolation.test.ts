@@ -32,7 +32,9 @@ function business() {
   };
 }
 
+/** contextVersion marks a FULLY migrated agent — see AGENT_BUSINESS_CONTEXT_VERSION. */
 const NAIL_SALON_DETAILS = {
+  contextVersion: 2,
   services: ["Gel manicure", "Pedicure"],
   faqs: [{ question: "Do you take walk-ins?", answer: "Yes, before 4pm." }],
   tone: "friendly",
@@ -96,6 +98,49 @@ describe("per-agent business context", () => {
     expect(nail.services).not.toEqual(wedding.services);
     expect(nail.tone).not.toBe(wedding.tone);
     expect(nail.teamPhone).not.toBe(wedding.teamPhone);
+  });
+
+  it("does not resurrect a field the buyer deliberately cleared", () => {
+    // Owns its context and left escalation/booking blank: the shared profile
+    // must NOT fill them, or the sibling's values silently come back.
+    const context = buildBusinessContext(business(), "+17252376218", {
+      id: "agent-nail-salon",
+      configJson: {
+        businessDetails: {
+          contextVersion: 2,
+          services: ["Gel manicure"],
+          escalationRules: null,
+          bookingUrl: null,
+          faqs: []
+        }
+      }
+    });
+
+    expect(context.escalationRules).toBeUndefined();
+    expect(context.bookingUrl).not.toBe("https://dreamday.example/book");
+    expect(context.faqs).toEqual([]);
+  });
+
+  it("keeps profile values for a PARTIALLY migrated agent (no version marker)", () => {
+    // Setup has long written a partial businessDetails block. Treating that as
+    // full ownership would blank the buyer's FAQs, escalation rules and booking
+    // URL — silent data loss for every pre-existing agent.
+    const context = buildBusinessContext(business(), "+17252245895", {
+      id: "agent-legacy-partial",
+      configJson: {
+        businessDetails: {
+          assistantName: "June Scott",
+          businessName: "DreamDayWeddings",
+          services: ["Wedding planning"]
+        }
+      }
+    });
+
+    expect(context.services).toEqual(["Wedding planning"]);
+    expect(context.escalationRules).toBe("Escalate venue disputes to the planner.");
+    expect(context.bookingUrl).toBe("https://dreamday.example/book");
+    expect(context.teamPhone).toBe("+15550000001");
+    expect(context.faqs.join(" ")).toContain("venues");
   });
 
   it("keeps calendar and timezone business-level — one business, one clock", () => {

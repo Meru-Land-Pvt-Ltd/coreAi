@@ -1,6 +1,9 @@
 import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
 
+/** Must match AGENT_BUSINESS_CONTEXT_VERSION in modules/business/routes.ts. */
+const AGENT_BUSINESS_CONTEXT_VERSION = 2;
+
 const APPLY = process.argv.includes("--apply");
 /** Also stamp agents that never completed setup (they normally start blank). */
 const INCLUDE_UNCONFIGURED = process.argv.includes("--include-unconfigured");
@@ -33,17 +36,12 @@ async function main() {
       const config = recordOf(agent.configJson);
       const details = recordOf(config.businessDetails);
 
-      // Already owns its context — never overwrite a buyer's saved values.
-      if (Object.keys(details).length > 0) {
+
+      if (details.contextVersion === AGENT_BUSINESS_CONTEXT_VERSION) {
         skipped += 1;
         continue;
       }
 
-      // An agent that never completed setup must START BLANK. Copying the
-      // shared profile onto it would hand a brand-new nail-salon agent the
-      // wedding planner's services, which is the exact bug this split exists to
-      // remove. Only agents that were actually configured under the old shared
-      // model inherit it.
       const wasConfigured =
         agent.status === "ACTIVE" ||
         typeof config.vapiAssistantId === "string" ||
@@ -57,6 +55,8 @@ async function main() {
         continue;
       }
 
+      // Merge onto whatever the agent already has: its own saved values win,
+      // the shared profile only fills what was never per-agent.
       const nextDetails = {
         services: profile.services ?? [],
         faqs: profile.faqsJson ?? [],
@@ -64,7 +64,9 @@ async function main() {
         escalationRules: profile.escalationRules ?? null,
         bookingUrl: profile.bookingUrl ?? null,
         teamPhone: profile.teamPhone ?? null,
-        ...(profile.hoursJson ? { hours: profile.hoursJson } : {})
+        ...(profile.hoursJson ? { hours: profile.hoursJson } : {}),
+        ...details,
+        contextVersion: AGENT_BUSINESS_CONTEXT_VERSION
       };
 
       console.log(

@@ -3188,9 +3188,10 @@ function agentBusinessDetails(configJson: unknown): Record<string, unknown> {
     : {};
 }
 
-/** True once an agent owns its business context (set on save, or by backfill). */
+export const AGENT_BUSINESS_CONTEXT_VERSION = 2;
+
 function hasAgentBusinessDetails(configJson: unknown): boolean {
-  return Object.keys(agentBusinessDetails(configJson)).length > 0;
+  return agentBusinessDetails(configJson).contextVersion === AGENT_BUSINESS_CONTEXT_VERSION;
 }
 
 function resolveSetupAgent<T extends { listingId: string | null }>(
@@ -3842,15 +3843,9 @@ businessRoutes.post("/setup", async (c) => {
             }
           }
         : {}),
-      // Per-agent business context. BusinessProfile holds ONE row per business,
-      // so two agents under one business shared — and overwrote — each other's
-      // services, FAQs, tone and escalation rules. These are now the
-      // authoritative per-agent values; readBuyerConfig already prefers
-      // businessDetails.* at deploy time. The BusinessProfile copy remains only
-      // as the business-level view (public booking page, settings, exports) and
-      // as the fallback for agents installed before this split.
-      businessDetails: {
+     businessDetails: {
         ...agentBusinessDetails(existingAgentConfig),
+        contextVersion: AGENT_BUSINESS_CONTEXT_VERSION,
         assistantName,
         businessName: input.businessName,
         businessType: input.businessType,

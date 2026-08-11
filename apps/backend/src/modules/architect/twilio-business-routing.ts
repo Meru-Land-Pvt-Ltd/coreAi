@@ -347,6 +347,12 @@ function agentDetailString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+const AGENT_BUSINESS_CONTEXT_VERSION = 2;
+
+function ownsFullBusinessContext(details: Record<string, unknown>): boolean {
+  return details.contextVersion === AGENT_BUSINESS_CONTEXT_VERSION;
+}
+
 export function buildBusinessContext(
   business: any,
   phoneNumber?: string | null,
@@ -359,6 +365,14 @@ export function buildBusinessContext(
       ? (installedAgent.configJson as Record<string, unknown>)
       : {};
   const agentDetails = readAgentBusinessDetails(installedAgent?.configJson);
+  const ownsAgentContext = ownsFullBusinessContext(agentDetails);
+  // An agent that owns its context never inherits a sibling's contact points.
+  const profileBookingUrl: string | undefined = ownsAgentContext
+    ? undefined
+    : agentDetailString(profile?.bookingUrl);
+  const profileTeamPhone: string | undefined = ownsAgentContext
+    ? undefined
+    : agentDetailString(profile?.teamPhone);
   const executionMode: BusinessRuntimeContext["executionMode"] =
     agentConfig.executionMode === "ARCHITECT_DRY_RUN" || agentConfig.executionMode === "BUSINESS_TEST"
       ? agentConfig.executionMode
@@ -377,12 +391,12 @@ export function buildBusinessContext(
     businessPhoneNumber: phoneNumber ?? undefined,
     bookingUrl:
       agentDetailString(agentDetails.bookingUrl) ??
-      profile?.bookingUrl ??
+      profileBookingUrl ??
       env.TWILIO_DEFAULT_BOOKING_URL ??
       undefined,
     teamPhone:
       agentDetailString(agentDetails.teamPhone) ??
-      profile?.teamPhone ??
+      profileTeamPhone ??
       env.TWILIO_DEFAULT_TEAM_PHONE ??
       undefined,
     calendarId: profile?.calendarId ?? env.GOOGLE_CALENDAR_ID ?? "primary",
@@ -393,14 +407,21 @@ export function buildBusinessContext(
     vapiPhoneNumberId: installedAgent
       ? cleanAgentId(agentConfig.vapiPhoneNumberId)
       : cleanAgentId(agentConfig.vapiPhoneNumberId) || profile?.vapiPhoneNumberId || undefined,
-    services: agentDetails.services
+    services: ownsAgentContext
       ? jsonStringArray(agentDetails.services)
-      : jsonStringArray(profile?.services),
-    faqs: agentDetails.faqs ? faqStrings(agentDetails.faqs) : faqStrings(profile?.faqsJson),
-    tone: agentDetailString(agentDetails.tone) ?? profile?.tone ?? "friendly",
-    escalationRules:
-      agentDetailString(agentDetails.escalationRules) ?? profile?.escalationRules ?? undefined,
-    hours: agentDetails.hours ?? profile?.hoursJson ?? undefined,
+      : jsonStringArray(agentDetails.services ?? profile?.services),
+    faqs: ownsAgentContext
+      ? faqStrings(agentDetails.faqs)
+      : faqStrings(agentDetails.faqs ?? profile?.faqsJson),
+    tone: ownsAgentContext
+      ? agentDetailString(agentDetails.tone) ?? "friendly"
+      : agentDetailString(agentDetails.tone) ?? profile?.tone ?? "friendly",
+    escalationRules: ownsAgentContext
+      ? agentDetailString(agentDetails.escalationRules)
+      : agentDetailString(agentDetails.escalationRules) ?? profile?.escalationRules ?? undefined,
+    hours: ownsAgentContext
+      ? (agentDetails.hours as unknown) ?? undefined
+      : agentDetails.hours ?? profile?.hoursJson ?? undefined,
     knowledge: formatKnowledgeEntries(knowledgeBases)
   };
 }
