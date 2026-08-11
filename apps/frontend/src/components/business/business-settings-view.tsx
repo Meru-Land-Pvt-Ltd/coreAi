@@ -210,7 +210,7 @@ const TABS: Array<{ id: SettingsTab; label: string; danger?: boolean }> = [
 
 const INDUSTRIES = Array.from(
   new Set([
-    ...TRIVEN_TARGET_SUBINDUSTRIES,
+    ...(TRIVEN_TARGET_SUBINDUSTRIES ?? []),
     ...AGENT_INDUSTRIES.filter((industry) => industry !== "Custom"),
     "E-commerce",
     "Other"

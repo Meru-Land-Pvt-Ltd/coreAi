@@ -138,4 +138,86 @@ describe("document-profile-extractor", () => {
     expect(therapy.doctorNames).toContain("Casey Stone");
   });
 
+  it("classifies and extracts Education documents (schools, coaching, academies)", () => {
+    const text = `
+    Evergreen Academy
+    School Code: SCH-88210
+
+    Faculty & Staff:
+    Principal: Dr. Sophia Ramirez
+    Mr. Daniel Cho — Head of Mathematics
+    Ms. Priya Patel, Teacher
+    Mr. James Whitfield — Guidance Counselor
+
+    Courses & Services:
+    - Course Enrollment
+    - Student Support
+    - College Counseling
+    - Peer Tutoring
+    - Learning Support
+    `;
+
+    const result = extractProfileFallbackFromText(text);
+    expect(result.category).toBe("education");
+    expect(result.categoryLabel).toBe("Education");
+    expect(result.teamLabel).toBe("Faculty & Staff");
+    expect(result.offeringsLabel).toBe("Courses & Programs");
+    expect(result.businessName).toBe("Evergreen Academy");
+    expect(result.teamMembers).toEqual(expect.arrayContaining([
+      "Dr. Sophia Ramirez", "Mr. Daniel Cho", "Ms. Priya Patel", "Mr. James Whitfield"
+    ]));
+    expect(result.services).toContain("Course Enrollment");
+    expect(result.services).toContain("College Counseling");
+    expect(result.registrationNumber).toBe("SCH-88210");
+  });
+
+  it("classifies and extracts Home Services documents (plumbing, HVAC, cleaning)", () => {
+    const text = `
+    Apex Plumbing & Heating Solutions
+    License No: LIC-449102
+
+    Our Technicians:
+    Master Electrician: Tech Mike Johnson
+    Technician: David Miller
+
+    Services Offered:
+    - Emergency Plumbing
+    - HVAC Inspection
+    - Drain Cleaning
+    - Electrical Repair
+    `;
+
+    const result = extractProfileFallbackFromText(text);
+    expect(result.category).toBe("home_services");
+    expect(result.teamLabel).toBe("Technicians & Team");
+    expect(result.offeringsLabel).toBe("Services & Rates");
+    expect(result.teamMembers).toEqual(expect.arrayContaining(["Mike Johnson", "David Miller"]));
+    expect(result.services).toContain("Emergency Plumbing");
+    expect(result.services).toContain("HVAC Inspection");
+    expect(result.registrationNumber).toBe("LIC-449102");
+  });
+
+  it("classifies and extracts Finance documents (advisors, products, compliance)", () => {
+    const text = `
+    Vanguard Wealth & Financial Advisory
+    FINRA Registration No: FIN-99201
+
+    Financial Advisors:
+    Financial Advisor: Sarah Connor, CPA
+    Advisor: Mark Williams
+
+    Services:
+    - Tax Preparation
+    - Mortgage Consultation
+    - Wealth Management
+    `;
+
+    const result = extractProfileFallbackFromText(text);
+    expect(result.category).toBe("finance");
+    expect(result.teamLabel).toBe("Advisors & Consultants");
+    expect(result.offeringsLabel).toBe("Financial Products & Services");
+    expect(result.teamMembers).toEqual(expect.arrayContaining(["Sarah Connor", "Mark Williams"]));
+    expect(result.services).toContain("Tax Preparation");
+    expect(result.services).toContain("Wealth Management");
+  });
 });

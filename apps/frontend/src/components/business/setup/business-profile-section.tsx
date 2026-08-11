@@ -38,7 +38,7 @@ const LEGACY_BUSINESS_TYPE_OPTIONS = [
 ];
 
 const BUSINESS_TYPE_OPTIONS = [
-  ...TRIVEN_AGENT_TAXONOMY_ENTRIES.map((entry) => ({
+  ...(TRIVEN_AGENT_TAXONOMY_ENTRIES ?? []).map((entry) => ({
     value: entry.subindustry,
     label: `${entry.subindustry} · ${entry.industry}`
   })),
@@ -147,7 +147,7 @@ export function BusinessProfileSection({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 min-w-0 w-full overflow-hidden">
       {/* 1. TOP: Document Upload UI */}
       <DocumentUploadSection
         listingId={listingId}
@@ -242,17 +242,13 @@ export function BusinessProfileSection({
           {/* Generic provider/team roster (works across healthcare, legal, real estate, automotive, etc.) */}
           {(() => {
             const primaryDoctor = contactName.trim();
-            const detectedList = (profileSuggestion?.doctorNames ?? []).filter((d) => Boolean(d.trim()));
-            const combinedList = Array.from(
-              new Set([primaryDoctor, ...allContactNames, ...detectedList].filter(Boolean))
+            // Active roster consists ONLY of explicitly added team members (or user-entered primary contact)
+            const activeRoster = Array.from(
+              new Set([primaryDoctor, ...allContactNames].filter(Boolean))
             );
 
-            if (combinedList.length === 0 && !showDoctorChips) return null;
-
-            const activeRoster =
-              allContactNames.length > 0
-                ? allContactNames
-                : combinedList;
+            // Only show the team roster when the user has added team members or clicked "Add Team"
+            if (activeRoster.length === 0 && !showDoctorChips) return null;
 
             const currentPrimary = primaryDoctor || activeRoster[0] || "";
 
@@ -264,11 +260,10 @@ export function BusinessProfileSection({
 
             const toggleInRoster = (docName: string) => {
               if (activeRoster.includes(docName)) {
-                if (activeRoster.length <= 1) return; // Keep at least one
                 const next = activeRoster.filter((n) => n !== docName);
                 onAllContactNames?.(next);
-                if (currentPrimary === docName && next.length > 0) {
-                  onContactName(next[0]);
+                if (currentPrimary === docName) {
+                  onContactName(next[0] ?? "");
                 }
               } else {
                 const next = [...activeRoster, docName];
@@ -288,8 +283,7 @@ export function BusinessProfileSection({
                 </div>
 
                 <div className="flex flex-wrap gap-1.5 pt-0.5">
-                  {combinedList.map((docName, idx) => {
-                    const isSelected = activeRoster.includes(docName);
+                  {activeRoster.map((docName, idx) => {
                     const isPrimary = currentPrimary === docName;
 
                     return (
@@ -298,33 +292,38 @@ export function BusinessProfileSection({
                         className={`inline-flex items-center gap-2 text-xs rounded-full px-3 py-1 border transition-all ${
                           isPrimary
                             ? "bg-amber-500 border-amber-500 text-white font-semibold shadow-2xs"
-                            : isSelected
-                            ? "bg-white border-amber-300 text-slate-800 font-medium hover:border-amber-400"
-                            : "bg-gray-50 border-gray-200 text-slate-400 hover:border-slate-300 opacity-60"
+                            : "bg-white border-amber-300 text-slate-800 font-medium hover:border-amber-400"
                         }`}
                       >
-                        <button
-                          type="button"
-                          onClick={() => toggleInRoster(docName)}
-                          className="cursor-pointer font-medium hover:opacity-80"
-                        >
-                          {isSelected ? "✓ " : "+ "}{docName}
-                        </button>
+                        <span className="font-medium">
+                          {docName}
+                        </span>
 
                         {isPrimary ? (
                           <span className="text-[9px] bg-amber-700/90 text-amber-50 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
                             Primary
                           </span>
-                        ) : isSelected ? (
+                        ) : (
                           <button
                             type="button"
                             onClick={() => setAsPrimary(docName)}
-                            className="text-[10px] text-amber-600 hover:text-amber-700 font-semibold cursor-pointer border-l border-amber-200 pl-1.5"
+                            className="text-[10px] text-slate-500 hover:text-amber-600 underline font-medium cursor-pointer"
                             title="Make primary contact"
                           >
-                            Make Primary
+                            Set Primary
                           </button>
-                        ) : null}
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => toggleInRoster(docName)}
+                          className={`cursor-pointer font-bold ${
+                            isPrimary ? "text-amber-100 hover:text-white" : "text-slate-400 hover:text-red-500"
+                          }`}
+                          title="Remove from team"
+                        >
+                          ✕
+                        </button>
                       </div>
                     );
                   })}

@@ -173,7 +173,7 @@ export function DocumentUploadSection({
     !dismissedKeys.has("address") &&
     Boolean(facts?.documentSuggestion);
 
-  const showHoursSuggestion = !dismissedKeys.has("hours") && hoursSuggestionReady;
+  const showHoursSuggestion = !dismissedKeys.has("hours") && hoursSuggestionReady && Boolean(onReviewHours);
 
   const hasSuggestionsToShow =
     showDoctorSuggestion ||
@@ -329,7 +329,7 @@ export function DocumentUploadSection({
   }
 
   return (
-    <div>
+    <div className="min-w-0 w-full overflow-hidden">
       <div className="flex items-center justify-between gap-2">
         <h4 className={`${SECTION_TITLE} inline-flex items-center`}>
           Documents & Knowledge Base
@@ -376,13 +376,12 @@ export function DocumentUploadSection({
           {uploadError}
         </p>
       ) : null}
-
       {knowledgeFiles.length > 0 || pendingUploads.length > 0 ? (
-        <div className="mt-2.5 space-y-2" data-testid="business-setup-uploaded-files">
+        <div className="mt-2.5 space-y-2 overflow-hidden" data-testid="business-setup-uploaded-files">
           {pendingUploads.map((row) => (
             <div
               key={row.key}
-              className="flex items-center gap-3 border-b border-gray-150 py-2.5 group"
+              className="flex items-center justify-between gap-3 border-b border-gray-150 py-2.5 group min-w-0"
               data-testid="business-setup-knowledge-file"
             >
               <span className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 grid place-items-center shrink-0">
@@ -391,8 +390,10 @@ export function DocumentUploadSection({
                   <polyline points="14 2 14 8 20 8" />
                 </svg>
               </span>
-              <div className="flex-1 min-w-0" data-testid="business-setup-file-chip">
-                <p className="text-xs font-medium text-slate-700 truncate">{row.name}</p>
+              <div className="flex-1 min-w-0 overflow-hidden" data-testid="business-setup-file-chip">
+                <p className="text-xs font-medium text-slate-700 truncate max-w-full" title={row.name}>
+                  {row.name}
+                </p>
                 <p className="text-[11px] text-slate-400">{formatKnowledgeFileSize(row.size)}</p>
               </div>
               <span
@@ -412,7 +413,7 @@ export function DocumentUploadSection({
             return (
               <div
                 key={file.id}
-                className="flex items-center gap-3 border-b border-gray-150 py-2.5 group"
+                className="flex items-center justify-between gap-3 border-b border-gray-150 py-2.5 group min-w-0"
                 data-testid="business-setup-knowledge-file"
               >
                 <span className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 grid place-items-center shrink-0">
@@ -421,8 +422,10 @@ export function DocumentUploadSection({
                     <polyline points="14 2 14 8 20 8" />
                   </svg>
                 </span>
-                <div className="flex-1 min-w-0" data-testid="business-setup-file-chip">
-                  <p className="text-xs font-medium text-slate-700 truncate">{file.filename}</p>
+                <div className="flex-1 min-w-0 overflow-hidden" data-testid="business-setup-file-chip">
+                  <p className="text-xs font-medium text-slate-700 truncate max-w-full" title={file.filename}>
+                    {file.filename}
+                  </p>
                   <p className="text-[11px] text-slate-400">
                     {formatKnowledgeFileSize(file.sizeBytes)}
                     {file.ready
@@ -430,12 +433,14 @@ export function DocumentUploadSection({
                       : ""}
                   </p>
                   {needsRepair ? (
-                    <p className="text-[11px] text-amber-600 mt-0.5">
+                    <p className="text-[11px] text-amber-600 mt-0.5 truncate" title="Processed record doesn't match stored knowledge — retry processing.">
                       Processed record doesn&rsquo;t match stored knowledge — retry processing.
                     </p>
                   ) : null}
                   {(file.status === "FAILED" || file.status === "REUPLOAD_REQUIRED") && file.errorMessage ? (
-                    <p className="text-[11px] text-rose-600 mt-0.5">{file.errorMessage}</p>
+                    <p className="text-[11px] text-rose-600 mt-0.5 truncate" title={file.errorMessage}>
+                      {file.errorMessage}
+                    </p>
                   ) : null}
                 </div>
                 <span
@@ -480,17 +485,7 @@ export function DocumentUploadSection({
           role="alert"
           data-testid="business-setup-knowledge-sync-warning"
         >
-          <p>Documents saved, but live agent wasn&rsquo;t updated yet.</p>
-          {liveSyncWarning ? <p className="mt-0.5 text-[11px] text-amber-600">{liveSyncWarning}</p> : null}
-          <button
-            type="button"
-            disabled={syncRetrying}
-            onClick={() => void handleSyncRetry()}
-            className="mt-1 text-[11px] font-semibold text-amber-700 underline hover:text-amber-800 transition-colors disabled:opacity-50"
-            data-testid="business-setup-knowledge-sync-retry"
-          >
-            {syncRetrying ? "Retrying sync…" : "Retry sync"}
-          </button>
+          {liveSyncWarning}
         </div>
       ) : liveSyncOk ? (
         <p className="mt-1.5 text-xs text-green-600" data-testid="business-setup-knowledge-sync-ok">
@@ -513,209 +508,239 @@ export function DocumentUploadSection({
       ) : null}
 
       {/* Unified minimalist confirmation card for extracted details */}
-      {hasSuggestionsToShow ? (
-        <div className="mt-4 border-t border-gray-200/60 pt-4 animate-fade-in space-y-3.5">
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3 h-3">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+      {hasSuggestionsToShow ? (() => {
+        const suggestion = facts?.profileSuggestion;
+        const rawTeamMembers = suggestion?.teamMembers?.length ? suggestion.teamMembers : (suggestion?.doctorNames ?? []);
+        const teamMembersLabel = suggestion?.teamLabel ?? "Team Members";
+        const offeringsLabel = suggestion?.offeringsLabel ?? "Services & Offerings";
+        const licenseLabel = suggestion?.licenseOrRegLabel ?? "License / Registration No.";
+        const categoryLabel = suggestion?.categoryLabel;
+
+        return (
+          <div className="mt-4 border-t border-gray-200/60 pt-4 animate-fade-in space-y-3.5 min-w-0 w-full overflow-hidden">
+            <div className="flex items-center justify-between gap-2 min-w-0 w-full">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3 h-3">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+                <h5 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate">
+                  Detected details from your documents
+                </h5>
+              </div>
+
+              {categoryLabel ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100/80 text-amber-800 border border-amber-200/60 shrink-0">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                  {categoryLabel}
+                </span>
+              ) : null}
             </div>
-            <h5 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              Detected details from your documents
-            </h5>
+
+            <div className="grid min-w-0 w-full overflow-hidden">
+              {/* 1. Dynamic Team Members Extraction */}
+              {!dismissedKeys.has("doctor") && rawTeamMembers.length > 0 ? (
+                <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 min-w-0 w-full overflow-hidden">
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide truncate">
+                      {rawTeamMembers.length > 1
+                        ? `${teamMembersLabel} (${rawTeamMembers.length} detected)`
+                        : teamMembersLabel}
+                    </span>
+                    <p
+                      className="text-xs text-slate-800 font-bold truncate block w-full overflow-hidden text-ellipsis whitespace-nowrap mt-0.5"
+                      title={rawTeamMembers.join(", ")}
+                    >
+                      {rawTeamMembers.join(", ")}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {onApplyContactName ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onApplyContactName(rawTeamMembers.join(", "));
+                          dismissRow("doctor");
+                        }}
+                        className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs shrink-0"
+                      >
+                        Add Team
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => dismissRow("doctor")}
+                      className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer shrink-0"
+                      title="Remove suggestion"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* 2. Business Name Suggestion */}
+              {!dismissedKeys.has("businessName") && suggestion?.businessName ? (
+                <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 min-w-0 w-full overflow-hidden">
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide truncate">Business Name</span>
+                    <p
+                      className="text-xs text-slate-800 font-bold truncate block w-full overflow-hidden text-ellipsis whitespace-nowrap mt-0.5"
+                      title={suggestion.businessName}
+                    >
+                      {suggestion.businessName}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {onApplyBusinessName ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onApplyBusinessName(suggestion.businessName!);
+                          dismissRow("businessName");
+                        }}
+                        className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs shrink-0"
+                      >
+                        Add Name
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => dismissRow("businessName")}
+                      className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer shrink-0"
+                      title="Remove suggestion"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* 3. Extracted Services / Offerings */}
+              {!dismissedKeys.has("services") && suggestion?.services && suggestion.services.length > 0 ? (
+                <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 min-w-0 w-full overflow-hidden">
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide truncate">
+                      {offeringsLabel} ({suggestion.services.length} detected)
+                    </span>
+                    <p
+                      className="text-xs text-slate-700 font-medium truncate block w-full overflow-hidden text-ellipsis whitespace-nowrap mt-0.5"
+                      title={suggestion.services.join(" · ")}
+                    >
+                      {suggestion.services.slice(0, 5).join(" · ")}
+                      {suggestion.services.length > 5 ? "..." : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {onApplyServices ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onApplyServices(suggestion.services);
+                          dismissRow("services");
+                        }}
+                        className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs shrink-0"
+                      >
+                        Add Services
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => dismissRow("services")}
+                      className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer shrink-0"
+                      title="Remove suggestion"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* 4. Registration / License Number */}
+              {suggestion?.registrationNumber ? (
+                <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 min-w-0 w-full overflow-hidden">
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide truncate">{licenseLabel}</span>
+                    <p
+                      className="text-xs text-slate-700 font-semibold truncate block w-full overflow-hidden text-ellipsis whitespace-nowrap mt-0.5"
+                      title={suggestion.registrationNumber}
+                    >
+                      {suggestion.registrationNumber}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* 5. Business Address */}
+              {!dismissedKeys.has("address") && facts?.documentSuggestion ? (
+                <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 last:border-b-0 min-w-0 w-full overflow-hidden">
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide truncate">Business Address</span>
+                    <p className="text-xs text-slate-700 font-medium truncate block w-full overflow-hidden text-ellipsis whitespace-nowrap mt-0.5" title={facts.documentSuggestion.formatted}>
+                      {facts.documentSuggestion.formatted}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      disabled={addressApplying}
+                      onClick={() => void handleApplyAddress(facts.documentSuggestion!)}
+                      className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 cursor-pointer shadow-2xs shrink-0"
+                    >
+                      {addressApplying ? "Applying..." : "Add Address"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dismissRow("address")}
+                      className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer shrink-0"
+                      title="Remove suggestion"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* 6. Operating Hours */}
+              {!dismissedKeys.has("hours") && hoursSuggestionReady && onReviewHours ? (
+                <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 last:border-b-0 min-w-0 w-full overflow-hidden">
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide truncate">Business Hours</span>
+                    <p className="text-xs text-slate-700 font-medium truncate block w-full overflow-hidden text-ellipsis whitespace-nowrap mt-0.5">
+                      Weekly operating hours detected from document
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {onReviewHours ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onReviewHours();
+                          dismissRow("hours");
+                        }}
+                        className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs shrink-0"
+                      >
+                        View Hours
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => dismissRow("hours")}
+                      className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer shrink-0"
+                      title="Remove suggestion"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
-
-          <div className="grid">
-            {/* 1. Doctor / Contact Name Extraction */}
-            {!dismissedKeys.has("doctor") && facts?.profileSuggestion?.doctorNames && facts.profileSuggestion.doctorNames.length > 0 ? (
-              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100">
-                <div className="min-w-0">
-                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
-                    {facts.profileSuggestion.doctorNames.length > 1
-                      ? `Team members (${facts.profileSuggestion.doctorNames.length} detected)`
-                      : "Team member"}
-                  </span>
-                  <p className="text-xs text-slate-800 font-bold truncate mt-0.5">
-                    {facts.profileSuggestion.doctorNames.join(", ")}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {onApplyContactName ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onApplyContactName(
-                          facts.profileSuggestion!.doctorNames.join(", ")
-                        );
-                        dismissRow("doctor");
-                      }}
-                      className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs"
-                    >
-                      Add Team
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => dismissRow("doctor")}
-                    className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer"
-                    title="Remove suggestion"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            {/* 2. Business Name Suggestion */}
-            {!dismissedKeys.has("businessName") && facts?.profileSuggestion?.businessName ? (
-              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100">
-                <div className="min-w-0">
-                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Business Name</span>
-                  <p className="text-xs text-slate-800 font-bold truncate mt-0.5">
-                    {facts.profileSuggestion.businessName}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {onApplyBusinessName ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onApplyBusinessName(facts.profileSuggestion!.businessName!);
-                        dismissRow("businessName");
-                      }}
-                      className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs"
-                    >
-                      Add Name
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => dismissRow("businessName")}
-                    className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer"
-                    title="Remove suggestion"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            {/* 3. Extracted Services */}
-            {!dismissedKeys.has("services") && facts?.profileSuggestion?.services && facts.profileSuggestion.services.length > 0 ? (
-              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100">
-                <div className="min-w-0">
-                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
-                    Services ({facts.profileSuggestion.services.length} detected)
-                  </span>
-                  <p className="text-xs text-slate-700 font-medium truncate mt-0.5">
-                    {facts.profileSuggestion.services.slice(0, 5).join(" · ")}
-                    {facts.profileSuggestion.services.length > 5 ? "..." : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {onApplyServices ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onApplyServices(facts.profileSuggestion!.services);
-                        dismissRow("services");
-                      }}
-                      className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs"
-                    >
-                      Add Services
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => dismissRow("services")}
-                    className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer"
-                    title="Remove suggestion"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            {/* 4. Registration Number */}
-            {facts?.profileSuggestion?.registrationNumber ? (
-              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100">
-                <div className="min-w-0">
-                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">License / Registration No.</span>
-                  <p className="text-xs text-slate-700 font-semibold truncate mt-0.5">
-                    {facts.profileSuggestion.registrationNumber}
-                  </p>
-                </div>
-              </div>
-            ) : null}
-
-            {/* 5. Business Address */}
-            {!dismissedKeys.has("address") && facts?.documentSuggestion ? (
-              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 last:border-b-0">
-                <div className="min-w-0">
-                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Business Address</span>
-                  <p className="text-xs text-slate-700 font-medium truncate mt-0.5" title={facts.documentSuggestion.formatted}>
-                    {facts.documentSuggestion.formatted}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    disabled={addressApplying}
-                    onClick={() => void handleApplyAddress(facts.documentSuggestion!)}
-                    className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 cursor-pointer shadow-2xs"
-                  >
-                    {addressApplying ? "Applying..." : "Add Address"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => dismissRow("address")}
-                    className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer"
-                    title="Remove suggestion"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            {/* 6. Operating Hours */}
-            {!dismissedKeys.has("hours") && hoursSuggestionReady ? (
-              <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 last:border-b-0">
-                <div className="min-w-0">
-                  <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Business Hours</span>
-                  <p className="text-xs text-slate-700 font-medium truncate mt-0.5">
-                    Weekly operating hours detected from document
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {onReviewHours ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onReviewHours();
-                        dismissRow("hours");
-                      }}
-                      className="text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs"
-                    >
-                      View Hours
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => dismissRow("hours")}
-                    className="text-slate-400 hover:text-slate-600 p-1 text-xs cursor-pointer"
-                    title="Remove suggestion"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+        );
+      })() : null}
     </div>
   );
 }
