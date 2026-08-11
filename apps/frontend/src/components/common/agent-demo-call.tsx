@@ -47,8 +47,6 @@ async function stopDemoVapiClient(client: VapiWebClient | null): Promise<void> {
 }
 
 async function getDemoVapiClient(publicKey: string): Promise<VapiWebClient> {
-    if (sharedDemoClient && sharedDemoClientKey === publicKey) return sharedDemoClient;
-
     if (sharedDemoClient) {
         await stopDemoVapiClient(sharedDemoClient);
         try {
@@ -349,11 +347,7 @@ export function AgentDemoCall({
                 metadata: { listingId: session.listingId, purpose: "MARKETPLACE_DEMO" }
             };
 
-            let started = await client.start(session.assistantId, startOverrides);
-            if (!started && !failureHandled) {
-                await stopDemoVapiClient(client);
-                started = await client.start(session.assistantId, startOverrides);
-            }
+            const started = await client.start(session.assistantId, startOverrides);
 
             if (!started && !failureHandled) {
                 failureHandled = true;
