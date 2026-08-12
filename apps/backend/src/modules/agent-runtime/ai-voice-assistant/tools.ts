@@ -3,10 +3,9 @@ import {
   toAiSafeAvailabilityResult,
   toAiSafeBookingResult
 } from "../../compliance/ai-safe-results";
-import {
-  gateLiveAfterHoursAction,
-  logAfterHoursRouting
-} from "../../architect/after-hours-live-gate";
+import { gateLiveAfterHoursAction } from "../../architect/after-hours-live-gate";
+import { logAfterHoursRouting } from "../../business/after-hours-state";
+import { CallStateUnavailableError } from "../../architect/call-contact-store";
 import {
   runBookAppointmentTool,
   runCancelAppointmentTool,
@@ -17,7 +16,6 @@ import {
   runSendNotificationTool,
   runUpdateAppointmentContactTool,
   runVerifyAndLookupAppointmentTool,
-  CallStateUnavailableError,
   dryRunAvailabilitySlots,
   todayInZone,
   CANCEL_FAILED_MESSAGE,
@@ -80,7 +78,7 @@ export async function executeToolGateway(
       businessId: ctx.business?.businessId ?? null,
       installedAgentId: ctx.installedAgentId ?? null,
       callId: ctx.callId,
-      route: ctx.afterHours.route ?? null,
+      route: ctx.afterHours.state?.route ?? null,
       executionMode: ctx.executionMode,
       outcome: afterHoursBlock.code,
       callerPhone: ctx.customerPhone || null
@@ -170,7 +168,7 @@ async function runTransferCallTool(
   params: Record<string, unknown>,
   ctx: VoiceToolContext
 ): Promise<NormalizedToolResult> {
-  const target = (params.destinationNumber as string) || (params.department as string) || ctx.business?.contactPhone;
+  const target = (params.destinationNumber as string) || (params.department as string) || ctx.business?.teamPhone;
   if (!target) {
     return {
       success: false,

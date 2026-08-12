@@ -48,7 +48,12 @@ import {
   handleTwilioVoice,
   handleTwilioVoiceAction
 } from "./twilio-business-routing";
-import { handleVapiWebhook } from "../agent-runtime/ai-voice-assistant";
+// The live Vapi webhook stays on the battle-tested handler — every webhook
+// test suite drives THIS implementation. The ai-voice-assistant module's
+// handler is compiled and importable, but cutting production over to it must
+// be a deliberate change with its own test migration, not a build-fix side
+// effect (it landed uncompilable, so it has never actually run anywhere).
+import { handleVapiWebhook } from "./twilio-business-routing";
 import { whatsappRoutes } from "../whatsapp/routes";
 import { handleWhatsAppWebhookPost, verifyWhatsAppWebhookChallenge } from "../whatsapp/webhook";
 import {
@@ -2655,7 +2660,7 @@ architectRoutes.get("/listings", async (c) => {
     const limit = parseMarketplacePageSize(c.req.query("limit"));
     const cursor = decodeListingCursor(c.req.query("cursor"));
 
-    const [allListings, profile] = await Promise.all([
+    const [allListings, sales, profile, installedAgents] = await Promise.all([
       prisma.agentListing.findMany({
         where: {
           architectUserId: authUser.id,
@@ -2667,6 +2672,7 @@ architectRoutes.get("/listings", async (c) => {
               id: true,
               name: true,
               description: true,
+              configureJson: true,
               updatedAt: true
             }
           },
@@ -2679,6 +2685,10 @@ architectRoutes.get("/listings", async (c) => {
         }
       }).catch((err) => {
         console.error("[listings] findMany failed", err);
+        return [];
+      }),
+      loadArchitectEarnings(authUser.id).catch((err) => {
+        console.error("[listings] loadArchitectEarnings failed", err);
         return [];
       }),
       prisma.architectProfile.findUnique({
@@ -2751,6 +2761,12 @@ architectRoutes.get("/listings", async (c) => {
         return true;
       })
       .map(({ _count, workflow, ...listing }) => {
+        const configureFields = workflow
+          ? myAgentsCardFieldsFromConfigure(workflow.configureJson, {
+              name: workflow.name || listing.name,
+              description: workflow.description ?? listing.shortDescription
+            })
+          : null;
         const screenshotUrls = listing.screenshotUrls ?? [];
         const tags = listing.industryTags?.length
           ? listing.industryTags

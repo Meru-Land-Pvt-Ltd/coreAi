@@ -2318,7 +2318,7 @@ function SetupWizard() {
                     onSummaryChange={setKnowledgeSummary}
                     onKnowledgeChanged={handleKnowledgeChanged}
                     hoursSuggestionReady={businessHours.suggestion}
-                    onReviewHours={setupVisibility.availability ? () => jumpToConfigureSection("hours-availability") : undefined}
+                    onReviewHours={setupVisibility.hours ? () => jumpToConfigureSection("hours-availability") : undefined}
                     // The address is stored on the business, not an installed
                     // agent. Reuse it when the business adds another agent.
                     clearAddressOnMount={false}

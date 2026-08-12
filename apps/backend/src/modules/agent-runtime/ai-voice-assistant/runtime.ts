@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { getVoiceSession, saveVoiceSession, updateVoiceSessionState } from "./session";
 import { buildUnifiedVoiceSystemPrompt } from "./prompt";
 import { handleVapiWebhook, startVapiOutboundCall, deployVapiAssistant } from "./vapi";
-import type { AssistantDeployInput, ExecutionMode } from "./types";
+import type { ExecutionMode } from "./types";
 
 export async function prepareVoiceAssistantRuntime(
   businessId: string,
@@ -35,7 +35,7 @@ export async function triggerOutboundCall(input: Parameters<typeof startVapiOutb
   return startVapiOutboundCall(input);
 }
 
-export async function deployAssistant(input: AssistantDeployInput) {
+export async function deployAssistant(input: Parameters<typeof deployVapiAssistant>[0]) {
   return deployVapiAssistant(input);
 }
 

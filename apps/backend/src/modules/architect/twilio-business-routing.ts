@@ -130,7 +130,7 @@ import { recordVapiCallUsage } from "../business/usage-billing";
 
 type TwilioBody = Record<string, unknown>;
 
-type BusinessRuntimeContext = {
+export type BusinessRuntimeContext = {
   businessId?: string;
   ownerId?: string;
   installedAgentId?: string;
@@ -196,7 +196,7 @@ export function workflowSupportsSmsReplies(workflowJson: unknown): boolean {
   });
 }
 
-async function parseBody(c: Context): Promise<Record<string, unknown>> {
+export async function parseBody(c: Context): Promise<Record<string, unknown>> {
   const contentType = c.req.header("content-type") ?? "";
 
   if (contentType.includes("application/json")) {
@@ -285,7 +285,7 @@ function getNestedRecord(value: unknown, keys: string[]) {
   return current;
 }
 
-function firstNestedString(body: Record<string, unknown>, paths: string[][]) {
+export function firstNestedString(body: Record<string, unknown>, paths: string[][]) {
   for (const path of paths) {
     const value = getNestedRecord(body, path);
     if (typeof value === "string" && value.trim()) return value.trim();
@@ -430,7 +430,7 @@ export function buildBusinessContext(
   };
 }
 
-async function latestActiveInstalledAgent(businessId: string) {
+export async function latestActiveInstalledAgent(businessId: string) {
   const active = await prisma.installedAgent.findMany({
     where: { businessId, status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
@@ -452,7 +452,7 @@ export function isInstalledAgentActivityPaused(status?: string | null) {
   return normalized === "PAUSED" || normalized === "SUSPENDED_BILLING";
 }
 
-async function isVapiInstalledAgentPaused(businessId: string, installedAgentId?: string) {
+export async function isVapiInstalledAgentPaused(businessId: string, installedAgentId?: string) {
   if (installedAgentId) {
     const agent = await prisma.installedAgent.findFirst({
       where: { id: installedAgentId, businessId },
@@ -2124,7 +2124,7 @@ export async function handleTwilioMessageStatus(c: Context) {
   return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
 }
 
-function getVapiMetadata(body: Record<string, unknown>) {
+export function getVapiMetadata(body: Record<string, unknown>) {
   const paths: string[][] = [
     ["message", "assistant", "metadata"],
     ["assistant", "metadata"],
@@ -2239,7 +2239,7 @@ function getFirstToolCall(body: Record<string, unknown>) {
   };
 }
 
-async function findBusinessByVapiWebhook(body: Record<string, unknown>) {
+export async function findBusinessByVapiWebhook(body: Record<string, unknown>) {
   const metadata = getVapiMetadata(body);
   const businessId = typeof metadata.businessId === "string" ? metadata.businessId : "";
 
@@ -2523,7 +2523,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 /** Dry-run availability generated from the configured business hours — never a hard failure. */
-function dryRunAvailabilitySlots(dental: DentalToolConfig | null): string[] {
+export function dryRunAvailabilitySlots(dental: DentalToolConfig | null): string[] {
   const openHour = dental?.openHour ?? 9;
   const closeHour = dental?.closeHour ?? 17;
   const duration = dental?.defaultDurationMinutes ?? 30;
@@ -2573,7 +2573,7 @@ const INVALID_DATE_RESULT = {
 const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
 /** Today's date (YYYY-MM-DD) in the given timezone. */
-function todayInZone(timeZone: string): string {
+export function todayInZone(timeZone: string): string {
   return new Date().toLocaleDateString("en-CA", { timeZone });
 }
 
@@ -2664,7 +2664,7 @@ const EMAIL_ARG_KEYS = [
 ];
 
 /** Collect ALL tool calls in a Vapi webhook (one webhook can carry several). */
-function getAllToolCalls(body: Record<string, unknown>): Array<{ id: string; name: string; parameters: Record<string, unknown> }> {
+export function getAllToolCalls(body: Record<string, unknown>): Array<{ id: string; name: string; parameters: Record<string, unknown> }> {
   const out: Array<{ id: string; name: string; parameters: Record<string, unknown> }> = [];
   const parseArgs = (raw: unknown): Record<string, unknown> => {
     if (typeof raw === "string") {
@@ -3683,7 +3683,7 @@ const CANCEL_NO_MATCH_MESSAGE =
 const CANCEL_CALLER_ID_UNAVAILABLE_MESSAGE =
   "I’m unable to verify the phone number for this call, so I can’t cancel an appointment automatically. Please call from the phone number used when booking or contact the business team for assistance.";
 
-const CANCEL_FAILED_MESSAGE =
+export const CANCEL_FAILED_MESSAGE =
   "I couldn’t complete the cancellation just now. Please try again in a moment, or contact the business team and they’ll take care of it.";
 
 function formatApptDate(startAt: Date, timeZone?: string | null): string {
@@ -3724,7 +3724,7 @@ function trustedCallerE164(ctx: VapiToolContext): string | null {
   return validated.e164;
 }
 
-async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+export async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { cancelled: false, code: "BUSINESS_NOT_RESOLVED", message: CANCEL_FAILED_MESSAGE };
   }
@@ -3964,13 +3964,13 @@ async function runCancelAppointmentTool(args: Record<string, unknown>, ctx: Vapi
 
 /* ------------------------- appointment rescheduling ------------------------ */
 
-const RESCHEDULE_FAILED_MESSAGE =
+export const RESCHEDULE_FAILED_MESSAGE =
   "I couldn’t complete the reschedule just now. Your original appointment is unchanged. Please try again in a moment, or contact the business team and they’ll take care of it.";
 
 const RESCHEDULE_CALLER_ID_UNAVAILABLE_MESSAGE =
   "I’m unable to verify the phone number for this call, so I can’t reschedule an appointment automatically. Please call from the phone number used when booking or contact the business team for assistance.";
 
-async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+export async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { rescheduled: false, code: "BUSINESS_NOT_RESOLVED", message: RESCHEDULE_FAILED_MESSAGE };
   }
@@ -4299,7 +4299,7 @@ async function runRescheduleAppointmentTool(args: Record<string, unknown>, ctx: 
   };
 }
 
-async function runVerifyAndLookupAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+export async function runVerifyAndLookupAppointmentTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   if (!ctx.business?.businessId) {
     return { verified: false, code: "BUSINESS_NOT_RESOLVED", message: "Business could not be verified." };
   }
@@ -4389,7 +4389,7 @@ async function runVerifyAndLookupAppointmentTool(args: Record<string, unknown>, 
   }
 }
 
-async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+export async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   const query = argStr(args, ["query", "question", "topic", "search"]) || ctx.transcript.slice(-300);
   const businessId = ctx.business?.businessId;
 
@@ -4777,7 +4777,7 @@ export async function runRecordSmsConsentTool(args: Record<string, unknown>, ctx
 }
 
 /** send_notification: SMS the customer and/or the business team. */
-async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiToolContext) {
+export async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiToolContext) {
   let customerSmsSent = false;
   let teamSmsSent = false;
   let customerEmailSent = false;
@@ -5185,7 +5185,7 @@ async function runSendNotificationTool(args: Record<string, unknown>, ctx: VapiT
   };
 }
 
-function authorizeVapiWebhook(
+export function authorizeVapiWebhook(
   c: Context,
   body: Record<string, unknown>
 ): { authorized: boolean; reason: string; requiresArchitectSandbox?: boolean } {
@@ -5217,7 +5217,7 @@ function authorizeVapiWebhook(
   return { authorized: false, reason: "missing or invalid webhook secret" };
 }
 
-async function isArchitectSandboxBusiness(business: unknown): Promise<boolean> {
+export async function isArchitectSandboxBusiness(business: unknown): Promise<boolean> {
   const businessId = (business as { id?: unknown } | null)?.id;
   if (typeof businessId !== "string" || !businessId) return false;
   const sandboxAgent = await prisma.installedAgent.findFirst({
