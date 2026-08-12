@@ -1,6 +1,18 @@
-import { PaymentStatus } from "@prisma/client";
+import { Prisma, PaymentStatus } from "@prisma/client";
 
 export type PaymentLineItem = { label: string; amountCents: number };
+
+
+export function workspacePaymentWhere(
+  userId: string,
+  businessId: string | null
+): Prisma.PaymentWhereInput {
+  return {
+    userId,
+    OR: [{ businessId: null }, ...(businessId ? [{ businessId }] : [])],
+    NOT: { lineItemsJson: { path: ["deletedWorkspaceBusinessId"], not: Prisma.DbNull } }
+  };
+}
 
 export type PaymentWithListing = {
   id: string;
@@ -32,11 +44,8 @@ export type PaymentWithListing = {
   } | null;
 };
 
-/**
- * The agent-price portion of a payment — the first breakdown row. Platform
- * fees (e.g. the number fee) ride on later rows and must not feed architect
- * earnings/payouts. Payments without a breakdown are all agent price.
- */
+
+
 export function paymentAgentGrossCents(payment: {
   amountCents: number;
   lineItemsJson?: unknown;

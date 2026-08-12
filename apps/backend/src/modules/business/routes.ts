@@ -134,7 +134,8 @@ import {
 import { extractBuyerEmailRecipients, parseEmailList } from "../email/email-node-config";
 import {
   buildDashboardActivities,
-  sumInvoiceTotalCents
+  sumInvoiceTotalCents,
+  workspacePaymentWhere
 } from "../../lib/billing-invoices";
 import { businessSettingsRoutes } from "./settings-routes";
 import { businessOnboardingRoutes } from "./onboarding-routes";
@@ -963,16 +964,19 @@ businessRoutes.get("/calls/:id/recording-url", async (c) => {
 businessRoutes.get("/dashboard", async (c) => {
   const authUser = c.get("authUser");
 
+  const primaryBusinessId = await resolvePrimaryBusinessId(authUser.id);
   const [business, payments] = await Promise.all([
     prisma.business.findFirst({
-      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
+      where: { id: primaryBusinessId ?? "" },
       include: {
         installedAgents: { orderBy: { createdAt: "desc" } },
         phoneNumbers: includeActivePhoneNumbers({ take: 1 })
       }
     }),
+    // Workspace-scoped: a deleted workspace's payments (or another business's)
+    // must never appear as activity/spend on a fresh workspace's dashboard.
     prisma.payment.findMany({
-      where: { userId: authUser.id },
+      where: workspacePaymentWhere(authUser.id, primaryBusinessId),
       orderBy: { createdAt: "desc" },
       include: {
         listing: {

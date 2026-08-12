@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { PaymentInvoiceKind, PaymentStatus, Prisma, UsageInvoiceStatus } from "@prisma/client";
+import { PaymentInvoiceKind, PaymentStatus, UsageInvoiceStatus } from "@prisma/client";
 import { z } from "zod";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
@@ -10,6 +10,7 @@ import {
   invoiceDateForPayment,
   invoiceDisplayAmountCents,
   parsePaymentLineItems,
+  workspacePaymentWhere,
   type PaymentWithListing
 } from "../../lib/billing-invoices";
 import {
@@ -472,8 +473,9 @@ paymentRoutes.get("/config", (c) => {
 paymentRoutes.get("/history", async (c) => {
   const authUser = c.get("authUser");
 
+  // Workspace-scoped: a deleted workspace's payments never resurface here.
   const payments = await prisma.payment.findMany({
-    where: { userId: authUser.id },
+    where: workspacePaymentWhere(authUser.id, await resolvePrimaryBusinessId(authUser.id)),
     orderBy: { createdAt: "desc" },
     include: {
       listing: {
@@ -500,9 +502,11 @@ paymentRoutes.get("/billing", async (c) => {
     await restoreBusinessAfterBillingPayment(businessId);
   }
 
+  const billingBusinessId = await resolvePrimaryBusinessId(authUser.id);
   const [payments, business] = await Promise.all([
+    // Workspace-scoped: a deleted workspace's payments never resurface here.
     prisma.payment.findMany({
-      where: { userId: authUser.id },
+      where: workspacePaymentWhere(authUser.id, billingBusinessId),
       orderBy: { createdAt: "desc" },
       include: {
         listing: {
@@ -519,7 +523,7 @@ paymentRoutes.get("/billing", async (c) => {
       }
     }),
     prisma.business.findFirst({
-      where: { id: (await resolvePrimaryBusinessId(authUser.id)) ?? "" },
+      where: { id: billingBusinessId ?? "" },
       select: {
         id: true,
         name: true,
@@ -946,13 +950,8 @@ paymentRoutes.get("/my-agents", async (c) => {
   const [payments, business] = await Promise.all([
     prisma.payment.findMany({
       where: {
-        userId: authUser.id,
-        listingId: { not: null },
-        OR: [
-          { businessId: null },
-          ...(currentBusinessId ? [{ businessId: currentBusinessId }] : [])
-        ],
-        NOT: { lineItemsJson: { path: ["deletedWorkspaceBusinessId"], not: Prisma.DbNull } }
+        ...workspacePaymentWhere(authUser.id, currentBusinessId),
+        listingId: { not: null }
       },
       orderBy: { createdAt: "desc" },
       include: {
