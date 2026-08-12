@@ -1255,6 +1255,9 @@ function SetupWizard() {
 
   const canPersist = businessName.trim().length >= 2 && businessType.trim().length >= 2;
 
+  const CANNOT_PERSIST_MESSAGE =
+    "Add your business name and type before continuing — nothing on this page can be saved without them.";
+
   const bookingRules = validateBookingRules(apptFields);
   const bookingRulesBlocked = apptLoaded && !bookingRules.valid;
 
@@ -1467,12 +1470,15 @@ function SetupWizard() {
     setCalendarBusy(true);
 
     try {
-      if (canPersist) {
-        const saved = await persistSetup(false);
+      // The OAuth redirect reloads the page, so an unsaved form is gone for good.
+      if (!canPersist) {
+        throw new Error(CANNOT_PERSIST_MESSAGE);
+      }
 
-        if (!saved.ok) {
-          throw new Error("Could not save your setup before connecting.");
-        }
+      const saved = await persistSetup(false);
+
+      if (!saved.ok) {
+        throw new Error("Could not save your setup before connecting.");
       }
 
       const consent = await postBusinessCalendarDisclosureConsent({
@@ -1515,11 +1521,14 @@ function SetupWizard() {
     }
     setCalendlyBusy(true);
     try {
-      if (canPersist) {
-        const saved = await persistSetup(false);
-        if (!saved.ok) {
-          throw new Error("Could not save your setup before connecting.");
-        }
+      // The OAuth redirect reloads the page, so an unsaved form is gone for good.
+      if (!canPersist) {
+        throw new Error(CANNOT_PERSIST_MESSAGE);
+      }
+
+      const saved = await persistSetup(false);
+      if (!saved.ok) {
+        throw new Error("Could not save your setup before connecting.");
       }
       const res = await getBusinessCalendlyOAuthUrl(String(businessSetupPath(listingId || undefined)));
       if (res.success && res.data?.url) {
@@ -1570,7 +1579,14 @@ function SetupWizard() {
       return;
     }
 
-    if (step < STEPS.length && canPersist) {
+    if (step < STEPS.length) {
+      // Advancing without saving loses the step's edits on the next reload.
+      if (!canPersist) {
+        setError(CANNOT_PERSIST_MESSAGE);
+        setStep(getConfigureStepId());
+        return;
+      }
+
       setSaving(true);
       const saved = await persistSetup(false);
       setSaving(false);
@@ -1766,7 +1782,11 @@ function SetupWizard() {
   const showCalendar = setupVisibility.calendar;
   const showCalendly = setupVisibility.calendly;
   const showSmsNote = setupVisibility.smsNote;
-  const showMail = setupVisibility.mail;
+  // Hidden alongside the commented-out <MailSetupSection /> render. This must
+  // stay false while the card is hidden: `connectComplete` requires
+  // `mailComplete` whenever showMail is true, so leaving it on would block the
+  // Connect step forever on a mail-requiring agent with nothing on screen to fix.
+  const showMail = false; // setupVisibility.mail;
   const showVoice = setupVisibility.voiceIdentity;
   const showTelegram = setupVisibility.telegram;
   const showDeepgram = setupVisibility.deepgram;
@@ -3121,7 +3141,9 @@ function StepConnect({
         </div>
       ) : null}
 
+      {/* Email setup is hidden in buyer setup for now — restore this line to bring it back.
       {showMail ? <MailSetupSection businessName={businessName} onAliasChange={onMailAliasChange} /> : null}
+      */}
 
       {showTelegram ? (
         <TelegramConnectSection
@@ -3877,6 +3899,10 @@ function PreviewCallSection({
   /** Reports the session outcome ("passed" once a call completed, "failed" on errors) to the test summary. */
   onOutcome?: (outcome: "passed" | "failed") => void;
 }) {
+  // Scope the preview to the agent this wizard is configuring. Without it the
+  // backend picks any ACTIVE agent, so a half-configured agent gets tested
+  // using a live sibling's assistant.
+  const listingId = useSearchParams().get("listingId") ?? "";
   const [state, setState] = useState<PreviewCallState>("idle");
   const [error, setError] = useState("");
   const [agentSpeaking, setAgentSpeaking] = useState(false);
@@ -3974,7 +4000,10 @@ function PreviewCallSection({
     setState("starting");
 
     try {
-      const res = await startBusinessSetupPreviewCall({ simulateBusinessHoursState: afterHoursSimulation });
+      const res = await startBusinessSetupPreviewCall({
+        simulateBusinessHoursState: afterHoursSimulation,
+        ...(listingId ? { listingId } : {})
+      });
 
       if (!res.success || !res.data?.session) {
         setState("idle");
@@ -4809,6 +4838,8 @@ function WorkflowVoiceStepPanel({
   labels: ReturnType<typeof getAnsweringLabels>;
   onBrowserOutcome?: (outcome: "passed" | "failed") => void;
 }) {
+  // Scope the preview to the agent this wizard is configuring (see above).
+  const listingId = useSearchParams().get("listingId") ?? "";
   const [agentSpeaking, setAgentSpeaking] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -4973,7 +5004,7 @@ function WorkflowVoiceStepPanel({
     onCallStateChange("in-progress");
 
     try {
-      const res = await startBusinessSetupPreviewCall();
+      const res = await startBusinessSetupPreviewCall(listingId ? { listingId } : undefined);
       if (!res.success || !res.data?.session) {
         onCallStateChange("idle");
         setError(res.error ?? "The preview call is unavailable right now. Please save your setup and try again.");

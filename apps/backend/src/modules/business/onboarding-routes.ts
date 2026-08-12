@@ -72,7 +72,11 @@ export function normalizeOnboardingTaxonomy(data: OnboardingData | null | undefi
   const mappedType = LEGACY_BUSINESS_TYPE_TO_SUBINDUSTRY[rawType.toLowerCase()] ?? rawType;
   if (mappedType) next.businessType = mappedType;
 
-  const expectedIndustry = targetIndustryForSubindustry(mappedType);
+  const expectedIndustry =
+    targetIndustryForSubindustry(mappedType) ??
+    (mappedType
+      ? BROWSE_INDUSTRIES.find((industry) => getCategoriesForIndustry(industry).includes(mappedType))
+      : undefined);
   if (expectedIndustry && !next.industry?.trim()) next.industry = expectedIndustry;
   return next;
 }

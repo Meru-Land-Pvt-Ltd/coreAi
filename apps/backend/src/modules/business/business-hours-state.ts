@@ -50,20 +50,54 @@ export type BusinessHoursState = {
   configured: boolean;
 };
 
-export async function loadBusinessHoursState(businessId: string): Promise<BusinessHoursState> {
-  const [profile, specialRows] = await Promise.all([
+/** Per-agent hours saved by the setup wizard (configJson.businessDetails.hours). */
+async function loadAgentWeeklyHours(installedAgentId?: string | null): Promise<unknown | undefined> {
+  if (!installedAgentId) return undefined;
+
+  const agent = await prisma.installedAgent.findUnique({
+    where: { id: installedAgentId },
+    select: { configJson: true }
+  });
+
+  const config =
+    agent?.configJson && typeof agent.configJson === "object" && !Array.isArray(agent.configJson)
+      ? (agent.configJson as Record<string, unknown>)
+      : {};
+  const details =
+    config.businessDetails && typeof config.businessDetails === "object" && !Array.isArray(config.businessDetails)
+      ? (config.businessDetails as Record<string, unknown>)
+      : {};
+
+  if (details.contextVersion !== 2) return undefined;
+
+  return details.hours;
+}
+
+export async function loadBusinessHoursState(
+  businessId: string,
+  installedAgentId?: string | null
+): Promise<BusinessHoursState> {
+  const [profile, specialRows, agentHours] = await Promise.all([
     prisma.businessProfile.findUnique({
       where: { businessId },
       select: { hoursJson: true, timeZone: true, hoursSource: true, hoursConfirmedAt: true }
     }),
     prisma.businessSpecialHours.findMany({
-      where: { businessId },
+      // This agent's own closures plus legacy business-wide rows (agent NULL).
+      // A sibling agent's holiday must never close this one.
+      where: {
+        businessId,
+        ...(installedAgentId
+          ? { OR: [{ installedAgentId: null }, { installedAgentId }] }
+          : { installedAgentId: null })
+      },
       orderBy: { date: "asc" },
       select: { date: true, kind: true, closed: true, periodsJson: true, note: true }
-    })
+    }),
+    loadAgentWeeklyHours(installedAgentId)
   ]);
 
-  const weekly = normalizeWeeklyHours(profile?.hoursJson);
+  const weekly = normalizeWeeklyHours(agentHours !== undefined ? agentHours : profile?.hoursJson);
 
   return {
     weekly,
@@ -89,10 +123,6 @@ export async function businessOpenStatusNow(
   });
 }
 
-/**
- * Prompt lines describing the confirmed schedule — or the explicit
- * never-guess instruction when hours are not configured/confirmed.
- */
 export function buildHoursPromptLines(state: BusinessHoursState): string[] {
   if (!state.configured) {
     return [

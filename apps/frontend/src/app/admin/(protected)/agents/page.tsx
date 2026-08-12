@@ -9,6 +9,7 @@ import {
   CircleDollarSign,
   Download,
   Search,
+  Star,
   Trash2,
   UserRound,
   X
@@ -16,6 +17,7 @@ import {
 import {
   deleteAdminAgent,
   getAdminAgents,
+  updateAdminAgentFeatured,
   updateAdminAgentStatus,
   type AdminAgent,
   type ListingStatus
@@ -359,6 +361,33 @@ export default function AdminAgentsPage() {
     ? rows.filter((agent) => agent.status === "PENDING_REVIEW").length
     : null;
 
+  async function toggleFeatured(agent: AdminAgent) {
+    const next = !agent.featuredAt;
+    setUpdatingId(agent.id);
+    setMessage(next ? "Featuring agent…" : "Removing from featured…");
+
+    const result = await updateAdminAgentFeatured(agent.id, next);
+    setUpdatingId(null);
+
+    if (!result.success) {
+      setMessage(result.error ?? "Could not update the featured flag.");
+      return;
+    }
+
+    const featuredAt = result.data?.listing.featuredAt ?? null;
+    const replaced = new Set(result.data?.replacedListingIds ?? []);
+
+    // Only one listing is featured at a time, so clear the star on whichever
+    // row just lost the slot instead of leaving two looking active.
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id === agent.id) return { ...row, featuredAt };
+        return replaced.has(row.id) ? { ...row, featuredAt: null } : row;
+      })
+    );
+    setMessage(next ? `"${display(agent.name)}" is now featured.` : `"${display(agent.name)}" is no longer featured.`);
+  }
+
   async function changeStatus(listingId: string, status: ListingStatus, reason?: string) {
     setMessage("Updating listing status…");
     setUpdatingId(listingId);
@@ -588,6 +617,31 @@ export default function AdminAgentsPage() {
                     ) : (
                       <AgentStatusBadge status={agent.status} />
                     )}
+                    {agent.status === "APPROVED" ? (
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => void toggleFeatured(agent)}
+                        data-testid={`admin-agent-featured-${agent.id}`}
+                        aria-pressed={Boolean(agent.featuredAt)}
+                        aria-label={
+                          agent.featuredAt
+                            ? `Remove ${display(agent.name)} from featured`
+                            : `Feature ${display(agent.name)} on the marketplace`
+                        }
+                        className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-sm font-semibold transition disabled:cursor-wait disabled:opacity-50 ${
+                          agent.featuredAt
+                            ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                            : "border-gray-200 bg-white text-slate-500 hover:bg-gray-50 hover:text-slate-700"
+                        }`}
+                      >
+                        <Star
+                          className={`h-4 w-4 ${agent.featuredAt ? "fill-amber-400 text-amber-500" : ""}`}
+                          aria-hidden="true"
+                        />
+                        {agent.featuredAt ? "Featured" : "Feature"}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       disabled={isBusy}

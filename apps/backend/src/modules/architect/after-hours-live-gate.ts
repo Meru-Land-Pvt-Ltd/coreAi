@@ -120,7 +120,10 @@ export async function resolveLiveAfterHoursGateContext(params: {
     if (prior) {
       businessHoursState = prior.businessHoursState;
     } else {
-      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: null });
+      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, {
+        simulate: null,
+        installedAgentId: params.installedAgentId ?? null
+      });
       businessHoursState = snapshot.state;
     }
 

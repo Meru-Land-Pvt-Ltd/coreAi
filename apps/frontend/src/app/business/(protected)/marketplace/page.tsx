@@ -62,6 +62,8 @@ type Agent = {
   trialDays?: number | null;
   /** Real listing icon from Configure; shown on marketplace cards. */
   iconUrl?: string | null;
+  /** Admin-curated marketplace Featured slot. */
+  featured?: boolean;
 };
 
 type ApiArchitectProfile = {
@@ -586,6 +588,7 @@ function mapListingToAgent(listing: ApiListing): Agent {
       listing.architect?.email ||
       "Triven Architect",
     isNew: isRecentlyCreated(listing.createdAt),
+    featured: Boolean((listing as { featured?: boolean }).featured),
     freeTrial:
       (listing.priceCents ?? 0) === 0 ||
       listing.pricingModel === "FREE" ||
@@ -870,7 +873,9 @@ export default function MarketplacePage() {
     ],
     [agents],
   );
-  const featuredAgent = agents[0] ?? null;
+  // Admin-curated only: with nothing featured, the slot is hidden rather
+  // than silently promoting whichever agent happened to sort first.
+  const featuredAgent = agents.find((agent) => agent.featured) ?? null;
 
   const selectedBrowseIndustry = useMemo(
     () => resolveSelectedBrowseIndustry(industry, filterIndustryOptions),

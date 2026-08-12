@@ -282,7 +282,11 @@ function deriveWorkflowCapabilities(workflowJson: unknown): string[] {
 }
 
 function toMarketplaceCard<
-  T extends { id: string; workflow?: { id: string; name: string; description: string | null; workflowJson?: unknown } | null }
+  T extends {
+    id: string;
+    featuredAt?: Date | null;
+    workflow?: { id: string; name: string; description: string | null; workflowJson?: unknown } | null;
+  }
 >(listing: T & { _count?: unknown }, installCount: number) {
   const { _count, workflow, ...rest } = listing as T & { _count?: unknown };
   return {
@@ -291,6 +295,7 @@ function toMarketplaceCard<
       ? { id: workflow.id, name: workflow.name, description: workflow.description }
       : null,
     capabilities: deriveWorkflowCapabilities(workflow?.workflowJson),
+    featured: Boolean(listing.featuredAt),
     installCount
   };
 }
@@ -337,7 +342,7 @@ async function listPublicMarketplaceListings(c: Context) {
     toMarketplaceCard(listing, installCountByListing.get(listing.id) ?? 0)
   );
 
-  c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+  c.header("Cache-Control", "public, max-age=15, must-revalidate");
   return successResponse(c, { listings });
 }
 
@@ -435,7 +440,7 @@ async function listCompletedMarketplaceListings(c: Context) {
     toMarketplaceCard(listing, installCountByListing.get(listing.id) ?? 0)
   );
 
-  c.header("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
+  c.header("Cache-Control", "private, max-age=15, must-revalidate");
   return successResponse(c, { listings });
 }
 

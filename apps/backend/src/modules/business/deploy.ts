@@ -356,13 +356,17 @@ async function buildInstalledAgentAssistantPlan(
       ? `Verified business facts (answer these directly and exactly; NEVER invent a street, city, state, postal code, landmark, or link that is not listed):\n${facts.promptLines.map((line) => `- ${line}`).join("\n")}`
       : "";
 
+  // Escalation rules are per-agent (configJson.businessDetails), falling back to
+  // the shared BusinessProfile only for agents installed before that split.
+  const agentDetails = recordOf(recordOf(installedAgent.configJson).businessDetails);
   const customInstructions = (
     buyer.customInstructions ||
+    cleanString(agentDetails.escalationRules) ||
     cleanString(business.profile?.escalationRules) ||
     ""
   ).trim();
 
-  const hoursState = await loadBusinessHoursState(businessId);
+  const hoursState = await loadBusinessHoursState(businessId, installedAgent.id);
   const businessHours = hoursState.configured
     ? buildHoursPromptLines(hoursState).join("\n  ")
     : buildHoursPromptLines(hoursState)[0];
@@ -409,9 +413,10 @@ async function buildInstalledAgentAssistantPlan(
     servicesList: services.join(", "),
     businessHours,
     bookingLabel: bookingLabel ?? "appointment",
+    // Calendar stays business-level; the contact points are per-agent.
     calendarId: cleanString(business.profile?.calendarId) || "primary",
-    teamPhone: cleanString(business.profile?.teamPhone) ?? "",
-    bookingUrl: cleanString(business.profile?.bookingUrl) ?? ""
+    teamPhone: cleanString(agentDetails.teamPhone) ?? cleanString(business.profile?.teamPhone) ?? "",
+    bookingUrl: cleanString(agentDetails.bookingUrl) ?? cleanString(business.profile?.bookingUrl) ?? ""
   };
   const fillDeployTemplate = (text: string): string =>
     fillPromptTemplateTokens(text, deployTokenValues, {
@@ -625,7 +630,7 @@ export async function buildInstalledAgentChatTestSetup(
   const chatFacts = await loadBusinessFacts(business.id);
   // Same structured Business Hours block the live assistant gets — the text
   // demo and voice tests must answer hour questions identically to live calls.
-  const chatHoursState = await loadBusinessHoursState(business.id);
+  const chatHoursState = await loadBusinessHoursState(business.id, installedAgent.id);
   const chatBusinessHours = chatHoursState.configured
     ? buildHoursPromptLines(chatHoursState).join("\n  ")
     : buildHoursPromptLines(chatHoursState)[0];
@@ -683,8 +688,19 @@ export type SetupPreviewCallSession = {
   preview: true;
 };
 
-/** Latest agent the buyer can test: ACTIVE preferred, then PROVISIONING. */
-async function findLatestTestableInstalledAgent(businessId: string): Promise<{ id: string } | null> {
+async function findLatestTestableInstalledAgent(
+  businessId: string,
+  listingId?: string | null
+): Promise<{ id: string } | null> {
+  if (listingId) {
+    const scoped = await prisma.installedAgent.findFirst({
+      where: { businessId, listingId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true }
+    });
+    return scoped;
+  }
+
   const active = await prisma.installedAgent.findFirst({
     where: { businessId, status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
@@ -747,16 +763,29 @@ export async function startInstalledAgentPreviewCall(
   businessId: string,
   options?: {
     simulateBusinessHoursState?: "open" | "closed" | null;
+    /** The agent the buyer is configuring — scopes the preview to it. */
+    listingId?: string | null;
   }
 ): Promise<SetupPreviewCallSession> {
   if (!isVapiConfigured() || !env.VAPI_PUBLIC_KEY) {
     throw new SetupPreviewCallError("Voice preview is not configured on this server.", 503, "PREVIEW_NOT_CONFIGURED");
   }
 
-  const previewAgent = await findLatestTestableInstalledAgent(businessId);
+  const previewAgent = await findLatestTestableInstalledAgent(businessId, options?.listingId);
+
+  if (options?.listingId && !previewAgent) {
+    throw new SetupPreviewCallError(
+      "This agent is not installed for your business yet, so there is nothing to preview.",
+      404,
+      "PREVIEW_AGENT_NOT_FOUND"
+    );
+  }
 
   const simulateHours = resolveSimulatedHoursState("BUSINESS_TEST", options?.simulateBusinessHoursState);
-  const previewSnapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: simulateHours });
+  const previewSnapshot = await buildAfterHoursSnapshotForBusiness(businessId, {
+    simulate: simulateHours,
+    installedAgentId: previewAgent?.id ?? null
+  });
 
   const plan = await buildInstalledAgentAssistantPlan(businessId, {
     ...(previewAgent ? { installedAgentId: previewAgent.id } : {}),

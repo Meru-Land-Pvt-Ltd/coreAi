@@ -27,6 +27,7 @@ import {
   getStripeClient,
   isStripeConfigured
 } from "./stripe";
+import { omitLegacyFreeInstallationValue } from "./billing-details";
 import { describeStripeError, finalizePaidAgentPurchase } from "./purchase-finalize";
 import { notifyArchitectOfNewSale } from "../architect/sale-notifications";
 import {
@@ -43,6 +44,8 @@ import {
 } from "../business/agent-payment-scope";
 import { createSettlementForPayment } from "../payouts/settlements";
 import { buildListingUsagePricing } from "./listing-usage-pricing";
+import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
+import { reconcileBusinessExecutionUsage } from "../business/execution-billing";
 
 export const paymentRoutes = new Hono();
 
@@ -115,9 +118,9 @@ const startTrialSchema = z.object({
 const purchaseSchema = z.object({
   listingId: z.string().trim().min(1),
   paymentMethodId: z.string().trim().min(1),
-  billingName: z.string().trim().min(2),
+  billingName: z.string().trim().min(2).optional(),
   billingEmail: z.string().trim().email(),
-  billingAddress: z.string().trim().min(3),
+  billingAddress: z.string().trim().min(3).optional(),
   billingPostalCode: z.string().trim().min(3).max(20).optional(),
   /// Per-attempt UUID from checkout — Stripe idempotency key so a retried
   /// submit can never double-charge the buyer.
@@ -666,7 +669,13 @@ paymentRoutes.get("/billing", async (c) => {
 
   const hasActivePlan = agents.length > 0;
 
-  const invoices = buildBillingInvoices(payments);
+  const storedBillingName = omitLegacyFreeInstallationValue(business?.billingName);
+  const storedBillingAddress = omitLegacyFreeInstallationValue(business?.billingAddress);
+  const invoices = buildBillingInvoices(payments).map((invoice) => ({
+    ...invoice,
+    billingName: omitLegacyFreeInstallationValue(invoice.billingName),
+    billingAddress: omitLegacyFreeInstallationValue(invoice.billingAddress)
+  }));
 
   if (business?.installedAgents) {
     for (const installed of business.installedAgents) {
@@ -692,9 +701,9 @@ paymentRoutes.get("/billing", async (c) => {
         listingId: installed.listingId,
         installedAgentId: installed.id,
         listingName: installed.listing.name,
-        billingName: business.billingName,
+        billingName: storedBillingName,
         billingEmail: business.billingEmail,
-        billingAddress: business.billingAddress,
+        billingAddress: storedBillingAddress,
         lineItems: [{ label: `Installation fee`, amountCents: 0 }],
         periodStart: installed.createdAt.toISOString(),
         periodEnd: null,
@@ -709,6 +718,19 @@ paymentRoutes.get("/billing", async (c) => {
   invoices.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const currentBillingMonth = new Date().toISOString().slice(0, 7);
+  if (business) {
+    try {
+      await reconcileBusinessExecutionUsage(business.id, currentBillingMonth, {
+        since: currentMonthStart()
+      });
+    } catch (error) {
+      console.error("[payments-billing] execution reconciliation failed (non-fatal)", {
+        businessId: business.id,
+        currentBillingMonth,
+        error
+      });
+    }
+  }
   const [currentUsage, unpaidUsageInvoices, unpaidAgentInvoices] = business
     ? await Promise.all([
       prisma.agentUsageExecution.aggregate({
@@ -830,9 +852,9 @@ paymentRoutes.get("/billing", async (c) => {
       invoices,
       paymentMethod,
       backupPaymentMethod,
-      businessName: business?.billingName ?? business?.name ?? authUser.fullName ?? null,
+      businessName: storedBillingName ?? business?.name ?? authUser.fullName ?? null,
       billingEmail: business?.billingEmail ?? authUser.email ?? null,
-      billingAddress: business?.billingAddress ?? null,
+      billingAddress: storedBillingAddress,
       billingPostalCode: business?.billingPostalCode ?? null
     }
   });
@@ -962,39 +984,29 @@ paymentRoutes.get("/my-agents", async (c) => {
   ]);
 
   const installedAgents = business?.installedAgents ?? [];
-  // My Agents must show the exact same current-month executions as Billing &
-  // Usage: canonical ledger rows already attached to an invoice. Raw Vapi
-  // calls and missed-call leads are intentionally excluded.
-  const canonicalExecutions =
-    business && installedAgents.length > 0
-      ? await prisma.agentUsageExecution.findMany({
-          where: {
-            businessId: business.id,
-            installedAgentId: { in: installedAgents.map((agent) => agent.id) },
-            billingMonth: currentMonthStart().toISOString().slice(0, 7),
-            usageInvoiceId: { not: null }
-          },
-          select: {
-            installedAgentId: true,
-            amountMicroUsd: true,
-            legacyBilledCostMicroUsd: true
-          }
-        })
-      : [];
-  const canonicalStatsByAgentId = new Map<
-    string,
-    { runs: number; costMicroUsd: number }
-  >();
-  for (const execution of canonicalExecutions) {
-    const current = canonicalStatsByAgentId.get(execution.installedAgentId) ?? {
-      runs: 0,
-      costMicroUsd: 0
-    };
-    current.runs += 1;
-    current.costMicroUsd +=
-      execution.amountMicroUsd + execution.legacyBilledCostMicroUsd;
-    canonicalStatsByAgentId.set(execution.installedAgentId, current);
+  const statsStart = currentMonthStart();
+  if (business) {
+    try {
+      await reconcileBusinessExecutionUsage(
+        business.id,
+        statsStart.toISOString().slice(0, 7),
+        { since: statsStart }
+      );
+    } catch (error) {
+      console.error("[my-agents] execution reconciliation failed (non-fatal)", {
+        businessId: business.id,
+        error
+      });
+    }
   }
+  // Dashboard, My Agents, and its activity chart all describe LIVE activity,
+  // not invoice-settlement state. A priced Vapi call must remain visible while
+  // its canonical invoice link is being repaired or created.
+  const runStatsByAgentId = business
+    ? await buildInstalledAgentRunStats(business.id, installedAgents, {
+        start: statsStart
+      })
+    : new Map<string, { runs: number; costMicroUsd: number }>();
 
   const buyerPricing = buyerExecutionPricingView(await loadActiveUsageServicePricing());
   const phoneNumberBilling = await getPhoneNumberBillingState();
@@ -1119,7 +1131,7 @@ paymentRoutes.get("/my-agents", async (c) => {
     );
 
     const stats = installedAgent
-      ? canonicalStatsByAgentId.get(installedAgent.id) ?? { runs: 0, costMicroUsd: 0 }
+      ? runStatsByAgentId.get(installedAgent.id) ?? { runs: 0, costMicroUsd: 0 }
       : { runs: 0, costMicroUsd: 0 };
 
     const totalExecutions = stats.runs;
@@ -1880,14 +1892,6 @@ paymentRoutes.post("/purchase", async (c) => {
 
   const authUser = c.get("authUser");
   const { listingId, paymentMethodId, billingName, billingEmail, billingAddress, billingPostalCode, attemptId } = parsed.data;
-  const billingDetails: CheckoutBillingDetails = {
-    billingName,
-    billingEmail,
-    billingAddress,
-    billingPostalCode
-  };
-
-  const businessId = await persistCheckoutBilling(authUser.id, billingDetails);
 
   const listing = await prisma.agentListing.findFirst({
     where: {
@@ -1944,6 +1948,18 @@ paymentRoutes.post("/purchase", async (c) => {
       alreadyActive ? 200 : 201
     );
   }
+
+  if (!billingName || !billingAddress) {
+    return errorResponse(c, "Invalid payment payload", 422, "VALIDATION_ERROR");
+  }
+
+  const billingDetails: CheckoutBillingDetails = {
+    billingName,
+    billingEmail,
+    billingAddress,
+    billingPostalCode
+  };
+  const businessId = await persistCheckoutBilling(authUser.id, billingDetails);
 
   // ── Paid path — Stripe is required beyond this point ──────────────────────
   const stripe = getStripeClient();

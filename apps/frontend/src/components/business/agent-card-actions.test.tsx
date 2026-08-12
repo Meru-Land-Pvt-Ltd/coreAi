@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import BusinessMyAgentsPage from "@/app/business/(protected)/agents/page";
 import BusinessDashboardPage from "@/app/business/(protected)/dashboard/page";
@@ -89,7 +89,7 @@ beforeEach(() => {
 });
 
 describe("business agent action menus", () => {
-  it("shows the same canonical agent totals used by Billing & Usage", async () => {
+  it("shows the same LIVE Vapi totals as the dashboard activity chart", async () => {
     apiGetMock.mockImplementation(async (path: string) => {
       if (path === "/payments/my-agents") {
         return {
@@ -104,34 +104,6 @@ describe("business agent action menus", () => {
               })
             ]
           }
-        };
-      }
-      if (path.startsWith("/business/billing/usage?month=")) {
-        const currentMonth = new Date().toISOString().slice(0, 7);
-        const requestedMonth = decodeURIComponent(path.split("month=")[1] ?? "");
-        return {
-          success: true,
-          data:
-            requestedMonth === currentMonth
-              ? {
-                  totalExecutions: 17,
-                  totalCalls: 19,
-                  agentRollup: [
-                    {
-                      agentId: "installed-1",
-                      installedAgentId: "installed-1",
-                      executionCount: 17,
-                      callCount: 19,
-                      billedCostMicroUsd: 1_843_000,
-                      billedCostUsd: 99
-                    }
-                  ]
-                }
-              : {
-                  totalExecutions: 0,
-                  totalCalls: 0,
-                  agentRollup: []
-                }
         };
       }
       if (path === "/business/dashboard") {
@@ -157,28 +129,19 @@ describe("business agent action menus", () => {
 
     render(<BusinessDashboardPage />);
 
-    expect(await screen.findByText("17 runs")).toBeTruthy();
-    expect(screen.getByTestId("business-protected-dashboard-agent-cost-text").textContent).toBe("$1.84");
+    expect(await screen.findByText("19 runs")).toBeTruthy();
+    expect(screen.getByTestId("business-protected-dashboard-agent-cost-text").textContent).toBe("$99.00");
     await waitFor(() =>
       expect(
         screen.getAllByTestId("business-protected-dashboard-metric-text")[0]?.textContent
-      ).toBe("17")
+      ).toBe("19")
     );
   });
 
-  it("does not flash the dashboard API's raw call count while invoice usage loads", async () => {
-    const pendingUsage: Array<{
-      path: string;
-      resolve: (value: unknown) => void;
-    }> = [];
+  it("shows Calls Handled from LIVE activity without waiting for invoice settlement", async () => {
     apiGetMock.mockImplementation(async (path: string) => {
       if (path === "/payments/my-agents") {
         return { success: true, data: { agents: [] } };
-      }
-      if (path.startsWith("/business/billing/usage?month=")) {
-        return await new Promise((resolve) => {
-          pendingUsage.push({ path, resolve });
-        });
       }
       if (path === "/business/dashboard") {
         return {
@@ -212,35 +175,10 @@ describe("business agent action menus", () => {
     expect(
       screen.getAllByTestId("business-protected-dashboard-metric-text")[0]
         ?.textContent
-    ).toBe("—");
-    await waitFor(() => expect(pendingUsage).toHaveLength(2));
-
-    await act(async () => {
-      for (const request of pendingUsage) {
-        const currentMonth = new Date().toISOString().slice(0, 7);
-        const requestedMonth = decodeURIComponent(
-          request.path.split("month=")[1] ?? ""
-        );
-        request.resolve({
-          success: true,
-          data: {
-            totalExecutions: requestedMonth === currentMonth ? 17 : 7,
-            totalCalls: requestedMonth === currentMonth ? 19 : 8,
-            agentRollup: []
-          }
-        });
-      }
-    });
-
-    await waitFor(() =>
-      expect(
-        screen.getAllByTestId("business-protected-dashboard-metric-text")[0]
-          ?.textContent
-      ).toBe("17")
-    );
+    ).toBe("19");
   });
 
-  it("shows the invoice-backed execution total on the My Agents card", async () => {
+  it("shows the LIVE execution total on the My Agents card", async () => {
     mockApiAgents([
       purchasedAgent({
         totalExecutions: 17,

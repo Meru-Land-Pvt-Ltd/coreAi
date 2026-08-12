@@ -93,6 +93,23 @@ export function trialExecutionDecision(input: {
   };
 }
 
+export function canPromoteProvisionalExecution(input: {
+  usageInvoiceId: string | null;
+  billable: boolean;
+  amountMicroUsd: number;
+  freeReason: string | null;
+  pricedUsageMicroUsd: number | null;
+}) {
+  return (
+    input.usageInvoiceId === null &&
+    !input.billable &&
+    input.amountMicroUsd === 0 &&
+    (input.freeReason === null || input.freeReason === "NO_EXECUTION_FEE") &&
+    input.pricedUsageMicroUsd !== null &&
+    input.pricedUsageMicroUsd > 0
+  );
+}
+
 export function usageInvoiceNumber(params: {
   businessId: string;
   installedAgentId: string;
@@ -121,6 +138,176 @@ type RecordAgentExecutionInput = {
   usageLineItems?: UsageLineItem[];
   historicalReconciliation?: boolean;
 };
+
+type ExecutionBillingAgent = {
+  id: string;
+  businessId: string;
+  listingId: string | null;
+  createdAt: Date;
+  executionFeeCents: number;
+  business: { ownerId: string };
+};
+
+async function addExecutionChargeToInvoice(
+  tx: Prisma.TransactionClient,
+  input: {
+    agent: ExecutionBillingAgent;
+    occurredAt: Date;
+    amountMicroUsd: number;
+    unitPriceMicroUsd: number;
+    pricedUsageLineItems: UsageLineItem[] | undefined;
+  }
+) {
+  const usagePeriod = await resolveAgentBillingPeriod(
+    tx,
+    {
+      id: input.agent.id,
+      businessId: input.agent.businessId,
+      listingId: input.agent.listingId,
+      createdAt: input.agent.createdAt,
+      ownerUserId: input.agent.business.ownerId
+    },
+    input.occurredAt
+  );
+  const usageBillingMonth = usagePeriod.key;
+  let invoice = await tx.businessUsageInvoice.findFirst({
+    where: {
+      businessId: input.agent.businessId,
+      installedAgentId: input.agent.id,
+      billingMonth: usageBillingMonth,
+      periodStart: usagePeriod.start,
+      periodEnd: usagePeriod.end,
+      status: { in: ["PENDING", "OPEN", "OVERDUE"] },
+      paidAt: null,
+      closedAt: null
+    },
+    orderBy: { sequence: "desc" }
+  });
+
+  if (!invoice) {
+    const latestSegment = await tx.businessUsageInvoice.findFirst({
+      where: {
+        installedAgentId: input.agent.id,
+        billingMonth: usageBillingMonth
+      },
+      orderBy: { sequence: "desc" },
+      select: { sequence: true }
+    });
+    const sequence = (latestSegment?.sequence ?? 0) + 1;
+    const initialStatus = new Date() >= usagePeriod.dueAt ? "OVERDUE" : "PENDING";
+
+    invoice = await tx.businessUsageInvoice.create({
+      data: {
+        businessId: input.agent.businessId,
+        installedAgentId: input.agent.id,
+        billingMonth: usageBillingMonth,
+        sequence,
+        invoiceNumber: usageInvoiceNumber({
+          businessId: input.agent.businessId,
+          installedAgentId: input.agent.id,
+          billingMonth: usageBillingMonth,
+          sequence
+        }),
+        status: initialStatus,
+        periodStart: usagePeriod.start,
+        periodEnd: usagePeriod.end,
+        issuedAt: input.occurredAt,
+        dueAt: usagePeriod.dueAt,
+        graceEndsAt: usagePeriod.graceEndsAt,
+        subtotalMicroUsd: 0,
+        totalMicroUsd: 0
+      }
+    });
+  }
+
+  await tx.businessUsageInvoice.update({
+    where: { id: invoice.id },
+    data: {
+      subtotalMicroUsd: { increment: input.amountMicroUsd },
+      totalMicroUsd: { increment: input.amountMicroUsd }
+    }
+  });
+
+  if (input.pricedUsageLineItems !== undefined) {
+    for (const item of input.pricedUsageLineItems) {
+      const amount = Math.max(0, Math.round(item.billedCostMicroUsd));
+      await tx.businessUsageInvoiceLineItem.upsert({
+        where: {
+          invoiceId_serviceCode: {
+            invoiceId: invoice.id,
+            serviceCode: item.serviceCode
+          }
+        },
+        update: {
+          quantity: { increment: item.quantity },
+          amountMicroUsd: { increment: amount }
+        },
+        create: {
+          invoiceId: invoice.id,
+          serviceCode: item.serviceCode,
+          // Persist only the buyer-facing Admin Invoice label.
+          serviceName: item.invoiceLabel?.trim() || "Usage service",
+          unit: item.unit,
+          quantity: item.quantity,
+          unitPriceMicroUsd: Math.max(
+            0,
+            Math.round(item.billingRateMicroUsd ?? 0)
+          ),
+          amountMicroUsd: amount
+        }
+      });
+    }
+
+    if (input.agent.executionFeeCents > 0) {
+      const amount = Math.max(0, input.agent.executionFeeCents) * MICRO_USD_PER_CENT;
+      await tx.businessUsageInvoiceLineItem.upsert({
+        where: {
+          invoiceId_serviceCode: {
+            invoiceId: invoice.id,
+            serviceCode: "agent_execution"
+          }
+        },
+        update: {
+          quantity: { increment: 1 },
+          amountMicroUsd: { increment: amount }
+        },
+        create: {
+          invoiceId: invoice.id,
+          serviceCode: "agent_execution",
+          serviceName: "Usage service",
+          unit: "PER_UNIT",
+          quantity: 1,
+          unitPriceMicroUsd: amount,
+          amountMicroUsd: amount
+        }
+      });
+    }
+  } else {
+    await tx.businessUsageInvoiceLineItem.upsert({
+      where: {
+        invoiceId_serviceCode: {
+          invoiceId: invoice.id,
+          serviceCode: "agent_execution"
+        }
+      },
+      update: {
+        quantity: { increment: 1 },
+        amountMicroUsd: { increment: input.amountMicroUsd }
+      },
+      create: {
+        invoiceId: invoice.id,
+        serviceCode: "agent_execution",
+        serviceName: "Usage service",
+        unit: "PER_UNIT",
+        quantity: 1,
+        unitPriceMicroUsd: input.unitPriceMicroUsd,
+        amountMicroUsd: input.amountMicroUsd
+      }
+    });
+  }
+
+  return invoice.id;
+}
 
 export async function sendSpendingAlertIfNeeded(businessId: string, billingMonth: string) {
   if (billingMonth !== billingMonthFor(new Date()) || !isPlatformMailConfigured()) return;
@@ -248,7 +435,64 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
       }
       const shouldAttachRun = Boolean(input.workflowRunId && !existing.workflowRunId);
       const shouldUpdateActual = actualCostMicroUsd > existing.actualCostMicroUsd;
-      if (!shouldAttachRun && !shouldUpdateActual) return { execution: existing, created: false };
+      const canPromotePricedExecution = canPromoteProvisionalExecution({
+        usageInvoiceId: existing.usageInvoiceId,
+        billable: existing.billable,
+        amountMicroUsd: existing.amountMicroUsd,
+        freeReason: existing.freeReason,
+        pricedUsageMicroUsd
+      });
+
+      if (canPromotePricedExecution && pricedUsageMicroUsd !== null) {
+        const agent = await tx.installedAgent.findUnique({
+          where: { id: input.installedAgentId },
+          select: {
+            id: true,
+            businessId: true,
+            listingId: true,
+            installSource: true,
+            executionFeeCents: true,
+            executionBillingStartedAt: true,
+            createdAt: true,
+            business: { select: { ownerId: true } }
+          }
+        });
+        // Trial allowances, suspended activity, architect tests, and activity
+        // before the immutable billing cutover are never retroactively billed.
+        // This promotion is only for a provisional zero-fee row that later
+        // received its final priced Vapi service lines.
+        if (
+          agent &&
+          agent.businessId === existing.businessId &&
+          agent.installSource !== "ARCHITECT_SELF_TEST" &&
+          existing.occurredAt >= agent.executionBillingStartedAt
+        ) {
+          const usageInvoiceId = await addExecutionChargeToInvoice(tx, {
+            agent,
+            occurredAt: existing.occurredAt,
+            amountMicroUsd: pricedUsageMicroUsd,
+            unitPriceMicroUsd: pricedUsageMicroUsd,
+            pricedUsageLineItems
+          });
+          const promoted = await tx.agentUsageExecution.update({
+            where: { id: existing.id },
+            data: {
+              workflowRunId: shouldAttachRun ? input.workflowRunId : undefined,
+              usageInvoiceId,
+              billable: true,
+              freeReason: null,
+              unitPriceMicroUsd: pricedUsageMicroUsd,
+              amountMicroUsd: pricedUsageMicroUsd,
+              actualCostMicroUsd: shouldUpdateActual ? actualCostMicroUsd : undefined
+            }
+          });
+          return { execution: promoted, created: false, chargeRecorded: true };
+        }
+      }
+
+      if (!shouldAttachRun && !shouldUpdateActual) {
+        return { execution: existing, created: false, chargeRecorded: false };
+      }
 
       const updated = await tx.agentUsageExecution.update({
         where: { id: existing.id },
@@ -257,7 +501,7 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
           actualCostMicroUsd: shouldUpdateActual ? actualCostMicroUsd : undefined
         }
       });
-      return { execution: updated, created: false };
+      return { execution: updated, created: false, chargeRecorded: false };
     }
 
     const agent = await tx.installedAgent.findUnique({
@@ -360,9 +604,9 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
     const executionNumber = (latestExecution?.executionNumber ?? 0) + 1;
     // Metered calls are billed from their immutable Admin Pricing snapshots.
     // Non-metered workflow executions retain the listing's per-run fee.
+    const executionFeeMicroUsd = Math.max(0, agent.executionFeeCents) * MICRO_USD_PER_CENT;
     const unitPriceMicroUsd =
-      pricedUsageMicroUsd ??
-      Math.max(0, agent.executionFeeCents) * MICRO_USD_PER_CENT;
+      (pricedUsageMicroUsd ?? 0) + executionFeeMicroUsd;
     const billable =
       !beforeBillingCutover &&
       !activityBlocked &&
@@ -373,134 +617,15 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
       ? Math.max(0, Math.round(input.legacyBilledCostMicroUsd ?? 0))
       : 0;
 
-    let usageInvoiceId: string | null = null;
-    if (billable) {
-      const usagePeriod = await resolveAgentBillingPeriod(
-        tx,
-        {
-          id: agent.id,
-          businessId: agent.businessId,
-          listingId: agent.listingId,
-          createdAt: agent.createdAt,
-          ownerUserId: agent.business.ownerId
-        },
-        occurredAt
-      );
-      const usageBillingMonth = usagePeriod.key;
-      let invoice = await tx.businessUsageInvoice.findFirst({
-        where: {
-          businessId: agent.businessId,
-          installedAgentId: agent.id,
-          billingMonth: usageBillingMonth,
-          periodStart: usagePeriod.start,
-          periodEnd: usagePeriod.end,
-          status: { in: ["PENDING", "OPEN", "OVERDUE"] },
-          paidAt: null,
-          closedAt: null
-        },
-        orderBy: { sequence: "desc" }
-      });
-
-      if (!invoice) {
-        const latestSegment = await tx.businessUsageInvoice.findFirst({
-          where: {
-            installedAgentId: agent.id,
-            billingMonth: usageBillingMonth
-          },
-          orderBy: { sequence: "desc" },
-          select: { sequence: true }
-        });
-        const sequence = (latestSegment?.sequence ?? 0) + 1;
-        const initialStatus =
-          new Date() >= usagePeriod.dueAt ? "OVERDUE" : "PENDING";
-
-        invoice = await tx.businessUsageInvoice.create({
-          data: {
-            businessId: agent.businessId,
-            installedAgentId: agent.id,
-            billingMonth: usageBillingMonth,
-            sequence,
-            invoiceNumber: usageInvoiceNumber({
-              businessId: agent.businessId,
-              installedAgentId: agent.id,
-              billingMonth: usageBillingMonth,
-              sequence
-            }),
-            status: initialStatus,
-            periodStart: usagePeriod.start,
-            periodEnd: usagePeriod.end,
-            issuedAt: occurredAt,
-            dueAt: usagePeriod.dueAt,
-            graceEndsAt: usagePeriod.graceEndsAt,
-            subtotalMicroUsd: 0,
-            totalMicroUsd: 0
-          }
-        });
-      }
-      usageInvoiceId = invoice.id;
-
-      await tx.businessUsageInvoice.update({
-        where: { id: invoice.id },
-        data: {
-          subtotalMicroUsd: { increment: amountMicroUsd },
-          totalMicroUsd: { increment: amountMicroUsd }
-        }
-      });
-      if (pricedUsageLineItems !== undefined) {
-        for (const item of pricedUsageLineItems) {
-          const amount = Math.max(0, Math.round(item.billedCostMicroUsd));
-          await tx.businessUsageInvoiceLineItem.upsert({
-            where: {
-              invoiceId_serviceCode: {
-                invoiceId: invoice.id,
-                serviceCode: item.serviceCode
-              }
-            },
-            update: {
-              quantity: { increment: item.quantity },
-              amountMicroUsd: { increment: amount }
-            },
-            create: {
-              invoiceId: invoice.id,
-              serviceCode: item.serviceCode,
-              // Persist the customer-facing Admin Invoice label, never the
-              // internal provider/service name.
-              serviceName:
-                item.invoiceLabel?.trim() || "Usage service",
-              unit: item.unit,
-              quantity: item.quantity,
-              unitPriceMicroUsd: Math.max(
-                0,
-                Math.round(item.billingRateMicroUsd ?? 0)
-              ),
-              amountMicroUsd: amount
-            }
-          });
-        }
-      } else {
-        await tx.businessUsageInvoiceLineItem.upsert({
-          where: {
-            invoiceId_serviceCode: {
-              invoiceId: invoice.id,
-              serviceCode: "agent_execution"
-            }
-          },
-          update: {
-            quantity: { increment: 1 },
-            amountMicroUsd: { increment: amountMicroUsd }
-          },
-          create: {
-            invoiceId: invoice.id,
-            serviceCode: "agent_execution",
-            serviceName: "Usage service",
-            unit: "PER_UNIT",
-            quantity: 1,
-            unitPriceMicroUsd,
-            amountMicroUsd
-          }
-        });
-      }
-    }
+    const usageInvoiceId = billable
+      ? await addExecutionChargeToInvoice(tx, {
+          agent,
+          occurredAt,
+          amountMicroUsd,
+          unitPriceMicroUsd,
+          pricedUsageLineItems
+        })
+      : null;
 
     const execution = await tx.agentUsageExecution.create({
       data: {
@@ -531,10 +656,10 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
         legacyBilledCostMicroUsd
       }
     });
-    return { execution, created: true };
+    return { execution, created: true, chargeRecorded: billable };
   });
 
-  if (result?.created && result.execution.amountMicroUsd > 0) {
+  if (result?.chargeRecorded && result.execution.amountMicroUsd > 0) {
     void sendSpendingAlertIfNeeded(result.execution.businessId, result.execution.billingMonth);
   }
   return result?.execution ?? null;
@@ -614,7 +739,7 @@ export async function reconcileBusinessExecutionUsage(
   const bounds = monthBounds(billingMonth);
   if (!bounds) return { considered: 0, recorded: 0 };
 
-  const [runs, calls] = await Promise.all([
+  const [runs, calls, installedAgents, phoneLinks] = await Promise.all([
     prisma.workflowRun.findMany({
       where: {
         businessId,
@@ -641,7 +766,6 @@ export async function reconcileBusinessExecutionUsage(
       where: {
         businessId,
         executionMode: "LIVE",
-        installedAgentId: { not: null },
         OR: [
           {
             billingRecordedAt: {
@@ -667,19 +791,111 @@ export async function reconcileBusinessExecutionUsage(
         billingRecordedAt: true,
         actualCostMicroUsd: true,
         billedCostMicroUsd: true,
-        usageLineItemsJson: true
+        usageLineItemsJson: true,
+        metadataJson: true
       }
+    }),
+    prisma.installedAgent.findMany({
+      where: { businessId, installSource: { not: "ARCHITECT_SELF_TEST" } },
+      select: { id: true, workflowId: true, configJson: true }
+    }),
+    prisma.businessPhoneNumber.findMany({
+      where: { businessId, installedAgentId: { not: null } },
+      select: { phoneNumber: true, installedAgentId: true }
     })
   ]);
+
+  const agentIds = new Set(installedAgents.map((agent) => agent.id));
+  const addLookup = (lookup: Map<string, string[]>, key: unknown, agentId: string) => {
+    if (typeof key !== "string" || !key.trim()) return;
+    const normalized = key.trim();
+    lookup.set(normalized, [...(lookup.get(normalized) ?? []), agentId]);
+  };
+  const uniqueLookup = (lookup: Map<string, string[]>, key: unknown) => {
+    if (typeof key !== "string" || !key.trim()) return null;
+    const matches = [...new Set(lookup.get(key.trim()) ?? [])];
+    return matches.length === 1 ? matches[0] : null;
+  };
+  const assistantAgents = new Map<string, string[]>();
+  const workflowAgents = new Map<string, string[]>();
+  const phoneAgents = new Map<string, string[]>();
+  for (const agent of installedAgents) {
+    const config =
+      agent.configJson && typeof agent.configJson === "object" && !Array.isArray(agent.configJson)
+        ? (agent.configJson as Record<string, unknown>)
+        : {};
+    addLookup(assistantAgents, config.vapiAssistantId, agent.id);
+    addLookup(workflowAgents, agent.workflowId, agent.id);
+  }
+  for (const phone of phoneLinks) {
+    if (phone.installedAgentId) {
+      addLookup(phoneAgents, phone.phoneNumber, phone.installedAgentId);
+    }
+  }
+
+  const objectValue = (value: unknown): Record<string, unknown> =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const inferCallAgentId = (call: (typeof calls)[number]) => {
+    if (call.installedAgentId && agentIds.has(call.installedAgentId)) {
+      return call.installedAgentId;
+    }
+    const envelope = objectValue(call.metadataJson);
+    const message = objectValue(envelope.message);
+    const nestedCall = objectValue(message.call);
+    const callPayload =
+      Object.keys(nestedCall).length > 0 ? nestedCall : objectValue(envelope.call);
+    const nestedMetadata = objectValue(callPayload.metadata);
+    const metadata =
+      Object.keys(nestedMetadata).length > 0
+        ? nestedMetadata
+        : objectValue(envelope.metadata);
+    const metadataAgentId =
+      typeof metadata.installedAgentId === "string"
+        ? metadata.installedAgentId
+        : typeof envelope.installedAgentId === "string"
+          ? envelope.installedAgentId
+          : null;
+    if (metadataAgentId && agentIds.has(metadataAgentId)) return metadataAgentId;
+
+    const assistantAgentId = uniqueLookup(
+      assistantAgents,
+      callPayload.assistantId ?? envelope.assistantId
+    );
+    if (assistantAgentId) return assistantAgentId;
+    const phoneAgentId = uniqueLookup(
+      phoneAgents,
+      metadata.assignedPhoneNumber ?? envelope.assignedPhoneNumber
+    );
+    if (phoneAgentId) return phoneAgentId;
+    const workflowAgentId = uniqueLookup(
+      workflowAgents,
+      metadata.workflowId ?? envelope.workflowId
+    );
+    if (workflowAgentId) return workflowAgentId;
+    return installedAgents.length === 1 ? installedAgents[0].id : null;
+  };
 
   type Candidate = RecordAgentExecutionInput & { occurredAt: Date };
   const candidates = new Map<string, Candidate>();
   for (const call of calls) {
-    if (!call.installedAgentId) continue;
+    const resolvedAgentId = inferCallAgentId(call);
+    if (!resolvedAgentId) continue;
+    if (call.installedAgentId !== resolvedAgentId) {
+      await prisma.vapiCall.updateMany({
+        where: {
+          callId: call.callId,
+          businessId,
+          installedAgentId: call.installedAgentId
+        },
+        data: { installedAgentId: resolvedAgentId }
+      });
+    }
     const occurredAt = call.endedAt ?? call.billingRecordedAt;
     if (!occurredAt || occurredAt >= bounds.end) continue;
     const candidate: Candidate = {
-      installedAgentId: call.installedAgentId,
+      installedAgentId: resolvedAgentId,
       source: "VAPI",
       sourceId: call.callId,
       callProvider: "VAPI",
@@ -738,6 +954,19 @@ export async function reconcileBusinessExecutionUsage(
       select: { id: true }
     });
     const result = await recordAgentExecutionUsage(candidate);
+    if (result?.usageInvoiceId && candidate.source === "VAPI") {
+      await prisma.vapiCall.updateMany({
+        where: {
+          businessId,
+          callId: candidate.sourceId,
+          usageInvoiceId: null
+        },
+        data: {
+          installedAgentId: candidate.installedAgentId,
+          usageInvoiceId: result.usageInvoiceId
+        }
+      });
+    }
     if (!before && result) recorded += 1;
   }
 

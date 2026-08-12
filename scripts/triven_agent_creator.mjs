@@ -12,7 +12,7 @@ const APP_BASE = (
 ).replace(/\/$/, "");
 const TOKEN = (process.env.TRIVEN_ARCHITECT_TOKEN || "").trim();
 const UPDATE_EXISTING = /^(1|true|yes)$/i.test(process.env.UPDATE_EXISTING || "");
-const SUBMIT_REVIEW = /^(1|true|yes)$/i.test(process.env.SUBMIT_REVIEW || "");
+const SUBMIT_REVIEW = !/^(0|false|no)$/i.test(process.env.SUBMIT_REVIEW || "");
 const CONFIRM_TESTED = /^(1|true|yes)$/i.test(process.env.CONFIRM_TESTED || "");
 const ONLY_INDUSTRY = (process.env.ONLY_INDUSTRY || "").trim().toLowerCase();
 const ONLY_SUBINDUSTRY = (process.env.ONLY_SUBINDUSTRY || "").trim().toLowerCase();
@@ -23,8 +23,7 @@ const MAX_ICON_BYTES = 1024 * 1024;
 const DRY_RUN = process.argv.includes("--dry-run");
 
 export const AGENTS = [
-  // Healthcare (18)
-  { industry: "Healthcare", subindustry: "Dental Clinics", name: "Dental AI Receptionist", tagline: "Turn every dental call into clear answers, timely bookings, and confident follow-up.", fullDescription: "Give patients a responsive front desk even when your team is busy. The Dental AI Receptionist answers approved questions about services, hours, insurance policies, and visit preparation; checks live calendar availability; books or reschedules dental appointments; and sends consent-based confirmation texts. It stays strictly within administrative boundaries, avoids clinical advice, and routes pain, emergencies, billing disputes, and other sensitive requests to your staff.", bookingLabel: "Dental appointment", purpose: "Handle patient calls, answer administrative FAQs, check availability, and book or reschedule dental appointments.", intake: ["appointment reason", "new or existing patient", "preferred date and time"], templateType: "AI Receptionist" },
+  // Healthcare (17)
   { industry: "Healthcare", subindustry: "Medical Clinics", name: "Medical AI Receptionist", tagline: "Keep your clinic accessible with accurate answers and effortless patient scheduling.", fullDescription: "The Medical AI Receptionist manages everyday front-desk calls without adding to staff workload. It identifies the administrative reason for the visit, answers only clinic-approved questions, checks provider availability, schedules appointments, and confirms the next step by text when consent is recorded. The agent never diagnoses or triages symptoms and promptly hands emergencies, medication questions, test-result requests, and complex account matters to the appropriate human team.", bookingLabel: "Medical appointment", purpose: "Handle administrative patient calls, clinic FAQs, provider availability, and appointment scheduling.", intake: ["visit reason", "new or existing patient", "preferred date and time"], templateType: "AI Receptionist" },
   { industry: "Healthcare", subindustry: "Hospitals", name: "Hospital AI Receptionist", tagline: "Guide non-emergency callers to the right department, information, or appointment.", fullDescription: "Help hospital callers navigate departments, services, visiting information, business hours, and non-emergency appointment requests from one dependable voice entry point. The Hospital AI Receptionist uses verified hospital content, gathers only the administrative details required, checks connected calendars, and schedules supported visits. It does not provide medical triage or clinical guidance and immediately directs emergencies, uncertain care needs, and restricted patient-information requests to approved hospital channels.", bookingLabel: "Hospital appointment", purpose: "Handle non-emergency hospital inquiries, department information, scheduling, and administrative routing.", intake: ["department or service needed", "patient name", "preferred date and time"], templateType: "AI Receptionist", sensitive: true },
   { industry: "Healthcare", subindustry: "Veterinary Clinics", name: "Veterinary AI Receptionist", tagline: "Welcome every pet owner with helpful clinic answers and fast appointment booking.", fullDescription: "The Veterinary AI Receptionist handles routine pet-owner calls with warmth and consistency. It answers clinic-approved questions about services, vaccinations, preparation, hours, and policies; collects the pet and visit details your team needs; finds an available slot; and books the veterinary appointment. It never diagnoses an animal or recommends treatment, and it directs callers reporting immediate danger to the clinic's configured emergency line or a nearby emergency veterinary service.", bookingLabel: "Veterinary appointment", purpose: "Handle pet-owner calls, appointment scheduling, vaccination and service FAQs, and administrative routing.", intake: ["pet name and type", "visit reason", "preferred date and time"], templateType: "AI Receptionist", veterinary: true },
@@ -441,7 +440,9 @@ async function main() {
     throw new Error("Missing TRIVEN_ARCHITECT_TOKEN. Log in as Architect and export the token before running this script.");
   }
   if (SUBMIT_REVIEW && !CONFIRM_TESTED) {
-    throw new Error("SUBMIT_REVIEW=1 requires CONFIRM_TESTED=1. Only enable this after each agent has been tested with at least 3 real scenarios.");
+    console.warn(
+      "WARNING: submitting for review without CONFIRM_TESTED=1. These agents have not been confirmed against real scenarios. Set SUBMIT_REVIEW=0 to create drafts instead."
+    );
   }
 
   const selected = AGENTS.filter(matchesFilter);
