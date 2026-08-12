@@ -1,4 +1,4 @@
-import { getConnectorIncludedItem, getLlmIncludedItem } from "@coreai/shared";
+import { displayBrowseIndustryLabel, getConnectorIncludedItem, getLlmIncludedItem, isPlaceholderIndustryLabel, visibleCategoryLabels } from "@coreai/shared";
 
 export type ApiArchitectProfile = {
   title?: string | null;
@@ -95,9 +95,8 @@ export function formatLabel(value: string) {
 }
 
 export function getListingCategory(listing: ApiListing) {
-  if (listing.category?.trim()) {
-    return formatLabel(listing.category.trim());
-  }
+  const fromCategory = visibleCategoryLabels(listing.category).join(", ");
+  if (fromCategory) return fromCategory;
 
   const industrySet = new Set(
     (listing.industryTags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean)
@@ -111,8 +110,18 @@ export function getListingCategory(listing: ApiListing) {
       return !industrySet.has(lower);
     });
 
-  if (categoryTag) return formatLabel(categoryTag);
-  return "Uncategorized";
+  if (categoryTag) {
+    const label = formatLabel(categoryTag);
+    if (!isPlaceholderIndustryLabel(label)) return label;
+  }
+  return "";
+}
+
+function visibleIndustryTags(tags: string[]): string[] {
+  const visible = tags.filter((tag) => tag && !isPlaceholderIndustryLabel(tag));
+  if (visible.length > 0) return Array.from(new Set(visible));
+  const browse = displayBrowseIndustryLabel(tags);
+  return browse ? [browse] : [];
 }
 
 /** Prefer Configure industryTags; otherwise show real listing tags (not "All industries"). */
@@ -121,7 +130,7 @@ export function getListingTags(listing: ApiListing): string[] {
     .map((tag) => tag.trim())
     .filter(Boolean);
   if (fromIndustryTags.length > 0) {
-    return Array.from(new Set(fromIndustryTags));
+    return visibleIndustryTags(fromIndustryTags);
   }
 
   const tags = listing.tags ?? [];
@@ -129,16 +138,14 @@ export function getListingTags(listing: ApiListing): string[] {
     .filter((tag) => tag.toLowerCase().startsWith("industry:"))
     .map((tag) => formatLabel(tag));
   if (prefixed.length > 0) {
-    return Array.from(new Set(prefixed));
+    return visibleIndustryTags(prefixed);
   }
 
-  return Array.from(
-    new Set(
-      tags
-        .map((tag) => tag.trim())
-        .filter((tag) => tag && !tag.toLowerCase().startsWith("category:"))
-        .map((tag) => formatLabel(tag))
-    )
+  return visibleIndustryTags(
+    tags
+      .map((tag) => tag.trim())
+      .filter((tag) => tag && !tag.toLowerCase().startsWith("category:"))
+      .map((tag) => formatLabel(tag))
   );
 }
 

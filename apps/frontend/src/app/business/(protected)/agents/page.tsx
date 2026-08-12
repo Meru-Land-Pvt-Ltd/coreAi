@@ -14,6 +14,7 @@ import {
     businessCheckoutPath,
     businessSetupPath
 } from "@/lib/routes";
+import { displayBrowseIndustryLabel, isPlaceholderIndustryLabel, visibleCategoryLabels } from "@coreai/shared";
 import {  BotIcon } from "lucide-react";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 
@@ -486,18 +487,20 @@ function OwnedAgentCard({
     const isPaymentFailed = agent.purchaseStatus.toUpperCase() === "FAILED" || agent.purchaseStatus.toUpperCase() === "CANCELED";
     const canManageAgent = setupCompleted && !trialEnded && !isPaymentFailed;
 
-    const category = agent.category;
-    const industries = agent.industryTags && agent.industryTags.length > 0
-        ? agent.industryTags
-        : (agent.industry === "all" ? ["All industries"] : [formatLabel(agent.industry)]);
-    const otherTags = Array.from(
-        new Set([
-            ...industries,
-            ...(agent.tags ?? [])
-        ].map(t => t.trim()).filter(Boolean))
-    ).filter(tag => tag.toLowerCase() !== category.toLowerCase());
-    const visibleOtherTags = otherTags.slice(0, 3);
-    const extraOtherTagsCount = Math.max(0, otherTags.length - 3);
+    const industryLabel =
+        displayBrowseIndustryLabel(agent.industryTags ?? []) ||
+        (agent.industry && agent.industry !== "all" && !isPlaceholderIndustryLabel(agent.industry)
+            ? formatLabel(agent.industry)
+            : "All industries");
+
+    // Category should be shown in tags (not mixed with industries).
+    const categoriesToShow = visibleCategoryLabels(agent.category).filter(
+        (part) => part.toLowerCase() !== "uncategorized"
+    );
+
+    const visibleOtherTags = categoriesToShow.slice(0, 3);
+    const extraOtherTagsCount = Math.max(0, categoriesToShow.length - 3);
+    const otherTags = categoriesToShow;
     const badge = (trialEnded || isPaymentFailed)
         ? { label: isTrial ? "Trial ended" : "Suspended", className: "bg-red-50 text-red-700" }
         : paused
@@ -689,9 +692,9 @@ function OwnedAgentCard({
                 </h3>
 
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                    {category ? (
+                    {industryLabel ? (
                         <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600" data-testid="business-my-agent-category-text">
-                            {category}
+                            {industryLabel}
                         </span>
                     ) : null}
 

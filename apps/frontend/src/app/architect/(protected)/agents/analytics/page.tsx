@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   downloadArchitectAgentAnalyticsReport,
   getArchitectAgentAnalytics,
-  getArchitectListings,
+  getAllArchitectListings,
   type ArchitectAgentAnalytics,
   type ArchitectAgentAnalyticsRange
 } from "@/components/architect/features/api";
@@ -417,7 +417,7 @@ export default function ArchitectAgentAnalyticsPage() {
     let active = true;
 
     async function loadListings() {
-      const result = await getArchitectListings();
+      const result = await getAllArchitectListings();
       if (!active) return;
 
       if (!result.success || !result.data) {

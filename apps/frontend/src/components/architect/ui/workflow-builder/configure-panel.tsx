@@ -22,6 +22,8 @@ import {
   RECEPTIONIST_DEFAULT_SHORT_DESCRIPTION,
   RECEPTIONIST_DEFAULT_TAGLINE,
   resolveBrowseIndustries,
+  displayBrowseIndustryLabel,
+  visibleCategoryLabels,
   suggestedAgentNameForSubindustry,
   validateBuyerSetupFields,
   validateConfigureForSubmit,
@@ -2062,8 +2064,8 @@ export function ConfigurePanel({
                     rows={[
                       { label: "Name", value: configure.basics.agentName.trim() || undefined },
                       { label: "Tagline", value: configure.basics.tagline.trim() || undefined },
-                      { label: "Subindustry", value: configure.basics.category },
-                      { label: "Industry", value: configure.basics.industryTags[0] || undefined }
+                      { label: "Subindustry", value: visibleCategoryLabels(configure.basics.category).join(", ") || undefined },
+                      { label: "Industry", value: displayBrowseIndustryLabel(configure.basics.industryTags) || undefined }
                     ]}
                   />
                   <ReviewSection

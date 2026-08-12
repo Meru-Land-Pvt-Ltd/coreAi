@@ -3,7 +3,9 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useInfiniteScrollSentinel } from "@/hooks/use-infinite-scroll-sentinel";
+import { InfiniteScrollAgentFooter } from "@/components/common/infinite-scroll-agent-footer";
 import { formatDate, formatMoney } from "@/components/architect/ui/architect-ui";
 import {
   createArchitectWorkflow,
@@ -18,7 +20,7 @@ import {
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { architectPublishingStatusPath, architectAnalyticsPath, publicAgentPath } from "@/lib/routes";
 import { CategoryTagsPill } from "@/components/common/category-tags-pill";
-import { resolveBrowseIndustries } from "@coreai/shared";
+import { displayBrowseIndustryLabel, visibleCategoryLabels } from "@coreai/shared";
 import { ArrowDown, ArrowUp } from "lucide-react";
 
 const EMPTY_AGENT_STATS: ArchitectAgentsStats = {
@@ -776,15 +778,8 @@ function AgentCard({
   )
     .map((tag) => tag.trim())
     .filter(Boolean);
-  const industryLabel = resolveBrowseIndustries(rawIndustryTags)[0] ?? rawIndustryTags[0] ?? null;
-  const categoryLabels = [
-    ...new Set(
-      (agent.category ?? "")
-        .split(",")
-        .map((part) => part.trim())
-        .filter(Boolean)
-    )
-  ];
+  const industryLabel = displayBrowseIndustryLabel(rawIndustryTags) || null;
+  const categoryLabels = visibleCategoryLabels(agent.category);
   const title = agent.name?.trim() || "Untitled Agent";
   const hasDescription = Boolean(agent.shortDescription?.trim() || agent.tagline?.trim());
   const description = agent.tagline?.trim() || agent.shortDescription?.trim() || "No Tagline added yet.";
@@ -816,7 +811,7 @@ function AgentCard({
         }
       }}
       style={animate ? { animationDelay: `${Math.min(index * 35, 280)}ms` } : undefined}
-      className={`ma-card group relative cursor-pointer overflow-hidden rounded-2xl border ${dashed} bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${
+      className={`ma-card group relative cursor-pointer overflow-hidden rounded-2xl border hover:overflow-visible ${dashed} bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${
         animate ? "ma-entering" : ""
       }`}
     >
@@ -856,9 +851,9 @@ function AgentCard({
         <h3 className="truncate text-base font-semibold text-slate-900" data-testid="architect-ui-my-agents-view-agent-heading">
           {title}
         </h3>
-        <div className="mt-2 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden">
+        <div className="mt-2 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-visible">
           <span
-            className="flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500"
+            className="shrink-0 whitespace-nowrap rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-slate-600"
             data-testid={`my-agents-industry-${agent.id}`}
           >
             {industryLabel ?? "Industry not set"}
@@ -1594,6 +1589,10 @@ export function MyAgentsView() {
   const [agents, setAgents] = useState<ArchitectListing[]>([]);
   const [stats, setStats] = useState<ArchitectAgentsStats>(EMPTY_AGENT_STATS);
   const [loading, setLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const nextCursorRef = useRef<string | null>(null);
   const [filter, setFilter] = useState<AgentFilter>("ALL");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
@@ -1623,23 +1622,59 @@ export function MyAgentsView() {
     else if (normalized === "rejected") setFilter("REJECTED");
   }, [searchParams]);
 
-  async function loadAgents() {
-    const [listingsResult, statsResult] = await Promise.all([
-      getArchitectListings(),
-      getArchitectAgentsStats()
-    ]);
+  useEffect(() => {
+    nextCursorRef.current = nextCursor;
+  }, [nextCursor]);
+
+  const loadAgents = useCallback(async (reset = true) => {
+    if (reset) {
+      setLoading(true);
+    } else {
+      setIsLoadingMore(true);
+    }
+
+    const listingsResult = await getArchitectListings({
+      cursor: reset ? undefined : nextCursorRef.current ?? undefined,
+      limit: 24,
+    });
+
     if (listingsResult.success && listingsResult.data) {
-      setAgents(listingsResult.data.listings);
+      const incoming = listingsResult.data.listings;
+      setAgents((previous) => {
+        if (reset) return incoming;
+        const seen = new Set(previous.map((agent) => agent.id));
+        return [...previous, ...incoming.filter((agent) => !seen.has(agent.id))];
+      });
+      setNextCursor(listingsResult.data.nextCursor);
+      setHasMore(listingsResult.data.hasMore);
     }
-    if (statsResult.success && statsResult.data) {
-      setStats(statsResult.data);
+
+    if (reset) {
+      setLoading(false);
+      void getArchitectAgentsStats().then((statsResult) => {
+        if (statsResult.success && statsResult.data) {
+          setStats(statsResult.data);
+        }
+      });
+    } else {
+      setIsLoadingMore(false);
     }
-    setLoading(false);
-  }
+  }, []);
+
+  const loadMoreAgents = useCallback(() => {
+    if (!hasMore || loading || isLoadingMore || !nextCursorRef.current) return;
+    void loadAgents(false);
+  }, [hasMore, isLoadingMore, loadAgents, loading]);
+
+  const loadMoreSentinelRef = useInfiniteScrollSentinel({
+    onLoadMore: loadMoreAgents,
+    hasMore,
+    loading: loading || isLoadingMore,
+  });
 
   useEffect(() => {
-    void loadAgents();
-  }, []);
+    void loadAgents(true);
+  }, [loadAgents]);
 
   // Close floating layers on outside click / scroll.
   useEffect(() => {
@@ -2140,28 +2175,57 @@ export function MyAgentsView() {
         ) : agents.length === 0 ? (
           <EmptyAgentsState />
         ) : visibleAgents.length ? (
-          <div
-            key={animationKey}
-            className={`ma-grid grid grid-cols-1 gap-5 ${view === "list" ? "view-list" : "md:grid-cols-2 lg:grid-cols-3"}`}
-          >
-            {visibleAgents.map((agent, index) => (
-              <AgentCard
-                key={agent.id}
-                agent={agent}
-                index={index}
-                animate
-                onOpen={openAgent}
-                onDots={openMenu}
-                onDuplicate={duplicateAgent}
-                onPause={requestPauseAgent}
-                onDelete={requestDeleteAgent}
-                onCancelSubmission={requestCancelSubmission}
-              />
-            ))}
-          </div>
+          <>
+            <div
+              key={animationKey}
+              className={`ma-grid grid grid-cols-1 gap-5 ${view === "list" ? "view-list" : "md:grid-cols-2 lg:grid-cols-3"}`}
+            >
+              {visibleAgents.map((agent, index) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  index={index}
+                  animate
+                  onOpen={openAgent}
+                  onDots={openMenu}
+                  onDuplicate={duplicateAgent}
+                  onPause={requestPauseAgent}
+                  onDelete={requestDeleteAgent}
+                  onCancelSubmission={requestCancelSubmission}
+                />
+              ))}
+            </div>
+
+            <InfiniteScrollAgentFooter
+              visibleCount={visibleAgents.length}
+              loadedCount={agents.length}
+              hasMore={hasMore}
+              isLoadingMore={isLoadingMore}
+              sentinelRef={loadMoreSentinelRef}
+              view={view}
+              countTestId="my-agents-loaded-count"
+              loadingTestId="my-agents-loading-more"
+              sentinelTestId="my-agents-load-more-sentinel"
+              skeletonLayout="my-agents"
+            />
+          </>
         ) : (
           <EmptyAgentsState message={search.trim() ? "No agents match your search. Try a different keyword or clear the search." : "You have no agents in this category yet. Create one or change the filter to see more."} />
         )}
+        {!loading && agents.length > 0 && !visibleAgents.length ? (
+          <InfiniteScrollAgentFooter
+            visibleCount={0}
+            loadedCount={agents.length}
+            hasMore={hasMore}
+            isLoadingMore={isLoadingMore}
+            sentinelRef={loadMoreSentinelRef}
+            view={view}
+            countTestId="my-agents-loaded-count"
+            loadingTestId="my-agents-loading-more"
+            sentinelTestId="my-agents-load-more-sentinel"
+            skeletonLayout="my-agents"
+          />
+        ) : null}
       </section>
       </main>
 

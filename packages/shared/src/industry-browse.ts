@@ -233,8 +233,75 @@ const INDUSTRY_TAG_TO_BROWSE: Record<string, BrowseIndustry> = {
   "saas & technology": "SaaS & Technology",
   saas: "SaaS & Technology",
   technology: "SaaS & Technology",
-  custom: "SaaS & Technology"
+  "software companies": "SaaS & Technology",
+  "it services": "SaaS & Technology",
+  agencies: "SaaS & Technology",
+  schools: "Education",
+  tutoring: "Education",
+  coaching: "Education",
+  "online courses": "Education",
+  accounting: "Finance",
+  "financial advisors": "Finance",
+  banking: "Finance",
+  cleaning: "Home Services",
+  "online stores": "Retail & E-commerce",
+  "retail shops": "Retail & E-commerce",
+  marketplaces: "Retail & E-commerce",
+  delivery: "Logistics",
+  warehousing: "Logistics",
+  freight: "Logistics",
+  courier: "Logistics",
+  "staffing agencies": "Recruitment",
+  "hr services": "Recruitment",
+  "executive search": "Recruitment",
+  isps: "Telecommunications",
+  "mobile carriers": "Telecommunications",
+  "telecom support": "Telecommunications",
+  "travel agencies": "Travel",
+  "tour operators": "Travel",
+  airlines: "Travel",
+  "event planners": "Events",
+  "wedding services": "Events"
 };
+
+export type MarketplaceSearchableAgent = {
+  name: string;
+  category: string;
+  description: string;
+  author?: string;
+  tags: readonly string[];
+  industries: readonly string[];
+  requiredConnectors?: readonly string[];
+  supportedLlms?: readonly string[];
+};
+
+/** True when every search token appears in the agent's marketplace text. */
+export function agentMatchesSearchQuery(agent: MarketplaceSearchableAgent, query: string): boolean {
+  const tokens = query
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (tokens.length === 0) return true;
+
+  const haystack = [
+    agent.name,
+    agent.category,
+    agent.description,
+    agent.author ?? "",
+    ...(agent.tags ?? []),
+    ...(agent.industries ?? []),
+    ...(agent.requiredConnectors ?? []),
+    ...(agent.supportedLlms ?? []),
+    ...resolveBrowseIndustries(agent.industries ?? [])
+  ]
+    .join(" ")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ");
+
+  return tokens.every((token) => haystack.includes(token));
+}
 
 function normalizeIndustryKey(value: string): string {
   return value.trim().toLowerCase().replace(/[_]+/g, " ").replace(/\s+/g, " ");
@@ -257,18 +324,51 @@ export function resolveBrowseIndustry(tag: string): BrowseIndustry | null {
   return INDUSTRY_TAG_TO_BROWSE[key] ?? null;
 }
 
+/** True for legacy storage labels that must never appear as an industry name. */
+export function isPlaceholderIndustryLabel(value: string): boolean {
+  const key = value.trim().toLowerCase();
+  return key === "custom" || key === "general";
+}
+
 /** Unique browse industries covered by a set of industry tags. */
 export function resolveBrowseIndustries(tags: readonly string[]): BrowseIndustry[] {
   const seen = new Set<BrowseIndustry>();
   const result: BrowseIndustry[] = [];
+  let hasCustomPlaceholder = false;
   for (const tag of tags) {
+    if (isPlaceholderIndustryLabel(tag)) {
+      hasCustomPlaceholder = true;
+      continue;
+    }
     const browse = resolveBrowseIndustry(tag);
     if (browse && !seen.has(browse)) {
       seen.add(browse);
       result.push(browse);
     }
   }
+  if (result.length === 0 && hasCustomPlaceholder) {
+    return ["SaaS & Technology"];
+  }
   return result;
+}
+
+/** Marketplace-facing industry name. Never returns Custom. */
+export function displayBrowseIndustryLabel(tags: readonly string[]): string {
+  return resolveBrowseIndustries(tags)[0] ?? "";
+}
+
+/** Category chips with placeholder labels such as Custom removed. */
+export function visibleCategoryLabels(category: string | null | undefined): string[] {
+  if (!category?.trim()) return [];
+  return [
+    ...new Set(
+      category
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .filter((part) => !isPlaceholderIndustryLabel(part))
+    )
+  ];
 }
 
 /** Vertical categories for an industry, or empty when none selected. */

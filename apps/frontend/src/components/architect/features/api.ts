@@ -362,8 +362,39 @@ export function testPhoneRouting(body: { called: string; from: string }) {
   return apiPost<PhoneRoutingTestResult>("/architect/phone-routing/test", body);
 }
 
-export function getArchitectListings() {
-  return apiGet<{ listings: ArchitectListing[] }>("/architect/listings");
+export type PaginatedArchitectListings = {
+  listings: ArchitectListing[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export function getArchitectListings(params?: { cursor?: string; limit?: number; status?: string }) {
+  const search = new URLSearchParams();
+  if (params?.cursor) search.set("cursor", params.cursor);
+  if (params?.limit) search.set("limit", String(params.limit));
+  if (params?.status) search.set("status", params.status);
+  const qs = search.toString();
+  return apiGet<PaginatedArchitectListings>(`/architect/listings${qs ? `?${qs}` : ""}`);
+}
+
+export async function getAllArchitectListings(params?: { status?: string }) {
+  const listings: ArchitectListing[] = [];
+  let cursor: string | undefined;
+
+  for (;;) {
+    const result = await getArchitectListings({ cursor, limit: 48, status: params?.status });
+    if (!result.success || !result.data) {
+      return result;
+    }
+    listings.push(...result.data.listings);
+    if (!result.data.hasMore || !result.data.nextCursor) {
+      return {
+        success: true as const,
+        data: { listings, nextCursor: null, hasMore: false },
+      };
+    }
+    cursor = result.data.nextCursor;
+  }
 }
 
 

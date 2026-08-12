@@ -7,7 +7,8 @@ import {
   getCategoriesForIndustry,
   industryTagsForCategorySelection,
   resolveBrowseIndustries,
-  tagsMatchVerticalCategory
+  tagsMatchVerticalCategory,
+  agentMatchesSearchQuery
 } from "../packages/shared/dist/index.js";
 
 assert.equal(TRIVEN_AGENT_TAXONOMY_ENTRIES.length, 24);
@@ -26,4 +27,20 @@ const automotiveTags = industryTagsForCategorySelection("Automotive", "Auto Serv
 assert.ok(resolveBrowseIndustries(automotiveTags).includes("Automotive"));
 assert.ok(tagsMatchVerticalCategory(automotiveTags, "Auto Service Centers"));
 assert.ok(!tagsMatchVerticalCategory(automotiveTags, "Car Dealerships"));
+assert.deepEqual(resolveBrowseIndustries(["Custom"]), ["SaaS & Technology"]);
+assert.deepEqual(resolveBrowseIndustries(["Education", "Tutoring", "Custom"]), ["Education"]);
+assert.deepEqual(resolveBrowseIndustries(["Software Companies"]), ["SaaS & Technology"]);
+assert.equal(
+  agentMatchesSearchQuery(
+    {
+      name: "Clinic Front Desk AI",
+      category: "Dental Clinics",
+      description: "Answers missed calls",
+      tags: [],
+      industries: ["Healthcare", "Dental Clinics"]
+    },
+    "saas technology"
+  ),
+  false
+);
 console.log("Industry taxonomy production contract: PASS (24/24)");
