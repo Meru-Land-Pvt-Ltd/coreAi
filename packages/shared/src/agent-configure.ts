@@ -75,7 +75,7 @@ export const AGENT_INDUSTRIES = [
   // Exact launch subindustries used by Architect Configure and marketplace
   // filtering. They are stored alongside the parent browse industry and
   // legacy aliases, so new and existing listings remain interoperable.
-  ...TRIVEN_TARGET_SUBINDUSTRIES,
+  ...(TRIVEN_TARGET_SUBINDUSTRIES ?? []),
   "Dental",
   "Medical Clinic",
   "Dermatology",

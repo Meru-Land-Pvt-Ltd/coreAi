@@ -110,7 +110,7 @@ function inferBusinessTypeFromListing(listing: { category?: string | null; indus
   const candidates = [listing.category ?? "", ...(listing.industryTags ?? [])]
     .map((value) => value.trim())
     .filter(Boolean);
-  return candidates.find((value) => (TRIVEN_TARGET_SUBINDUSTRIES as readonly string[]).includes(value)) ?? "";
+  return candidates.find((value) => (TRIVEN_TARGET_SUBINDUSTRIES ?? []).includes(value)) ?? "";
 }
 
 const STEPS = [
@@ -228,6 +228,10 @@ const WIZARD_STYLES = `
 .setup-root .pstep.clickable { cursor: pointer; }
 .setup-root .pstep.clickable:hover .pdot { transform: scale(1.06); }
 
+@media (max-width: 900px) {
+  .setup-root .pconn { width: 1.25rem; margin: 0 .25rem; }
+  .setup-root .pstep { gap: .35rem; }
+}
 @media (max-width: 640px) {
   .setup-root .plabel { display: none; }
   .setup-root .pdot { width: 1.6rem; height: 1.6rem; font-size: .75rem; }
@@ -2100,7 +2104,7 @@ function SetupWizard() {
       {step === 4 && <ConfettiCanvas />}
 
       <header className="bg-white border-b border-gray-200/80 py-6 px-4 sm:px-6 sticky top-0 z-30 shadow-xs">
-        <div className="w-full max-w-7xl mx-auto grid grid-cols-3 items-center">
+        <div className="w-full max-w-7xl mx-auto grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-4 items-center">
           {/* Left side: Agent Name */}
           <div className="flex items-center justify-start min-w-0 pr-2 sm:pr-4">
             <h1
@@ -2314,7 +2318,7 @@ function SetupWizard() {
                     onSummaryChange={setKnowledgeSummary}
                     onKnowledgeChanged={handleKnowledgeChanged}
                     hoursSuggestionReady={businessHours.suggestion}
-                    onReviewHours={() => jumpToConfigureSection("hours-availability")}
+                    onReviewHours={setupVisibility.availability ? () => jumpToConfigureSection("hours-availability") : undefined}
                     // The address is stored on the business, not an installed
                     // agent. Reuse it when the business adds another agent.
                     clearAddressOnMount={false}

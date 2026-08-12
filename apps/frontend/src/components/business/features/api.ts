@@ -511,6 +511,12 @@ export type BusinessAddress = {
 };
 
 export type DocumentProfileSuggestion = {
+  category?: string | null;
+  categoryLabel?: string | null;
+  teamLabel?: string | null;
+  offeringsLabel?: string | null;
+  licenseOrRegLabel?: string | null;
+  teamMembers?: string[];
   businessName: string | null;
   businessNameCandidates: string[];
   primaryDoctor: string | null;
