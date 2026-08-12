@@ -172,8 +172,11 @@ describe("GET /business/dashboard", () => {
     };
 
     expect(body.data.business?.id).toBe(phoneBusinessId);
-    // 1 LIVE call + 1 captured missed call = 2 handled this month.
-    expect(body.data.monthlyMetrics.callsHandled).toBe(2);
+    // callsHandled is the canonical billing-ledger execution count: the LIVE
+    // Vapi call is reconciled into AgentUsageExecution and counted; the
+    // captured missed-call lead has no workflow run, is never billed, and is
+    // therefore not an execution. Same definition as My Agents and Billing.
+    expect(body.data.monthlyMetrics.callsHandled).toBe(1);
     expect(body.data.agentActivity.length).toBeGreaterThan(0);
     expect(
       body.data.activities.some(

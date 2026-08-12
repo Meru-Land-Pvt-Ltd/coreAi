@@ -350,7 +350,9 @@ async function buildInstalledAgentAssistantPlan(
     installedAgentId: installedAgent.id
   });
 
-  const facts = await loadBusinessFacts(business.id);
+  const facts = await loadBusinessFacts(business.id, {
+    installedAgentId: installedAgent.id
+  });
   const factsSection =
     facts && facts.promptLines.length > 0
       ? `Verified business facts (answer these directly and exactly; NEVER invent a street, city, state, postal code, landmark, or link that is not listed):\n${facts.promptLines.map((line) => `- ${line}`).join("\n")}`
@@ -627,7 +629,9 @@ export async function buildInstalledAgentChatTestSetup(
     businessId: business.id,
     installedAgentId: installedAgent.id
   });
-  const chatFacts = await loadBusinessFacts(business.id);
+  const chatFacts = await loadBusinessFacts(business.id, {
+    installedAgentId: installedAgent.id
+  });
   // Same structured Business Hours block the live assistant gets — the text
   // demo and voice tests must answer hour questions identically to live calls.
   const chatHoursState = await loadBusinessHoursState(business.id, installedAgent.id);

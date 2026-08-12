@@ -7,18 +7,27 @@ export const ACTIVE_INSTALL_STATUS = "ACTIVE";
 
 export type ExecutionRange = { start?: Date; end?: Date };
 
+/**
+ * Architect-facing execution counts read the SAME canonical billing ledger
+ * (AgentUsageExecution) the buyer pages read — the rows invoices are built
+ * from. One execution definition platform-wide: an architect's card, the
+ * buyer's My Agents card, and the Billing page can never disagree about how
+ * many times an agent ran. Rows are unique per execution by dedupeKey, so a
+ * plain count is already a distinct count.
+ */
 export function countableExecutionWhere(params: {
   businessId?: string;
   installedAgentIds?: string[];
   range?: ExecutionRange;
-}): Prisma.VapiCallWhereInput {
+}): Prisma.AgentUsageExecutionWhereInput {
   return {
-    executionMode: "LIVE",
     ...(params.businessId ? { businessId: params.businessId } : {}),
-    ...(params.installedAgentIds ? { installedAgentId: { in: params.installedAgentIds } } : {}),
+    ...(params.installedAgentIds
+      ? { installedAgentId: { in: params.installedAgentIds } }
+      : {}),
     ...(params.range?.start || params.range?.end
       ? {
-          createdAt: {
+          occurredAt: {
             ...(params.range.start ? { gte: params.range.start } : {}),
             ...(params.range.end ? { lt: params.range.end } : {})
           }
@@ -33,7 +42,7 @@ export async function countDistinctExecutions(params: {
   range?: ExecutionRange;
 }): Promise<number> {
   if (params.installedAgentIds && params.installedAgentIds.length === 0) return 0;
-  return prisma.vapiCall.count({ where: countableExecutionWhere(params) });
+  return prisma.agentUsageExecution.count({ where: countableExecutionWhere(params) });
 }
 
 export async function executionTotalsByInstalledAgent(params: {
@@ -43,18 +52,19 @@ export async function executionTotalsByInstalledAgent(params: {
   const totals = new Map<string, { executions: number; billedCostMicroUsd: number }>();
   if (params.installedAgentIds.length === 0) return totals;
 
-  const grouped = await prisma.vapiCall.groupBy({
+  const grouped = await prisma.agentUsageExecution.groupBy({
     by: ["installedAgentId"],
     where: countableExecutionWhere(params),
     _count: { _all: true },
-    _sum: { billedCostMicroUsd: true }
+    _sum: { amountMicroUsd: true, legacyBilledCostMicroUsd: true }
   });
 
   for (const row of grouped) {
     if (!row.installedAgentId) continue;
     totals.set(row.installedAgentId, {
       executions: row._count._all,
-      billedCostMicroUsd: row._sum.billedCostMicroUsd ?? 0
+      billedCostMicroUsd:
+        (row._sum.amountMicroUsd ?? 0) + (row._sum.legacyBilledCostMicroUsd ?? 0)
     });
   }
   return totals;
@@ -112,6 +122,11 @@ export async function buildArchitectExecutionMetrics(params: {
   };
 }
 
+/**
+ * LIVE calls the reconciler could not attribute to any agent. These never
+ * reach the ledger or any agent's stats — surfaced report-only so the platform
+ * can see attribution gaps instead of silently guessing an owner.
+ */
 export async function countUnattributedLiveExecutions(range?: ExecutionRange): Promise<number> {
   return prisma.vapiCall.count({
     where: {

@@ -18,7 +18,8 @@ import {
 } from "./execution-billing";
 import {
   agentBillingAnchorAt,
-  agentBillingPeriodFor
+  agentBillingPeriodFor,
+  firstAgentExecutionAtByAgent
 } from "./agent-payment-scope";
 import { restoreBusinessAfterBillingPayment } from "./billing-cycle";
 import { resolvePrimaryBusinessId } from "./primary-business";
@@ -293,6 +294,11 @@ export async function getBusinessExecutionUsage(c: Context) {
     );
   }
 
+  const firstExecutionByAgent = await firstAgentExecutionAtByAgent(
+    prisma,
+    agentsForMonth.map((agent) => agent.id)
+  );
+
   // Start from installed agents, not execution rows, so a just-purchased agent
   // appears immediately with zero executions.
   const agentRollup = agentsForMonth.map((agent) => {
@@ -304,7 +310,8 @@ export async function getBusinessExecutionUsage(c: Context) {
     const billingAnchor = agentBillingAnchorAt({
       agentCreatedAt: agent.createdAt,
       referenceAt: selectedBounds.end,
-      payments: agent.payments
+      payments: agent.payments,
+      firstExecutionAt: firstExecutionByAgent.get(agent.id) ?? null
     });
     const stats = statsByAgent.get(agent.id) ?? {
       installedAgentId: agent.id,
@@ -367,13 +374,13 @@ export async function getBusinessExecutionUsage(c: Context) {
       )
     }));
 
-    const invoiceBilledCostMicroUsd =
-      repricedInvoiceServices.length > 0
-        ? repricedInvoiceServices.reduce(
-            (sum, service) => sum + service.billedCostMicroUsd,
-            0
-          )
-        : stats.displayCostMicroUsd;
+    // The frozen ledger is the ONLY money truth: each execution's amount was
+    // priced from the Admin Pricing snapshot at the moment it happened and is
+    // exactly what its invoice accrued. Re-pricing at today's rates made the
+    // Billing page drift from the invoice the buyer actually pays whenever an
+    // admin changed a rate or the per-run fee mid-month. The service breakdown
+    // below stays informational; the totals come from the ledger.
+    const invoiceBilledCostMicroUsd = stats.displayCostMicroUsd;
     const billedCostUsd = microUsdToUsd(invoiceBilledCostMicroUsd);
     const invoiceServiceCosts = repricedInvoiceServices.map((service) => ({
       serviceCode: service.serviceCode,
@@ -787,6 +794,10 @@ export async function getBusinessExecutionInvoices(c: Context) {
   const agentNames = new Map(
     business.installedAgents.map((agent) => [agent.id, agent.name])
   );
+  const invoiceFirstExecutionByAgent = await firstAgentExecutionAtByAgent(
+    prisma,
+    business.installedAgents.map((agent) => agent.id)
+  );
 
   return successResponse(c, {
     invoices: invoices.map((invoice) => {
@@ -814,7 +825,9 @@ export async function getBusinessExecutionInvoices(c: Context) {
               agentBillingAnchorAt({
                 agentCreatedAt: billingAgent.createdAt,
                 referenceAt: invoice.issuedAt,
-                payments: billingAgent.payments
+                payments: billingAgent.payments,
+                firstExecutionAt:
+                  invoiceFirstExecutionByAgent.get(billingAgent.id) ?? null
               }),
               invoice.issuedAt
             )

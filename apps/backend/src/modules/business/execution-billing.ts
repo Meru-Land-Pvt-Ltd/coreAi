@@ -156,6 +156,8 @@ async function addExecutionChargeToInvoice(
     amountMicroUsd: number;
     unitPriceMicroUsd: number;
     pricedUsageLineItems: UsageLineItem[] | undefined;
+    /** True when this execution happened inside the free-trial window. */
+    insideTrial: boolean;
   }
 ) {
   const usagePeriod = await resolveAgentBillingPeriod(
@@ -167,7 +169,8 @@ async function addExecutionChargeToInvoice(
       createdAt: input.agent.createdAt,
       ownerUserId: input.agent.business.ownerId
     },
-    input.occurredAt
+    input.occurredAt,
+    { candidateExecutionAt: input.insideTrial ? null : input.occurredAt }
   );
   const usageBillingMonth = usagePeriod.key;
   let invoice = await tx.businessUsageInvoice.findFirst({
@@ -472,7 +475,10 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
             occurredAt: existing.occurredAt,
             amountMicroUsd: pricedUsageMicroUsd,
             unitPriceMicroUsd: pricedUsageMicroUsd,
-            pricedUsageLineItems
+            pricedUsageLineItems,
+            // The promotion guard already refused trial-allowance rows, so this
+            // execution is a real one and may anchor the billing clock.
+            insideTrial: existing.trialExecution
           });
           const promoted = await tx.agentUsageExecution.update({
             where: { id: existing.id },
@@ -623,7 +629,8 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
           occurredAt,
           amountMicroUsd,
           unitPriceMicroUsd,
-          pricedUsageLineItems
+          pricedUsageLineItems,
+          insideTrial
         })
       : null;
 
@@ -797,13 +804,30 @@ export async function reconcileBusinessExecutionUsage(
     }),
     prisma.installedAgent.findMany({
       where: { businessId, installSource: { not: "ARCHITECT_SELF_TEST" } },
-      select: { id: true, workflowId: true, configJson: true }
+      select: { id: true, workflowId: true, configJson: true, createdAt: true }
     }),
+    // ACTIVE links only: a released/suspended number's stale row must not
+    // attribute anything, and phone-based inference is additionally
+    // time-bounded below so a REASSIGNED number never hands the previous
+    // agent's history to its new holder.
     prisma.businessPhoneNumber.findMany({
-      where: { businessId, installedAgentId: { not: null } },
+      where: { businessId, installedAgentId: { not: null }, isActive: true },
       select: { phoneNumber: true, installedAgentId: true }
     })
   ]);
+
+  // When the current assignment began. A historical call may be attributed
+  // through its number ONLY if it happened during this assignment.
+  const phoneAssignedAt = new Map<string, Date | null>();
+  if (phoneLinks.length > 0) {
+    const platformRows = await prisma.platformPhoneNumber.findMany({
+      where: { phoneNumber: { in: phoneLinks.map((row) => row.phoneNumber) } },
+      select: { phoneNumber: true, assignedAt: true }
+    });
+    for (const row of platformRows) {
+      phoneAssignedAt.set(row.phoneNumber, row.assignedAt);
+    }
+  }
 
   const agentIds = new Set(installedAgents.map((agent) => agent.id));
   const addLookup = (lookup: Map<string, string[]>, key: unknown, agentId: string) => {
@@ -864,17 +888,36 @@ export async function reconcileBusinessExecutionUsage(
       callPayload.assistantId ?? envelope.assistantId
     );
     if (assistantAgentId) return assistantAgentId;
-    const phoneAgentId = uniqueLookup(
-      phoneAgents,
-      metadata.assignedPhoneNumber ?? envelope.assignedPhoneNumber
-    );
-    if (phoneAgentId) return phoneAgentId;
+
+    const callHappenedAt = call.endedAt ?? call.billingRecordedAt ?? call.createdAt;
+
+    // Phone-based inference is CURRENT-state (the number's present holder), so
+    // it is only valid for calls made during the present assignment. Without
+    // this bound, reassigning a number would hand every old unattributed call
+    // — and its billing — to the new agent.
+    const phoneKey = metadata.assignedPhoneNumber ?? envelope.assignedPhoneNumber;
+    const phoneAgentId = uniqueLookup(phoneAgents, phoneKey);
+    if (phoneAgentId) {
+      const assignedAt =
+        typeof phoneKey === "string"
+          ? phoneAssignedAt.get(phoneKey.trim()) ?? null
+          : null;
+      if (!assignedAt || !callHappenedAt || callHappenedAt >= assignedAt) {
+        return phoneAgentId;
+      }
+    }
     const workflowAgentId = uniqueLookup(
       workflowAgents,
       metadata.workflowId ?? envelope.workflowId
     );
     if (workflowAgentId) return workflowAgentId;
-    return installedAgents.length === 1 ? installedAgents[0].id : null;
+    // Sole-agent fallback only for calls made after that agent existed — an
+    // uninstalled predecessor's history must not migrate to its replacement.
+    if (installedAgents.length === 1) {
+      const sole = installedAgents[0];
+      if (!callHappenedAt || callHappenedAt >= sole.createdAt) return sole.id;
+    }
+    return null;
   };
 
   type Candidate = RecordAgentExecutionInput & { occurredAt: Date };

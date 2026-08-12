@@ -3252,7 +3252,11 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
       ? configuredConfirmation
       : `Perfect, ${patientName} — you're booked for ${service}${providerName ? ` with ${providerName}` : ""} on ${whenLabel}.`;
 
-  const bookingFacts = ctx.business?.businessId ? await loadBusinessFacts(ctx.business.businessId).catch(() => null) : null;
+  const bookingFacts = ctx.business?.businessId
+    ? await loadBusinessFacts(ctx.business.businessId, {
+        installedAgentId: ctx.business.installedAgentId ?? null
+      }).catch(() => null)
+    : null;
 
   const configuredEventTitle = ctx.dental?.eventTitleFormat
     ? applyBracketTemplate(ctx.dental.eventTitleFormat, bookingTemplateValues).trim()
@@ -5380,7 +5384,7 @@ export async function handleVapiWebhook(c: Context) {
       const installedAgent = await (async () => {
         const storedCall = await prisma.vapiCall.findUnique({
           where: { callId },
-          select: { installedAgentId: true }
+          select: { installedAgentId: true, createdAt: true }
         });
         const directIds = [metadataInstalledAgentId, storedCall?.installedAgentId]
           .filter((id): id is string => Boolean(id));
@@ -5420,15 +5424,31 @@ export async function handleVapiWebhook(c: Context) {
             ? metadata.assignedPhoneNumber
             : null;
         if (assignedPhoneNumber) {
-          const phone = await prisma.businessPhoneNumber.findFirst({
-            where: {
-              businessId: liveBusinessId,
-              phoneNumber: assignedPhoneNumber,
-              installedAgentId: { not: null }
-            },
-            select: { installedAgentId: true }
-          });
-          if (phone?.installedAgentId) {
+          // Current ACTIVE holder only, and only for calls made during the
+          // current assignment: a late webhook for a call placed while the
+          // PREVIOUS agent held this number must not stamp — and bill — the
+          // new agent.
+          const [phone, platformNumber] = await Promise.all([
+            prisma.businessPhoneNumber.findFirst({
+              where: {
+                businessId: liveBusinessId,
+                phoneNumber: assignedPhoneNumber,
+                installedAgentId: { not: null },
+                isActive: true
+              },
+              select: { installedAgentId: true }
+            }),
+            prisma.platformPhoneNumber.findUnique({
+              where: { phoneNumber: assignedPhoneNumber },
+              select: { assignedAt: true }
+            })
+          ]);
+          const callStartedAt = storedCall?.createdAt ?? null;
+          const withinCurrentAssignment =
+            !platformNumber?.assignedAt ||
+            !callStartedAt ||
+            callStartedAt >= platformNumber.assignedAt;
+          if (phone?.installedAgentId && withinCurrentAssignment) {
             const phoneAgent = await prisma.installedAgent.findFirst({
               where: {
                 id: phone.installedAgentId,
@@ -5450,7 +5470,18 @@ export async function handleVapiWebhook(c: Context) {
           if (workflowAgent) return workflowAgent;
         }
 
-        return latestActiveInstalledAgent(liveBusinessId);
+        // Sole-agent fallback, bounded to calls made after that agent existed:
+        // an uninstalled predecessor's late webhook must not stamp — and bill —
+        // the replacement agent.
+        const soleAgent = await latestActiveInstalledAgent(liveBusinessId);
+        if (
+          soleAgent &&
+          storedCall?.createdAt &&
+          storedCall.createdAt < soleAgent.createdAt
+        ) {
+          return null;
+        }
+        return soleAgent;
       })().catch((error) => {
         console.error("[vapi-webhook] installed agent resolution failed", { callId, error });
         return null;

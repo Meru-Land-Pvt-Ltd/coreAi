@@ -6315,6 +6315,7 @@ function StepGoLive({
   checklist,
   readyToDeploy,
   assignedNumber,
+  installedAgentId = null,
   apptNeedsConfirmation,
   apptUseBusinessHours = true,
   coverageKind = "always",
@@ -6336,6 +6337,8 @@ function StepGoLive({
   checklist: ChecklistRow[];
   readyToDeploy: boolean;
   assignedNumber: string | null;
+  /** Scopes the ready-docs count to THIS agent's documents only. */
+  installedAgentId?: string | null;
   /** True when appointment hours are still unconfirmed — non-blocking nudge. */
   apptNeedsConfirmation: boolean;
   apptUseBusinessHours?: boolean;
@@ -6370,7 +6373,7 @@ function StepGoLive({
     void getBusinessFacts().then((res) => {
       if (!cancelled && res.success && res.data) setFacts(res.data);
     });
-    void getBusinessKnowledgeFiles().then((res) => {
+    void getBusinessKnowledgeFiles({ installedAgentId }).then((res) => {
       if (!cancelled && res.success && res.data) {
         setReadyDocs(res.data.files.filter((file) => file.ready).length);
       }
@@ -6378,7 +6381,7 @@ function StepGoLive({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [installedAgentId]);
 
   const testRun = browserTestOutcome !== null || routingReady !== null;
   const testPassed = browserTestOutcome === "passed" || routingReady === true;

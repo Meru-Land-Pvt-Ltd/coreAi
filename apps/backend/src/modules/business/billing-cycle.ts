@@ -1,6 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import { env } from "../../config/env";
 import {
+  buildAgentInvoiceOverdueEmailHtml,
+  buildBillingSuspendedEmailHtml,
   buildPendingInvoiceReminderEmailHtml,
   buildSubscriptionRenewalReminderEmailHtml,
   buildTrialEndedEmailHtml,
@@ -23,6 +25,7 @@ import { ensureMonthlyAssignedNumberFees } from "./phone-number-invoice";
 import {
   addAgentInvoiceCycle,
   agentBillingAnchorAt,
+  firstAgentExecutionAt,
   initialAgentPurchasePeriod,
   nextSubscriptionInvoicePeriod,
   paidPaymentCoversAgentInvoice,
@@ -51,11 +54,14 @@ function graceEndFor(dueAt: Date) {
   return new Date(dueAt.getTime() + 7 * DAY_MS);
 }
 
-function reminderAlreadySentToday(lastReminderAt: Date | null, now: Date) {
-  return Boolean(
-    lastReminderAt &&
-      lastReminderAt.toISOString().slice(0, 10) === now.toISOString().slice(0, 10)
-  );
+export function overdueReminderDueNow(
+  lastReminderAt: Date | null,
+  dueAt: Date | null,
+  now: Date
+) {
+  if (!lastReminderAt) return true;
+  if (dueAt && lastReminderAt < dueAt) return true;
+  return now.getTime() - lastReminderAt.getTime() >= 7 * DAY_MS;
 }
 
 export function subscriptionInvoiceStatusForCreation(
@@ -128,9 +134,9 @@ async function suspendBusinessForUsageInvoice(invoiceId: string, now: Date) {
       suspendedAt: true
     }
   });
-  if (!invoice) return false;
+  if (!invoice) return { changed: false, firstSuspension: false };
   const targets = usageSuspensionTargets(invoice);
-  if (!targets) return false;
+  if (!targets) return { changed: false, firstSuspension: false };
 
   const phones = await prisma.businessPhoneNumber.findMany({
     where: {
@@ -158,7 +164,11 @@ async function suspendBusinessForUsageInvoice(invoiceId: string, now: Date) {
     })
   ]);
   await suspendPhones(phones, "USAGE", invoice.id);
-  return !invoice.suspendedAt || phones.length > 0;
+  return {
+    changed: !invoice.suspendedAt || phones.length > 0,
+    // The one moment the buyer must be told their agent stopped answering.
+    firstSuspension: !invoice.suspendedAt
+  };
 }
 
 async function suspendAgentForPayment(paymentId: string, now: Date) {
@@ -173,7 +183,9 @@ async function suspendAgentForPayment(paymentId: string, now: Date) {
       userId: true
     }
   });
-  if (!payment || !payment.listingId) return false;
+  if (!payment || !payment.listingId) {
+    return { changed: false, firstSuspension: false };
+  }
 
   const installedAgent = await prisma.installedAgent.findFirst({
     where: {
@@ -191,7 +203,7 @@ async function suspendAgentForPayment(paymentId: string, now: Date) {
       where: { id: payment.id },
       data: { suspendedAt: now }
     });
-    return false;
+    return { changed: false, firstSuspension: false };
   }
 
   const phones = await prisma.businessPhoneNumber.findMany({
@@ -212,7 +224,10 @@ async function suspendAgentForPayment(paymentId: string, now: Date) {
     })
   ]);
   await suspendPhones(phones, "SUBSCRIPTION", payment.id);
-  return !payment.suspendedAt || phones.length > 0;
+  return {
+    changed: !payment.suspendedAt || phones.length > 0,
+    firstSuspension: !payment.suspendedAt
+  };
 }
 
 async function hasSuspendingSubscriptionDebt(
@@ -811,7 +826,8 @@ async function createDueSubscriptionInvoices(now: Date) {
     const billingAnchorAt = agentBillingAnchorAt({
       agentCreatedAt: agent.createdAt,
       referenceAt: now,
-      payments: billingAnchorPayments
+      payments: billingAnchorPayments,
+      firstExecutionAt: await firstAgentExecutionAt(prisma, agent.id)
     });
     const {
       start: periodStart,
@@ -1179,7 +1195,8 @@ async function reconcileOpenSubscriptionInvoicePeriods(now: Date) {
       const anchorAt = agentBillingAnchorAt({
         agentCreatedAt: agent.createdAt,
         referenceAt: now,
-        payments
+        payments,
+        firstExecutionAt: await firstAgentExecutionAt(tx, agent.id)
       });
       const expected = nextSubscriptionInvoicePeriod(paid, anchorAt);
       const status = now < expected.start ? "PENDING" : "OVERDUE";
@@ -1238,6 +1255,7 @@ async function reconcilePaidPurchasePeriods() {
       },
       select: {
         id: true,
+        installedAgentId: true,
         createdAt: true,
         paidAt: true,
         periodStart: true,
@@ -1325,8 +1343,22 @@ async function reconcileOpenUsageInvoicePeriods(now: Date) {
         invoice.periodEnd.getTime() !== expected.end.getTime() ||
         invoice.dueAt.getTime() !== expected.dueAt.getTime() ||
         invoice.graceEndsAt?.getTime() !== expected.graceEndsAt.getTime() ||
+        invoice.billingMonth !== expected.key ||
         invoice.status !== status;
       if (!changed) continue;
+
+      const monthKeyFree =
+        invoice.billingMonth === expected.key ||
+        !(await tx.businessUsageInvoice.findUnique({
+          where: {
+            installedAgentId_billingMonth_sequence: {
+              installedAgentId: agent.id,
+              billingMonth: expected.key,
+              sequence: invoice.sequence
+            }
+          },
+          select: { id: true }
+        }));
 
       await tx.businessUsageInvoice.update({
         where: { id: invoice.id },
@@ -1335,6 +1367,7 @@ async function reconcileOpenUsageInvoicePeriods(now: Date) {
           periodEnd: expected.end,
           dueAt: expected.dueAt,
           graceEndsAt: expected.graceEndsAt,
+          ...(monthKeyFree ? { billingMonth: expected.key } : {}),
           status,
           ...(status === "PENDING"
             ? {
@@ -1364,22 +1397,44 @@ async function reconcileOpenUsageInvoicePeriods(now: Date) {
   });
 }
 
-async function sendUsageReminder(invoice: {
-  invoiceNumber: string;
-  billingMonth: string;
-  totalMicroUsd: number;
-  dueAt: Date;
-  business: {
-    name: string;
-    billingEmail: string | null;
-    owner: { email: string; fullName: string | null };
-  };
-}) {
+async function sendUsageReminder(
+  invoice: {
+    invoiceNumber: string;
+    billingMonth: string;
+    totalMicroUsd: number;
+    dueAt: Date;
+    business: {
+      name: string;
+      billingEmail: string | null;
+      owner: { email: string; fullName: string | null };
+    };
+  },
+  options?: { suspended?: boolean; agentName?: string | null }
+) {
   if (!isPlatformMailConfigured()) return false;
   const amount = (invoice.totalMicroUsd / 1_000_000).toFixed(2);
   const to = invoice.business.billingEmail || invoice.business.owner.email;
   const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
   const recipientName = invoice.business.owner.fullName || invoice.business.name;
+
+  // After suspension the message changes: the agent is already paused and
+  // stays paused until the balance clears. Sent on the same 7-day cadence.
+  if (options?.suspended) {
+    await sendPlatformEmail({
+      purpose: "billing",
+      to,
+      subject: `Service paused — usage invoice ${invoice.invoiceNumber} is unpaid`,
+      text: `Your agent is paused because the ${monthLabel(invoice.billingMonth)} execution invoice of $${amount} is unpaid. Pay now to restore service. ${billingUrl}`,
+      html: buildBillingSuspendedEmailHtml({
+        name: recipientName,
+        agentName: options.agentName || "Your agent",
+        amountUsd: amount,
+        billingUrl,
+        reminder: true
+      })
+    });
+    return true;
+  }
   const gracePeriodEnd = graceEndFor(invoice.dueAt).toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -1398,6 +1453,35 @@ async function sendUsageReminder(invoice: {
       amountUsd: amount,
       gracePeriodEnd,
       billingUrl
+    })
+  });
+  return true;
+}
+
+/** One-time "your agent was paused" notice, sent at the moment of suspension. */
+async function sendSuspensionNotice(input: {
+  business: {
+    name: string;
+    billingEmail: string | null;
+    owner: { email: string; fullName: string | null };
+  };
+  agentName: string | null;
+  amountUsd: string;
+}) {
+  if (!isPlatformMailConfigured()) return false;
+  const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
+  const agentName = input.agentName || "Your agent";
+  await sendPlatformEmail({
+    purpose: "billing",
+    to: input.business.billingEmail || input.business.owner.email,
+    subject: `${agentName} is paused — unpaid balance of $${input.amountUsd}`,
+    text: `${agentName} and all of its services are paused because your overdue balance of $${input.amountUsd} was not paid within the 7-day grace period. Pay now to restore service. ${billingUrl}`,
+    html: buildBillingSuspendedEmailHtml({
+      name: input.business.owner.fullName || input.business.name,
+      agentName,
+      amountUsd: input.amountUsd,
+      billingUrl,
+      reminder: false
     })
   });
   return true;
@@ -1422,7 +1506,8 @@ async function processUsageInvoiceLifecycle(now: Date) {
           billingEmail: true,
           owner: { select: { email: true, fullName: true } }
         }
-      }
+      },
+      installedAgent: { select: { name: true, status: true } }
     }
   });
   let remindersSent = 0;
@@ -1436,20 +1521,56 @@ async function processUsageInvoiceLifecycle(now: Date) {
     );
   }
   for (const invoice of invoices) {
-    const suspendAt = invoice.graceEndsAt ?? invoice.dueAt;
-    if (now >= suspendAt) {
-      const scopeKey = `${invoice.businessId}:${invoice.installedAgentId ?? "legacy"}`;
-      if (!usageBalanceIsCollectible(overdueTotals.get(scopeKey) ?? 0)) {
-        // Stripe cannot collect less than $0.50. Keep the balance overdue and
-        // carry it into a later same-agent statement without suspending service.
-        continue;
+    const suspendAt = invoice.graceEndsAt ?? graceEndFor(invoice.dueAt);
+    const scopeKey = `${invoice.businessId}:${invoice.installedAgentId ?? "legacy"}`;
+    const collectible = usageBalanceIsCollectible(
+      overdueTotals.get(scopeKey) ?? 0
+    );
+    // Stripe cannot collect less than $0.50. Keep sub-minimum balances overdue
+    // and carry them into a later same-agent statement without suspending.
+    if (now >= suspendAt && collectible) {
+      const result = await suspendBusinessForUsageInvoice(invoice.id, now);
+      if (result.changed) suspended += 1;
+      if (result.firstSuspension) {
+        try {
+          if (
+            await sendSuspensionNotice({
+              business: invoice.business,
+              agentName: invoice.installedAgent?.name ?? null,
+              amountUsd: (invoice.totalMicroUsd / 1_000_000).toFixed(2)
+            })
+          ) {
+            await prisma.businessUsageInvoice.update({
+              where: { id: invoice.id },
+              data: { reminderCount: { increment: 1 }, lastReminderAt: now }
+            });
+            continue;
+          }
+        } catch (error) {
+          console.error("[billing-cycle] suspension notice failed", {
+            invoiceId: invoice.id,
+            error
+          });
+        }
       }
-      if (await suspendBusinessForUsageInvoice(invoice.id, now)) suspended += 1;
-      continue;
     }
-    if (!reminderAlreadySentToday(invoice.lastReminderAt, now)) {
+    // Dunning continues on a 7-day cadence until paid — first email the moment
+    // the invoice is overdue, then weekly, INCLUDING after suspension. Only
+    // collectible balances are dunned: a sub-$0.50 balance can neither be
+    // charged nor suspend service, so nagging about it weekly would threaten
+    // a pause that never comes — it carries into the next statement instead.
+    if (!collectible) continue;
+    if (overdueReminderDueNow(invoice.lastReminderAt, invoice.dueAt, now)) {
       try {
-        if (await sendUsageReminder(invoice)) {
+        const alreadySuspended =
+          Boolean(invoice.suspendedAt) ||
+          invoice.installedAgent?.status === "SUSPENDED_BILLING";
+        if (
+          await sendUsageReminder(invoice, {
+            suspended: alreadySuspended,
+            agentName: invoice.installedAgent?.name ?? null
+          })
+        ) {
           await prisma.businessUsageInvoice.update({
             where: { id: invoice.id },
             data: {
@@ -1485,7 +1606,15 @@ async function processAgentDebtSuspensions(now: Date) {
       userId: true,
       listingId: true,
       installedAgentId: true,
-      amountCents: true
+      amountCents: true,
+      listing: { select: { name: true } },
+      business: {
+        select: {
+          name: true,
+          billingEmail: true,
+          owner: { select: { email: true, fullName: true } }
+        }
+      }
     }
   });
   const totals = new Map<string, number>();
@@ -1501,9 +1630,141 @@ async function processAgentDebtSuspensions(now: Date) {
       payment.businessId ?? `owner:${payment.userId}`
     }:${payment.installedAgentId ?? `legacy-listing:${payment.listingId}`}`;
     if ((totals.get(key) ?? 0) < 50) continue;
-    if (await suspendAgentForPayment(payment.id, now)) suspended += 1;
+    const result = await suspendAgentForPayment(payment.id, now);
+    if (result.changed) suspended += 1;
+    if (result.firstSuspension && payment.business) {
+      try {
+        // Only a DELIVERED notice consumes the dunning slot — on failure the
+        // overdue reminder sweep later this run is the buyer's next contact.
+        if (
+          await sendSuspensionNotice({
+            business: payment.business,
+            agentName: payment.listing?.name ?? null,
+            amountUsd: (payment.amountCents / 100).toFixed(2)
+          })
+        ) {
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: {
+              pendingReminderSentAt: now,
+              pendingReminderCount: { increment: 1 }
+            }
+          });
+        }
+      } catch (error) {
+        console.error("[billing-cycle] suspension notice failed", {
+          paymentId: payment.id,
+          error
+        });
+      }
+    }
   }
   return { considered: payments.length, suspended };
+}
+
+async function sendOverdueAgentInvoiceReminders(now: Date) {
+  if (!isPlatformMailConfigured()) return { sent: 0 };
+
+  const overdue = await prisma.payment.findMany({
+    where: {
+      status: "OVERDUE",
+      invoiceKind: { in: ["POST_TRIAL", "SUBSCRIPTION_RENEWAL"] },
+      amountCents: { gte: 50 },
+      paymentPendingAt: null
+    },
+    orderBy: { dueAt: "asc" },
+    take: 100,
+    select: {
+      id: true,
+      amountCents: true,
+      dueAt: true,
+      suspendedAt: true,
+      pendingReminderSentAt: true,
+      listing: { select: { name: true } },
+      business: {
+        select: {
+          name: true,
+          billingEmail: true,
+          owner: { select: { email: true, fullName: true } }
+        }
+      },
+      user: { select: { email: true, fullName: true } }
+    }
+  });
+
+  let sent = 0;
+  const billingUrl = `${env.FRONTEND_URL.replace(/\/$/, "")}/business/billingandusage`;
+  for (const invoice of overdue) {
+    if (
+      !overdueReminderDueNow(invoice.pendingReminderSentAt, invoice.dueAt, now)
+    ) {
+      continue;
+    }
+    const claimed = await prisma.payment.updateMany({
+      where: { id: invoice.id, pendingReminderSentAt: invoice.pendingReminderSentAt },
+      data: { pendingReminderSentAt: now, pendingReminderCount: { increment: 1 } }
+    });
+    if (claimed.count !== 1) continue;
+
+    const agentName = invoice.listing?.name || "Your agent";
+    const amountUsd = (invoice.amountCents / 100).toFixed(2);
+    const to =
+      invoice.business?.billingEmail ||
+      invoice.business?.owner.email ||
+      invoice.user.email;
+    const recipientName =
+      invoice.business?.owner.fullName ||
+      invoice.user.fullName ||
+      invoice.business?.name ||
+      "there";
+    try {
+      if (invoice.suspendedAt) {
+        await sendPlatformEmail({
+          purpose: "billing",
+          to,
+          subject: `Service paused — ${agentName} has an unpaid bill of $${amountUsd}`,
+          text: `${agentName} is paused because its bill of $${amountUsd} is unpaid. Pay now to restore service. ${billingUrl}`,
+          html: buildBillingSuspendedEmailHtml({
+            name: recipientName,
+            agentName,
+            amountUsd,
+            billingUrl,
+            reminder: true
+          })
+        });
+      } else {
+        const graceEndsAt = graceEndFor(invoice.dueAt ?? now);
+        await sendPlatformEmail({
+          purpose: "billing",
+          to,
+          subject: `Payment overdue — ${agentName} pauses on ${billingReminderDate(graceEndsAt)}`,
+          text: `The bill of $${amountUsd} for ${agentName} is overdue. Pay within the 7-day grace period (by ${billingReminderDate(graceEndsAt)}) or the agent and all of its services will be paused. ${billingUrl}`,
+          html: buildAgentInvoiceOverdueEmailHtml({
+            name: recipientName,
+            agentName,
+            amountUsd,
+            pauseDate: billingReminderDate(graceEndsAt),
+            billingUrl
+          })
+        });
+      }
+      sent += 1;
+    } catch (error) {
+      // Roll the claim back so the hourly scheduler retries this invoice.
+      await prisma.payment.updateMany({
+        where: { id: invoice.id, pendingReminderSentAt: now },
+        data: {
+          pendingReminderSentAt: invoice.pendingReminderSentAt,
+          pendingReminderCount: { decrement: 1 }
+        }
+      });
+      console.error("[billing-cycle] overdue agent invoice reminder failed", {
+        paymentId: invoice.id,
+        error
+      });
+    }
+  }
+  return { sent };
 }
 
 let initialExecutionReconciliationComplete = false;
@@ -1577,7 +1838,11 @@ export async function runBillingCycle(now = new Date()) {
   }
   const trialEndEmails = await sendPendingTrialEndEmails(now);
   const usageInvoices = await processUsageInvoiceLifecycle(now);
+  // Suspensions run first so the 7-day dunning that follows sends the
+  // "service paused" variant instead of a stale "pay before pause" warning.
   const agentSuspensions = await processAgentDebtSuspensions(now);
+  const overdueAgentInvoiceReminders =
+    await sendOverdueAgentInvoiceReminders(now);
   return {
     billingMonth: billingMonthFor(now),
     executionReconciliation,
@@ -1591,6 +1856,7 @@ export async function runBillingCycle(now = new Date()) {
     subscriptionInvoices,
     pendingAgentInvoiceReminders,
     pendingUsageInvoiceReminders,
+    overdueAgentInvoiceReminders,
     coveredAgentInvoices,
     usageInvoices,
     agentSuspensions

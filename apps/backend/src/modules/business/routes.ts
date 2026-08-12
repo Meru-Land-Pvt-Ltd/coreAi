@@ -69,6 +69,7 @@ import {
   getBusinessExecutionUsage,
   payBusinessExecutionInvoice
 } from "./execution-usage-routes";
+import { reconcileBusinessExecutionUsage } from "./execution-billing";
 import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
 import { resolveTwilioSmsMode, validateSmsRecipientE164 } from "../architect/twilio-connector";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
@@ -332,6 +333,39 @@ function vapiCallDirection(metadataJson: unknown): "inbound" | "outbound" {
     if (typeof type === "string" && /outbound/i.test(type)) return "outbound";
   }
   return "inbound";
+}
+
+/**
+ * The Triven number that actually received/placed this call, frozen into the
+ * webhook envelope at call time. After a number reassignment the dashboard's
+ * "current number" tile changes, but each history row keeps naming the number
+ * that really handled it.
+ */
+function vapiCallBusinessNumber(metadataJson: unknown): string | null {
+  if (!metadataJson || typeof metadataJson !== "object" || Array.isArray(metadataJson)) return null;
+  const body = metadataJson as Record<string, unknown>;
+
+  const candidates: unknown[] = [];
+  const message = body.message;
+  if (message && typeof message === "object" && !Array.isArray(message)) {
+    const messageRecord = message as Record<string, unknown>;
+    const call = messageRecord.call;
+    if (call && typeof call === "object" && !Array.isArray(call)) {
+      candidates.push((call as Record<string, unknown>).metadata);
+    }
+  }
+  const topCall = body.call;
+  if (topCall && typeof topCall === "object" && !Array.isArray(topCall)) {
+    candidates.push((topCall as Record<string, unknown>).metadata);
+  }
+  candidates.push(body.metadata, body);
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const value = (candidate as Record<string, unknown>).assignedPhoneNumber;
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
 }
 
 function includeActivePhoneNumbers(options?: { take?: number }) {
@@ -715,11 +749,22 @@ function previousMonthStart(): Date {
 }
 
 /** Daily buckets (UTC dates) for the agent activity chart, oldest first. */
+/**
+ * Agent Activity chart, fed by the canonical billing ledger. Each bar counts
+ * AgentUsageExecution rows — the same rows the buyer is invoiced from — and
+ * each cost point is the ledger's display cost (billed + legacy), so every
+ * DAY bucket matches the Billing page and My Agents for that day. The chart's
+ * window is a rolling 30 days; monthly totals elsewhere are calendar-month, so
+ * the chart's visible sum equals a month total only when the windows align.
+ */
 function buildActivityChartDays(params: {
   days: number;
   appointments: Array<{ createdAt: Date }>;
-  missedCallLeads: Array<{ createdAt: Date }>;
-  vapiCalls: Array<{ createdAt: Date; billedCostMicroUsd: number | null }>;
+  ledgerExecutions: Array<{
+    occurredAt: Date;
+    amountMicroUsd: number;
+    legacyBilledCostMicroUsd: number;
+  }>;
 }) {
   const dayKey = (date: Date) => date.toISOString().slice(0, 10);
   const today = new Date();
@@ -743,16 +788,12 @@ function buildActivityChartDays(params: {
     }
   }
 
-  for (const lead of params.missedCallLeads) {
-    const bucket = buckets.get(dayKey(lead.createdAt));
-    if (bucket) bucket.executions += 1;
-  }
-
-  for (const call of params.vapiCalls) {
-    const bucket = buckets.get(dayKey(call.createdAt));
+  for (const execution of params.ledgerExecutions) {
+    const bucket = buckets.get(dayKey(execution.occurredAt));
     if (bucket) {
       bucket.executions += 1;
-      bucket.costMicroUsd += call.billedCostMicroUsd ?? 0;
+      bucket.costMicroUsd +=
+        execution.amountMicroUsd + execution.legacyBilledCostMicroUsd;
     }
   }
 
@@ -760,8 +801,17 @@ function buildActivityChartDays(params: {
 }
 
 /** Agent-generated events (bookings, missed calls, AI calls) as activity items. */
+/**
+ * Every row is labeled with the agent that ACTUALLY handled it, resolved from
+ * the row's own stored installedAgentId. A single business-wide name here
+ * meant a two-agent business showed every call as handled by the newest agent
+ * — including after a number reassignment, when the previous agent's history
+ * would suddenly read as the new agent's work.
+ */
 function buildAgentEventActivities(params: {
+  /** Fallback label for rows with no attributable agent. */
   agentName: string;
+  agentNameById: Map<string, string>;
   appointments: Array<{
     id: string;
     customerName: string | null;
@@ -774,6 +824,7 @@ function buildAgentEventActivities(params: {
   missedCallLeads: Array<{ id: string; phoneNumber: string; name: string | null; createdAt: Date }>;
   vapiCalls: Array<{
     id: string;
+    installedAgentId?: string | null;
     customerPhone: string;
     status: string;
     createdAt: Date;
@@ -827,10 +878,14 @@ function buildAgentEventActivities(params: {
   }
 
   for (const call of params.vapiCalls) {
+    const callAgentName =
+      (call.installedAgentId
+        ? params.agentNameById.get(call.installedAgentId)
+        : null) ?? params.agentName;
     activities.push({
       id: `aicall-${call.id}`,
       type: "ai_call",
-      text: `${params.agentName} handled an AI voice call with ${call.customerPhone}`,
+      text: `${callAgentName} handled an AI voice call with ${call.customerPhone}`,
       badge: "AI call",
       tone: "slate",
       vapiCallId: call.id,
@@ -951,7 +1006,7 @@ businessRoutes.get("/dashboard", async (c) => {
         bookings: 0,
         bookingsPrevMonth: 0
       },
-      activityChart: { days: buildActivityChartDays({ days: 30, appointments: [], missedCallLeads: [], vapiCalls: [] }) },
+      activityChart: { days: buildActivityChartDays({ days: 30, appointments: [], ledgerExecutions: [] }) },
       agentActivity: [],
       callHistory: [],
       executions: [],
@@ -965,6 +1020,23 @@ businessRoutes.get("/dashboard", async (c) => {
   const prevMonthStart = previousMonthStart();
   const chartStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
+  // Heal ledger gaps before reading, exactly like the Billing and My Agents
+  // endpoints do — otherwise a call whose billing webhook was dropped shows on
+  // those pages (which heal) but not on the dashboard. Advisory-locked and
+  // idempotent; failures are non-fatal.
+  try {
+    await reconcileBusinessExecutionUsage(
+      business.id,
+      monthStart.toISOString().slice(0, 7),
+      { since: monthStart }
+    );
+  } catch (error) {
+    console.error("[dashboard] execution reconciliation failed (non-fatal)", {
+      businessId: business.id,
+      error
+    });
+  }
+
   const [
     leadCount,
     conversationCount,
@@ -976,10 +1048,9 @@ businessRoutes.get("/dashboard", async (c) => {
     chartAppointments,
     chartMissedCallLeads,
     chartVapiCalls,
-    monthVapiCallCount,
-    monthMissedCallCount,
-    prevMonthVapiCallCount,
-    prevMonthMissedCallCount,
+    chartLedgerExecutions,
+    monthExecutionCount,
+    prevMonthExecutionCount,
     prevMonthBookingCount
   ] = await Promise.all([
     prisma.lead.count({ where: { businessId: business.id } }),
@@ -1046,6 +1117,7 @@ businessRoutes.get("/dashboard", async (c) => {
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
+        installedAgentId: true,
         customerPhone: true,
         status: true,
         createdAt: true,
@@ -1053,19 +1125,29 @@ businessRoutes.get("/dashboard", async (c) => {
         recordingUrl: true
       }
     }),
-    // Month-over-month metric counts (calls handled = AI voice calls + missed calls captured).
-    prisma.vapiCall.count({ where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: monthStart } } }),
-    prisma.lead.count({
-      where: { businessId: business.id, source: { contains: "MISSED_CALL" }, createdAt: { gte: monthStart } }
+    // Canonical ledger rows for the Agent Activity chart — the same rows the
+    // buyer is billed from, so chart totals reconcile with the Billing page.
+    prisma.agentUsageExecution.findMany({
+      where: { businessId: business.id, occurredAt: { gte: chartStart } },
+      select: {
+        occurredAt: true,
+        amountMicroUsd: true,
+        legacyBilledCostMicroUsd: true
+      }
     }),
-    prisma.vapiCall.count({
-      where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: prevMonthStart, lt: monthStart } }
-    }),
-    prisma.lead.count({
+    // Month-over-month execution counts from the canonical billing ledger —
+    // the number the tile reports is the number the buyer is billed on, so it
+    // always matches the My Agents rows, the chart, and the Billing page.
+    prisma.agentUsageExecution.count({
       where: {
         businessId: business.id,
-        source: { contains: "MISSED_CALL" },
-        createdAt: { gte: prevMonthStart, lt: monthStart }
+        billingMonth: monthStart.toISOString().slice(0, 7)
+      }
+    }),
+    prisma.agentUsageExecution.count({
+      where: {
+        businessId: business.id,
+        billingMonth: prevMonthStart.toISOString().slice(0, 7)
       }
     }),
     prisma.appointment.count({
@@ -1083,6 +1165,7 @@ businessRoutes.get("/dashboard", async (c) => {
       select: {
         id: true,
         callId: true,
+        installedAgentId: true,
         customerPhone: true,
         status: true,
         durationSeconds: true,
@@ -1115,8 +1198,17 @@ businessRoutes.get("/dashboard", async (c) => {
     })
   ]);
 
+  // Each history row names the agent that handled THAT call — never a
+  // business-wide assumption that mislabels siblings' calls.
+  const historyAgentNames = new Map(
+    business.installedAgents.map((agent) => [agent.id, agent.name])
+  );
   const callHistory = historyCalls.map((call) => ({
     id: call.id,
+    agentName: call.installedAgentId
+      ? historyAgentNames.get(call.installedAgentId) ?? null
+      : null,
+    businessNumber: vapiCallBusinessNumber(call.metadataJson),
     customerPhone: call.customerPhone,
     direction: vapiCallDirection(call.metadataJson),
     status: call.status,
@@ -1143,8 +1235,18 @@ businessRoutes.get("/dashboard", async (c) => {
 
   const now = new Date();
   // Agent events over the last 30 days (matches the activity chart window).
+  // Rows that cannot name their own agent (missed-call leads, bookings, and
+  // unattributed calls) use a neutral label in a multi-agent business — never
+  // an arbitrary sibling's name.
+  const activityFallbackName =
+    business.installedAgents.length === 1
+      ? business.installedAgents[0]?.name ?? "Your agent"
+      : "Your agent";
   const agentEventActivities = buildAgentEventActivities({
-    agentName: installedAgent?.name ?? "Your agent",
+    agentName: activityFallbackName,
+    agentNameById: new Map(
+      business.installedAgents.map((agent) => [agent.id, agent.name])
+    ),
     appointments: chartAppointments,
     missedCallLeads: chartMissedCallLeads,
     vapiCalls: chartVapiCalls
@@ -1194,8 +1296,8 @@ businessRoutes.get("/dashboard", async (c) => {
     },
     counts: { leads: leadCount, conversations: conversationCount, appointments: appointmentCount },
     monthlyMetrics: {
-      callsHandled: monthVapiCallCount + monthMissedCallCount,
-      callsHandledPrevMonth: prevMonthVapiCallCount + prevMonthMissedCallCount,
+      callsHandled: monthExecutionCount,
+      callsHandledPrevMonth: prevMonthExecutionCount,
       bookings: monthBookings.length,
       bookingsPrevMonth: prevMonthBookingCount
     },
@@ -1244,8 +1346,7 @@ businessRoutes.get("/dashboard", async (c) => {
       days: buildActivityChartDays({
         days: 30,
         appointments: chartAppointments,
-        missedCallLeads: chartMissedCallLeads,
-        vapiCalls: chartVapiCalls
+        ledgerExecutions: chartLedgerExecutions
       })
     },
     agentActivity: agentEventActivities.slice(0, 30),
@@ -2243,7 +2344,7 @@ businessRoutes.get("/setup/business-facts", async (c) => {
     return errorResponse(c, "Installed agent not found for your business.", 404, "AGENT_NOT_FOUND");
   }
 
-  const facts = await loadBusinessFacts(businessId);
+  const facts = await loadBusinessFacts(businessId, { installedAgentId });
   const suggestion = includeDocumentSuggestions
     ? await extractAddressFromDocuments({ businessId, installedAgentId }).catch(() => null)
     : null;
@@ -2820,7 +2921,9 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
     (business && businessPhoneForNumber && businessPhoneForNumber.businessId === business.id)
   );
 
-  const installedAgent = businessPhoneForNumber?.installedAgent ?? business?.installedAgents?.[0] ?? null;
+  // Diagnostics must name the agent the NUMBER routes to — never guess a
+  // sibling. A number without an agent link reports exactly that.
+  const installedAgent = businessPhoneForNumber?.installedAgent ?? null;
 
   const checks = [
     ...environmentChecks,
@@ -3040,9 +3143,7 @@ function buildSetupReadiness(
   calendlyConnected = false
 ) {
   const profile = business?.profile ?? null;
-  const installedAgent = listingId
-    ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
-    : business?.installedAgents?.[0] ?? null;
+  const installedAgent = resolveSetupAgent(business?.installedAgents, listingId);
   // One number per agent: showing the business's first number here would make
   // a second agent's wizard claim it already has the first agent's number.
   const phone = installedAgent
@@ -3078,7 +3179,17 @@ function buildSetupReadiness(
   const calendlyComplete = calendlyConnected && Boolean(calendlyEventTypeUri);
   const phoneComplete = Boolean(phone) && (answeringMode === "AI_FIRST" || Boolean(phone?.forwardToPhone));
   const smsComplete = Boolean(phone);
-  const voiceComplete = Boolean(profile?.vapiAssistantId);
+  // Voice readiness is per agent: THIS agent's own deployed assistant. The
+  // shared-profile fallback survives only for single-agent businesses; a
+  // fresh second agent must not show "voice ready" because a sibling deployed.
+  const agentAssistantId =
+    typeof config?.vapiAssistantId === "string" && config.vapiAssistantId.trim()
+      ? config.vapiAssistantId.trim()
+      : null;
+  const voiceComplete = Boolean(
+    agentAssistantId ??
+      ((business?.installedAgents?.length ?? 0) <= 1 ? profile?.vapiAssistantId : null)
+  );
   const telegramComplete =
     installedAgent?.telegramBot?.status === "ACTIVE" &&
     installedAgent.telegramBot.webhookStatus === "HEALTHY";
@@ -3223,9 +3334,7 @@ function serializeSetup(
   calendly: { connected: boolean; email: string | null } = { connected: false, email: null }
 ) {
   const profile = business?.profile ?? null;
-  const installedAgent = listingId
-    ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
-    : business?.installedAgents?.[0] ?? null;
+  const installedAgent = resolveSetupAgent(business?.installedAgents, listingId);
   const phone = installedAgent
     ? business?.phoneNumbers?.find((row) => row.installedAgentId === installedAgent.id) ?? null
     : business?.phoneNumbers?.find((row) => !row.installedAgentId) ?? null;
@@ -3256,12 +3365,41 @@ function serializeSetup(
   const agentDetails = agentBusinessDetails(installedAgent?.configJson);
   const ownsBusinessContext = hasAgentBusinessDetails(installedAgent?.configJson);
 
+  // A NEWLY PURCHASED agent must start completely fresh. The shared-profile
+  // fallback exists only for legacy agents configured under the old shared
+  // model (recognizable by the assistantName every setup save has always
+  // written). An agent that has NEVER been configured, in a business where
+  // another agent HAS been, gets a blank wizard — the sibling's services,
+  // FAQs, tone, hours, and contact details must not appear pre-filled.
+  const wasEverConfigured =
+    ownsBusinessContext ||
+    Boolean(typeof config?.assistantName === "string" && config.assistantName.trim());
+  const configuredSiblingExists = Boolean(
+    installedAgent &&
+      business?.installedAgents?.some((sibling) => {
+        if (sibling.id === installedAgent.id) return false;
+        const siblingConfig =
+          sibling.configJson && typeof sibling.configJson === "object" && !Array.isArray(sibling.configJson)
+            ? (sibling.configJson as Record<string, unknown>)
+            : {};
+        return (
+          hasAgentBusinessDetails(sibling.configJson) ||
+          (typeof siblingConfig.assistantName === "string" && siblingConfig.assistantName.trim() !== "")
+        );
+      })
+  );
+  const startsFresh = Boolean(installedAgent) && !wasEverConfigured && configuredSiblingExists;
+
   return {
     business: business
       ? {
         id: business.id,
-        name: (ownsBusinessContext ? agentDetailText(agentDetails.businessName) : null) ?? business.name,
-        type: (ownsBusinessContext ? agentDetailText(agentDetails.businessType) : null) ?? business.type
+        name: startsFresh
+          ? ""
+          : (ownsBusinessContext ? agentDetailText(agentDetails.businessName) : null) ?? business.name,
+        type: startsFresh
+          ? ""
+          : (ownsBusinessContext ? agentDetailText(agentDetails.businessType) : null) ?? business.type
       }
       : null,
     profile: profile
@@ -3269,27 +3407,47 @@ function serializeSetup(
         // Business-level: one physical business, one calendar and timezone.
         calendarId: profile.calendarId,
         timeZone: normalizeTimeZone(profile.timeZone),
-        vapiAssistantId: profile.vapiAssistantId,
-        vapiPhoneNumberId: profile.vapiPhoneNumberId,
-        ...(ownsBusinessContext
+        // The live-answer identity is per agent; the shared profile value is
+        // only meaningful for the agent that deployed it. A fresh agent must
+        // not appear "voice ready" because a sibling deployed.
+        vapiAssistantId: startsFresh
+          ? null
+          : cleanOptional(config?.vapiAssistantId as string | undefined) ??
+            profile.vapiAssistantId,
+        vapiPhoneNumberId: startsFresh
+          ? null
+          : cleanOptional(config?.vapiPhoneNumberId as string | undefined) ??
+            profile.vapiPhoneNumberId,
+        ...(startsFresh
           ? {
-            bookingUrl: cleanOptional(agentDetails.bookingUrl as string | undefined) ?? null,
-            teamPhone: cleanOptional(agentDetails.teamPhone as string | undefined) ?? null,
-            tone: (agentDetails.tone as string | undefined) ?? profile.tone,
-            escalationRules: cleanOptional(agentDetails.escalationRules as string | undefined) ?? null,
-            services: Array.isArray(agentDetails.services) ? agentDetails.services : [],
-            faqs: Array.isArray(agentDetails.faqs) ? agentDetails.faqs : [],
-            hours: Array.isArray(agentDetails.hours) ? agentDetails.hours : profile.hoursJson ?? []
+            // Completely fresh: nothing from any previous agent's setup.
+            bookingUrl: null,
+            teamPhone: null,
+            tone: null,
+            escalationRules: null,
+            services: [],
+            faqs: [],
+            hours: []
           }
-          : {
-            bookingUrl: profile.bookingUrl,
-            teamPhone: profile.teamPhone,
-            tone: profile.tone,
-            escalationRules: profile.escalationRules,
-            services: profile.services,
-            faqs: profile.faqsJson ?? [],
-            hours: profile.hoursJson ?? []
-          })
+          : ownsBusinessContext
+            ? {
+              bookingUrl: cleanOptional(agentDetails.bookingUrl as string | undefined) ?? null,
+              teamPhone: cleanOptional(agentDetails.teamPhone as string | undefined) ?? null,
+              tone: (agentDetails.tone as string | undefined) ?? profile.tone,
+              escalationRules: cleanOptional(agentDetails.escalationRules as string | undefined) ?? null,
+              services: Array.isArray(agentDetails.services) ? agentDetails.services : [],
+              faqs: Array.isArray(agentDetails.faqs) ? agentDetails.faqs : [],
+              hours: Array.isArray(agentDetails.hours) ? agentDetails.hours : profile.hoursJson ?? []
+            }
+            : {
+              bookingUrl: profile.bookingUrl,
+              teamPhone: profile.teamPhone,
+              tone: profile.tone,
+              escalationRules: profile.escalationRules,
+              services: profile.services,
+              faqs: profile.faqsJson ?? [],
+              hours: profile.hoursJson ?? []
+            })
       }
       : null,
     phoneNumber: phone
@@ -3303,9 +3461,20 @@ function serializeSetup(
       ? { id: installedAgent.id, name: installedAgent.name, status: installedAgent.status }
       : null,
     assistantName,
+    // Manual knowledge is per agent. Showing a sibling's entries here did
+    // worse than confuse: saving the wizard re-wrote them scoped to THIS
+    // agent, actively copying one agent's knowledge into another. An agent
+    // sees its own entries plus legacy business-wide (unscoped) rows; a
+    // completely fresh agent starts with none.
     knowledge:
       business?.knowledgeBases
-        ?.filter((item) => !item.sourceFileId)
+        ?.filter((item) => {
+          if (item.sourceFileId) return false;
+          if (item.installedAgentId) {
+            return item.installedAgentId === installedAgent?.id;
+          }
+          return !startsFresh;
+        })
         .map((item) => ({
           title: item.title,
           content: item.content
@@ -3643,9 +3812,7 @@ businessRoutes.post("/setup", async (c) => {
       listingId: input.listingId || undefined
     });
 
-    const agentForAccessCheck = input.listingId
-      ? existing?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
-      : existing?.installedAgents?.[0] ?? null;
+    const agentForAccessCheck = resolveSetupAgent(existing?.installedAgents, input.listingId);
 
     const setupAccess = await canBusinessRunSetup({
       userId: authUser.id,
@@ -3886,9 +4053,7 @@ businessRoutes.post("/setup", async (c) => {
       }
     };
 
-    const existingAgent = resolved.listingId
-      ? existing?.installedAgents?.find((agent) => agent.listingId === resolved.listingId) ?? null
-      : existing?.installedAgents?.[0] ?? null;
+    const existingAgent = resolveSetupAgent(existing?.installedAgents, resolved.listingId);
     const resolvedListingTerms = resolved.listingId
       ? await prisma.agentListing.findUnique({
           where: { id: resolved.listingId },
@@ -4259,9 +4424,7 @@ businessRoutes.post("/setup", async (c) => {
       getCalendlyConnectionStatus(authUser.id)
     ]);
 
-    const refreshedAgent = input.listingId
-      ? refreshed?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
-      : refreshed?.installedAgents?.[0] ?? null;
+    const refreshedAgent = resolveSetupAgent(refreshed?.installedAgents, input.listingId);
     // Agent-scoped, so the saved response cannot echo a sibling agent's number.
     const phoneOptions = await loadPhoneOptions(refreshed?.id ?? null, refreshedAgent?.id ?? null);
     const refreshedConfig = (refreshedAgent?.configJson ?? null) as Record<string, unknown> | null;

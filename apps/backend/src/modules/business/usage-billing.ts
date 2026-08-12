@@ -458,10 +458,14 @@ export async function recordVapiCallUsage({
     typeof metadata.assignedPhoneNumber === "string" ? metadata.assignedPhoneNumber : "";
 
   if (assignedPhoneNumber) {
+    // Active mapping only — a stale released/suspended row must neither
+    // validate a foreign call nor block a legitimate one for the number's
+    // real current holder.
     const assignedMapping = await prisma.businessPhoneNumber.findFirst({
       where: {
         businessId,
         phoneNumber: assignedPhoneNumber,
+        isActive: true,
         ...(installedAgent?.id ? { installedAgentId: installedAgent.id } : {})
       },
       select: { id: true }

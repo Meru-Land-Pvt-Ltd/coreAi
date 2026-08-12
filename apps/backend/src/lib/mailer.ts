@@ -1430,6 +1430,94 @@ ${primaryButton(safeBillingUrl, "View and pay invoice")}
   );
 }
 
+export function buildAgentInvoiceOverdueEmailHtml({
+  name,
+  agentName,
+  amountUsd,
+  pauseDate,
+  billingUrl
+}: {
+  name: string;
+  agentName: string;
+  amountUsd: string;
+  pauseDate: string;
+  billingUrl: string;
+}) {
+  const safeName = escapeHtml(name.trim() || "there");
+  const safeAgentName = escapeHtml(agentName);
+  const safeBillingUrl = escapeHtml(billingUrl);
+  const amount = `$${amountUsd}`;
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<span style="display:inline-block;margin:0 0 12px 0;padding:5px 10px;border-radius:9999px;background-color:#fee2e2;${emailBodyStyle}font-size:12px;font-weight:700;letter-spacing:0.04em;color:#b91c1c;">PAYMENT OVERDUE</span>
+<p style="margin:0 0 8px 0;${emailBodyStyle}font-size:20px;font-weight:700;line-height:1.4;color:#111827;">The bill for ${safeAgentName} is overdue</p>
+<p style="margin:0 0 18px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Hi ${safeName}, we have not yet received payment for <strong>${safeAgentName}</strong>. Please clear the balance within the 7-day grace period to keep the agent answering.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;border-collapse:separate;">
+${billingEmailDetailRow("Agent", agentName)}
+${billingEmailDetailRow("Balance due", amount, "#dc2626")}
+${billingEmailDetailRow("Service pauses on", pauseDate)}
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #fecaca;border-radius:8px;overflow:hidden;background-color:#fef2f2;">
+<tr><td width="4" style="width:4px;background-color:#dc2626;font-size:0;line-height:0;">&nbsp;</td><td style="padding:12px 16px;${emailBodyStyle}font-size:14px;line-height:1.6;color:#991b1b;">If the balance is not paid by ${escapeHtml(pauseDate)}, ${safeAgentName} and all of its services &mdash; calls, texts, and bookings &mdash; will be paused until payment is received.</td></tr>
+</table>
+${primaryButton(safeBillingUrl, "Pay outstanding balance")}
+<p style="margin:0 0 12px 0;${emailBodyStyle}font-size:13px;line-height:1.6;color:#94a3b8;">If you have already paid, no further action is needed. Your billing status will update after the payment is processed.</p>
+</td>
+</tr>`;
+
+  return emailShell(
+    `${safeAgentName} has an overdue balance of ${escapeHtml(amount)}.`,
+    "Agent bill overdue",
+    inner
+  );
+}
+
+export function buildBillingSuspendedEmailHtml({
+  name,
+  agentName,
+  amountUsd,
+  billingUrl,
+  reminder
+}: {
+  name: string;
+  agentName: string;
+  amountUsd: string;
+  billingUrl: string;
+  /** False for the initial suspension notice, true for weekly follow-ups. */
+  reminder: boolean;
+}) {
+  const safeName = escapeHtml(name.trim() || "there");
+  const safeAgentName = escapeHtml(agentName);
+  const safeBillingUrl = escapeHtml(billingUrl);
+  const amount = `$${amountUsd}`;
+  const headline = reminder
+    ? `${safeAgentName} is still paused for an unpaid balance`
+    : `${safeAgentName} has been paused for an unpaid balance`;
+  const inner = `<tr>
+<td style="padding:24px 32px 6px 32px;">
+<span style="display:inline-block;margin:0 0 12px 0;padding:5px 10px;border-radius:9999px;background-color:#fee2e2;${emailBodyStyle}font-size:12px;font-weight:700;letter-spacing:0.04em;color:#b91c1c;">SERVICE PAUSED</span>
+<p style="margin:0 0 8px 0;${emailBodyStyle}font-size:20px;font-weight:700;line-height:1.4;color:#111827;">${headline}</p>
+<p style="margin:0 0 18px 0;${emailBodyStyle}font-size:15px;line-height:1.65;color:#334155;">Hi ${safeName}, the 7-day grace period on your overdue balance has ended, so <strong>${safeAgentName}</strong> and all of its services &mdash; calls, texts, and bookings &mdash; are paused. Service resumes automatically as soon as the balance is paid.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;border-collapse:separate;">
+${billingEmailDetailRow("Agent", agentName)}
+${billingEmailDetailRow("Balance due", amount, "#dc2626")}
+${billingEmailDetailRow("Service status", "Paused")}
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;border:1px solid #fecaca;border-radius:8px;overflow:hidden;background-color:#fef2f2;">
+<tr><td width="4" style="width:4px;background-color:#dc2626;font-size:0;line-height:0;">&nbsp;</td><td style="padding:12px 16px;${emailBodyStyle}font-size:14px;line-height:1.6;color:#991b1b;">Customers calling this agent are not being answered while it is paused. Pay the outstanding balance to restore service immediately.</td></tr>
+</table>
+${primaryButton(safeBillingUrl, "Pay outstanding balance")}
+<p style="margin:0 0 12px 0;${emailBodyStyle}font-size:13px;line-height:1.6;color:#94a3b8;">If you have already paid, no further action is needed. Your service will be restored automatically once the payment is processed.</p>
+</td>
+</tr>`;
+
+  return emailShell(
+    `${safeAgentName} is paused with an outstanding balance of ${escapeHtml(amount)}.`,
+    reminder ? "Service still paused" : "Service paused",
+    inner
+  );
+}
+
 export function buildSpendingAlertEmailHtml({
   name,
   billingPeriod,
@@ -1925,11 +2013,6 @@ ${primaryButton(safeDemo, "Schedule a demo")}
     inner
   );
 }
-
-// ---------------------------------------------------------------------------
-// Architect "new sale" notification — sent when a buyer starts using one of an
-// architect's agents (only when the architect has enabled the New sale email).
-// ---------------------------------------------------------------------------
 
 const architectDashboardLink = `${appUrl}/architect/payouts`;
 

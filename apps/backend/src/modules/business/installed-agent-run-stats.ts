@@ -10,6 +10,74 @@ export type InstalledAgentRunStats = {
   costMicroUsd: number;
 };
 
+export type InstalledAgentUsageStats = {
+  /** Every canonical execution since day one — the number billing counts. */
+  lifetimeExecutions: number;
+  /** Total cost consumed since day one (billed + legacy display cost). */
+  lifetimeCostMicroUsd: number;
+  monthExecutions: number;
+  monthCostMicroUsd: number;
+};
+
+/**
+ * Canonical per-agent execution stats from the AgentUsageExecution ledger —
+ * the SAME rows the buyer is invoiced from, so the dashboard, My Agents cards,
+ * and the Billing page can never disagree with what is actually charged.
+ * (buildInstalledAgentRunStats above is a call-centric view kept for architect
+ * analytics and data export; buyer-facing surfaces read this one.)
+ */
+export async function buildInstalledAgentUsageStats(
+  businessId: string,
+  installedAgentIds: string[],
+  billingMonth: string
+): Promise<Map<string, InstalledAgentUsageStats>> {
+  const statsByAgent = new Map<string, InstalledAgentUsageStats>();
+  for (const id of installedAgentIds) {
+    statsByAgent.set(id, {
+      lifetimeExecutions: 0,
+      lifetimeCostMicroUsd: 0,
+      monthExecutions: 0,
+      monthCostMicroUsd: 0
+    });
+  }
+  if (installedAgentIds.length === 0) return statsByAgent;
+
+  const [lifetime, month] = await Promise.all([
+    prisma.agentUsageExecution.groupBy({
+      by: ["installedAgentId"],
+      where: { businessId, installedAgentId: { in: installedAgentIds } },
+      _count: { _all: true },
+      _sum: { amountMicroUsd: true, legacyBilledCostMicroUsd: true }
+    }),
+    prisma.agentUsageExecution.groupBy({
+      by: ["installedAgentId"],
+      where: {
+        businessId,
+        installedAgentId: { in: installedAgentIds },
+        billingMonth
+      },
+      _count: { _all: true },
+      _sum: { amountMicroUsd: true, legacyBilledCostMicroUsd: true }
+    })
+  ]);
+
+  for (const row of lifetime) {
+    const stats = statsByAgent.get(row.installedAgentId);
+    if (!stats) continue;
+    stats.lifetimeExecutions = row._count._all;
+    stats.lifetimeCostMicroUsd =
+      (row._sum.amountMicroUsd ?? 0) + (row._sum.legacyBilledCostMicroUsd ?? 0);
+  }
+  for (const row of month) {
+    const stats = statsByAgent.get(row.installedAgentId);
+    if (!stats) continue;
+    stats.monthExecutions = row._count._all;
+    stats.monthCostMicroUsd =
+      (row._sum.amountMicroUsd ?? 0) + (row._sum.legacyBilledCostMicroUsd ?? 0);
+  }
+  return statsByAgent;
+}
+
 
 export async function buildInstalledAgentRunStats(
   businessId: string,
@@ -67,18 +135,22 @@ export async function buildInstalledAgentRunStats(
   const attributeShared = (runs: number, costMicroUsd: number) => {
     if (runs <= 0 && costMicroUsd <= 0) return;
 
-    if (installedAgents.length !== 1 && phoneAgentIds.length > 1) {
-      console.warn("[run-stats] unattributed activity assigned to one of several phone-linked agents", {
-        phoneAgentCount: phoneAgentIds.length,
-        runs
-      });
+    // Unattributed activity is credited ONLY when there is exactly one agent
+    // it could belong to. Guessing phoneAgentIds[0] in a multi-agent business
+    // handed one agent's history to whichever agent happened to hold a number
+    // — including across a number reassignment, and across ARCHITECTS when
+    // their agents share a business. Ambiguous activity stays uncounted.
+    if (installedAgents.length !== 1) {
+      if (phoneAgentIds.length > 1) {
+        console.warn("[run-stats] unattributed activity left uncounted — several phone-linked agents", {
+          phoneAgentCount: phoneAgentIds.length,
+          runs
+        });
+      }
+      return;
     }
 
-    const target =
-      installedAgents.length === 1
-        ? statsByAgent.get(installedAgents[0].id)
-        : statsByAgent.get(phoneAgentIds[0] ?? "");
-
+    const target = statsByAgent.get(installedAgents[0].id);
     if (!target) return;
     target.runs += runs;
     target.costMicroUsd += costMicroUsd;

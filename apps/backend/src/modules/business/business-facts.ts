@@ -76,13 +76,32 @@ export type BusinessFacts = {
   promptLines: string[];
 };
 
-export async function loadBusinessFacts(businessId: string): Promise<BusinessFacts | null> {
+export async function loadBusinessFacts(
+  businessId: string,
+  options?: {
+    /**
+     * Scope the "Business phone" fact to ONE agent's own number. Without it a
+     * multi-agent business would present a SIBLING agent's Triven number as
+     * this agent's phone — in the wizard and in the deployed prompt.
+     */
+    installedAgentId?: string | null;
+  }
+): Promise<BusinessFacts | null> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: {
       name: true,
       profile: true,
-      phoneNumbers: { where: { isActive: true }, take: 1, select: { phoneNumber: true } }
+      phoneNumbers: {
+        where: {
+          isActive: true,
+          ...(options?.installedAgentId
+            ? { installedAgentId: options.installedAgentId }
+            : {})
+        },
+        take: 1,
+        select: { phoneNumber: true }
+      }
     }
   });
   if (!business) return null;

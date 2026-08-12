@@ -132,8 +132,13 @@ describe("buildInstalledAgentRunStats", () => {
     ]);
 
     const totalRuns = [...stats.values()].reduce((sum, row) => sum + row.runs, 0);
-    // 3 LIVE calls + 1 missed call = 4 actual events. Shared/unattributed
-    // events land on exactly one agent — never duplicated across both.
-    expect(totalRuns).toBe(4);
+    // Only the 2 calls STAMPED with agent A's id count. The unattributed LIVE
+    // call and the missed-call lead are ambiguous in a multi-agent business
+    // and stay uncounted — guessing an owner previously handed one agent's
+    // history to whichever agent held a phone number, including after a
+    // number reassignment.
+    expect(totalRuns).toBe(2);
+    expect(stats.get(agentAId)?.runs).toBe(2);
+    expect(stats.get(agentBId)?.runs).toBe(0);
   });
 });

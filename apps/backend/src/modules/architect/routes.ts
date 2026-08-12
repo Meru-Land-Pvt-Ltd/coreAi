@@ -98,9 +98,9 @@ import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-rout
 import { architectSettingsRoutes } from "./settings-routes";
 import { getProviderRegistry } from "../ai-provider-engine/provider-engine";
 import { transcribeWithDeepgram, speakWithDeepgram } from "../ai-provider-engine/deepgram-stt";
-import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
 import {
   buildArchitectExecutionMetrics,
+  countDistinctExecutions,
   countUnattributedLiveExecutions,
   executionTotalsByInstalledAgent
 } from "../business/execution-ledger";
@@ -967,49 +967,24 @@ architectRoutes.get("/agents/stats", async (c) => {
       return (config as Record<string, unknown>).purpose !== "ARCHITECT_TEST";
     });
 
-    // Reuse the exact execution calculation shown to buyers in Business → My Agents,
-    // then sum every installed copy of this architect's listings across businesses.
-    const architectAgentIds = new Set(architectInstalledAgents.map((agent) => agent.id));
-    const businessIds = [...new Set(architectInstalledAgents.map((agent) => agent.businessId))];
-    const allBusinessAgents = businessIds.length
-      ? await prisma.installedAgent.findMany({
-          where: { businessId: { in: businessIds } },
-          select: { id: true, listingId: true, businessId: true }
+    // The exact execution definition buyers see: the canonical billing ledger
+    // (AgentUsageExecution), counted strictly per installed agent. No
+    // missed-call-lead padding and no "credit unattributed calls to whichever
+    // agent currently holds a phone number" fallback — an architect's numbers
+    // never absorb another architect's activity in a shared business.
+    const architectAgentIdList = architectInstalledAgents.map((agent) => agent.id);
+    const [executionsTotal, executionsThisMonth, executionsPrevMonth] =
+      await Promise.all([
+        countDistinctExecutions({ installedAgentIds: architectAgentIdList }),
+        countDistinctExecutions({
+          installedAgentIds: architectAgentIdList,
+          range: { start: monthStart }
+        }),
+        countDistinctExecutions({
+          installedAgentIds: architectAgentIdList,
+          range: { start: prevMonthStart, end: monthStart }
         })
-      : [];
-    const agentsByBusiness = new Map<string, Array<{ id: string; listingId: string | null }>>();
-    for (const agent of allBusinessAgents) {
-      const agents = agentsByBusiness.get(agent.businessId) ?? [];
-      agents.push({ id: agent.id, listingId: agent.listingId });
-      agentsByBusiness.set(agent.businessId, agents);
-    }
-
-    const executionTotals = await Promise.all(
-      businessIds.map(async (businessId) => {
-        const installedAgents = agentsByBusiness.get(businessId) ?? [];
-        const [allTime, currentMonth, previousMonth] = await Promise.all([
-          buildInstalledAgentRunStats(businessId, installedAgents),
-          buildInstalledAgentRunStats(businessId, installedAgents, { start: monthStart }),
-          buildInstalledAgentRunStats(businessId, installedAgents, {
-            start: prevMonthStart,
-            end: monthStart
-          })
-        ]);
-        const sumArchitectRuns = (stats: Map<string, { runs: number }>) =>
-          [...stats.entries()].reduce(
-            (sum, [agentId, value]) => sum + (architectAgentIds.has(agentId) ? value.runs : 0),
-            0
-          );
-        return {
-          total: sumArchitectRuns(allTime),
-          current: sumArchitectRuns(currentMonth),
-          previous: sumArchitectRuns(previousMonth)
-        };
-      })
-    );
-    const executionsTotal = executionTotals.reduce((sum, value) => sum + value.total, 0);
-    const executionsThisMonth = executionTotals.reduce((sum, value) => sum + value.current, 0);
-    const executionsPrevMonth = executionTotals.reduce((sum, value) => sum + value.previous, 0);
+      ]);
 
     // Match GET /architect/listings agent uniqueness (one card per workflow + orphan drafts).
     const seenWorkflowIds = new Set<string>();
@@ -2826,15 +2801,27 @@ architectRoutes.get("/listings", async (c) => {
       if (!config || typeof config !== "object" || Array.isArray(config)) return true;
       return (config as Record<string, unknown>).purpose !== "ARCHITECT_TEST";
     });
+    // Lifetime ledger executions per listing across EVERY real buyer install —
+    // paused agents' history is still real usage. Same AgentUsageExecution
+    // rows the buyer's own pages count, so both sides always agree.
     const executionByListing = new Map<string, number>();
-    const activeBuyerInstalls = buyerInstalls.filter((agent) => agent.status === "ACTIVE");
-    const activeTotals = await executionTotalsByInstalledAgent({
-      installedAgentIds: activeBuyerInstalls.map((agent) => agent.id)
+    const buyerTotals = await executionTotalsByInstalledAgent({
+      installedAgentIds: buyerInstalls.map((agent) => agent.id)
     }).catch(() => new Map());
-    for (const agent of activeBuyerInstalls) {
+    for (const agent of buyerInstalls) {
       if (!agent.listingId) continue;
-      const executions = activeTotals.get(agent.id)?.executions ?? 0;
+      const executions = buyerTotals.get(agent.id)?.executions ?? 0;
       executionByListing.set(agent.listingId, (executionByListing.get(agent.listingId) ?? 0) + executions);
+    }
+    // Install fallback for zero-payment (free) listings: count real buyer
+    // installs only — architect self-test installs are not customers.
+    const buyerInstallCountByListing = new Map<string, number>();
+    for (const agent of buyerInstalls) {
+      if (!agent.listingId) continue;
+      buyerInstallCountByListing.set(
+        agent.listingId,
+        (buyerInstallCountByListing.get(agent.listingId) ?? 0) + 1
+      );
     }
 
     const architectRating = typeof profile?.rating === "number" ? profile.rating : null;
@@ -2890,7 +2877,10 @@ architectRoutes.get("/listings", async (c) => {
           includedFeatures,
           screenshotUrls,
           coverUrl: screenshotUrls[0] ?? configureFields?.coverUrl ?? null,
-          installCount: installCountByListing.get(listing.id) ?? _count.installedAgents ?? 0,
+          installCount:
+            installCountByListing.get(listing.id) ??
+            buyerInstallCountByListing.get(listing.id) ??
+            0,
           executionCount: executionByListing.get(listing.id) ?? 0,
           revenueCents: revenueByListing.get(listing.id) ?? 0,
           rating: architectRating,

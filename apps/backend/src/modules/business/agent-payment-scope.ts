@@ -86,11 +86,13 @@ function paymentAnchorDate(payment: AgentBillingAnchorPayment) {
   );
 }
 
-/**
- * Direct paid purchases establish the anniversary. Trial time is not counted:
- * when no purchase exists yet, post-trial billing starts at the trial end.
- */
-export function agentBillingAnchorAt(input: {
+/** True when `boundary` lies on the 30-day grid that starts at `anchor`. */
+export function boundaryOnAnchorGrid(anchor: Date, boundary: Date) {
+  const diff = boundary.getTime() - anchor.getTime();
+  return diff >= 0 && diff % AGENT_INVOICE_CYCLE_MS === 0;
+}
+
+function paymentDerivedAnchorAt(input: {
   agentCreatedAt: Date;
   referenceAt: Date;
   payments: AgentBillingAnchorPayment[];
@@ -105,9 +107,6 @@ export function agentBillingAnchorAt(input: {
       payment.invoiceKind === PaymentInvoiceKind.PURCHASE
   );
   if (paidPurchase) {
-    // The actual successful purchase time is the immutable anniversary.
-    // Older rows may carry a calendar-month periodStart that must not move a
-    // July 24 payment to July 1.
     return (
       paidPurchase.paidAt ??
       paidPurchase.createdAt
@@ -141,6 +140,88 @@ export function agentBillingAnchorAt(input: {
   return input.agentCreatedAt;
 }
 
+export function agentBillingAnchorAt(input: {
+  agentCreatedAt: Date;
+  referenceAt: Date;
+  payments: AgentBillingAnchorPayment[];
+  /** Earliest real (non-trial, non-legacy) execution — see firstAgentExecutionAt. */
+  firstExecutionAt?: Date | null;
+}) {
+  const paymentAnchor = paymentDerivedAnchorAt(input);
+  const firstExecutionAt = input.firstExecutionAt ?? null;
+
+  if (!firstExecutionAt || firstExecutionAt < paymentAnchor) {
+    return paymentAnchor;
+  }
+  if (
+    input.payments.some(
+      (payment) => payment.invoiceKind === PaymentInvoiceKind.TRIAL
+    )
+  ) {
+    return paymentAnchor;
+  }
+
+  const committed = input.payments
+    .filter(
+      (payment) =>
+        (payment.invoiceKind === PaymentInvoiceKind.POST_TRIAL ||
+          payment.invoiceKind === PaymentInvoiceKind.SUBSCRIPTION_RENEWAL) &&
+        payment.status !== PaymentStatus.CANCELED &&
+        (payment.periodStart || payment.dueAt)
+    )
+    .sort(
+      (left, right) =>
+        paymentAnchorDate(left).getTime() - paymentAnchorDate(right).getTime()
+    );
+  if (committed.length === 0) return firstExecutionAt;
+
+  const latest = committed[committed.length - 1];
+  const boundary = latest.periodStart ?? latest.dueAt;
+  return boundary && boundaryOnAnchorGrid(firstExecutionAt, boundary)
+    ? firstExecutionAt
+    : paymentAnchor;
+}
+
+const ANCHOR_EXECUTION_WHERE: Prisma.AgentUsageExecutionWhereInput = {
+  trialExecution: false,
+  OR: [{ freeReason: null }, { freeReason: { not: "LEGACY_HISTORY" } }]
+};
+
+export async function firstAgentExecutionAt(
+  tx: Prisma.TransactionClient,
+  installedAgentId: string
+): Promise<Date | null> {
+  const first = await tx.agentUsageExecution.findFirst({
+    where: { installedAgentId, ...ANCHOR_EXECUTION_WHERE },
+    orderBy: { occurredAt: "asc" },
+    select: { occurredAt: true }
+  });
+  return first?.occurredAt ?? null;
+}
+
+/** Batched firstAgentExecutionAt for display endpoints iterating many agents. */
+export async function firstAgentExecutionAtByAgent(
+  tx: Prisma.TransactionClient,
+  installedAgentIds: string[]
+): Promise<Map<string, Date>> {
+  if (installedAgentIds.length === 0) return new Map();
+  const rows = await tx.agentUsageExecution.groupBy({
+    by: ["installedAgentId"],
+    where: {
+      installedAgentId: { in: installedAgentIds },
+      ...ANCHOR_EXECUTION_WHERE
+    },
+    _min: { occurredAt: true }
+  });
+  return new Map(
+    rows.flatMap((row) =>
+      row._min?.occurredAt
+        ? [[row.installedAgentId, row._min.occurredAt] as const]
+        : []
+    )
+  );
+}
+
 export async function resolveAgentBillingPeriod(
   tx: Prisma.TransactionClient,
   agent: {
@@ -150,8 +231,19 @@ export async function resolveAgentBillingPeriod(
     createdAt: Date;
     ownerUserId: string;
   },
-  occurredAt: Date
+  occurredAt: Date,
+  options?: {
+    candidateExecutionAt?: Date | null;
+  }
 ) {
+  const ledgerFirstAt = await firstAgentExecutionAt(tx, agent.id);
+  const candidateAt = options?.candidateExecutionAt ?? null;
+  const firstExecutionAt =
+    ledgerFirstAt && candidateAt
+      ? ledgerFirstAt <= candidateAt
+        ? ledgerFirstAt
+        : candidateAt
+      : ledgerFirstAt ?? candidateAt;
   const payments = agent.listingId
     ? await tx.payment.findMany({
         where: {
@@ -182,7 +274,8 @@ export async function resolveAgentBillingPeriod(
   const anchorAt = agentBillingAnchorAt({
     agentCreatedAt: agent.createdAt,
     referenceAt: occurredAt,
-    payments
+    payments,
+    firstExecutionAt
   });
   return {
     anchorAt,
@@ -199,9 +292,6 @@ export function nextSubscriptionInvoicePeriod(
 ) {
   const paidPeriodStart = paid.periodStart ?? paid.paidAt ?? paid.createdAt;
   if (anchorAt) {
-    // The immutable purchase/post-trial anchor owns the billing cadence.
-    // Ignore legacy calendar-month period ends so old rows also move onto the
-    // standard 30-day cycle.
     const start = nextAgentInvoiceBoundary(
       anchorAt,
       paidPeriodStart < anchorAt ? anchorAt : paidPeriodStart

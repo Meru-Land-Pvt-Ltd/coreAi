@@ -184,6 +184,67 @@ beforeAll(async () => {
     ]
   });
 
+  // Canonical billing-ledger rows for the LIVE calls above. Architect-facing
+  // counts read THESE — test-mode calls and missed-call leads never enter the
+  // ledger, so exclusion is by construction, not by filter.
+  const now = new Date();
+  await prisma.agentUsageExecution.createMany({
+    data: [
+      {
+        businessId,
+        installedAgentId: agentActiveId,
+        dedupeKey: `VAPI:${RUN}-live-1`,
+        source: "VAPI",
+        sourceId: `${RUN}-live-1`,
+        billingMonth: now.toISOString().slice(0, 7),
+        occurredAt: now,
+        executionNumber: 1,
+        billable: true,
+        unitPriceMicroUsd: 100_000,
+        amountMicroUsd: 100_000
+      },
+      {
+        businessId,
+        installedAgentId: agentActiveId,
+        dedupeKey: `VAPI:${RUN}-live-2`,
+        source: "VAPI",
+        sourceId: `${RUN}-live-2`,
+        billingMonth: now.toISOString().slice(0, 7),
+        occurredAt: now,
+        executionNumber: 2,
+        billable: true,
+        unitPriceMicroUsd: 200_000,
+        amountMicroUsd: 200_000
+      },
+      {
+        businessId: otherBusinessId,
+        installedAgentId: agentPausedId,
+        dedupeKey: `VAPI:${RUN}-paused-hist-1`,
+        source: "VAPI",
+        sourceId: `${RUN}-paused-hist-1`,
+        billingMonth: now.toISOString().slice(0, 7),
+        occurredAt: now,
+        executionNumber: 1,
+        billable: true,
+        unitPriceMicroUsd: 300_000,
+        amountMicroUsd: 300_000
+      },
+      {
+        businessId,
+        installedAgentId: agentOtherArchitectId,
+        dedupeKey: `VAPI:${RUN}-other-arch-1`,
+        source: "VAPI",
+        sourceId: `${RUN}-other-arch-1`,
+        billingMonth: now.toISOString().slice(0, 7),
+        occurredAt: now,
+        executionNumber: 1,
+        billable: true,
+        unitPriceMicroUsd: 0,
+        amountMicroUsd: 0
+      }
+    ]
+  });
+
   // A missed-call lead must never count as a canonical execution.
   await prisma.lead.create({
     data: { businessId, phoneNumber: "+15555550190", source: "TWILIO_MISSED_CALL", status: "CAPTURED" }

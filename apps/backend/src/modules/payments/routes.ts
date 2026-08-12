@@ -44,7 +44,10 @@ import {
 } from "../business/agent-payment-scope";
 import { createSettlementForPayment } from "../payouts/settlements";
 import { buildListingUsagePricing } from "./listing-usage-pricing";
-import { buildInstalledAgentRunStats } from "../business/installed-agent-run-stats";
+import {
+  buildInstalledAgentUsageStats,
+  type InstalledAgentUsageStats
+} from "../business/installed-agent-run-stats";
 import { reconcileBusinessExecutionUsage } from "../business/execution-billing";
 
 export const paymentRoutes = new Hono();
@@ -999,14 +1002,16 @@ paymentRoutes.get("/my-agents", async (c) => {
       });
     }
   }
-  // Dashboard, My Agents, and its activity chart all describe LIVE activity,
-  // not invoice-settlement state. A priced Vapi call must remain visible while
-  // its canonical invoice link is being repaired or created.
-  const runStatsByAgentId = business
-    ? await buildInstalledAgentRunStats(business.id, installedAgents, {
-        start: statsStart
-      })
-    : new Map<string, { runs: number; costMicroUsd: number }>();
+  // Buyer-facing execution numbers come from the canonical billing ledger
+  // (AgentUsageExecution) — the same rows invoices are built from — so the
+  // dashboard, the My Agents cards, and the Billing page always agree.
+  const usageStatsByAgentId = business
+    ? await buildInstalledAgentUsageStats(
+        business.id,
+        installedAgents.map((agent) => agent.id),
+        statsStart.toISOString().slice(0, 7)
+      )
+    : new Map<string, InstalledAgentUsageStats>();
 
   const buyerPricing = buyerExecutionPricingView(await loadActiveUsageServicePricing());
   const phoneNumberBilling = await getPhoneNumberBillingState();
@@ -1130,11 +1135,18 @@ paymentRoutes.get("/my-agents", async (c) => {
       )
     );
 
-    const stats = installedAgent
-      ? runStatsByAgentId.get(installedAgent.id) ?? { runs: 0, costMicroUsd: 0 }
-      : { runs: 0, costMicroUsd: 0 };
+    const stats = (installedAgent
+      ? usageStatsByAgentId.get(installedAgent.id)
+      : undefined) ?? {
+      lifetimeExecutions: 0,
+      lifetimeCostMicroUsd: 0,
+      monthExecutions: 0,
+      monthCostMicroUsd: 0
+    };
 
-    const totalExecutions = stats.runs;
+    // Lifetime, from the agent's very first execution — the My Agents card
+    // shows a TOTAL, not a month window.
+    const totalExecutions = stats.lifetimeExecutions;
     let totalBookings = 0;
 
     if (installedAgent && business) {
@@ -1186,10 +1198,11 @@ paymentRoutes.get("/my-agents", async (c) => {
         executionPricing
       },
       stats: {
-        runsThisMonth: stats.runs,
-        costThisMonthMicroUsd: stats.costMicroUsd
+        runsThisMonth: stats.monthExecutions,
+        costThisMonthMicroUsd: stats.monthCostMicroUsd
       },
       totalExecutions,
+      totalCostMicroUsd: stats.lifetimeCostMicroUsd,
       totalBookings,
       listing: {
         id: listing.id,

@@ -49,6 +49,11 @@ function invoiceTx(options?: {
         business: { ownerId: "owner-1" }
       })
     },
+    // No executions yet: the billing anchor falls back to the payment chain,
+    // which these fixtures pin to BILLING_ANCHOR.
+    agentUsageExecution: {
+      findFirst: vi.fn().mockResolvedValue(null)
+    },
     payment: {
       findMany: vi.fn().mockResolvedValue([
         {
