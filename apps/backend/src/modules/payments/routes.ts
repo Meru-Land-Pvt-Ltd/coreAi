@@ -591,10 +591,12 @@ paymentRoutes.get("/billing", async (c) => {
   if (business?.installedAgents) {
     for (const installed of business.installedAgents) {
       if (!installed.listing) continue;
-      if (installed.installSource === "ARCHITECT_SELF_TEST") continue;
       if (["CANCELED", "INACTIVE"].includes(installed.status.toUpperCase())) {
         continue;
       }
+      // Self-test installs are listed and billed per execution like free
+      // installs, but never owe the listing's purchase/subscription fee.
+      const isSelfTestInstall = installed.installSource === "ARCHITECT_SELF_TEST";
 
       const scopedPayments = paymentsForInstalledAgent(payments, {
         id: installed.id,
@@ -640,6 +642,7 @@ paymentRoutes.get("/billing", async (c) => {
         priceCents: planPriceCents,
         monthlyCostCents:
           installed.listing.pricingModel === "SUBSCRIPTION" &&
+          !isSelfTestInstall &&
           !["INACTIVE", "CANCELED"].includes(installed.status.toUpperCase())
             ? planPriceCents
             : 0,
@@ -687,7 +690,10 @@ paymentRoutes.get("/billing", async (c) => {
   if (business?.installedAgents) {
     for (const installed of business.installedAgents) {
       if (!installed.listing) continue;
-      if (installed.listing.pricingModel !== "FREE") continue;
+      // Payment-less acquisitions that still deserve a $0 invoice row: free
+      // listings and architect self-test installs (billed per execution only).
+      const isSelfTestInstall = installed.installSource === "ARCHITECT_SELF_TEST";
+      if (installed.listing.pricingModel !== "FREE" && !isSelfTestInstall) continue;
 
       const exists = invoices.some(
         (invoice) => invoice.installedAgentId === installed.id
@@ -697,7 +703,9 @@ paymentRoutes.get("/billing", async (c) => {
       invoices.push({
         id: `free-install-${installed.id}`,
         createdAt: installed.createdAt.toISOString(),
-        description: `Free install of ${installed.listing.name}`,
+        description: isSelfTestInstall
+          ? `Self-test install of ${installed.listing.name}`
+          : `Free install of ${installed.listing.name}`,
         amountCents: 0,
         displayAmountCents: 0,
         currency: "usd",

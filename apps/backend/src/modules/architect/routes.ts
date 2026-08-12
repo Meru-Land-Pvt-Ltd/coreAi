@@ -952,7 +952,13 @@ architectRoutes.get("/agents/stats", async (c) => {
           where: {
             listing: { architectUserId: authUser.id }
           },
-          select: { id: true, listingId: true, businessId: true, configJson: true }
+          select: {
+            id: true,
+            listingId: true,
+            businessId: true,
+            configJson: true,
+            installSource: true
+          }
         }).catch((err) => {
           console.error("[stats] installedAgent.findMany failed", err);
           return [];
@@ -962,6 +968,9 @@ architectRoutes.get("/agents/stats", async (c) => {
     // Do this check in application code. A Prisma JSON-path `NOT` filter can also
     // exclude SQL NULL/missing paths, which hid ordinary marketplace installs.
     const architectInstalledAgents = architectInstalledAgentRows.filter((agent) => {
+      // Self-test installs now generate real ledger rows (billed executions),
+      // but the architect's own testing is still not a customer's usage.
+      if (agent.installSource === "ARCHITECT_SELF_TEST") return false;
       const config = agent.configJson;
       if (!config || typeof config !== "object" || Array.isArray(config)) return true;
       return (config as Record<string, unknown>).purpose !== "ARCHITECT_TEST";
@@ -2778,7 +2787,14 @@ architectRoutes.get("/listings", async (c) => {
       }).catch(() => null),
       prisma.installedAgent.findMany({
         where: { listing: { architectUserId: authUser.id } },
-        select: { id: true, listingId: true, businessId: true, configJson: true, status: true }
+        select: {
+          id: true,
+          listingId: true,
+          businessId: true,
+          configJson: true,
+          status: true,
+          installSource: true
+        }
       }).catch((err) => {
         console.error("[listings] installedAgent.findMany failed", err);
         return [];
@@ -2797,13 +2813,13 @@ architectRoutes.get("/listings", async (c) => {
     }
 
     const buyerInstalls = installedAgents.filter((agent) => {
+      // Self-test installs now generate real ledger rows (billed executions),
+      // but the architect's own testing is still not a customer's usage.
+      if (agent.installSource === "ARCHITECT_SELF_TEST") return false;
       const config = agent.configJson;
       if (!config || typeof config !== "object" || Array.isArray(config)) return true;
       return (config as Record<string, unknown>).purpose !== "ARCHITECT_TEST";
     });
-    // Lifetime ledger executions per listing across EVERY real buyer install —
-    // paused agents' history is still real usage. Same AgentUsageExecution
-    // rows the buyer's own pages count, so both sides always agree.
     const executionByListing = new Map<string, number>();
     const buyerTotals = await executionTotalsByInstalledAgent({
       installedAgentIds: buyerInstalls.map((agent) => agent.id)

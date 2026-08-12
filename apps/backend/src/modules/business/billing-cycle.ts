@@ -150,7 +150,6 @@ async function suspendBusinessForUsageInvoice(invoiceId: string, now: Date) {
     prisma.installedAgent.updateMany({
       where: {
         ...targets.agentWhere,
-        installSource: { not: "ARCHITECT_SELF_TEST" },
         status: { in: ["ACTIVE", "PROVISIONING"] }
       },
       data: { status: "SUSPENDED_BILLING" }
@@ -1771,7 +1770,6 @@ let initialExecutionReconciliationComplete = false;
 
 async function reconcileCanonicalExecutions(now: Date) {
   const businesses = await prisma.installedAgent.findMany({
-    where: { installSource: { not: "ARCHITECT_SELF_TEST" } },
     distinct: ["businessId"],
     select: { businessId: true }
   });

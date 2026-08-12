@@ -460,14 +460,13 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
             business: { select: { ownerId: true } }
           }
         });
-        // Trial allowances, suspended activity, architect tests, and activity
-        // before the immutable billing cutover are never retroactively billed.
-        // This promotion is only for a provisional zero-fee row that later
+        // Trial allowances, suspended activity, and activity before the
+        // immutable billing cutover are never retroactively billed. This
+        // promotion is only for a provisional zero-fee row that later
         // received its final priced Vapi service lines.
         if (
           agent &&
           agent.businessId === existing.businessId &&
-          agent.installSource !== "ARCHITECT_SELF_TEST" &&
           existing.occurredAt >= agent.executionBillingStartedAt
         ) {
           const usageInvoiceId = await addExecutionChargeToInvoice(tx, {
@@ -528,7 +527,10 @@ export async function recordAgentExecutionUsage(input: RecordAgentExecutionInput
         listing: { select: { trialDays: true } }
       }
     });
-    if (!agent || agent.installSource === "ARCHITECT_SELF_TEST") return null;
+    // Self-test installs (an architect running their own listing live) bill
+    // per execution exactly like free installs — only the agent FEE side
+    // (purchase price, subscriptions, architect earnings) stays exempt.
+    if (!agent) return null;
 
     const trialPayment = agent.listingId
       ? await tx.payment.findFirst({
@@ -803,7 +805,7 @@ export async function reconcileBusinessExecutionUsage(
       }
     }),
     prisma.installedAgent.findMany({
-      where: { businessId, installSource: { not: "ARCHITECT_SELF_TEST" } },
+      where: { businessId },
       select: { id: true, workflowId: true, configJson: true, createdAt: true }
     }),
     // ACTIVE links only: a released/suspended number's stale row must not

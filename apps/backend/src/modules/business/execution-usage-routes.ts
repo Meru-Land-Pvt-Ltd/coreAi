@@ -61,7 +61,6 @@ async function loadOwnedBusiness(ownerId: string) {
       name: true,
       stripeCustomerId: true,
       installedAgents: {
-        where: { installSource: { not: "ARCHITECT_SELF_TEST" } },
         orderBy: { createdAt: "asc" },
         select: {
           id: true,

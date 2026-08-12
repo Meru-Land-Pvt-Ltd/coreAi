@@ -249,7 +249,6 @@ export async function buildBusinessDataExportZip(
           }
         },
         installedAgents: {
-          where: { installSource: { not: "ARCHITECT_SELF_TEST" } },
           orderBy: { createdAt: "asc" },
           select: {
             id: true,
