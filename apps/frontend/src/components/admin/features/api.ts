@@ -126,6 +126,8 @@ export type AdminAgent = {
   architectTotalInstalls: number | null;
   architectTier: string | null;
   priority: "High" | "Standard" | null;
+  /** Set only by the admin Featured toggle; null = not featured. */
+  featuredAt: string | null;
 };
 
 export type ListingStatus = "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED";
@@ -175,6 +177,18 @@ export function updateAdminAgentStatus(listingId: string, status: ListingStatus,
       publishStatus?: string;
     };
   }>(`/admin/agents/${listingId}/status`, { status, reason });
+}
+
+/** Admin-curated marketplace Featured slot. APPROVED listings only. */
+export function updateAdminAgentFeatured(listingId: string, featured: boolean) {
+  return apiPatch<{
+    listing: { id: string; name: string; status: string; featuredAt: string | null };
+    /** Listings that lost the slot — only one can be featured at a time. */
+    replacedListingIds?: string[];
+  }>(
+    `/admin/agents/${listingId}/featured`,
+    { featured }
+  );
 }
 
 export function deleteAdminAgent(listingId: string) {

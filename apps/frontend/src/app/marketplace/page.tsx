@@ -3,7 +3,9 @@
 import type { Route } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useInfiniteScrollSentinel } from "@/hooks/use-infinite-scroll-sentinel";
+import { InfiniteScrollAgentFooter } from "@/components/common/infinite-scroll-agent-footer";
 import { CoreFooter } from "@/components/common/footer";
 import { CategoryTagsPill } from "@/components/common/category-tags-pill";
 import { MarketplaceFeaturedSection } from "@/components/common/marketplace-featured-section";
@@ -20,6 +22,10 @@ import {
   resolveBrowseIndustries,
   resolveBrowseIndustry,
   tagsMatchVerticalCategory,
+  agentMatchesSearchQuery,
+  displayBrowseIndustryLabel,
+  isPlaceholderIndustryLabel,
+  visibleCategoryLabels,
   type BrowseIndustry,
 } from "@coreai/shared";
 import { getWorkflowFeatures } from "@/components/agent-description/shared/agent-listing";
@@ -47,6 +53,8 @@ type Agent = {
   freeTrialEnabled?: boolean | null;
   trialDays?: number | null;
   iconUrl?: string | null;
+  /** Admin-curated marketplace Featured slot. */
+  featured?: boolean;
 };
 
 type ApiArchitectProfile = {
@@ -100,6 +108,8 @@ type ApiListing = {
   iconUrl?: string | null;
   includedFeatures?: string[];
   capabilities?: string[];
+  featured?: boolean;
+  featuredAt?: string | null;
 };
 
 type ListingsApiResponse = {
@@ -107,8 +117,12 @@ type ListingsApiResponse = {
   message?: string;
   data?: {
     listings?: ApiListing[];
+    nextCursor?: string | null;
+    hasMore?: boolean;
   };
   listings?: ApiListing[];
+  nextCursor?: string | null;
+  hasMore?: boolean;
 };
 
 type Industry = {
@@ -119,7 +133,27 @@ type Industry = {
 };
 
 const LISTINGS_API_PATH = "/architect/listings/public";
+const LISTINGS_PAGE_SIZE = 24;
+const MAX_AUTO_LOAD_PAGES_BY_INDUSTRY = 3;
+const MAX_AUTO_LOAD_PAGES_FOR_HERO_TILES = 16;
+const MAX_AUTO_LOAD_PAGES_FOR_SEARCH = 16;
+const HERO_TILE_REQUIRED_INDUSTRIES: readonly string[] = ["Healthcare", "Beauty & Wellness"];
 const MARKETPLACE_AGENTS_SECTION_ID = "marketplace-agents";
+
+function listingsPagePath(cursor?: string | null) {
+  const params = new URLSearchParams({ limit: String(LISTINGS_PAGE_SIZE) });
+  if (cursor) params.set("cursor", cursor);
+  return `${LISTINGS_API_PATH}?${params.toString()}`;
+}
+
+function extractListingsPayload(response: ListingsApiResponse) {
+  const payload = response?.data ?? response;
+  return {
+    listings: payload?.listings ?? [],
+    nextCursor: payload?.nextCursor ?? null,
+    hasMore: Boolean(payload?.hasMore),
+  };
+}
 
 const baseIndustries: Omit<Industry, "count">[] = [
   { id: "all", label: "All industries", icon: "✨" },
@@ -384,6 +418,7 @@ function mapListingToAgent(listing: ApiListing): Agent {
       listing.architect?.email ||
       "Triven Architect",
     isNew: isRecentlyCreated(listing.createdAt),
+    featured: Boolean(listing.featured ?? listing.featuredAt),
     freeTrial:
       (listing.priceCents ?? 0) === 0 ||
       listing.pricingModel === "FREE" ||
@@ -418,6 +453,31 @@ function agentMatchesIndustry(agent: Agent, industryId: string) {
   return agent.industries.some((label) =>
     industryMatchesFilter(normalizeIndustryId(label), industryId)
   );
+}
+
+function matchesLoadedMarketplaceFilters(
+  agent: Agent,
+  filters: {
+    query: string;
+    industry: string;
+    subCategory: string;
+    priceMin: number;
+    priceMax: number;
+    minRating: number;
+    freeTrialOnly: boolean;
+    newOnly: boolean;
+  }
+) {
+  if (!agentMatchesSearchQuery(agent, filters.query)) return false;
+  if (filters.industry !== "all" && !agentMatchesIndustry(agent, filters.industry)) return false;
+  if (filters.subCategory !== "all" && !tagsMatchVerticalCategory(agent.industries, filters.subCategory)) {
+    return false;
+  }
+  if (agent.price < filters.priceMin || agent.price > filters.priceMax) return false;
+  if (agent.rating < filters.minRating) return false;
+  if (filters.freeTrialOnly && !agent.freeTrial) return false;
+  if (filters.newOnly && !agent.isNew) return false;
+  return true;
 }
 
 function getIndustryAgentCount(industryId: string, agents: Agent[]) {
@@ -469,19 +529,17 @@ function getIndustryDisplayLabel(industryId: string) {
 
 /** First chip on marketplace agent cards: browse industry label. */
 function getCardIndustryLabel(agent: Agent): string {
-  const fromBrowse = resolveBrowseIndustries(agent.industries);
-  if (fromBrowse[0]) return fromBrowse[0];
+  const fromBrowse = displayBrowseIndustryLabel(agent.industries);
+  if (fromBrowse) return fromBrowse;
   const fromSlug = browseIndustryFromSlug(agent.industry);
   if (fromSlug) return fromSlug;
   const raw = (agent.industries[0] ?? "").trim();
-  if (raw && raw.toLowerCase() !== "all") return raw;
+  if (raw && raw.toLowerCase() !== "all" && !isPlaceholderIndustryLabel(raw)) return raw;
   return "";
 }
 
 /** Category chips on marketplace agent cards (all selected categories). */
 function getCardCategoryLabels(agent: Agent): string[] {
-  const raw = (agent.category ?? "").trim();
-  if (!raw) return [];
   const industryExclusion = new Set<string>(
     [
       ...resolveBrowseIndustries(agent.industries),
@@ -490,15 +548,9 @@ function getCardCategoryLabels(agent: Agent): string[] {
     ].filter(Boolean)
   );
   const industryExclusionLower = new Set<string>([...industryExclusion].map((value) => value.toLowerCase()));
-  return [
-    ...new Set(
-      raw
-        .split(",")
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .filter((part) => !industryExclusionLower.has(part.toLowerCase()))
-    )
-  ];
+  return visibleCategoryLabels(agent.category).filter(
+    (part) => !industryExclusionLower.has(part.toLowerCase())
+  );
 }
 
 function buildIndustriesWithCounts(agents: Agent[]): Industry[] {
@@ -532,7 +584,19 @@ type SortValue = (typeof sortOptions)[number]["value"];
 
 export default function MarketplacePage() {
   const [agents, setAgents] = useState<Agent[]>([]);
+  const agentsRef = useRef<Agent[]>([]);
+  const industryAutoLoadInProgressRef = useRef<boolean>(false);
+  const industryAutoLoadPagesRef = useRef<number>(0);
+  const heroTilesAutoLoadInProgressRef = useRef<boolean>(false);
+  const heroTilesAutoLoadPagesRef = useRef<number>(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const nextCursorRef = useRef<string | null>(null);
+  const isLoadingRef = useRef<boolean>(true);
+  const isLoadingMoreRef = useRef<boolean>(false);
+  const hasMoreRef = useRef<boolean>(false);
   const [apiError, setApiError] = useState("");
   const [query, setQuery] = useState("");
   const [industry, setIndustry] = useState("all");
@@ -566,44 +630,76 @@ export default function MarketplacePage() {
   }, [query, scrollToAgents]);
 
   useEffect(() => {
-    let mounted = true;
+    nextCursorRef.current = nextCursor;
+  }, [nextCursor]);
 
-    async function loadListings() {
-      try {
-        setIsLoading(true);
-        setApiError("");
+  useEffect(() => {
+    agentsRef.current = agents;
+  }, [agents]);
 
-        const response = (await apiGet<ListingsApiResponse>(LISTINGS_API_PATH)) as ListingsApiResponse;
+  useEffect(() => {
+    isLoadingRef.current = isLoading;
+  }, [isLoading]);
 
-        const listings = response?.data?.listings ?? response?.listings ?? [];
+  useEffect(() => {
+    isLoadingMoreRef.current = isLoadingMore;
+  }, [isLoadingMore]);
 
-        if (!mounted) return;
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
 
-        setAgents(listings.map(mapListingToAgent));
-      } catch (error) {
-        console.error(error);
-
-        if (!mounted) return;
-
-        setApiError(
-          error instanceof Error
-            ? error.message
-            : "Could not load marketplace agents"
-        );
-        setAgents([]);
-      } finally {
-        if (mounted) {
-          setIsLoading(false);
-        }
-      }
+  const loadListingsPage = useCallback(async (cursor?: string | null) => {
+    const isInitial = !cursor;
+    if (isInitial) {
+      setIsLoading(true);
+      setApiError("");
+    } else {
+      setIsLoadingMore(true);
     }
 
-    loadListings();
+    try {
+      const response = (await apiGet<ListingsApiResponse>(listingsPagePath(cursor))) as ListingsApiResponse;
+      const { listings, nextCursor: newCursor, hasMore: more } = extractListingsPayload(response);
+      const mapped = listings.map(mapListingToAgent);
 
-    return () => {
-      mounted = false;
-    };
+      setAgents((previous) => {
+        if (isInitial) return mapped;
+        const seen = new Set(previous.map((agent) => agent.id));
+        return [...previous, ...mapped.filter((agent) => !seen.has(agent.id))];
+      });
+      setNextCursor(newCursor);
+      setHasMore(more);
+    } catch (error) {
+      console.error(error);
+      if (isInitial) {
+        setApiError(
+          error instanceof Error ? error.message : "Could not load marketplace agents",
+        );
+        setAgents([]);
+        setNextCursor(null);
+        setHasMore(false);
+      }
+    } finally {
+      if (isInitial) setIsLoading(false);
+      else setIsLoadingMore(false);
+    }
   }, []);
+
+  const loadMoreListings = useCallback(() => {
+    if (!hasMore || isLoading || isLoadingMore || !nextCursorRef.current) return;
+    void loadListingsPage(nextCursorRef.current);
+  }, [hasMore, isLoading, isLoadingMore, loadListingsPage]);
+
+  const loadMoreSentinelRef = useInfiniteScrollSentinel({
+    onLoadMore: loadMoreListings,
+    hasMore,
+    loading: isLoading || isLoadingMore,
+  });
+
+  useEffect(() => {
+    void loadListingsPage(null);
+  }, [loadListingsPage]);
 
   const industries = useMemo(() => buildIndustriesWithCounts(agents), [agents]);
   const dropdownIndustries = useMemo(
@@ -613,7 +709,7 @@ export default function MarketplacePage() {
     ],
     [agents]
   );
-  const featuredAgent = agents[0] ?? null;
+  const featuredAgent = agents.find((agent) => agent.featured) ?? agents[0] ?? null;
 
   const selectedBrowseIndustry = useMemo(
     () => resolveSelectedBrowseIndustry(industry, dropdownIndustries),
@@ -630,34 +726,18 @@ export default function MarketplacePage() {
   }, [industry]);
 
   const filteredAgents = useMemo(() => {
-    const cleanQuery = query.trim().toLowerCase();
+    const filters = {
+      query,
+      industry,
+      subCategory,
+      priceMin,
+      priceMax,
+      minRating,
+      freeTrialOnly,
+      newOnly
+    };
 
-    const filtered = agents.filter((agent) => {
-      const matchesQuery =
-        !cleanQuery ||
-        `${agent.name} ${agent.category} ${agent.description} ${agent.tags.join(" ")} ${agent.industries.join(" ")} ${agent.requiredConnectors.join(" ")} ${agent.supportedLlms.join(" ")}`
-          .toLowerCase()
-          .includes(cleanQuery);
-
-      const matchesIndustry = industry === "all" || agentMatchesIndustry(agent, industry);
-      const matchesSubCategory =
-        subCategory === "all" || tagsMatchVerticalCategory(agent.industries, subCategory);
-
-      const matchesPrice = agent.price >= priceMin && agent.price <= priceMax;
-      const matchesRating = agent.rating >= minRating;
-      const matchesTrial = !freeTrialOnly || agent.freeTrial;
-      const matchesNew = !newOnly || agent.isNew;
-
-      return (
-        matchesQuery &&
-        matchesIndustry &&
-        matchesSubCategory &&
-        matchesPrice &&
-        matchesRating &&
-        matchesTrial &&
-        matchesNew
-      );
-    });
+    const filtered = agents.filter((agent) => matchesLoadedMarketplaceFilters(agent, filters));
 
     return filtered.sort((a, b) => {
       if (sort === "priceLow") return a.price - b.price;
@@ -671,6 +751,113 @@ export default function MarketplacePage() {
       return b.installs - a.installs;
     });
   }, [agents, query, industry, subCategory, priceMin, priceMax, minRating, sort, freeTrialOnly, newOnly]);
+
+  useEffect(() => {
+    const hasActiveQuery = query.trim().length > 0;
+    if (industry === "all" && !hasActiveQuery) return;
+    if (isLoading || isLoadingMore) return;
+    if (!hasMore) return;
+    if (filteredAgents.length > 0) return;
+    if (industryAutoLoadInProgressRef.current) return;
+    if (!nextCursorRef.current) return;
+
+    industryAutoLoadInProgressRef.current = true;
+    industryAutoLoadPagesRef.current = 0;
+    const maxPages = hasActiveQuery ? MAX_AUTO_LOAD_PAGES_FOR_SEARCH : MAX_AUTO_LOAD_PAGES_BY_INDUSTRY;
+    const targetFilters = {
+      query,
+      industry,
+      subCategory,
+      priceMin,
+      priceMax,
+      minRating,
+      freeTrialOnly,
+      newOnly
+    };
+
+    void (async () => {
+      try {
+        while (
+          industryAutoLoadPagesRef.current < maxPages &&
+          hasMoreRef.current &&
+          nextCursorRef.current &&
+          !isLoadingRef.current &&
+          !isLoadingMoreRef.current
+        ) {
+          industryAutoLoadPagesRef.current += 1;
+          await loadListingsPage(nextCursorRef.current);
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+
+          const hasMatching = agentsRef.current.some((agent) =>
+            matchesLoadedMarketplaceFilters(agent, targetFilters)
+          );
+          if (hasMatching) break;
+        }
+      } finally {
+        industryAutoLoadInProgressRef.current = false;
+      }
+    })();
+  }, [
+    query,
+    industry,
+    subCategory,
+    priceMin,
+    priceMax,
+    minRating,
+    freeTrialOnly,
+    newOnly,
+    filteredAgents.length,
+    hasMore,
+    isLoading,
+    isLoadingMore,
+    loadListingsPage
+  ]);
+
+  useEffect(() => {
+    const healthcareIndustryId = browseIndustrySlug(HERO_TILE_REQUIRED_INDUSTRIES[0]!);
+    const beautyIndustryId = browseIndustrySlug(HERO_TILE_REQUIRED_INDUSTRIES[1]!);
+    if (!healthcareIndustryId || !beautyIndustryId) return;
+    if (heroTilesAutoLoadInProgressRef.current) return;
+    if (isLoading || isLoadingMore) return;
+    if (!hasMore) return;
+    if (!nextCursorRef.current) return;
+
+    const healthcareCount = getIndustryAgentCount(healthcareIndustryId, agents);
+    const beautyCount = getIndustryAgentCount(beautyIndustryId, agents);
+    if (healthcareCount > 0 && beautyCount > 0) return;
+
+    heroTilesAutoLoadInProgressRef.current = true;
+    heroTilesAutoLoadPagesRef.current = 0;
+
+    void (async () => {
+      try {
+        while (
+          heroTilesAutoLoadPagesRef.current < MAX_AUTO_LOAD_PAGES_FOR_HERO_TILES &&
+          hasMoreRef.current &&
+          nextCursorRef.current &&
+          !isLoadingRef.current &&
+          !isLoadingMoreRef.current
+        ) {
+          heroTilesAutoLoadPagesRef.current += 1;
+          await loadListingsPage(nextCursorRef.current);
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+
+          const updated = agentsRef.current;
+          const updatedHealthcareCount = getIndustryAgentCount(healthcareIndustryId, updated);
+          const updatedBeautyCount = getIndustryAgentCount(beautyIndustryId, updated);
+          if (updatedHealthcareCount > 0 && updatedBeautyCount > 0) break;
+        }
+      } finally {
+        heroTilesAutoLoadInProgressRef.current = false;
+      }
+    })();
+  }, [
+    agents,
+    isLoading,
+    isLoadingMore,
+    hasMore,
+    loadListingsPage
+  ]);
 
   const industryLabel =
     dropdownIndustries.find((item) => item.id === industry)?.label ??
@@ -1387,30 +1574,42 @@ export default function MarketplacePage() {
               </p>
             </div>
           ) : filteredAgents.length ? (
-            <div
-              data-testid="marketplace-agent-list"
-              className={
-                view === "grid"
-                  ? "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
-                  : "flex flex-col gap-4"
-              }
-            >
-              {filteredAgents.map((agent) =>
-                view === "grid" ? (
-                  <AgentGridCard
-                    key={agent.id}
-                    agent={agent}
-                    onViewDetails={() => openDetailsModal(agent)}
-                  />
-                ) : (
-                  <AgentListCard
-                    key={agent.id}
-                    agent={agent}
-                    onViewDetails={() => openDetailsModal(agent)}
-                  />
-                ),
-              )}
-            </div>
+            <>
+              <div
+                data-testid="marketplace-agent-list"
+                className={
+                  view === "grid"
+                    ? "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
+                    : "flex flex-col gap-4"
+                }
+              >
+                {filteredAgents.map((agent) =>
+                  view === "grid" ? (
+                    <AgentGridCard
+                      key={agent.id}
+                      agent={agent}
+                      onViewDetails={() => openDetailsModal(agent)}
+                    />
+                  ) : (
+                    <AgentListCard
+                      key={agent.id}
+                      agent={agent}
+                      onViewDetails={() => openDetailsModal(agent)}
+                    />
+                  ),
+                )}
+              </div>
+
+              <InfiniteScrollAgentFooter
+                visibleCount={filteredAgents.length}
+                loadedCount={agents.length}
+                hasMore={hasMore}
+                isLoadingMore={isLoadingMore}
+                sentinelRef={loadMoreSentinelRef}
+                view={view}
+                countTestId="app-marketplace-page-p-9"
+              />
+            </>
           ) : (
             <div className="rounded-2xl border border-dashed border-gray-200 bg-white py-16 text-center">
               <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-2xl">
@@ -1436,10 +1635,16 @@ export default function MarketplacePage() {
             </div>
           )}
 
-          {!isLoading && !apiError ? (
-            <p data-testid="app-marketplace-page-p-9" className="mt-8 text-center text-sm text-slate-400">
-              Showing {filteredAgents.length} of {agents.length} agents
-            </p>
+          {!isLoading && !apiError && !filteredAgents.length && agents.length ? (
+            <InfiniteScrollAgentFooter
+              visibleCount={0}
+              loadedCount={agents.length}
+              hasMore={hasMore}
+              isLoadingMore={isLoadingMore}
+              sentinelRef={loadMoreSentinelRef}
+              view={view}
+              countTestId="app-marketplace-page-p-9"
+            />
           ) : null}
         </div>
       </section>

@@ -11,15 +11,10 @@ import {
 
 export const MARKETPLACE_DEMO_PURPOSE = "MARKETPLACE_DEMO";
 
-/**
- * Marketplace demos must not depend on an architect's third-party TTS billing.
- * Installed/live agents still use the voice selected in their workflow; only
- * the free browser sample uses Vapi's hosted voice.
- */
 export const MARKETPLACE_DEMO_VOICE = "Savannah";
 
 /** Bump when the persisted demo assistant's stable configuration changes. */
-const MARKETPLACE_DEMO_ASSISTANT_VERSION = 2;
+const MARKETPLACE_DEMO_ASSISTANT_VERSION = 3;
 
 /** Hard cap per demo call — long enough to evaluate, too short to abuse. */
 export const DEMO_MAX_DURATION_SECONDS = 180;
@@ -290,6 +285,14 @@ function defaultDemoBusinessName(industry: string, subindustry: string): string 
   return `Demo ${subindustry || industry} Business`;
 }
 
+export function withDemoGreeting(message: string): string {
+  const greeting = message.trim();
+  const demoNote = "This is a live demo, so ask me anything.";
+  if (!greeting) return demoNote;
+  if (/\b(live demo|a demo|demo line|demo call)\b/i.test(greeting)) return greeting;
+  return `${greeting} ${demoNote}`;
+}
+
 export function buildDemoSystemPrompt(params: {
   assistantName: string;
   demoBusinessName: string;
@@ -346,6 +349,9 @@ export function buildDemoSystemPrompt(params: {
   ].filter(Boolean);
 
   const lines = [
+    `TRIVEN MARKETPLACE LIVE DEMO — read this before anything else.`,
+    `This call is a short live demo of "${params.listingName}" for someone deciding whether to buy this agent. You are showing the agent off, not running it for a real business. The Architect instructions below describe how the purchased agent behaves — follow them for tone, scope and safety, but the demo rules underneath always win.`,
+    ``,
     baseSystemPrompt ? `ARCHITECT AGENT INSTRUCTIONS:
 ${baseSystemPrompt}` : `You are ${params.assistantName}, an AI voice agent for ${params.subindustry}.`,
     ``,
@@ -355,7 +361,7 @@ ${baseSystemPrompt}` : `You are ${params.assistantName}, an AI voice agent for $
     `- Speak naturally and concisely for a phone call. Use the business facts below and do not invent real prices, staff, addresses, inventory, availability, policies, medical facts, legal conclusions, or other business facts that were not provided.`,
     `- If information is missing, say it is not configured in this demo. You may use a clearly-labelled hypothetical example only when the caller asks to see how a workflow would work.`,
     `- Calendar, booking, SMS, email, CRM, webhook, and other write actions are SANDBOXED in Marketplace Demo. Do not attempt real writes and never claim that a real appointment, message, email, or CRM record was created.`,
-    `- When demonstrating booking or follow-up, simulate the conversation realistically: gather the information the production agent would need, explain that the action is a demo simulation, and describe what the live installed agent would do next.`,
+    `- Say the difference out loud every time you reach an action the purchased agent would actually perform. Name what the real agent would do, then what you are doing instead — for example "on a real call I'd book that straight into the calendar and text you a confirmation, but since this is a demo I'll just walk you through it". Still collect the same details the real agent would, so the caller sees the full flow.`,
     `- If asked what this is or how it works, answer honestly that this is a Triven Marketplace browser demo of the agent. Then continue the role-play if the caller wants to test it.`,
     `- Do not ask the caller to purchase or reveal credentials. If asked about setup, explain that a buyer installs a private agent instance and connects only the integrations required by that workflow.`,
     ``,
@@ -490,24 +496,23 @@ async function startDemoCallInternal(params: {
 
   const configuredFirstMessage = str(voiceNode, "firstMessage");
   const messageTemplate = configuredFirstMessage || "Thank you for calling {{business.name}}. How can I help you today?";
-  const firstMessage = fillPromptTemplateTokens(
-    messageTemplate,
-    {
-      assistantName,
-      businessName: demoBusinessName,
-      businessType: subindustry,
-      contactName: customInfo?.contactName?.trim() || "the business team",
-      services: customInfo?.services?.trim() || "not configured in this demo",
-      servicesList: customInfo?.services?.trim() || "not configured in this demo"
-    },
-    { stripUnresolved: true }
+  const firstMessage = withDemoGreeting(
+    fillPromptTemplateTokens(
+      messageTemplate,
+      {
+        assistantName,
+        businessName: demoBusinessName,
+        businessType: subindustry,
+        contactName: customInfo?.contactName?.trim() || "the business team",
+        services: customInfo?.services?.trim() || "not configured in this demo",
+        servicesList: customInfo?.services?.trim() || "not configured in this demo"
+      },
+      { stripUnresolved: true }
+    )
   );
 
   const existingAssistantId = await findExistingDemoAssistant(listing.id);
 
-  // The assistant's stable configuration is shared per listing. Personalized
-  // prompt/greeting values are call overrides below, so concurrent demos never
-  // PATCH the same assistant or leak one visitor's sample details to another.
   let assistantId = existingAssistantId;
   if (!assistantId) {
     const baseDemoBusinessName = defaultDemoBusinessName(industry, subindustry);
@@ -520,17 +525,19 @@ async function startDemoCallInternal(params: {
       listingDescription: listing.shortDescription || listing.description || "an AI voice agent",
       baseSystemPrompt: str(voiceNode, "systemPrompt")
     });
-    const baseFirstMessage = fillPromptTemplateTokens(
-      messageTemplate,
-      {
-        assistantName,
-        businessName: baseDemoBusinessName,
-        businessType: subindustry,
-        contactName: "the business team",
-        services: "not configured in this demo",
-        servicesList: "not configured in this demo"
-      },
-      { stripUnresolved: true }
+    const baseFirstMessage = withDemoGreeting(
+      fillPromptTemplateTokens(
+        messageTemplate,
+        {
+          assistantName,
+          businessName: baseDemoBusinessName,
+          businessType: subindustry,
+          contactName: "the business team",
+          services: "not configured in this demo",
+          servicesList: "not configured in this demo"
+        },
+        { stripUnresolved: true }
+      )
     );
 
     const assistant = await deployVapiAssistant({

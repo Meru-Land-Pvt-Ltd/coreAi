@@ -2472,7 +2472,7 @@ export function BusinessSettingsView() {
                 <div className="rounded-xl border border-gray-100 p-4">
                   <div className="flex items-center gap-3 text-sm text-slate-500">
                     <CardBrandIcon brand="" />
-                    <span>No payment method on file.</span>
+                    <span>No payment details</span>
                   </div>
                   <button type="button" onClick={() => setCardModalMode("primary")} className="mt-3 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600" data-testid="business-settings-add-card">Add payment method</button>
                 </div>
@@ -2549,9 +2549,19 @@ export function BusinessSettingsView() {
               ) : (
                 <div className="flex items-start justify-between gap-4 rounded-xl border border-gray-100 p-4">
                   <address className="not-italic text-sm leading-relaxed text-slate-700">
-                    {billing?.businessName ?? profileForm.businessName}
-                    <br />
-                    {billing?.billingAddress ?? (profileForm.address || "No billing address on file")}
+                    {(billing?.businessName ?? profileForm.businessName) ? (
+                      <>
+                        {billing?.businessName ?? profileForm.businessName}
+                        <br />
+                      </>
+                    ) : null}
+                    {(billing?.billingEmail ?? accountEmail) ? (
+                      <>
+                        {billing?.billingEmail ?? accountEmail}
+                        <br />
+                      </>
+                    ) : null}
+                    {billing?.billingAddress || "No address"}
                     {billing?.billingPostalCode ? (
                       <>
                         <br />

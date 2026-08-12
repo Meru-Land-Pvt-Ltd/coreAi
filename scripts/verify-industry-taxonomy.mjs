@@ -7,17 +7,17 @@ import {
   getCategoriesForIndustry,
   industryTagsForCategorySelection,
   resolveBrowseIndustries,
-  tagsMatchVerticalCategory
+  tagsMatchVerticalCategory,
+  agentMatchesSearchQuery
 } from "../packages/shared/dist/index.js";
 
-assert.equal(TRIVEN_AGENT_TAXONOMY_ENTRIES.length, 25);
-assert.equal(TRIVEN_AGENT_TAXONOMY.Healthcare.length, 18);
+assert.equal(TRIVEN_AGENT_TAXONOMY_ENTRIES.length, 24);
+assert.equal(TRIVEN_AGENT_TAXONOMY.Healthcare.length, 17);
 assert.equal(TRIVEN_AGENT_TAXONOMY["Real Estate"].length, 2);
 assert.equal(TRIVEN_AGENT_TAXONOMY.Automotive.length, 3);
 assert.equal(TRIVEN_AGENT_TAXONOMY.Legal.length, 2);
-assert.equal(new Set(TRIVEN_AGENT_TAXONOMY_ENTRIES.map((entry) => entry.subindustry)).size, 25);
-assert.equal(new Set(TRIVEN_AGENT_TAXONOMY_ENTRIES.map((entry) => entry.agentName)).size, 25);
-assert.equal(suggestedAgentNameForSubindustry("Dental Clinics"), "Dental AI Receptionist");
+assert.equal(new Set(TRIVEN_AGENT_TAXONOMY_ENTRIES.map((entry) => entry.subindustry)).size, 24);
+assert.equal(new Set(TRIVEN_AGENT_TAXONOMY_ENTRIES.map((entry) => entry.agentName)).size, 24);
 assert.equal(suggestedAgentNameForSubindustry("Commercial Real Estate"), "Commercial Property AI Agent");
 assert.equal(suggestedAgentNameForSubindustry("Car Rental Services"), "Car Rental Reservation AI");
 assert.equal(suggestedAgentNameForSubindustry("Notary Services"), "Notary Appointment AI");
@@ -27,4 +27,20 @@ const automotiveTags = industryTagsForCategorySelection("Automotive", "Auto Serv
 assert.ok(resolveBrowseIndustries(automotiveTags).includes("Automotive"));
 assert.ok(tagsMatchVerticalCategory(automotiveTags, "Auto Service Centers"));
 assert.ok(!tagsMatchVerticalCategory(automotiveTags, "Car Dealerships"));
-console.log("Industry taxonomy production contract: PASS (25/25)");
+assert.deepEqual(resolveBrowseIndustries(["Custom"]), ["SaaS & Technology"]);
+assert.deepEqual(resolveBrowseIndustries(["Education", "Tutoring", "Custom"]), ["Education"]);
+assert.deepEqual(resolveBrowseIndustries(["Software Companies"]), ["SaaS & Technology"]);
+assert.equal(
+  agentMatchesSearchQuery(
+    {
+      name: "Clinic Front Desk AI",
+      category: "Dental Clinics",
+      description: "Answers missed calls",
+      tags: [],
+      industries: ["Healthcare", "Dental Clinics"]
+    },
+    "saas technology"
+  ),
+  false
+);
+console.log("Industry taxonomy production contract: PASS (24/24)");

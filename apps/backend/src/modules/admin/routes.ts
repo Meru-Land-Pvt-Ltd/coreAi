@@ -301,6 +301,7 @@ adminRoutes.get("/agents", async (c) => {
         category: true,
         priceCents: true,
         status: true,
+        featuredAt: true,
         tags: true,
         requiredConnectors: true,
         supportedLlms: true,
@@ -341,6 +342,7 @@ adminRoutes.get("/agents", async (c) => {
     category: l.category,
     priceCents: l.priceCents,
     status: l.status,
+    featuredAt: l.featuredAt,
     tags: l.tags,
     requiredConnectors: l.requiredConnectors,
     supportedLlms: l.supportedLlms,
@@ -466,11 +468,79 @@ adminRoutes.patch("/agents/:listingId/status", async (c) => {
   }
 });
 
-// 6. DELETE /admin/agents/:listingId
-// ADMIN-only permanent removal. Intentionally has no status, publication,
-// install-count, confirmation-text, or payment-history gate: an admin may
-// remove any listing at any time. Historical billing rows are detached while
-// live routing/install records are removed so no orphan can keep receiving calls.
+adminRoutes.patch("/agents/:listingId/featured", async (c) => {
+  try {
+    const listingId = c.req.param("listingId");
+    const { featured } = z.object({ featured: z.boolean() }).parse(await c.req.json());
+
+    const existing = await prisma.agentListing.findUnique({
+      where: { id: listingId },
+      select: { id: true, status: true, name: true }
+    });
+    if (!existing) {
+      return errorResponse(c, "Listing not found", 404, "LISTING_NOT_FOUND");
+    }
+
+    if (featured && existing.status !== "APPROVED") {
+      return errorResponse(
+        c,
+        `Only an APPROVED listing can be featured. "${existing.name}" is ${existing.status}.`,
+        409,
+        "LISTING_NOT_APPROVED"
+      );
+    }
+
+    const { listing, replaced } = await prisma.$transaction(async (tx) => {
+      const previouslyFeatured = featured
+        ? await tx.agentListing.findMany({
+            where: { featuredAt: { not: null }, NOT: { id: listingId } },
+            select: { id: true, name: true }
+          })
+        : [];
+
+      if (previouslyFeatured.length > 0) {
+        await tx.agentListing.updateMany({
+          where: { id: { in: previouslyFeatured.map((row) => row.id) } },
+          data: { featuredAt: null }
+        });
+      }
+
+      const updated = await tx.agentListing.update({
+        where: { id: listingId },
+        data: { featuredAt: featured ? new Date() : null },
+        select: { id: true, name: true, status: true, featuredAt: true }
+      });
+
+      return { listing: updated, replaced: previouslyFeatured };
+    });
+
+    await logAdminAction({
+      adminUserId: c.get("authUser").id,
+      action: featured ? "LISTING_FEATURED" : "LISTING_UNFEATURED",
+      targetType: "AGENT_LISTING",
+      targetId: listing.id,
+      meta: { name: listing.name, replaced: replaced.map((row) => row.name) }
+    });
+
+    return successResponse(
+      c,
+      // The caller needs to know which listing lost the slot so the admin table
+      // can clear its star without a refetch.
+      { listing, replacedListingIds: replaced.map((row) => row.id) },
+      featured
+        ? replaced.length > 0
+          ? `Listing featured — replaced "${replaced[0]!.name}"`
+          : "Listing featured"
+        : "Listing no longer featured"
+    );
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(c, "featured must be true or false", 422, "VALIDATION_ERROR");
+    }
+    return errorResponse(c, "Could not update the featured flag", 500, "LISTING_FEATURED_FAILED");
+  }
+});
+
 adminRoutes.delete("/agents/:listingId", async (c) => {
   try {
     const authUser = c.get("authUser");

@@ -1,5 +1,5 @@
 import type { AgentConfigureData } from "@coreai/shared";
-import { resolveBrowseIndustries } from "@coreai/shared";
+import { displayBrowseIndustryLabel, visibleCategoryLabels } from "@coreai/shared";
 import { CategoryTagsPill } from "@/components/common/category-tags-pill";
 import { BuilderIcon } from "../icons";
 
@@ -24,18 +24,8 @@ export function MarketplacePreviewCard({
         ? `$${price.toLocaleString("en-US")}/mo`
         : `$${price.toLocaleString("en-US")}`;
   const cover = configure.media.screenshotUrls[0] ?? null;
-  const industryLabel =
-    resolveBrowseIndustries(configure.basics.industryTags)[0] ??
-    configure.basics.industryTags[0]?.trim() ??
-    "";
-  const categoryLabels = [
-    ...new Set(
-      configure.basics.category
-        .split(",")
-        .map((part) => part.trim())
-        .filter(Boolean)
-    )
-  ];
+  const industryLabel = displayBrowseIndustryLabel(configure.basics.industryTags);
+  const categoryLabels = visibleCategoryLabels(configure.basics.category);
 
   return (
     <div

@@ -969,6 +969,8 @@ export type BusinessPreviewCallSession = {
 export function startBusinessSetupPreviewCall(options?: {
   /** After-hours simulation for the preview ("current" = real configured hours). */
   simulateBusinessHoursState?: "current" | "open" | "closed";
+  /** The agent being configured — without it the preview may speak as a sibling. */
+  listingId?: string;
 }) {
   return apiPost<{ session: BusinessPreviewCallSession }>("/business/setup/preview-call", options ?? {});
 }
@@ -1251,14 +1253,20 @@ export type BusinessHoursData = {
   sync?: BusinessHoursSyncStatus;
 };
 
-export function getBusinessHours() {
-  return apiGet<BusinessHoursData>("/business/hours");
+/** @param listingId Scopes hours + closures to one agent (omit = business-wide). */
+export function getBusinessHours(listingId?: string | null) {
+  const url = listingId
+    ? `/business/hours?listingId=${encodeURIComponent(listingId)}`
+    : "/business/hours";
+  return apiGet<BusinessHoursData>(url);
 }
 
 export function putBusinessHours(body: {
   hours: BusinessHoursDayInput[];
   timeZone: string;
   specialDates: BusinessSpecialHoursInput[];
+  /** Without this the save is business-wide and overwrites every agent. */
+  listingId?: string;
 }) {
   return apiPut<BusinessHoursData>("/business/hours", body);
 }

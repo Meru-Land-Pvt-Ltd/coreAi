@@ -328,12 +328,17 @@ export async function recordVapiCallUsage({
   const callRow = await prisma.vapiCall.findUnique({
     where: { callId },
     select: {
+      installedAgentId: true,
       executionMode: true,
       billingRecordedAt: true,
       usageInvoiceId: true,
       recordingUrl: true,
       pricingState: true,
-      conversationId: true
+      conversationId: true,
+      endedAt: true,
+      actualCostMicroUsd: true,
+      billedCostMicroUsd: true,
+      usageLineItemsJson: true
     }
   });
   if (callRow && callRow.executionMode !== "LIVE") {
@@ -342,6 +347,66 @@ export async function recordVapiCallUsage({
   }
 
   if (callRow?.billingRecordedAt || callRow?.usageInvoiceId || callRow?.pricingState === "PRICED" || callRow?.pricingState === "INVOICED") {
+    // The priced Vapi row is written before the canonical execution so a
+    // transient failure used to make every webhook redelivery return here and
+    // preserve a permanent invoice orphan. Re-run the idempotent canonical
+    // write whenever the call is priced but still lacks an invoice link.
+    if (!callRow.usageInvoiceId && callRow.pricingState === "PRICED") {
+      const repairAgentIds = [callRow.installedAgentId, installedAgentId]
+        .filter((id): id is string => Boolean(id));
+      if (repairAgentIds.length > 0) {
+        try {
+          const ownedAgents = await prisma.installedAgent.findMany({
+            where: { id: { in: [...new Set(repairAgentIds)] }, businessId },
+            select: { id: true }
+          });
+          const ownedById = new Map(ownedAgents.map((agent) => [agent.id, agent]));
+          const ownedAgentId = repairAgentIds.find((id) => ownedById.has(id));
+          const ownedAgent = ownedAgentId ? ownedById.get(ownedAgentId) : undefined;
+          if (ownedAgent) {
+            const storedLineItems = Array.isArray(callRow.usageLineItemsJson)
+              ? (callRow.usageLineItemsJson as unknown as UsageLineItem[])
+              : callRow.billedCostMicroUsd && callRow.billedCostMicroUsd > 0
+                ? [
+                    {
+                      serviceCode: "agent_execution",
+                      serviceName: "Usage service",
+                      invoiceLabel: "Usage service",
+                      unit: "PER_UNIT" as const,
+                      quantity: 1,
+                      unitPriceMicroUsd: callRow.billedCostMicroUsd,
+                      actualCostMicroUsd: callRow.actualCostMicroUsd ?? 0,
+                      billedCostMicroUsd: callRow.billedCostMicroUsd,
+                      billingRateMicroUsd: callRow.billedCostMicroUsd
+                    }
+                  ]
+                : undefined;
+            const execution = await recordVapiExecutionUsage({
+              installedAgentId: ownedAgent.id,
+              callId,
+              occurredAt: callRow.endedAt ?? callRow.billingRecordedAt ?? new Date(),
+              actualCostMicroUsd: callRow.actualCostMicroUsd,
+              usageLineItems: storedLineItems
+            });
+            if (execution?.usageInvoiceId) {
+              await prisma.vapiCall.updateMany({
+                where: { callId, businessId, usageInvoiceId: null },
+                data: {
+                  installedAgentId: ownedAgent.id,
+                  usageInvoiceId: execution.usageInvoiceId
+                }
+              });
+            }
+          }
+        } catch (error) {
+          console.error("[usage-billing] priced execution repair failed (non-fatal)", {
+            businessId,
+            callId,
+            error
+          });
+        }
+      }
+    }
     if (!callRow.recordingUrl) {
       const message =
         typeof webhookBody.message === "object" && webhookBody.message !== null

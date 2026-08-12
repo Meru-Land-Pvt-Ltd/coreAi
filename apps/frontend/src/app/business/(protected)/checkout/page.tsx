@@ -1470,10 +1470,10 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
             const response = await apiPost<StartTrialResponse | PurchaseResponse>(endpoint, {
                 listingId,
                 paymentMethodId,
-                billingName: isFree ? "Free Install" : cardName.trim(),
+                billingName: isFree ? undefined : cardName.trim(),
                 billingEmail: email.trim(),
                 billingPostalCode: isFree ? undefined : zip.trim(),
-                billingAddress: isFree ? "Free Installation" : formatBillingAddress(
+                billingAddress: isFree ? undefined : formatBillingAddress(
                     addressLine,
                     zip,
                     selectedCountry?.name ?? countryCode

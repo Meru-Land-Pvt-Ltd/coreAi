@@ -15,7 +15,7 @@ import {
   businessLoginPathWithNext,
   publicAgentPath
 } from "@/lib/routes";
-import { getHowItWorksSteps } from "@coreai/shared";
+import { displayBrowseIndustryLabel, getHowItWorksSteps } from "@coreai/shared";
 import { AgentDescriptionView } from "@/components/agent-description/shared/AgentDescriptionView";
 import { NeedHelpModal } from "@/components/common/need-help-modal";
 import {
@@ -258,7 +258,7 @@ export default function PublicAgentDescriptionPage() {
       similarHref={(id) => publicAgentPath(id)}
       showDemo
       demoMode="public"
-      demoIndustry={listing.industryTags?.[0] ?? tags[0] ?? ""}
+      demoIndustry={displayBrowseIndustryLabel(listing.industryTags ?? tags)}
       demoSubindustry={listing.category ?? category}
       demoVideoUrl={listing.demoVideoUrl ?? null}
     />

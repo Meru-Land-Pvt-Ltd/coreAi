@@ -8,7 +8,7 @@ import {
   createArchitectWorkflow,
   deleteArchitectWorkflow,
   getArchitectDashboardActivity,
-  getArchitectListings,
+  getAllArchitectListings,
   getArchitectPayoutSummary,
   getArchitectWorkflow,
   type ArchitectDashboardActivity,
@@ -688,7 +688,7 @@ export default function ArchitectDashboardPage() {
   }, []);
 
   const loadListings = useCallback(async () => {
-    const result = await getArchitectListings();
+    const result = await getAllArchitectListings();
     if (result.success && result.data) setListings(result.data.listings);
     setLoading(false);
   }, []);

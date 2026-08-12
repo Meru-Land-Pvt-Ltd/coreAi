@@ -9,7 +9,7 @@ import {
   formatDate,
   formatMoney
 } from "@/components/architect/ui/architect-ui";
-import { getArchitectListings } from "@/components/architect/features/api";
+import { getAllArchitectListings } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 
 function StoreGlyph() {
@@ -27,7 +27,7 @@ export function PublishedAgentsView() {
   const [loading, setLoading] = useState(true);
 
   async function loadAgents() {
-    const result = await getArchitectListings();
+    const result = await getAllArchitectListings();
     if (result.success && result.data) {
       setAgents(result.data.listings.filter((agent) => agent.status === "APPROVED"));
     }

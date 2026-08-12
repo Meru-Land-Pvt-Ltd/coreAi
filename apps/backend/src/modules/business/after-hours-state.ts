@@ -74,9 +74,14 @@ export async function resolveAfterHoursPolicyForBusiness(
 
 export async function buildAfterHoursSnapshotForBusiness(
   businessId: string,
-  options?: { now?: Date; simulate?: "open" | "closed" | null }
+  options?: {
+    now?: Date;
+    simulate?: "open" | "closed" | null;
+    /** Scopes the schedule to ONE agent — two agents keep different hours. */
+    installedAgentId?: string | null;
+  }
 ): Promise<AfterHoursSnapshot> {
-  const state = await loadBusinessHoursState(businessId);
+  const state = await loadBusinessHoursState(businessId, options?.installedAgentId);
   return buildAfterHoursSnapshot({
     weekly: state.weekly,
     special: state.special,

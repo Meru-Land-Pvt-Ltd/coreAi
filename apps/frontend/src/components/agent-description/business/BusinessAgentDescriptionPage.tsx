@@ -11,7 +11,7 @@ import {
   businessCheckoutPath,
   businessSetupPath
 } from "@/lib/routes";
-import { getHowItWorksSteps } from "@coreai/shared";
+import { displayBrowseIndustryLabel, getHowItWorksSteps, visibleCategoryLabels } from "@coreai/shared";
 import { AgentDescriptionView } from "@/components/agent-description/shared/AgentDescriptionView";
 import {
   formatRealInstallCount,
@@ -283,16 +283,12 @@ export default function BusinessAgentDescriptionPage() {
 
   const industryLabel = useMemo(() => {
     if (!listing) return "";
-    return listing.industryTags?.[0]?.trim() ?? "";
+    return displayBrowseIndustryLabel(listing.industryTags ?? []);
   }, [listing]);
 
   const categories = useMemo(() => {
     if (!listing?.category) return [];
-    return listing.category
-      .split(",")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => formatLabel(part));
+    return visibleCategoryLabels(listing.category).map((part) => formatLabel(part));
   }, [listing]);
 
   const features = useMemo(

@@ -14,6 +14,7 @@ import {
     businessCheckoutPath,
     businessSetupPath
 } from "@/lib/routes";
+import { displayBrowseIndustryLabel, isPlaceholderIndustryLabel, visibleCategoryLabels } from "@coreai/shared";
 import {  BotIcon } from "lucide-react";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 
@@ -486,18 +487,16 @@ function OwnedAgentCard({
     const isPaymentFailed = agent.purchaseStatus.toUpperCase() === "FAILED" || agent.purchaseStatus.toUpperCase() === "CANCELED";
     const canManageAgent = setupCompleted && !trialEnded && !isPaymentFailed;
 
-    const industries = agent.industryTags && agent.industryTags.length > 0
-        ? agent.industryTags
-        : (agent.industry === "all" ? ["All industries"] : [formatLabel(agent.industry)]);
-    const industryLabel = industries[0] ?? "All industries";
+    const industryLabel =
+        displayBrowseIndustryLabel(agent.industryTags ?? []) ||
+        (agent.industry && agent.industry !== "all" && !isPlaceholderIndustryLabel(agent.industry)
+            ? formatLabel(agent.industry)
+            : "All industries");
 
     // Category should be shown in tags (not mixed with industries).
-    const categoryParts = (agent.category ?? "")
-        .split(",")
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .filter((part) => part.toLowerCase() !== "uncategorized");
-    const categoriesToShow = categoryParts.length > 0 ? categoryParts : [];
+    const categoriesToShow = visibleCategoryLabels(agent.category).filter(
+        (part) => part.toLowerCase() !== "uncategorized"
+    );
 
     const visibleOtherTags = categoriesToShow.slice(0, 3);
     const extraOtherTagsCount = Math.max(0, categoriesToShow.length - 3);

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   createArchitectWorkflow,
-  getArchitectListings,
+  getAllArchitectListings,
   getArchitectProjects,
   getArchitectSummary,
   getArchitectWorkflows,
@@ -96,7 +96,7 @@ export function ArchitectWorkspace() {
     const [summaryResult, workflowsResult, listingsResult, projectsResult] = await Promise.all([
       getArchitectSummary(),
       getArchitectWorkflows(),
-      getArchitectListings(),
+      getAllArchitectListings(),
       getArchitectProjects()
     ]);
 

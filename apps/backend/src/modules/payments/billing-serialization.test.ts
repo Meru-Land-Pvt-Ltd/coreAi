@@ -296,6 +296,28 @@ beforeAll(async () => {
       }
     ]
   });
+  // The operational My Agents projection reads the same LIVE Vapi rows as the
+  // dashboard chart; the canonical ledger above remains the billing source.
+  await prisma.vapiCall.createMany({
+    data: [
+      {
+        businessId: businessA.id,
+        installedAgentId: installedTrial.id,
+        callId: `${RUN}-call-1`,
+        customerPhone: "+15550100001",
+        executionMode: "LIVE",
+        billedCostMicroUsd: 300_000
+      },
+      {
+        businessId: businessA.id,
+        installedAgentId: installedTrial.id,
+        callId: `${RUN}-call-2`,
+        customerPhone: "+15550100002",
+        executionMode: "LIVE",
+        billedCostMicroUsd: 200_000
+      }
+    ]
+  });
 
   // Unpaid usage invoices (OPEN + PENDING + OVERDUE count, PAID must not).
   const usageInvoiceBase = {
@@ -430,6 +452,7 @@ afterAll(async () => {
     const businessIds = [businessAId, businessBId].filter(Boolean);
     await prisma.agentUsageExecution.deleteMany({ where: { businessId: { in: businessIds } } });
     await prisma.businessUsageInvoice.deleteMany({ where: { businessId: { in: businessIds } } });
+    await prisma.vapiCall.deleteMany({ where: { businessId: { in: businessIds } } });
     await prisma.payment.deleteMany({ where: { user: { email: { contains: RUN } } } });
     await prisma.installedAgent.deleteMany({ where: { businessId: { in: businessIds } } });
     await prisma.agentListing.deleteMany({ where: { name: { contains: RUN } } });

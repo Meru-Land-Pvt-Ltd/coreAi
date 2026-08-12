@@ -326,7 +326,34 @@ function faqStrings(value: unknown): string[] {
   return [];
 }
 
-function buildBusinessContext(
+function cleanAgentId(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/** Per-agent business context saved by the buyer setup wizard. */
+function readAgentBusinessDetails(configJson: unknown): Record<string, unknown> {
+  const config =
+    configJson && typeof configJson === "object" && !Array.isArray(configJson)
+      ? (configJson as Record<string, unknown>)
+      : {};
+  const details = config.businessDetails;
+
+  return details && typeof details === "object" && !Array.isArray(details)
+    ? (details as Record<string, unknown>)
+    : {};
+}
+
+function agentDetailString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+const AGENT_BUSINESS_CONTEXT_VERSION = 2;
+
+function ownsFullBusinessContext(details: Record<string, unknown>): boolean {
+  return details.contextVersion === AGENT_BUSINESS_CONTEXT_VERSION;
+}
+
+export function buildBusinessContext(
   business: any,
   phoneNumber?: string | null,
   installedAgent?: { id?: string; listingId?: string | null; configJson?: unknown } | null
@@ -337,6 +364,15 @@ function buildBusinessContext(
     installedAgent?.configJson && typeof installedAgent.configJson === "object" && !Array.isArray(installedAgent.configJson)
       ? (installedAgent.configJson as Record<string, unknown>)
       : {};
+  const agentDetails = readAgentBusinessDetails(installedAgent?.configJson);
+  const ownsAgentContext = ownsFullBusinessContext(agentDetails);
+  // An agent that owns its context never inherits a sibling's contact points.
+  const profileBookingUrl: string | undefined = ownsAgentContext
+    ? undefined
+    : agentDetailString(profile?.bookingUrl);
+  const profileTeamPhone: string | undefined = ownsAgentContext
+    ? undefined
+    : agentDetailString(profile?.teamPhone);
   const executionMode: BusinessRuntimeContext["executionMode"] =
     agentConfig.executionMode === "ARCHITECT_DRY_RUN" || agentConfig.executionMode === "BUSINESS_TEST"
       ? agentConfig.executionMode
@@ -350,28 +386,46 @@ function buildBusinessContext(
     installedAgentId: installedAgent?.id,
     listingId: installedAgent?.listingId ?? undefined,
     executionMode,
-    businessName: business?.name ?? env.TWILIO_DEFAULT_BUSINESS_NAME ?? "the business",
-    businessType: business?.type ?? undefined,
+    businessName:
+      agentDetailString(agentDetails.businessName) ??
+      business?.name ??
+      env.TWILIO_DEFAULT_BUSINESS_NAME ??
+      "the business",
+    businessType: agentDetailString(agentDetails.businessType) ?? business?.type ?? undefined,
     businessPhoneNumber: phoneNumber ?? undefined,
-    bookingUrl: profile?.bookingUrl ?? env.TWILIO_DEFAULT_BOOKING_URL ?? undefined,
-    teamPhone: profile?.teamPhone ?? env.TWILIO_DEFAULT_TEAM_PHONE ?? undefined,
+    bookingUrl:
+      agentDetailString(agentDetails.bookingUrl) ??
+      profileBookingUrl ??
+      env.TWILIO_DEFAULT_BOOKING_URL ??
+      undefined,
+    teamPhone:
+      agentDetailString(agentDetails.teamPhone) ??
+      profileTeamPhone ??
+      env.TWILIO_DEFAULT_TEAM_PHONE ??
+      undefined,
     calendarId: profile?.calendarId ?? env.GOOGLE_CALENDAR_ID ?? "primary",
     timeZone: profile?.timeZone ?? env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
-    vapiAssistantId:
-      (typeof agentConfig.vapiAssistantId === "string" ? agentConfig.vapiAssistantId.trim() : "") ||
-      profile?.vapiAssistantId ||
-      undefined,
-    vapiPhoneNumberId:
-      (typeof agentConfig.vapiPhoneNumberId === "string" ? agentConfig.vapiPhoneNumberId.trim() : "") ||
-      profile?.vapiPhoneNumberId ||
-      undefined,
-    services: jsonStringArray(profile?.services),
-    faqs: faqStrings(profile?.faqsJson),
-    tone: profile?.tone ?? "friendly",
-    escalationRules: profile?.escalationRules ?? undefined,
-    hours: profile?.hoursJson ?? undefined,
-    // Shared formatter — the live tool context reads the same knowledge set
-    // (manual + document chunks) as the deployed prompt and browser tests.
+    vapiAssistantId: installedAgent
+      ? cleanAgentId(agentConfig.vapiAssistantId)
+      : cleanAgentId(agentConfig.vapiAssistantId) || profile?.vapiAssistantId || undefined,
+    vapiPhoneNumberId: installedAgent
+      ? cleanAgentId(agentConfig.vapiPhoneNumberId)
+      : cleanAgentId(agentConfig.vapiPhoneNumberId) || profile?.vapiPhoneNumberId || undefined,
+    services: ownsAgentContext
+      ? jsonStringArray(agentDetails.services)
+      : jsonStringArray(agentDetails.services ?? profile?.services),
+    faqs: ownsAgentContext
+      ? faqStrings(agentDetails.faqs)
+      : faqStrings(agentDetails.faqs ?? profile?.faqsJson),
+    tone: ownsAgentContext
+      ? agentDetailString(agentDetails.tone) ?? "friendly"
+      : agentDetailString(agentDetails.tone) ?? profile?.tone ?? "friendly",
+    escalationRules: ownsAgentContext
+      ? agentDetailString(agentDetails.escalationRules)
+      : agentDetailString(agentDetails.escalationRules) ?? profile?.escalationRules ?? undefined,
+    hours: ownsAgentContext
+      ? (agentDetails.hours as unknown) ?? undefined
+      : agentDetails.hours ?? profile?.hoursJson ?? undefined,
     knowledge: formatKnowledgeEntries(knowledgeBases)
   };
 }
@@ -994,7 +1048,10 @@ async function maybeStartVapiAfterMissedCall({
       ? await resolveAfterHoursPolicyForBusiness(businessId, agent.business.installedAgentId)
       : null;
     if (businessId && policy?.enabled) {
-      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: null });
+      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, {
+        simulate: null,
+        installedAgentId: agent.business.installedAgentId
+      });
       outboundHours = {
         state: snapshot.state.toLowerCase() as "open" | "closed" | "unknown",
         statusLine: snapshot.statusLine,
@@ -1258,7 +1315,10 @@ async function buildVapiAnswerTwiml({
       ? await resolveAfterHoursPolicyForBusiness(businessId, business.installedAgentId)
       : null;
     if (businessId && policy?.enabled) {
-      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, { simulate: null });
+      const snapshot = await buildAfterHoursSnapshotForBusiness(businessId, {
+        simulate: null,
+        installedAgentId: business.installedAgentId
+      });
       hoursVariables = {
         state: snapshot.state.toLowerCase() as "open" | "closed" | "unknown",
         statusLine: snapshot.statusLine,
@@ -2213,6 +2273,23 @@ async function findBusinessByVapiWebhook(body: Record<string, unknown>) {
     if (business) {
       console.log("[vapi-webhook] business resolved via assistantId", assistantId);
       return business;
+    }
+
+    const agent = await prisma.installedAgent.findFirst({
+      where: { configJson: { path: ["vapiAssistantId"], equals: assistantId } },
+      select: { businessId: true }
+    });
+
+    if (agent?.businessId) {
+      const agentBusiness = await prisma.business.findUnique({
+        where: { id: agent.businessId },
+        include: { profile: true, knowledgeBases: true }
+      });
+
+      if (agentBusiness) {
+        console.log("[vapi-webhook] business resolved via installed agent assistantId", assistantId);
+        return agentBusiness;
+      }
     }
   }
 
@@ -5298,17 +5375,98 @@ export async function handleVapiWebhook(c: Context) {
     const isEndOfCallEvent = /end-of-call-report|end|ended|report/i.test(messageType ?? "");
     const settleLiveEndOfCall = async () => {
       if (!businessContext?.businessId || !callId || executionMode !== "LIVE" || !isEndOfCallEvent) return;
+      const liveBusinessId = businessContext.businessId;
 
-      const installedAgent = await (metadataInstalledAgentId
-        ? prisma.installedAgent.findFirst({
-          where: { id: metadataInstalledAgentId, businessId: businessContext.businessId },
-          select: { id: true, workflowId: true }
-        })
-        : latestActiveInstalledAgent(businessContext.businessId)
-      ).catch((error) => {
+      const installedAgent = await (async () => {
+        const storedCall = await prisma.vapiCall.findUnique({
+          where: { callId },
+          select: { installedAgentId: true }
+        });
+        const directIds = [metadataInstalledAgentId, storedCall?.installedAgentId]
+          .filter((id): id is string => Boolean(id));
+        if (directIds.length > 0) {
+          const directAgents = await prisma.installedAgent.findMany({
+            where: {
+              businessId: liveBusinessId,
+              id: { in: [...new Set(directIds)] }
+            },
+            select: { id: true, workflowId: true }
+          });
+          const directById = new Map(directAgents.map((agent) => [agent.id, agent]));
+          for (const id of directIds) {
+            const direct = directById.get(id);
+            if (direct) return direct;
+          }
+        }
+
+        const assistantId = firstNestedString(body, [
+          ["message", "call", "assistantId"],
+          ["call", "assistantId"],
+          ["assistantId"]
+        ]);
+        if (assistantId) {
+          const assistantAgent = await prisma.installedAgent.findFirst({
+            where: {
+              businessId: liveBusinessId,
+              configJson: { path: ["vapiAssistantId"], equals: assistantId }
+            },
+            select: { id: true, workflowId: true }
+          });
+          if (assistantAgent) return assistantAgent;
+        }
+
+        const assignedPhoneNumber =
+          typeof metadata.assignedPhoneNumber === "string"
+            ? metadata.assignedPhoneNumber
+            : null;
+        if (assignedPhoneNumber) {
+          const phone = await prisma.businessPhoneNumber.findFirst({
+            where: {
+              businessId: liveBusinessId,
+              phoneNumber: assignedPhoneNumber,
+              installedAgentId: { not: null }
+            },
+            select: { installedAgentId: true }
+          });
+          if (phone?.installedAgentId) {
+            const phoneAgent = await prisma.installedAgent.findFirst({
+              where: {
+                id: phone.installedAgentId,
+                businessId: liveBusinessId
+              },
+              select: { id: true, workflowId: true }
+            });
+            if (phoneAgent) return phoneAgent;
+          }
+        }
+
+        const workflowId =
+          typeof metadata.workflowId === "string" ? metadata.workflowId : null;
+        if (workflowId) {
+          const workflowAgent = await prisma.installedAgent.findFirst({
+            where: { businessId: liveBusinessId, workflowId },
+            select: { id: true, workflowId: true }
+          });
+          if (workflowAgent) return workflowAgent;
+        }
+
+        return latestActiveInstalledAgent(liveBusinessId);
+      })().catch((error) => {
         console.error("[vapi-webhook] installed agent resolution failed", { callId, error });
         return null;
       });
+
+      if (installedAgent) {
+        await prisma.vapiCall.updateMany({
+          where: { callId, businessId: liveBusinessId },
+          data: { installedAgentId: installedAgent.id }
+        }).catch((error) => {
+          console.error("[vapi-webhook] installed agent backfill failed (non-fatal)", {
+            callId,
+            error
+          });
+        });
+      }
 
       /* The WorkflowRun IS the execution record several screens count. It used
          to be written AFTER usage settlement inside one try/catch, so any
@@ -5323,7 +5481,7 @@ export async function handleVapiWebhook(c: Context) {
             create: {
               workflowId: installedAgent.workflowId,
               installedAgentId: installedAgent.id,
-              businessId: businessContext.businessId,
+              businessId: liveBusinessId,
               mode: "LIVE",
               status: "COMPLETED",
               callProvider: "VAPI",
@@ -5339,7 +5497,7 @@ export async function handleVapiWebhook(c: Context) {
 
       try {
         await recordVapiCallUsage({
-          businessId: businessContext.businessId,
+          businessId: liveBusinessId,
           installedAgentId: installedAgent?.id,
           callId,
           customerPhone,
@@ -5348,7 +5506,7 @@ export async function handleVapiWebhook(c: Context) {
       } catch (error) {
         console.error("[vapi-webhook] USAGE SETTLEMENT FAILED — needs reconciliation", {
           callId,
-          businessId: businessContext.businessId,
+          businessId: liveBusinessId,
           error: error instanceof Error ? error.message : error
         });
       }
@@ -5364,32 +5522,41 @@ export async function handleVapiWebhook(c: Context) {
       await settleLiveEndOfCall();
       await clearAfterHoursOnCallEnd();
 
-      if (businessContext?.businessId && /end|ended|report/.test(messageType) && (summary || transcript)) {
-        enqueueEmail(
-          {
-            kind: "internal_notification",
-            input: {
-              businessId: businessContext.businessId,
-              businessName: businessContext.businessName,
-              purpose: "CALL_SUMMARY",
-              idempotencyKey: callId ? `call_summary:${callId}:business-email` : null,
-              fields: {
-                caller: null,
-                phone: customerPhone || null,
-                email: null,
-                requestedService: null,
-                summary: summary || transcript?.slice(0, 2000) || null,
-                nextAction: "Review the call summary and follow up if needed"
-              }
-            }
-          },
-          { idempotencyKey: callId ? `call_summary:${callId}:business-email` : null }
-        )
-          .then((result) => {
-            if (!result.ok) console.log(`[vapi-webhook] call summary email skipped: ${result.error}`);
-          })
-          .catch((error) => console.error("[vapi-webhook] call summary email failed (non-fatal)", error));
-      }
+      // DISABLED: the per-call "AI call summary" email to the buyer.
+      //
+      // This fired on every ended call, independently of the Email node and of
+      // the buyer's own notification settings. Appointment cancellation,
+      // reschedule and lead-capture notifications are NOT affected — they are
+      // separate INTERNAL_NOTIFICATION sends elsewhere in this file.
+      //
+      // To re-enable, uncomment the block below.
+      //
+      // if (businessContext?.businessId && /end|ended|report/.test(messageType) && (summary || transcript)) {
+      //   enqueueEmail(
+      //     {
+      //       kind: "internal_notification",
+      //       input: {
+      //         businessId: businessContext.businessId,
+      //         businessName: businessContext.businessName,
+      //         purpose: "CALL_SUMMARY",
+      //         idempotencyKey: callId ? `call_summary:${callId}:business-email` : null,
+      //         fields: {
+      //           caller: null,
+      //           phone: customerPhone || null,
+      //           email: null,
+      //           requestedService: null,
+      //           summary: summary || transcript?.slice(0, 2000) || null,
+      //           nextAction: "Review the call summary and follow up if needed"
+      //         }
+      //       }
+      //     },
+      //     { idempotencyKey: callId ? `call_summary:${callId}:business-email` : null }
+      //   )
+      //     .then((result) => {
+      //       if (!result.ok) console.log(`[vapi-webhook] call summary email skipped: ${result.error}`);
+      //     })
+      //     .catch((error) => console.error("[vapi-webhook] call summary email failed (non-fatal)", error));
+      // }
 
       console.log("[vapi-webhook] response status", 200, agentPaused ? "(non-tool event, paused settle)" : "(non-tool event)");
       return c.json(agentPaused ? { ok: true, paused: true } : { ok: true });

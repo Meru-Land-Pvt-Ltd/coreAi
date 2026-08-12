@@ -25,6 +25,7 @@ let ownerId = "";
 let businessId = "";
 let workflowId = "";
 let agentId = "";
+let freeInstallAgentId = "";
 
 beforeAll(async () => {
   try {
@@ -55,6 +56,19 @@ beforeAll(async () => {
         status: "ACTIVE",
         executionFeeCents: 500,
         // Past cutover so the execution is billable at the flat fee.
+        executionBillingStartedAt: new Date("2026-01-01T00:00:00.000Z")
+      }
+    })
+  ).id;
+  freeInstallAgentId = (
+    await prisma.installedAgent.create({
+      data: {
+        businessId,
+        workflowId,
+        name: `${RUN} free install agent`,
+        status: "ACTIVE",
+        installSource: "FREE_INSTALL",
+        executionFeeCents: 0,
         executionBillingStartedAt: new Date("2026-01-01T00:00:00.000Z")
       }
     })
@@ -135,6 +149,68 @@ describe("flat execution fee for calls whose pipeline could not be priced", () =
       where: { installedAgentId: agentId, sourceId: callId }
     });
     expect(rows).toBe(1);
+  });
+
+  it("promotes a zero-fee provisional row exactly once when Vapi pricing arrives", async () => {
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently.");
+
+    const callId = `${RUN}-free-reprice-${randomUUID()}`;
+    const provisional = await recordVapiExecutionUsage({
+      installedAgentId: freeInstallAgentId,
+      callId,
+      occurredAt: new Date(),
+      actualCostMicroUsd: 100_000
+    });
+    expect(provisional).toMatchObject({
+      amountMicroUsd: 0,
+      billable: false,
+      freeReason: "NO_EXECUTION_FEE",
+      usageInvoiceId: null
+    });
+
+    const pricedLine = {
+      serviceCode: "cartesia_sonic_2",
+      serviceName: "Cartesia Sonic 2",
+      invoiceLabel: "Voice service",
+      unit: "PER_MINUTE" as const,
+      quantity: 1,
+      unitPriceMicroUsd: 340_000,
+      billingRateMicroUsd: 340_000,
+      actualCostMicroUsd: 100_000,
+      billedCostMicroUsd: 340_000
+    };
+    const promoted = await recordVapiExecutionUsage({
+      installedAgentId: freeInstallAgentId,
+      callId,
+      occurredAt: new Date(),
+      actualCostMicroUsd: 100_000,
+      usageLineItems: [pricedLine]
+    });
+    expect(promoted).toMatchObject({
+      id: provisional!.id,
+      amountMicroUsd: 340_000,
+      billable: true,
+      freeReason: null
+    });
+    expect(promoted!.usageInvoiceId).toBeTruthy();
+
+    await recordVapiExecutionUsage({
+      installedAgentId: freeInstallAgentId,
+      callId,
+      occurredAt: new Date(),
+      actualCostMicroUsd: 100_000,
+      usageLineItems: [pricedLine]
+    });
+    const invoice = await prisma.businessUsageInvoice.findUnique({
+      where: { id: promoted!.usageInvoiceId! },
+      include: { lineItems: true, executions: true }
+    });
+    expect(invoice?.totalMicroUsd).toBe(340_000);
+    expect(invoice?.executions).toHaveLength(1);
+    expect(invoice?.lineItems.find((item) => item.serviceCode === pricedLine.serviceCode)).toMatchObject({
+      quantity: 1,
+      amountMicroUsd: 340_000
+    });
   });
 });
 

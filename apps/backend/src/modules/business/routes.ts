@@ -2563,14 +2563,21 @@ businessRoutes.post("/setup/preview-call", async (c) => {
     // only): {"simulateBusinessHoursState": "open" | "closed" | "current"}.
     const previewBody = await c.req.json().catch(() => null);
     const previewOptions = z
-      .object({ simulateBusinessHoursState: z.enum(["current", "open", "closed"]).optional() })
+      .object({
+        simulateBusinessHoursState: z.enum(["current", "open", "closed"]).optional(),
+        listingId: z.string().trim().min(1).optional()
+      })
       .safeParse(previewBody ?? {});
     const simulateBusinessHoursState =
       previewOptions.success && previewOptions.data.simulateBusinessHoursState !== "current"
         ? previewOptions.data.simulateBusinessHoursState ?? null
         : null;
+    const previewListingId = previewOptions.success ? previewOptions.data.listingId ?? null : null;
 
-    const session = await startInstalledAgentPreviewCall(business.id, { simulateBusinessHoursState });
+    const session = await startInstalledAgentPreviewCall(business.id, {
+      simulateBusinessHoursState,
+      listingId: previewListingId
+    });
     return successResponse(c, { session }, "Preview call ready");
   } catch (error) {
     if (error instanceof SetupPreviewCallError) {
@@ -3175,6 +3182,40 @@ function buildSetupReadiness(
   return { requiredConnectors, checklist, readyToDeploy, blockers };
 }
 
+function agentDetailText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** Per-agent business context saved by the setup wizard. */
+function agentBusinessDetails(configJson: unknown): Record<string, unknown> {
+  const config =
+    configJson && typeof configJson === "object" && !Array.isArray(configJson)
+      ? (configJson as Record<string, unknown>)
+      : {};
+  const details = config.businessDetails;
+
+  return details && typeof details === "object" && !Array.isArray(details)
+    ? (details as Record<string, unknown>)
+    : {};
+}
+
+export const AGENT_BUSINESS_CONTEXT_VERSION = 2;
+
+function hasAgentBusinessDetails(configJson: unknown): boolean {
+  return agentBusinessDetails(configJson).contextVersion === AGENT_BUSINESS_CONTEXT_VERSION;
+}
+
+function resolveSetupAgent<T extends { listingId: string | null }>(
+  installedAgents: T[] | undefined | null,
+  listingId?: string | null
+): T | null {
+  const agents = installedAgents ?? [];
+
+  if (listingId) return agents.find((agent) => agent.listingId === listingId) ?? null;
+
+  return agents.length === 1 ? agents[0]! : null;
+}
+
 function serializeSetup(
   business: LoadedBusiness | null,
   calendar: { connected: boolean; email: string | null },
@@ -3185,11 +3226,6 @@ function serializeSetup(
   const installedAgent = listingId
     ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
     : business?.installedAgents?.[0] ?? null;
-  /* One number per agent. Reading phoneNumbers[0] here handed the SECOND
-     agent's wizard whichever number the business happened to own first —
-     normally the first agent's — so it looked already provisioned and the buyer
-     was never offered a number of its own. Only this agent's own assignment
-     counts; an unassigned spare is offered to an agent that has none yet. */
   const phone = installedAgent
     ? business?.phoneNumbers?.find((row) => row.installedAgentId === installedAgent.id) ?? null
     : business?.phoneNumbers?.find((row) => !row.installedAgentId) ?? null;
@@ -3217,23 +3253,43 @@ function serializeSetup(
       ? config.assistantName.trim()
       : DEFAULT_ASSISTANT_NAME;
 
+  const agentDetails = agentBusinessDetails(installedAgent?.configJson);
+  const ownsBusinessContext = hasAgentBusinessDetails(installedAgent?.configJson);
+
   return {
     business: business
-      ? { id: business.id, name: business.name, type: business.type }
+      ? {
+        id: business.id,
+        name: (ownsBusinessContext ? agentDetailText(agentDetails.businessName) : null) ?? business.name,
+        type: (ownsBusinessContext ? agentDetailText(agentDetails.businessType) : null) ?? business.type
+      }
       : null,
     profile: profile
       ? {
-        bookingUrl: profile.bookingUrl,
-        teamPhone: profile.teamPhone,
+        // Business-level: one physical business, one calendar and timezone.
         calendarId: profile.calendarId,
         timeZone: normalizeTimeZone(profile.timeZone),
-        tone: profile.tone,
-        escalationRules: profile.escalationRules,
-        services: profile.services,
-        faqs: profile.faqsJson ?? [],
-        hours: profile.hoursJson ?? [],
         vapiAssistantId: profile.vapiAssistantId,
-        vapiPhoneNumberId: profile.vapiPhoneNumberId
+        vapiPhoneNumberId: profile.vapiPhoneNumberId,
+        ...(ownsBusinessContext
+          ? {
+            bookingUrl: cleanOptional(agentDetails.bookingUrl as string | undefined) ?? null,
+            teamPhone: cleanOptional(agentDetails.teamPhone as string | undefined) ?? null,
+            tone: (agentDetails.tone as string | undefined) ?? profile.tone,
+            escalationRules: cleanOptional(agentDetails.escalationRules as string | undefined) ?? null,
+            services: Array.isArray(agentDetails.services) ? agentDetails.services : [],
+            faqs: Array.isArray(agentDetails.faqs) ? agentDetails.faqs : [],
+            hours: Array.isArray(agentDetails.hours) ? agentDetails.hours : profile.hoursJson ?? []
+          }
+          : {
+            bookingUrl: profile.bookingUrl,
+            teamPhone: profile.teamPhone,
+            tone: profile.tone,
+            escalationRules: profile.escalationRules,
+            services: profile.services,
+            faqs: profile.faqsJson ?? [],
+            hours: profile.hoursJson ?? []
+          })
       }
       : null,
     phoneNumber: phone
@@ -3473,9 +3529,7 @@ businessRoutes.get("/setup", async (c) => {
 
   // Scope the number picker to THIS agent, so a second agent is never shown the
   // first agent's number as already selected.
-  const setupAgent = listingId
-    ? business?.installedAgents?.find((agent) => agent.listingId === listingId) ?? null
-    : business?.installedAgents?.[0] ?? null;
+  const setupAgent = resolveSetupAgent(business?.installedAgents, listingId);
   const phoneOptions = await loadPhoneOptions(business?.id ?? null, setupAgent?.id ?? null);
   let setupVisibility = deriveSetupVisibility(null);
 
@@ -3542,9 +3596,7 @@ businessRoutes.post("/setup", async (c) => {
       }
     });
 
-    const phoneAgentForSetup = input.listingId
-      ? existing?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
-      : existing?.installedAgents?.[0] ?? null;
+    const phoneAgentForSetup = resolveSetupAgent(existing?.installedAgents, input.listingId);
     const existingPhone = phoneAgentForSetup
       ? existing?.phoneNumbers?.find((row) => row.installedAgentId === phoneAgentForSetup.id) ?? null
       : null;
@@ -3699,10 +3751,13 @@ businessRoutes.post("/setup", async (c) => {
       ...(cleanOptional(input.vapiPhoneNumberId) ? { vapiPhoneNumberId: cleanOptional(input.vapiPhoneNumberId) } : {})
     };
 
+    const accountAgentCount = existing?.installedAgents?.length ?? 0;
+    const mayRenameAccount = accountAgentCount <= 1;
+
     const business = existing
       ? await prisma.business.update({
         where: { id: existing.id },
-        data: { name: input.businessName, type: input.businessType }
+        data: mayRenameAccount ? { name: input.businessName, type: input.businessType } : {}
       })
       : await prisma.business.create({
         data: { ownerId: authUser.id, name: input.businessName, type: input.businessType }
@@ -3718,12 +3773,11 @@ businessRoutes.post("/setup", async (c) => {
     // pipeline and survive every setup save.
     await replaceManualKnowledge(
       business.id,
-      input.knowledge.map((item) => ({ title: item.title, content: item.content }))
+      input.knowledge.map((item) => ({ title: item.title, content: item.content })),
+      // Same agent resolution used for the phone/config writes below.
+      phoneAgentForSetup?.id ?? null
     );
 
-    // One authoritative Business Address: written here AND from Business
-    // Settings — both interfaces always show the same saved value. A save
-    // without the field never clears an existing address.
     let addressLiveSync: Awaited<ReturnType<typeof refreshLiveAssistantKnowledge>> | null = null;
     if (input.businessAddress) {
       await saveBusinessAddress(business.id, input.businessAddress);
@@ -3732,9 +3786,7 @@ businessRoutes.post("/setup", async (c) => {
 
     // Existing agent config — settings not sent by this save are preserved,
     // never silently overwritten.
-    const existingAgentRow = input.listingId
-      ? existing?.installedAgents?.find((agent) => agent.listingId === input.listingId) ?? null
-      : existing?.installedAgents?.[0] ?? null;
+    const existingAgentRow = resolveSetupAgent(existing?.installedAgents, input.listingId);
     const existingAgentConfig =
       existingAgentRow?.configJson && typeof existingAgentRow.configJson === "object" && !Array.isArray(existingAgentRow.configJson)
         ? (existingAgentRow.configJson as Record<string, unknown>)
@@ -3786,8 +3838,6 @@ businessRoutes.post("/setup", async (c) => {
       ...(emailRecipients ? { emailRecipients } : {}),
       ...(input.scheduling ? { scheduling: input.scheduling } : {}),
       ...(input.appointmentSchedule ? { appointmentSchedule: input.appointmentSchedule } : {}),
-      // Conditional spread: omitting afterHoursPolicy on a save preserves the
-      // stored policy (same MERGE contract as scheduling/emailRecipients).
       ...(input.afterHoursPolicy
         ? { afterHoursPolicy: normalizeAfterHoursPolicy(input.afterHoursPolicy) }
         : {}),
@@ -3813,12 +3863,20 @@ businessRoutes.post("/setup", async (c) => {
             }
           }
         : {}),
-      businessDetails: {
+     businessDetails: {
+        ...agentBusinessDetails(existingAgentConfig),
+        contextVersion: AGENT_BUSINESS_CONTEXT_VERSION,
         assistantName,
         businessName: input.businessName,
         businessType: input.businessType,
         contactName: resolveContactName(input.contactName, input.allContactNames),
-        services: input.services
+        services: input.services,
+        faqs: input.faqs,
+        tone: input.tone,
+        escalationRules: cleanOptional(input.escalationRules),
+        bookingUrl: cleanOptional(input.bookingUrl),
+        teamPhone: cleanOptional(input.teamPhone),
+        ...(input.hours.length > 0 ? { hours: input.hours } : {})
       },
       silence: {
         repromptCount: input.silenceRepromptCount ?? 2,

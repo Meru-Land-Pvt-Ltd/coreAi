@@ -4,7 +4,7 @@ import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { formatDate } from "@/components/architect/ui/architect-ui";
-import { getArchitectListings, updateArchitectListingStatus } from "@/components/architect/features/api";
+import { getAllArchitectListings, updateArchitectListingStatus } from "@/components/architect/features/api";
 import type { ArchitectListing } from "@/components/architect/features/types";
 import { ARCHITECT_MY_AGENTS_PATH } from "@/lib/routes";
 import { CategoryTagsPill } from "@/components/common/category-tags-pill";
@@ -679,7 +679,7 @@ function PublishingStatusContent() {
     let active = true;
 
     async function load() {
-      const result = await getArchitectListings();
+      const result = await getAllArchitectListings();
       if (!active) return;
 
       if (result.success && result.data) {

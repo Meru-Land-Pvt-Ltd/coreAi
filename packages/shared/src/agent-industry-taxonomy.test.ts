@@ -6,24 +6,26 @@ import {
   targetIndustryForSubindustry
 } from "./agent-industry-taxonomy";
 import {
+  agentMatchesSearchQuery,
+  displayBrowseIndustryLabel,
   getCategoriesForIndustry,
   industryTagsForCategorySelection,
   resolveBrowseIndustries,
-  tagsMatchVerticalCategory
+  tagsMatchVerticalCategory,
+  visibleCategoryLabels
 } from "./industry-browse";
 import { normalizeAgentConfigure } from "./agent-configure";
 
 describe("Triven target agent taxonomy", () => {
-  it("contains the requested 25 Architect-created agent targets", () => {
-    expect(TRIVEN_AGENT_TAXONOMY_ENTRIES).toHaveLength(25);
-    expect(TRIVEN_AGENT_TAXONOMY.Healthcare).toHaveLength(18);
+  it("contains the requested 24 Architect-created agent targets", () => {
+    expect(TRIVEN_AGENT_TAXONOMY_ENTRIES).toHaveLength(24);
+    expect(TRIVEN_AGENT_TAXONOMY.Healthcare).toHaveLength(17);
     expect(TRIVEN_AGENT_TAXONOMY["Real Estate"]).toHaveLength(2);
     expect(TRIVEN_AGENT_TAXONOMY.Automotive).toHaveLength(3);
     expect(TRIVEN_AGENT_TAXONOMY.Legal).toHaveLength(2);
   });
 
   it("maps exact subindustries to the expected suggested agent names", () => {
-    expect(suggestedAgentNameForSubindustry("Dental Clinics")).toBe("Dental AI Receptionist");
     expect(suggestedAgentNameForSubindustry("Commercial Real Estate")).toBe("Commercial Property AI Agent");
     expect(suggestedAgentNameForSubindustry("Car Rental Services")).toBe("Car Rental Reservation AI");
     expect(suggestedAgentNameForSubindustry("Notary Services")).toBe("Notary Appointment AI");
@@ -65,5 +67,42 @@ describe("Triven target agent taxonomy", () => {
     expect(resolveBrowseIndustries(normalized.basics.industryTags)).toContain("Automotive");
     expect(tagsMatchVerticalCategory(normalized.basics.industryTags, "Auto Service Centers")).toBe(true);
     expect(tagsMatchVerticalCategory(normalized.basics.industryTags, "Car Dealerships")).toBe(false);
+  });
+
+  it("treats Custom-only listings as SaaS & Technology without leaking into other industries", () => {
+    expect(resolveBrowseIndustries(["Custom"])).toEqual(["SaaS & Technology"]);
+    expect(displayBrowseIndustryLabel(["Custom"])).toBe("SaaS & Technology");
+    expect(resolveBrowseIndustries(["Education", "Tutoring", "Custom"])).toEqual(["Education"]);
+    expect(resolveBrowseIndustries(["Tutoring", "Custom"])).toEqual(["Education"]);
+    expect(resolveBrowseIndustries(["SaaS & Technology", "Software Companies", "Custom"])).toEqual([
+      "SaaS & Technology"
+    ]);
+    expect(resolveBrowseIndustries(["Software Companies"])).toEqual(["SaaS & Technology"]);
+    expect(visibleCategoryLabels("Custom")).toEqual([]);
+    expect(visibleCategoryLabels("Software Companies, Custom")).toEqual(["Software Companies"]);
+  });
+
+  it("matches marketplace search tokens against name, industry, and problem text", () => {
+    const agent = {
+      name: "Clinic Front Desk AI",
+      category: "Dental Clinics",
+      description: "Answers missed calls and books appointments",
+      author: "Triven Architect",
+      tags: ["booking"],
+      industries: ["Healthcare", "Dental Clinics"],
+      requiredConnectors: ["Twilio"],
+      supportedLlms: []
+    };
+
+    expect(agentMatchesSearchQuery(agent, "")).toBe(true);
+    expect(agentMatchesSearchQuery(agent, "dental")).toBe(true);
+    expect(agentMatchesSearchQuery(agent, "saas technology")).toBe(false);
+    expect(agentMatchesSearchQuery(agent, "missed calls")).toBe(true);
+    expect(
+      agentMatchesSearchQuery(
+        { ...agent, industries: ["SaaS & Technology", "Software Companies"] },
+        "saas & technology"
+      )
+    ).toBe(true);
   });
 });

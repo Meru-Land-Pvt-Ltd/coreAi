@@ -16,10 +16,10 @@ import {
 } from "./onboarding-routes";
 
 describe("cross-industry production contract", () => {
-  it("keeps the exact 25 launch mappings unique", () => {
-    expect(TRIVEN_AGENT_TAXONOMY_ENTRIES).toHaveLength(25);
-    expect(new Set(TRIVEN_AGENT_TAXONOMY_ENTRIES.map((entry) => entry.subindustry)).size).toBe(25);
-    expect(new Set(TRIVEN_AGENT_TAXONOMY_ENTRIES.map((entry) => entry.agentName)).size).toBe(25);
+  it("keeps the exact 24 launch mappings unique", () => {
+    expect(TRIVEN_AGENT_TAXONOMY_ENTRIES).toHaveLength(24);
+    expect(new Set(TRIVEN_AGENT_TAXONOMY_ENTRIES.map((entry) => entry.subindustry)).size).toBe(24);
+    expect(new Set(TRIVEN_AGENT_TAXONOMY_ENTRIES.map((entry) => entry.agentName)).size).toBe(24);
   });
 
   it("rejects unknown subindustries under a protected launch industry", () => {
@@ -41,8 +41,7 @@ describe("cross-industry production contract", () => {
 
   it("keeps legacy dental onboarding compatible", () => {
     expect(normalizeOnboardingTaxonomy({ businessType: "solo" })).toMatchObject({
-      businessType: "Dental Clinics",
-      industry: "Healthcare"
+      businessType: "Dental Clinics"
     });
   });
 

@@ -83,6 +83,14 @@ import {
   sumApprovedEarningsCents
 } from "./payout-earnings";
 import {
+  decodeListingCursor,
+  encodeListingCursor,
+  fetchMarketplaceListingsByIds,
+  paginateMarketplaceListingIds,
+  parseMarketplacePageSize,
+  toMarketplaceCard
+} from "./marketplace-listings";
+import {
   getArchitectTestDeploymentStatus,
   startArchitectTestDeployment,
   stopArchitectTestDeployment,
@@ -266,79 +274,15 @@ architectRoutes.post("/connectors/whatsapp", handleWhatsAppWebhookPost);
 
 architectRoutes.get("/connectors/voice/status", (c) => successResponse(c, getVoiceAnswerStatus()));
 
-const MARKETPLACE_WORKFLOW_SELECT = {
-  select: { id: true, name: true, description: true, workflowJson: true }
-} as const;
-
-type MarketplaceWorkflowNode = { data?: { label?: string; title?: string } };
-
-function deriveWorkflowCapabilities(workflowJson: unknown): string[] {
-  const nodes = (workflowJson as { nodes?: MarketplaceWorkflowNode[] } | null | undefined)?.nodes;
-  if (!Array.isArray(nodes)) return [];
-  const labels = nodes
-    .map((node) => (node?.data?.label || node?.data?.title || "").trim())
-    .filter(Boolean);
-  return [...new Set(labels)];
-}
-
-function toMarketplaceCard<
-  T extends { id: string; workflow?: { id: string; name: string; description: string | null; workflowJson?: unknown } | null }
->(listing: T & { _count?: unknown }, installCount: number) {
-  const { _count, workflow, ...rest } = listing as T & { _count?: unknown };
-  return {
-    ...rest,
-    workflow: workflow
-      ? { id: workflow.id, name: workflow.name, description: workflow.description }
-      : null,
-    capabilities: deriveWorkflowCapabilities(workflow?.workflowJson),
-    installCount
-  };
-}
-
 async function listPublicMarketplaceListings(c: Context) {
-  const allListings = await prisma.agentListing.findMany({
-    where: {
-      status: "APPROVED"
-    },
-    include: {
-      workflow: MARKETPLACE_WORKFLOW_SELECT,
-      architect: {
-        select: {
-          id: true,
-          fullName: true,
-          email: true,
-          architectProfile: {
-            select: {
-              title: true,
-              rating: true,
-              completedJobs: true
-            }
-          }
-        }
-      },
-      _count: {
-        select: { installedAgents: true }
-      }
-    },
-    orderBy: {
-      createdAt: "desc"
-    }
-  });
+  const limit = parseMarketplacePageSize(c.req.query("limit"));
+  const cursor = c.req.query("cursor");
+  const page = await paginateMarketplaceListingIds({ status: "APPROVED" }, { cursor, limit });
+  const rows = await fetchMarketplaceListingsByIds(page.ids);
+  const listings = rows.map((listing) => toMarketplaceCard(listing));
 
-  const seenWorkflowIds = new Set<string>();
-  const filtered = allListings.filter((listing) => {
-    if (!listing.workflowId) return true;
-    if (seenWorkflowIds.has(listing.workflowId)) return false;
-    seenWorkflowIds.add(listing.workflowId);
-    return true;
-  });
-  const installCountByListing = await countSalesByListingIds(filtered.map((listing) => listing.id));
-  const listings = filtered.map((listing) =>
-    toMarketplaceCard(listing, installCountByListing.get(listing.id) ?? 0)
-  );
-
-  c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
-  return successResponse(c, { listings });
+  c.header("Cache-Control", "public, max-age=15, must-revalidate");
+  return successResponse(c, { listings, nextCursor: page.nextCursor, hasMore: page.hasMore });
 }
 
 async function getPublicMarketplaceListingById(c: Context) {
@@ -392,51 +336,17 @@ async function getPublicMarketplaceListingById(c: Context) {
 }
 
 async function listCompletedMarketplaceListings(c: Context) {
-  const allListings = await prisma.agentListing.findMany({
-    where: {
-      status: {
-        in: ["APPROVED", "PENDING_REVIEW"]
-      }
-    },
-    include: {
-      workflow: MARKETPLACE_WORKFLOW_SELECT,
-      architect: {
-        select: {
-          id: true,
-          fullName: true,
-          email: true,
-          architectProfile: {
-            select: {
-              title: true,
-              rating: true,
-              completedJobs: true
-            }
-          }
-        }
-      },
-      _count: {
-        select: { installedAgents: true }
-      }
-    },
-    orderBy: {
-      createdAt: "desc"
-    }
-  });
-
-  const seenWorkflowIds = new Set<string>();
-  const filtered = allListings.filter((listing) => {
-    if (!listing.workflowId) return true;
-    if (seenWorkflowIds.has(listing.workflowId)) return false;
-    seenWorkflowIds.add(listing.workflowId);
-    return true;
-  });
-  const installCountByListing = await countSalesByListingIds(filtered.map((listing) => listing.id));
-  const listings = filtered.map((listing) =>
-    toMarketplaceCard(listing, installCountByListing.get(listing.id) ?? 0)
+  const limit = parseMarketplacePageSize(c.req.query("limit"));
+  const cursor = c.req.query("cursor");
+  const page = await paginateMarketplaceListingIds(
+    { status: { in: ["APPROVED", "PENDING_REVIEW"] } },
+    { cursor, limit }
   );
+  const rows = await fetchMarketplaceListingsByIds(page.ids);
+  const listings = rows.map((listing) => toMarketplaceCard(listing));
 
-  c.header("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
-  return successResponse(c, { listings });
+  c.header("Cache-Control", "private, max-age=15, must-revalidate");
+  return successResponse(c, { listings, nextCursor: page.nextCursor, hasMore: page.hasMore });
 }
 
 architectRoutes.get("/listings/public", listPublicMarketplaceListings);
@@ -2758,13 +2668,13 @@ architectRoutes.get("/listings", async (c) => {
   try {
     const authUser = c.get("authUser");
     const statusFilter = c.req.query("status");
+    const limit = parseMarketplacePageSize(c.req.query("limit"));
+    const cursor = decodeListingCursor(c.req.query("cursor"));
 
-    const [allListings, sales, profile, installedAgents] = await Promise.all([
+    const [allListings, profile] = await Promise.all([
       prisma.agentListing.findMany({
         where: {
           architectUserId: authUser.id,
-          // Soft-deleted live listings stay in the DB (earnings history) but
-          // disappear from My Agents.
           NOT: { AND: [{ status: "SUSPENDED" }, { rejectionReason: { startsWith: "[deleted by architect]" } }] }
         },
         include: {
@@ -2773,7 +2683,6 @@ architectRoutes.get("/listings", async (c) => {
               id: true,
               name: true,
               description: true,
-              configureJson: true,
               updatedAt: true
             }
           },
@@ -2788,49 +2697,11 @@ architectRoutes.get("/listings", async (c) => {
         console.error("[listings] findMany failed", err);
         return [];
       }),
-      loadArchitectEarnings(authUser.id).catch((err) => {
-        console.error("[listings] loadArchitectEarnings failed", err);
-        return [];
-      }),
       prisma.architectProfile.findUnique({
         where: { userId: authUser.id },
         select: { rating: true }
-      }).catch(() => null),
-      prisma.installedAgent.findMany({
-        where: { listing: { architectUserId: authUser.id } },
-        select: { id: true, listingId: true, businessId: true, configJson: true, status: true }
-      }).catch((err) => {
-        console.error("[listings] installedAgent.findMany failed", err);
-        return [];
-      })
+      }).catch(() => null)
     ]);
-
-    const revenueByListing = new Map<string, number>();
-    const installCountByListing = new Map<string, number>();
-    for (const sale of sales) {
-      installCountByListing.set(sale.listingId, (installCountByListing.get(sale.listingId) ?? 0) + 1);
-      if (effectiveEarningStatus(sale) === "REJECTED") continue;
-      revenueByListing.set(
-        sale.listingId,
-        (revenueByListing.get(sale.listingId) ?? 0) + sale.earningsCents
-      );
-    }
-
-    const buyerInstalls = installedAgents.filter((agent) => {
-      const config = agent.configJson;
-      if (!config || typeof config !== "object" || Array.isArray(config)) return true;
-      return (config as Record<string, unknown>).purpose !== "ARCHITECT_TEST";
-    });
-    const executionByListing = new Map<string, number>();
-    const activeBuyerInstalls = buyerInstalls.filter((agent) => agent.status === "ACTIVE");
-    const activeTotals = await executionTotalsByInstalledAgent({
-      installedAgentIds: activeBuyerInstalls.map((agent) => agent.id)
-    }).catch(() => new Map());
-    for (const agent of activeBuyerInstalls) {
-      if (!agent.listingId) continue;
-      const executions = activeTotals.get(agent.id)?.executions ?? 0;
-      executionByListing.set(agent.listingId, (executionByListing.get(agent.listingId) ?? 0) + executions);
-    }
 
     const architectRating = typeof profile?.rating === "number" ? profile.rating : null;
 
@@ -2843,53 +2714,29 @@ architectRoutes.get("/listings", async (c) => {
         return true;
       })
       .map(({ _count, workflow, ...listing }) => {
-        const configureFields = workflow
-          ? myAgentsCardFieldsFromConfigure(workflow.configureJson, {
-              name: workflow.name || listing.name,
-              description: workflow.description ?? listing.shortDescription
-            })
-          : null;
-        const screenshotUrls =
-          listing.screenshotUrls?.length
-            ? listing.screenshotUrls
-            : configureFields?.screenshotUrls ?? [];
-        const tags =
-          listing.industryTags?.length
-            ? listing.industryTags
-            : listing.tags?.length
-              ? listing.tags
-              : configureFields?.tags ?? [];
-        const includedFeatures =
-          listing.includedFeatures?.length
-            ? listing.includedFeatures
-            : configureFields?.includedFeatures ?? [];
-        const draftProgress = computeDraftProgress(workflow?.configureJson ?? null, {
-          name: workflow?.name || listing.name,
-          description: workflow?.description ?? listing.shortDescription
-        });
+        const screenshotUrls = listing.screenshotUrls ?? [];
+        const tags = listing.industryTags?.length
+          ? listing.industryTags
+          : listing.tags ?? [];
+        const includedFeatures = listing.includedFeatures ?? [];
         const reviewProgress = computeReviewProgress(listing);
         return {
           ...listing,
-          name: listing.name?.trim() || configureFields?.name || "Untitled Agent",
-          shortDescription:
-            listing.shortDescription?.trim() ||
-            configureFields?.shortDescription ||
-            "",
-          tagline: listing.tagline ?? configureFields?.tagline ?? null,
-          category: listing.category ?? configureFields?.category ?? null,
+          name: listing.name?.trim() || workflow?.name?.trim() || "Untitled Agent",
+          shortDescription: listing.shortDescription?.trim() || workflow?.description?.trim() || "",
+          tagline: listing.tagline ?? null,
+          category: listing.category ?? null,
           tags,
-          industryTags: listing.industryTags?.length
-            ? listing.industryTags
-            : configureFields?.industryTags ?? [],
-          iconUrl: listing.iconUrl ?? configureFields?.iconUrl ?? null,
+          industryTags: listing.industryTags?.length ? listing.industryTags : [],
+          iconUrl: listing.iconUrl ?? null,
           includedFeatures,
           screenshotUrls,
-          coverUrl: screenshotUrls[0] ?? configureFields?.coverUrl ?? null,
-          installCount: installCountByListing.get(listing.id) ?? _count.installedAgents ?? 0,
-          executionCount: executionByListing.get(listing.id) ?? 0,
-          revenueCents: revenueByListing.get(listing.id) ?? 0,
+          coverUrl: screenshotUrls[0] ?? null,
+          installCount: _count.installedAgents ?? 0,
+          executionCount: 0,
+          revenueCents: 0,
           rating: architectRating,
-          draftProgress,
+          draftProgress: null,
           reviewProgress,
           updatedAt: listing.updatedAt ?? listing.createdAt,
           submittedAt: listing.submittedAt ?? null,
@@ -2899,8 +2746,6 @@ architectRoutes.get("/listings", async (c) => {
         };
       });
 
-    // Workflows the architect saved or imported (builder/template) but hasn't
-    // published yet → their DRAFT agents. Never hidden.
     const workflows = await prisma.workflowDefinition.findMany({
       where: { architectUserId: authUser.id },
       orderBy: { createdAt: "desc" },
@@ -2961,10 +2806,26 @@ architectRoutes.get("/listings", async (c) => {
     const combined = [...listings, ...drafts].sort(
       (a, b) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime()
     );
-    const result = statusFilter ? combined.filter((agent) => agent.status === statusFilter) : combined;
+    const filtered = statusFilter ? combined.filter((agent) => agent.status === statusFilter) : combined;
+
+    let startIndex = 0;
+    if (cursor) {
+      const cursorIndex = filtered.findIndex((agent) => agent.id === cursor.id);
+      startIndex = cursorIndex >= 0 ? cursorIndex + 1 : 0;
+    }
+
+    const slice = filtered.slice(startIndex, startIndex + limit + 1);
+    const hasMore = slice.length > limit;
+    const page = slice.slice(0, limit);
+    const last = page.at(-1);
+    const lastUpdatedAt = last ? new Date(last.updatedAt ?? last.createdAt) : null;
+    const nextCursor =
+      hasMore && last && lastUpdatedAt ? encodeListingCursor(lastUpdatedAt, last.id) : null;
 
     return successResponse(c, {
-      listings: result
+      listings: page,
+      nextCursor,
+      hasMore
     });
   } catch (error) {
     console.error("[GET /architect/listings] failed", error);
