@@ -46,9 +46,9 @@ import {
   handleTwilioMessageStatus,
   handleTwilioMissedCall,
   handleTwilioVoice,
-  handleTwilioVoiceAction,
-  handleVapiWebhook
+  handleTwilioVoiceAction
 } from "./twilio-business-routing";
+import { handleVapiWebhook } from "../agent-runtime/ai-voice-assistant";
 import { whatsappRoutes } from "../whatsapp/routes";
 import { handleWhatsAppWebhookPost, verifyWhatsAppWebhookChallenge } from "../whatsapp/webhook";
 import {
