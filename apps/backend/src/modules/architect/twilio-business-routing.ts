@@ -2927,6 +2927,7 @@ export async function runCheckAvailabilityTool(args: Record<string, unknown>, ct
   if (isPast) return INVALID_DATE_RESULT;
 
   const service = argStr(args, ["service_type", "service"]) || ctx.dental?.bookingLabel || "appointment";
+  const providerName = resolveRequestedProvider(args);
   const businessId = ctx.business?.businessId;
 
   if (!businessId) {
@@ -2958,14 +2959,21 @@ export async function runCheckAvailabilityTool(args: Record<string, unknown>, ct
       hour: requestedTime.hour,
       minute: requestedTime.minute,
       serviceName: service,
+      providerName,
       excludeExternalCalendar: workspaceRestricted
     });
 
     const openNote = check.closeLabel ? `The business is open until ${check.closeLabel} that day.` : "";
     const alternatives = check.alternatives.map((slot) => slot.label);
+
+    let sameSlotMsg = "";
+    if (check.verdict === "occupied" && check.sameSlotAlternatives && check.sameSlotAlternatives.length > 0) {
+      sameSlotMsg = ` ${providerName ? providerName : "Requested provider"} is unavailable at that time, but ${check.sameSlotAlternatives.join(", ")} is available in the exact same time slot! Suggest ${check.sameSlotAlternatives.join(" or ")} to the caller.`;
+    }
+
     const messages: Record<string, string> = {
       available: `${openNote} The requested time is FREE on the calendar — confirm it with the caller and book it.`,
-      occupied: `${openNote} That exact time is already taken on the calendar. Offer the alternatives instead — do NOT say the rest of the day is booked.`,
+      occupied: `${openNote} That exact time is already taken on the calendar.${sameSlotMsg} Offer alternatives — do NOT say the rest of the day is booked.`,
       outside_hours: `${openNote} The requested time is outside appointment hours. Offer the alternatives.`,
       closed_day: "The business is closed that day. Offer another day.",
       insufficient_time_before_closing: `${openNote} This ${check.durationMinutes}-minute service cannot finish before closing if it starts then. Offer the alternatives.`,
@@ -2995,10 +3003,12 @@ export async function runCheckAvailabilityTool(args: Record<string, unknown>, ct
         ? " (Times are based on the business's appointment hours and existing bookings — the external calendar was not consulted, so frame the booking as one the team will confirm.)"
         : "";
 
-    console.log("[vapi-tool] check_availability exact-time", { date, time: requestedTime, verdict: check.verdict });
+    console.log("[vapi-tool] check_availability exact-time", { date, time: requestedTime, verdict: check.verdict, providerName });
     return {
       date,
       service,
+      provider_name: providerName ?? check.assignedProvider ?? null,
+      same_slot_alternatives: check.sameSlotAlternatives ?? [],
       requested_time: `${String(requestedTime.hour).padStart(2, "0")}:${String(requestedTime.minute).padStart(2, "0")}`,
       verdict: check.verdict,
       open_until: check.closeLabel,
@@ -3016,6 +3026,7 @@ export async function runCheckAvailabilityTool(args: Record<string, unknown>, ct
       installedAgentId: ctx.installedAgentId ?? null,
       date,
       serviceName: service,
+      providerName,
       excludeExternalCalendar: workspaceRestricted
     }),
     8000,
@@ -3588,6 +3599,7 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
         hour: time.hour,
         minute: time.minute,
         serviceName: service,
+        providerName,
         createBooking: () =>
           createBusinessAppointment({
             business: ctx.business!,
