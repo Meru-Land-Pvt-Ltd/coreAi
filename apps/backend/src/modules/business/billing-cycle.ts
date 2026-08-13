@@ -124,6 +124,15 @@ export function usageSuspensionTargets(input: {
   };
 }
 
+async function isBillingExempt(businessId: string | null | undefined): Promise<boolean> {
+  if (!businessId) return false;
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { billingExempt: true }
+  });
+  return business?.billingExempt === true;
+}
+
 async function suspendBusinessForUsageInvoice(invoiceId: string, now: Date) {
   const invoice = await prisma.businessUsageInvoice.findUnique({
     where: { id: invoiceId },
@@ -135,6 +144,9 @@ async function suspendBusinessForUsageInvoice(invoiceId: string, now: Date) {
     }
   });
   if (!invoice) return { changed: false, firstSuspension: false };
+  if (await isBillingExempt(invoice.businessId)) {
+    return { changed: false, firstSuspension: false };
+  }
   const targets = usageSuspensionTargets(invoice);
   if (!targets) return { changed: false, firstSuspension: false };
 
@@ -183,6 +195,9 @@ async function suspendAgentForPayment(paymentId: string, now: Date) {
     }
   });
   if (!payment || !payment.listingId) {
+    return { changed: false, firstSuspension: false };
+  }
+  if (await isBillingExempt(payment.businessId)) {
     return { changed: false, firstSuspension: false };
   }
 

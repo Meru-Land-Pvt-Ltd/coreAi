@@ -273,6 +273,7 @@ model Business {
   usageCapNotifiedAt             DateTime?
   /// Days to keep recordings/transcripts/summaries. null = keep indefinitely.
   recordingRetentionDays         Int?
+  billingExempt                  Boolean   @default(false)
 
   appointments        Appointment[]
   owner               User                        @relation(fields: [ownerId], references: [id], onDelete: Cascade)

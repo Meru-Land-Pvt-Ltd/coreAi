@@ -17,6 +17,7 @@
     "seed:platform-phone-numbers": "tsx scripts/seed-platform-phone-numbers.ts",
     "repair:phone-agent-links": "tsx scripts/repair-phone-agent-links.ts",
     "reattach:phone": "tsx scripts/reattach-phone-number.ts",
+    "billing:exempt": "tsx scripts/set-billing-exempt.ts",
     "verify:webhook-url": "tsx scripts/verify-webhook-url.ts",
     "list:numbers": "tsx scripts/list-platform-numbers.ts",
     "list:agents": "tsx scripts/list-installed-agents.ts",

@@ -599,7 +599,13 @@ export async function deployInstalledAgentVoiceAssistant(
   const agentConfig = recordOf(agentRow?.configJson ?? plan.configJson);
   await prisma.installedAgent.update({
     where: { id: plan.installedAgentId },
-    data: { configJson: { ...agentConfig, voicePipeline: assistant.pipeline } as object }
+    data: {
+      configJson: {
+        ...agentConfig,
+        vapiAssistantId: assistant.id,
+        voicePipeline: assistant.pipeline
+      } as object
+    }
   });
 
   return { assistantId: assistant.id, created: assistant.created };

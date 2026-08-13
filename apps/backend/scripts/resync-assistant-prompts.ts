@@ -72,6 +72,31 @@ async function main() {
     }
 
     try {
+      const agentId = profile.business.installedAgents[0]?.id;
+      if (agentId && profile.vapiAssistantId) {
+        const row = await prisma.installedAgent.findUnique({
+          where: { id: agentId },
+          select: { configJson: true }
+        });
+        const config =
+          row?.configJson && typeof row.configJson === "object" && !Array.isArray(row.configJson)
+            ? (row.configJson as Record<string, unknown>)
+            : {};
+        if (config.vapiAssistantId !== profile.vapiAssistantId) {
+          await prisma.installedAgent.update({
+            where: { id: agentId },
+            data: {
+              configJson: { ...config, vapiAssistantId: profile.vapiAssistantId } as object
+            }
+          });
+          console.log(
+            `  backfilled configJson.vapiAssistantId for ${profile.businessId} (was ${
+              config.vapiAssistantId ?? "missing"
+            })`
+          );
+        }
+      }
+
       const result = await deployInstalledAgentVoiceAssistant(profile.businessId);
       if (!result) {
         failed += 1;
