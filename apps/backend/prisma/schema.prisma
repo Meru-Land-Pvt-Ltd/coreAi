@@ -40,6 +40,7 @@ model User {
   memoryRecords        MemoryRecord[]
   whatsappConnections  WhatsAppConnection[]
   platformApiSettings  PlatformApiSetting[]
+  teamMemberships      BusinessTeamMember[]
 
   @@unique([email, role])
   @@index([role])
@@ -265,6 +266,13 @@ model Business {
   spendingAlertThresholdCents    Int       @default(5000)
   spendingAlertLastNotifiedMonth String?
   spendingAlertLastNotifiedAt    DateTime?
+  /// Hard monthly ceiling on live AI usage. null = platform default
+  /// (LIVE_USAGE_HARD_CAP_CENTS); 0 = explicitly unlimited.
+  usageHardCapCents              Int?
+  usageCapNotifiedMonth          String?
+  usageCapNotifiedAt             DateTime?
+  /// Days to keep recordings/transcripts/summaries. null = keep indefinitely.
+  recordingRetentionDays         Int?
 
   appointments    Appointment[]
   owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
@@ -290,6 +298,14 @@ model Business {
   telegramStates  TelegramConversationState[]
   telegramActions TelegramMessageExecution[]
   businessServices BusinessService[]
+  handoffEvents   HandoffEvent[]
+  teamMembers     BusinessTeamMember[]
+  memberInvites   BusinessMemberInvite[]
+  activityLogs    BusinessActivityLog[]
+  customers       Customer[]
+  agentRules      BusinessAgentRule[]
+  unansweredQuestions UnansweredQuestion[]
+  evaluations     ConversationEvaluation[]
 
   @@index([ownerId])
   @@index([type])
@@ -603,6 +619,17 @@ model BusinessKnowledgeFile {
   contentHash      String
   /// UPLOADING | PROCESSING | PROCESSED | FAILED
   status           String                  @default("PROCESSING")
+  /// ACTIVE serves answers; ARCHIVED is kept but never retrieved (plan Part 3 versioning).
+  lifecycle        String                  @default("ACTIVE")
+  /// CUSTOMER_VISIBLE | INTERNAL_ONLY — internal docs never reach customer AI.
+  visibility       String                  @default("CUSTOMER_VISIBLE")
+  version          Int                     @default(1)
+  /// The file this one replaced (auto-archived on replacement).
+  supersedesId     String?
+  /// UPLOAD | URL | CSV | IMAGE | DRIVE | NOTION | YOUTUBE
+  sourceType       String                  @default("UPLOAD")
+  sourceUrl        String?
+  pageCount        Int?
   extractedChars   Int                     @default(0)
   chunkCount       Int                     @default(0)
   errorCode        String?
@@ -624,6 +651,21 @@ model Conversation {
   channel       String
   customerPhone String
   status        String                @default("OPEN")
+  /// Shared-inbox state machine: AI_ACTIVE | WAITING_FOR_HUMAN | HUMAN_ACTIVE | RETURNED_TO_AI | CLOSED
+  aiState              String    @default("AI_ACTIVE")
+  /// BusinessTeamMember.id currently handling this thread (HUMAN_ACTIVE).
+  assignedTeamMemberId String?
+  waitingSince         DateTime?
+  humanSince           DateTime?
+  slaEscalatedAt       DateTime?
+  /// Canonical Customer.id (per business). Plain indexed link — no FK.
+  customerId           String?
+  /// Structured conversation understanding (plan Part 2).
+  outcome              String?
+  sentiment            String?
+  summary              String?
+  lastInboundAt        DateTime?
+  lastOutboundAt       DateTime?
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
   business      Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -633,6 +675,8 @@ model Conversation {
   @@index([businessId])
   @@index([customerPhone])
   @@index([channel, customerPhone])
+  @@index([businessId, aiState])
+  @@index([customerId])
 }
 
 model ConversationMessage {
@@ -652,6 +696,8 @@ model Lead {
   id             String   @id @default(cuid())
   businessId     String
   conversationId String?
+  /// Canonical Customer.id (per business). Plain indexed link — no FK.
+  customerId     String?
   phoneNumber    String
   name           String?
   source         String
@@ -675,6 +721,8 @@ model Appointment {
   customerPhone      String
   customerName       String?
   customerEmail      String?
+  /// Canonical Customer.id (per business). Plain indexed link — no FK.
+  customerId         String?
   service            String?
   source             String?
   bookingReference   String?   @unique
@@ -698,6 +746,7 @@ model Appointment {
   updatedAt          DateTime  @updatedAt
   business           Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
   installedAgent     InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
+  reminders          AppointmentReminder[]
 
   @@index([businessId])
   @@index([installedAgentId])
@@ -706,6 +755,7 @@ model Appointment {
   @@index([calendarEventId])
   @@index([executionMode])
   @@index([bookingCallId])
+  @@index([customerId])
 }
 
 model TestCalendarEvent {
@@ -755,6 +805,19 @@ model VapiCall {
   durationSeconds       Int?
   durationMinutes       Float?
   smsCount              Int                   @default(0)
+  /// Structured understanding (plan Part 2): BOOKED | RESCHEDULED | CANCELLED |
+  /// LEAD | FOLLOW_UP | NO_INTEREST | MISSED | TRANSFERRED | SUPPORT_RESOLVED | UNKNOWN
+  outcome               String?
+  /// POSITIVE | NEUTRAL | CONFUSED | FRUSTRATED | ANGRY | UNKNOWN
+  sentiment             String?
+  /// Canonical Customer.id (per business). Plain indexed link — no FK.
+  customerId            String?
+  /// Durable fallback for the Redis transfer context (Twilio leg of this call).
+  twilioCallSid         String?
+  /// Retention/deletion state for the provider-hosted recording:
+  /// null (kept) | PENDING_DELETE | DELETED | DELETE_FAILED | UNSUPPORTED
+  providerDeletionState String?
+  recordingDeletedAt    DateTime?
   vapiCostMicroUsd      Int?
   actualCostMicroUsd    Int?
   billedCostMicroUsd    Int?
@@ -780,6 +843,45 @@ model VapiCall {
   @@index([customerPhone])
   @@index([status])
   @@index([pricingState])
+  @@index([customerId])
+  @@index([twilioCallSid])
+}
+
+model HandoffEvent {
+  id               String    @id @default(cuid())
+  businessId       String
+  installedAgentId String?
+  /// VOICE | SMS | CHAT | EMAIL
+  channel          String    @default("VOICE")
+  executionMode    String    @default("LIVE")
+  vapiCallId       String?
+  twilioCallSid    String?
+  customerPhone    String?
+  /// E.164 the call was sent to. Resolved server-side only — never model input.
+  destination      String?
+  reason           String?
+  /// customer | ai | policy
+  requestedBy      String    @default("customer")
+  /// INITIATED | CONNECTED | NO_ANSWER | FAILED | MESSAGE_TAKEN | SIMULATED
+  status           String    @default("INITIATED")
+  waitSeconds      Int?
+  /// BusinessTeamMember.id that took (or was last dialed for) this handoff.
+  assignedTeamMemberId String?
+  connectedAt          DateTime?
+  attemptsCount        Int       @default(0)
+  conversationId       String?
+  customerId           String?
+  metadataJson     Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  resolvedAt       DateTime?
+  business         Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  attempts         HandoffAttempt[]
+
+  @@index([businessId, createdAt])
+  @@index([businessId, status])
+  @@index([vapiCallId])
+  @@index([customerId])
 }
 
 model PlatformPhoneNumber {
@@ -1508,6 +1610,7 @@ model WorkflowRun {
   triggeredBy       User?                @relation(fields: [triggeredByUserId], references: [id])
   nodeRuns          NodeRun[]
   contextLinks      ContextLink[]
+  stepRuns          WorkflowStepRun[]
   usageExecution    AgentUsageExecution?
   durationMs        Int? /// Total run duration in milliseconds
   totalTokenInput   Int?                 @default(0)
@@ -1710,6 +1813,10 @@ model EmailMessage {
   idempotencyKey    String?            @unique
   status            EmailMessageStatus @default(QUEUED)
   purpose           EmailPurpose       @default(CUSTOMER_FOLLOW_UP)
+  /// Canonical Customer.id (per business). Plain indexed link — no FK.
+  customerId        String?
+  /// Shared-inbox thread this message belongs to (Conversation.id).
+  conversationId    String?
   metadata          Json?
   sentAt            DateTime?
   deliveredAt       DateTime?
@@ -1726,6 +1833,8 @@ model EmailMessage {
   @@index([aliasId])
   @@index([sesMessageId])
   @@index([toEmail, status])
+  @@index([customerId])
+  @@index([conversationId])
 }
 
 model EmailSuppression {
@@ -2022,8 +2131,11 @@ model IntegrationDisclosureConsent {
 model WhatsAppConnection {
   id                   String                   @id @default(cuid())
   architectUserId      String
-  /// Reserved for later buyer mapping; unused in MVP.
+  /// Buyer scoping: the business this number serves. Inbound routing prefers
+  /// this over architect scanning (plan channel requirement).
   businessId           String?
+  /// The installed agent whose runtime answers on this number.
+  installedAgentId     String?
   displayName          String?
   businessName         String?
   phoneNumber          String
@@ -2124,4 +2236,360 @@ model PlatformApiSetting {
   updatedBy User? @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@index([updatedAt])
+}
+
+// ============================================================================
+// Business team / RBAC (plan Parts 1 & 6). One business is no longer one
+// login: members are people (optionally linked to a User login) with roles,
+// handoff eligibility, and presence. All customerId/teamMemberId link columns
+// across older models are indexed strings (no FK) so the additive migration
+// never has to backfill or lock existing tables.
+// ============================================================================
+
+model BusinessTeamMember {
+  id              String    @id @default(cuid())
+  businessId      String
+  /// Linked login — null for phone-only staff or until an invite is accepted.
+  userId          String?
+  displayName     String
+  email           String?
+  phone           String?
+  /// OWNER | ADMIN | MANAGER | RECEPTIONIST | SALES | SUPPORT | VIEWER
+  role            String    @default("RECEPTIONIST")
+  department      String?
+  active          Boolean   @default(true)
+  handoffEligible Boolean   @default(true)
+  /// AVAILABLE | BUSY | OFFLINE
+  presence        String    @default("AVAILABLE")
+  /// Lower dials first in the handoff cascade.
+  priority        Int       @default(100)
+  /// Optional per-member permission overrides on top of the role matrix.
+  permissionsJson Json?
+  lastActiveAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  business        Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, userId])
+  @@index([businessId, active, handoffEligible])
+  @@index([userId])
+}
+
+model BusinessMemberInvite {
+  id              String    @id @default(cuid())
+  businessId      String
+  email           String
+  role            String    @default("RECEPTIONIST")
+  invitedByUserId String?
+  /// sha256 of the invite token — the raw token only ever lives in the email.
+  tokenHash       String    @unique
+  /// PENDING | ACCEPTED | REVOKED | EXPIRED
+  status          String    @default("PENDING")
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  business        Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, email])
+  @@index([businessId, status])
+}
+
+/// Append-only through application paths: business-scoped audit trail for
+/// important actions (rules, knowledge, team, integrations, deploy, billing
+/// settings). No update/delete route exists for these rows.
+model BusinessActivityLog {
+  id          String   @id @default(cuid())
+  businessId  String
+  actorUserId String?
+  /// Human label captured at write time so renames/deletes never blank history.
+  actorLabel  String?
+  action      String
+  targetType  String?
+  targetId    String?
+  detailJson  Json?
+  createdAt   DateTime @default(now())
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@index([businessId, action])
+}
+
+// ============================================================================
+// Customer domain (plan Part 7): one canonical person per business, linked by
+// identities across channels. NEVER matched across businesses.
+// ============================================================================
+
+model Customer {
+  id           String             @id @default(cuid())
+  businessId   String
+  displayName  String?
+  primaryPhone String?
+  primaryEmail String?
+  /// ACTIVE | MERGED (row kept for reversibility) | ANONYMOUS
+  status       String             @default("ACTIVE")
+  mergedIntoId String?
+  notes        String?
+  firstSeenAt  DateTime           @default(now())
+  lastSeenAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  business     Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  identities   CustomerIdentity[]
+
+  @@index([businessId, lastSeenAt])
+  @@index([businessId, primaryPhone])
+  @@index([businessId, status])
+  @@index([mergedIntoId])
+}
+
+model CustomerIdentity {
+  id         String   @id @default(cuid())
+  businessId String
+  customerId String
+  /// PHONE | EMAIL | WHATSAPP | TELEGRAM | NAME
+  kind       String
+  /// Normalized (E.164 phone, lowercased email, provider id).
+  value      String
+  /// STRONG identities auto-link; WEAK ones only ever suggest.
+  confidence String   @default("STRONG")
+  source     String?
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, kind, value])
+  @@index([customerId])
+}
+
+model CustomerMergeSuggestion {
+  id               String    @id @default(cuid())
+  businessId       String
+  customerAId      String
+  customerBId      String
+  reason           String
+  score            Float?
+  /// PENDING | MERGED | DISMISSED
+  status           String    @default("PENDING")
+  resolvedByUserId String?
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@unique([businessId, customerAId, customerBId])
+  @@index([businessId, status])
+}
+
+/// Every merge is reversible: movedRefsJson records exactly which rows moved
+/// from the merged customer so a split can put them back.
+model CustomerMergeEvent {
+  id                  String    @id @default(cuid())
+  businessId          String
+  survivingCustomerId String
+  mergedCustomerId    String
+  movedRefsJson       Json
+  mergedByUserId      String?
+  reversedAt          DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@index([businessId, createdAt])
+}
+
+// ============================================================================
+// Handoff cascade (plan Part 1): per-attempt audit under a HandoffEvent.
+// ============================================================================
+
+model HandoffAttempt {
+  id             String       @id @default(cuid())
+  handoffEventId String
+  teamMemberId   String?
+  destination    String
+  attemptOrder   Int
+  startedAt      DateTime     @default(now())
+  connectedAt    DateTime?
+  endedAt        DateTime?
+  /// CONNECTED | NO_ANSWER | BUSY | FAILED | SKIPPED
+  outcome        String?
+  handoffEvent   HandoffEvent @relation(fields: [handoffEventId], references: [id], onDelete: Cascade)
+
+  @@index([handoffEventId, attemptOrder])
+}
+
+// ============================================================================
+// Rules engine (plan Part 4): owner-defined behavior rules with deterministic
+// priority, categories, scheduling, and full version history.
+// ============================================================================
+
+model BusinessAgentRule {
+  id               String    @id @default(cuid())
+  businessId       String
+  installedAgentId String?
+  title            String
+  instruction      String
+  /// COMPLIANCE | SAFETY | BOOKING | ESCALATION | BUSINESS_POLICY | SALES | TONE | CUSTOM
+  category         String    @default("CUSTOM")
+  /// Lower wins within a tier; COMPLIANCE/SAFETY always outrank other tiers.
+  priority         Int       @default(100)
+  active           Boolean   @default(true)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  version          Int       @default(1)
+  createdByUserId  String?
+  updatedByUserId  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  business         Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  versions         BusinessAgentRuleVersion[]
+
+  @@index([businessId, active])
+  @@index([installedAgentId])
+}
+
+model BusinessAgentRuleVersion {
+  id              String            @id @default(cuid())
+  ruleId          String
+  version         Int
+  title           String
+  instruction     String
+  category        String
+  priority        Int
+  active          Boolean
+  startsAt        DateTime?
+  endsAt          DateTime?
+  changedByUserId String?
+  changeNote      String?
+  createdAt       DateTime          @default(now())
+  rule            BusinessAgentRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, version])
+}
+
+/// Customer-supplied text that tried to override system/business rules
+/// ("ignore your instructions…"). Logged as a security signal, never acted on.
+model RuleInjectionAttempt {
+  id               String   @id @default(cuid())
+  businessId       String
+  installedAgentId String?
+  channel          String
+  callId           String?
+  excerpt          String
+  createdAt        DateTime @default(now())
+
+  @@index([businessId, createdAt])
+}
+
+// ============================================================================
+// Knowledge gaps (plan Part 3): questions the AI could not answer.
+// ============================================================================
+
+model UnansweredQuestion {
+  id               String    @id @default(cuid())
+  businessId       String
+  installedAgentId String?
+  channel          String
+  question         String
+  /// Normalized dedupe key so repeats count up instead of piling rows.
+  normalizedKey    String
+  count            Int       @default(1)
+  lastAskedAt      DateTime  @default(now())
+  /// OPEN | RESOLVED
+  status           String    @default("OPEN")
+  resolvedByFileId String?
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  business         Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, normalizedKey])
+  @@index([businessId, status])
+}
+
+// ============================================================================
+// Appointment reminders (plan Part 5): durable scheduled sends with retry
+// state — a reminder failure never touches the appointment itself.
+// ============================================================================
+
+model AppointmentReminder {
+  id            String      @id @default(cuid())
+  businessId    String
+  appointmentId String
+  offsetMinutes Int
+  sendAt        DateTime
+  channel       String      @default("SMS")
+  /// SCHEDULED | RETRYING | SENT | FAILED | CANCELLED | SKIPPED_NO_CONSENT
+  status        String      @default("SCHEDULED")
+  attempts      Int         @default(0)
+  lastError     String?
+  sentAt        DateTime?
+  providerId    String?
+  /// appointmentId:offsetMinutes — one reminder per slot, ever.
+  dedupeKey     String      @unique
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([status, sendAt])
+  @@index([businessId])
+  @@index([appointmentId])
+}
+
+// ============================================================================
+// Per-step workflow execution (plan Part 5): every step gets its own durable
+// status instead of one run-level flag.
+// ============================================================================
+
+model WorkflowStepRun {
+  id             String      @id @default(cuid())
+  workflowRunId  String
+  nodeId         String
+  label          String?
+  /// PENDING | RUNNING | SUCCEEDED | RETRYING | FAILED | SKIPPED
+  status         String      @default("PENDING")
+  attempts       Int         @default(0)
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  providerId     String?
+  errorCode      String?
+  /// Sanitized — never raw provider payloads with PII/secrets.
+  errorMessage   String?
+  idempotencyKey String?     @unique
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  workflowRun    WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+
+  @@index([workflowRunId])
+  @@index([status])
+}
+
+// ============================================================================
+// Conversation quality scoring (plan Part 8).
+// ============================================================================
+
+model ConversationEvaluation {
+  id                      String    @id @default(cuid())
+  businessId              String
+  installedAgentId        String?
+  vapiCallId              String?   @unique
+  conversationId          String?
+  /// AI | HUMAN | MIXED — same rubric either way.
+  handledBy               String    @default("AI")
+  rubricVersion           String
+  overallScore            Float
+  confidence              Float
+  dimensionsJson          Json
+  coachingJson            Json?
+  missedOpportunitiesJson Json?
+  evaluator               String
+  /// SCORED | UNDER_REVIEW | ADJUSTED | EXCLUDED
+  status                  String    @default("SCORED")
+  adjustedScore           Float?
+  reviewNote              String?
+  reviewedByUserId        String?
+  reviewedAt              DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  business                Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@index([businessId, overallScore])
+  @@index([businessId, status])
 }

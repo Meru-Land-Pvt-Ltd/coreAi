@@ -22,6 +22,8 @@ import {
 } from "./types";
 import { isLikelyGroupMessage, messageTypeMatchesListenFor, normalizeWhatsAppRecipient, verifyMetaSignature } from "./utils";
 import { metaGetMediaUrl } from "./meta-client";
+// [DISABLED:non-handoff]
+// import { handleBuyerWhatsAppInbound } from "./buyer-runtime";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
@@ -272,6 +274,28 @@ export async function handleWhatsAppWebhookPost(c: Context) {
       } catch {
         // non-fatal
       }
+
+      // [DISABLED:non-handoff] buyer-scoped WhatsApp AI runtime.
+      // if (conn.businessId) {
+      //   try {
+      //     await handleBuyerWhatsAppInbound({
+      //       connection: conn,
+      //       inbound: {
+      //         contactPhone: inbound.contactPhone,
+      //         contactName: inbound.contactName,
+      //         text: inbound.text,
+      //         wamid: inbound.wamid
+      //       }
+      //     });
+      //   } catch (error) {
+      //     console.error("[whatsapp] buyer runtime failed (message stored)", {
+      //       connectionId: conn.id,
+      //       wamid: inbound.wamid,
+      //       error
+      //     });
+      //   }
+      //   continue;
+      // }
 
       const event: WhatsAppWorkflowEvent = {
         type: "WHATSAPP_MESSAGE",

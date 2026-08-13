@@ -22,6 +22,20 @@ import { calendarEventTitleForMode,
 import { env, isProduction } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { apiErrorStatus, errorMessage, isRecord } from "../../lib/error-utils";
+import { teamRoutes } from "./team/team-routes";
+import { acceptInvite, TeamServiceError } from "./team/team-service";
+import { inboxRoutes } from "./inbox/inbox-routes";
+// [DISABLED:non-handoff] imports for the commented mounts below.
+// import { reminderRoutes } from "./reminders/reminder-routes";
+// import { qualityRoutes } from "./quality/quality-routes";
+// import { businessRulesRoutes } from "./rules/rules-routes";
+// import { customerRoutes } from "./customers/customer-routes";
+// import { knowledgeV2Routes } from "./knowledge-v2/knowledge-v2-routes";
+// import { requireBusinessPermission } from "./team/membership";
+// import { attachConnectionToBusiness } from "../whatsapp/buyer-runtime";
+// import { logBusinessActivity } from "./activity-log";
+// import { callsRoutes } from "./calls-routes";
+import { analyticsRoutes } from "./analytics/routes";
 import {
   findPhoneCountry,
   listPhoneCities,
@@ -384,7 +398,80 @@ const DEFAULT_ASSISTANT_NAME = "AI Assistant";
 businessRoutes.post("/billing/webhook", handleStripeWebhook);
 
 businessRoutes.use("*", requireAuth);
+
+// Invite acceptance sits BEFORE the BUSINESS role gate on purpose: a freshly
+// invited user has no BUSINESS role yet — accepting grants it.
+businessRoutes.post("/team/invites/accept", async (c) => {
+  const authUser = c.get("authUser");
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const token = typeof body.token === "string" ? body.token : "";
+  if (!token) return errorResponse(c, "Invite token is required", 422, "TOKEN_REQUIRED");
+  try {
+    const result = await acceptInvite({ userId: authUser.id, userEmail: authUser.email, token });
+    return successResponse(c, result);
+  } catch (error) {
+    if (error instanceof TeamServiceError) {
+      return errorResponse(c, error.message, error.httpStatus as 400, error.code);
+    }
+    console.error("[team] invite accept failed", error);
+    return errorResponse(c, "Could not accept the invite", 500, "INVITE_ACCEPT_FAILED");
+  }
+});
+
 businessRoutes.use("*", requireRole(["BUSINESS"]));
+
+// Human handoff (plan Part 1) stays live: staff/team + shared inbox.
+businessRoutes.route("/team", teamRoutes);
+businessRoutes.route("/inbox", inboxRoutes);
+// [DISABLED:non-handoff] Re-enable by uncommenting the mounts below.
+// businessRoutes.route("/reminders", reminderRoutes);
+// businessRoutes.route("/quality", qualityRoutes);
+// businessRoutes.route("/rules", businessRulesRoutes);
+// businessRoutes.route("/customers", customerRoutes);
+// businessRoutes.route("/knowledge-v2", knowledgeV2Routes);
+// businessRoutes.route("/calls", callsRoutes);
+businessRoutes.route("/analytics", analyticsRoutes);
+
+// [DISABLED:non-handoff] WhatsApp buyer scoping — disabled with the buyer
+// runtime; re-enable both together by uncommenting this block.
+// businessRoutes.post(
+//   "/channels/whatsapp/attach",
+//   requireBusinessPermission("manage_integrations"),
+//   async (c) => {
+//     const membership = c.get("businessMembership");
+//     const authUser = c.get("authUser");
+//     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+//     const connectionId = typeof body.connectionId === "string" ? body.connectionId : "";
+//     if (!connectionId) return errorResponse(c, "connectionId is required", 422, "CONNECTION_REQUIRED");
+//
+//     const connection = await prisma.whatsAppConnection.findFirst({
+//       where: { id: connectionId, architectUserId: authUser.id },
+//       select: { id: true }
+//     });
+//     if (!connection) {
+//       return errorResponse(c, "WhatsApp connection not found for this account", 404, "CONNECTION_NOT_FOUND");
+//     }
+//
+//     try {
+//       await attachConnectionToBusiness({
+//         connectionId,
+//         businessId: membership.businessId,
+//         installedAgentId: typeof body.installedAgentId === "string" ? body.installedAgentId : null
+//       });
+//     } catch (error) {
+//       return errorResponse(c, errorMessage(error), 422, "ATTACH_FAILED");
+//     }
+//     await logBusinessActivity({
+//       businessId: membership.businessId,
+//       action: "INTEGRATION_CHANGED",
+//       actorUserId: authUser.id,
+//       targetType: "WhatsAppConnection",
+//       targetId: connectionId,
+//       detail: { channel: "WHATSAPP", attached: true }
+//     });
+//     return successResponse(c, { attached: true });
+//   }
+// );
 
 businessRoutes.post("/billing/checkout", createCheckoutSession);
 businessRoutes.get("/billing/status", getBillingStatus);
@@ -1465,6 +1552,10 @@ const businessSetupSchema = z.object({
   timeZone: z.string().trim().optional().or(z.literal("")),
   tone: z.string().trim().default("friendly"),
   escalationRules: z.string().trim().optional().or(z.literal("")),
+  /** Owner's plain-English conditions for transferring a live call to a human. */
+  transferConditions: z.string().trim().max(1500).optional().or(z.literal("")),
+  /** Master switch for live human transfer (default on when a team phone exists). */
+  transferEnabled: z.boolean().optional(),
 
   services: z.array(z.string().trim().min(1)).default([]),
   faqs: z.array(faqItemSchema).default([]),
@@ -3429,6 +3520,8 @@ function serializeSetup(
             teamPhone: null,
             tone: null,
             escalationRules: null,
+            transferConditions: null,
+            transferEnabled: true,
             services: [],
             faqs: [],
             hours: []
@@ -3439,6 +3532,9 @@ function serializeSetup(
               teamPhone: cleanOptional(agentDetails.teamPhone as string | undefined) ?? null,
               tone: (agentDetails.tone as string | undefined) ?? profile.tone,
               escalationRules: cleanOptional(agentDetails.escalationRules as string | undefined) ?? null,
+              transferConditions:
+                cleanOptional(agentDetails.transferConditions as string | undefined) ?? null,
+              transferEnabled: agentDetails.transferEnabled !== false,
               services: Array.isArray(agentDetails.services) ? agentDetails.services : [],
               faqs: Array.isArray(agentDetails.faqs) ? agentDetails.faqs : [],
               hours: Array.isArray(agentDetails.hours) ? agentDetails.hours : profile.hoursJson ?? []
@@ -3448,6 +3544,8 @@ function serializeSetup(
               teamPhone: profile.teamPhone,
               tone: profile.tone,
               escalationRules: profile.escalationRules,
+              transferConditions: null,
+              transferEnabled: true,
               services: profile.services,
               faqs: profile.faqsJson ?? [],
               hours: profile.hoursJson ?? []
@@ -4047,6 +4145,8 @@ businessRoutes.post("/setup", async (c) => {
         escalationRules: cleanOptional(input.escalationRules),
         bookingUrl: cleanOptional(input.bookingUrl),
         teamPhone: cleanOptional(input.teamPhone),
+        transferConditions: cleanOptional(input.transferConditions),
+        ...(input.transferEnabled !== undefined ? { transferEnabled: input.transferEnabled } : {}),
         ...(input.hours.length > 0 ? { hours: input.hours } : {})
       },
       silence: {

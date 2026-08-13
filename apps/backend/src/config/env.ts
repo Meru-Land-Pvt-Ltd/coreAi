@@ -98,6 +98,18 @@ const envSchema = z.object({
   TWILIO_DEFAULT_BUSINESS_NAME: z.string().optional(),
   TWILIO_FORWARD_TO_PHONE: z.string().optional(),
   TWILIO_FORWARD_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(20),
+  /**
+   * Platform-default hard ceiling on a business's monthly live AI usage, in
+   * cents. When month-to-date execution spend reaches it, inbound calls stop
+   * bridging to the AI (they forward to the business phone instead) and AI
+   * follow-ups pause until the next month. 0 disables the platform default;
+   * Business.usageHardCapCents overrides per business.
+   */
+  LIVE_USAGE_HARD_CAP_CENTS: z.coerce.number().int().min(0).default(50000),
+  /** Conservative per-minute estimate for LIVE calls still PENDING/UNPRICED — keeps the cap honest while pricing lags. */
+  LIVE_USAGE_PROVISIONAL_CENTS_PER_MIN: z.coerce.number().int().min(0).default(15),
+  /** Conservative per-message estimate for standalone SMS ledger spend the execution ledger doesn't carry. */
+  LIVE_USAGE_SMS_ESTIMATE_CENTS: z.coerce.number().int().min(0).default(2),
   TWILIO_DEFAULT_BOOKING_URL: z.string().optional(),
   TWILIO_DEFAULT_TEAM_PHONE: z.string().optional(),
   TWILIO_NUMBER_POOL: z.string().optional(),

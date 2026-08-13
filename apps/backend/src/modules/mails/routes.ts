@@ -1,29 +1,104 @@
 import { Hono } from "hono";
 import { env } from "../../config/env";
-import {
-  sendBuyerPopularAgentsEmail,
-  sendBuyerRoiEmail,
-  sendBuyerWelcomeEmail,
-  sendFreeAssignmentEmail,
-  sendPaymentFailedEmail,
-  sendPaymentSuccessEmail
-} from "../../lib/mailer";
+import { sendFreeAssignmentEmail, sendPaymentFailedEmail } from "../../lib/mailer";
+import { requireAuth } from "../../middleware/auth";
+// [DISABLED:non-handoff]
+// import { getSharedRedis } from "../../lib/redis";
+
+/**
+ * Only two mail endpoints exist on purpose:
+ * - the lead-magnet route stays public (the landing page calls it before any
+ *   account exists) and is rate-limited below;
+ * - the payment-failed notice (called by the checkout page) requires a
+ *   signed-in user and delivers ONLY to that user's own verified email —
+ *   request bodies never choose the recipient.
+ * The old send-payment-success / send-buyer-welcome / popular-agents / ROI
+ * routes were removed: they had no callers (those emails are sent server-side
+ * by payments/auth flows) and let any signed-in user mint official-looking
+ * receipt emails with arbitrary amounts.
+ */
+
+const FREE_ASSIGNMENT_IP_LIMIT = 5;
+const FREE_ASSIGNMENT_IP_WINDOW_MS = 60 * 60 * 1000;
+const FREE_ASSIGNMENT_EMAIL_COOLDOWN_MS = 10 * 60 * 1000;
+
+const freeAssignmentIpHits = new Map<string, number[]>();
+const freeAssignmentEmailSentAt = new Map<string, number>();
+
+/**
+ * Nearest-proxy hop: nginx APPENDS the real client IP as the LAST entry of
+ * X-Forwarded-For, while earlier entries are attacker-suppliable. Never key a
+ * rate limit on the first entry.
+ */
+function clientIp(headerValue: string | undefined): string {
+  const hops = (headerValue ?? "").split(",");
+  return hops[hops.length - 1]?.trim() || "unknown";
+}
+
+/** Drop expired entries; if a map is still oversized, evict oldest-inserted. */
+function pruneRateMaps(now: number): void {
+  for (const [ip, hits] of freeAssignmentIpHits) {
+    const fresh = hits.filter((at) => now - at < FREE_ASSIGNMENT_IP_WINDOW_MS);
+    if (fresh.length === 0) freeAssignmentIpHits.delete(ip);
+    else freeAssignmentIpHits.set(ip, fresh);
+  }
+  for (const [email, at] of freeAssignmentEmailSentAt) {
+    if (now - at >= FREE_ASSIGNMENT_EMAIL_COOLDOWN_MS) freeAssignmentEmailSentAt.delete(email);
+  }
+  // Bounded memory without ever resetting ACTIVE limits wholesale.
+  for (const map of [freeAssignmentIpHits, freeAssignmentEmailSentAt] as const) {
+    while (map.size > 10_000) {
+      const oldest = map.keys().next().value;
+      if (oldest === undefined) break;
+      map.delete(oldest);
+    }
+  }
+}
+
+/**
+ * Redis-first distributed limiting (INCR/EXPIRE) so the limit holds across
+ * processes and restarts; the in-memory maps remain the degraded fallback
+ * when Redis is unavailable. true = allowed.
+ */
+async function allowFreeAssignmentSend(ip: string, email: string): Promise<boolean> {
+  // [DISABLED:non-handoff] Redis-first distributed limiting — uncomment to
+  // restore; the in-memory limiter below is the previously-shipped behavior.
+  // const redis = getSharedRedis();
+  // if (redis) {
+  //   try {
+  //     const ipKey = `rl:free-assignment:ip:${ip}`;
+  //     const emailKey = `rl:free-assignment:email:${email}`;
+  //     const ipCount = await redis.incr(ipKey);
+  //     if (ipCount === 1) await redis.pexpire(ipKey, FREE_ASSIGNMENT_IP_WINDOW_MS);
+  //     if (ipCount > FREE_ASSIGNMENT_IP_LIMIT) return false;
+  //     const claimed = await redis.set(emailKey, "1", "PX", FREE_ASSIGNMENT_EMAIL_COOLDOWN_MS, "NX");
+  //     return claimed === "OK";
+  //   } catch (error) {
+  //     console.error("[mails] Redis rate limit failed — using in-memory fallback", {
+  //       message: error instanceof Error ? error.message : String(error)
+  //     });
+  //   }
+  // }
+
+  const now = Date.now();
+  pruneRateMaps(now);
+
+  const hits = freeAssignmentIpHits.get(ip) ?? [];
+  if (hits.length >= FREE_ASSIGNMENT_IP_LIMIT) return false;
+
+  const lastForEmail = freeAssignmentEmailSentAt.get(email);
+  if (lastForEmail && now - lastForEmail < FREE_ASSIGNMENT_EMAIL_COOLDOWN_MS) return false;
+
+  hits.push(now);
+  freeAssignmentIpHits.set(ip, hits);
+  freeAssignmentEmailSentAt.set(email, now);
+
+  return true;
+}
 
 type SendFreeAssignmentMailBody = {
   to?: string;
   name?: string | null;
-};
-
-type SendPaymentSuccessMailBody = {
-  to?: string;
-  name?: string | null;
-  agentName?: string;
-  description?: string | null;
-  amountCents?: number;
-  currency?: string;
-  status?: string;
-  invoiceNumber?: string;
-  setupUrl?: string | null;
 };
 
 export const mailRoutes = new Hono();
@@ -55,6 +130,16 @@ mailRoutes.post("/send-free-assignment-mail", async (c) => {
       );
     }
 
+    if (!(await allowFreeAssignmentSend(clientIp(c.req.header("x-forwarded-for")), to.toLowerCase()))) {
+      return c.json(
+        {
+          success: false,
+          message: "Too many requests — please try again later."
+        },
+        429
+      );
+    }
+
     const assignmentLink = `${env.FRONTEND_URL.replace(/\/$/, "")}/assignment`;
 
     await sendFreeAssignmentEmail({
@@ -83,46 +168,9 @@ mailRoutes.post("/send-free-assignment-mail", async (c) => {
   }
 });
 
-mailRoutes.post("/send-payment-success", async (c) => {
-  try {
-    const body = (await c.req.json().catch(() => ({}))) as SendPaymentSuccessMailBody;
-
-    const to = body.to?.trim();
-    const agentName = body.agentName?.trim();
-
-    if (!to || !isValidEmail(to)) {
-      return c.json({ success: false, message: "A valid recipient email is required" }, 400);
-    }
-
-    if (!agentName) {
-      return c.json({ success: false, message: "agentName is required" }, 400);
-    }
-
-    const amountCents = Number.isFinite(body.amountCents) ? Number(body.amountCents) : 0;
-
-    await sendPaymentSuccessEmail({
-      to,
-      name: body.name?.trim() || null,
-      setupUrl: body.setupUrl?.trim() || null,
-      invoice: {
-        invoiceNumber: body.invoiceNumber?.trim() || `INV-${Date.now().toString(36).toUpperCase()}`,
-        date: new Date(),
-        businessName: body.name?.trim() || "Customer",
-        businessEmail: to,
-        agentName,
-        description: body.description?.trim() || agentName,
-        amountCents,
-        currency: body.currency?.trim() || "usd",
-        status: body.status?.trim() || "SUCCEEDED"
-      }
-    });
-
-    return c.json({ success: true, message: "Payment success email sent" }, 200);
-  } catch (error) {
-    console.error("Send payment success email error:", error);
-    return c.json({ success: false, message: "Failed to send payment success email" }, 500);
-  }
-});
+// Everything below sends platform-branded mail: signed-in users only, and
+// always to their own account email — the body never picks the recipient.
+mailRoutes.use("*", requireAuth);
 
 type SendPaymentFailedMailBody = {
   to?: string;
@@ -137,11 +185,7 @@ mailRoutes.post("/send-payment-failed", async (c) => {
   try {
     const body = (await c.req.json().catch(() => ({}))) as SendPaymentFailedMailBody;
 
-    const to = body.to?.trim();
-
-    if (!to || !isValidEmail(to)) {
-      return c.json({ success: false, message: "A valid recipient email is required" }, 400);
-    }
+    const to = c.get("authUser").email;
 
     await sendPaymentFailedEmail({
       to,
@@ -156,104 +200,6 @@ mailRoutes.post("/send-payment-failed", async (c) => {
   } catch (error) {
     console.error("Send payment failed email error:", error);
     return c.json({ success: false, message: "Failed to send payment failed email" }, 500);
-  }
-});
-
-// --- Buyer onboarding emails ------------------------------------------------
-
-type SendBuyerWelcomeMailBody = {
-  to?: string;
-  buyerName?: string | null;
-  companyName?: string | null;
-  onboardingLink?: string | null;
-  docsLink?: string | null;
-};
-
-mailRoutes.post("/send-buyer-welcome", async (c) => {
-  try {
-    const body = (await c.req.json().catch(() => ({}))) as SendBuyerWelcomeMailBody;
-    const to = body.to?.trim();
-
-    if (!to || !isValidEmail(to)) {
-      return c.json({ success: false, message: "A valid recipient email is required" }, 400);
-    }
-
-    await sendBuyerWelcomeEmail({
-      to,
-      buyerName: body.buyerName?.trim() || null,
-      companyName: body.companyName?.trim() || null,
-      onboardingLink: body.onboardingLink?.trim() || null,
-      docsLink: body.docsLink?.trim() || null
-    });
-
-    return c.json({ success: true, message: "Welcome email sent" }, 200);
-  } catch (error) {
-    console.error("Send buyer welcome email error:", error);
-    return c.json({ success: false, message: "Failed to send welcome email" }, 500);
-  }
-});
-
-type SendBuyerPopularAgentsMailBody = {
-  to?: string;
-  buyerName?: string | null;
-  featuredAgents?: string | null;
-  browseLink?: string | null;
-  successStoriesLink?: string | null;
-};
-
-mailRoutes.post("/send-buyer-popular-agents", async (c) => {
-  try {
-    const body = (await c.req.json().catch(() => ({}))) as SendBuyerPopularAgentsMailBody;
-    const to = body.to?.trim();
-
-    if (!to || !isValidEmail(to)) {
-      return c.json({ success: false, message: "A valid recipient email is required" }, 400);
-    }
-
-    await sendBuyerPopularAgentsEmail({
-      to,
-      buyerName: body.buyerName?.trim() || null,
-      featuredAgents: body.featuredAgents?.trim() || null,
-      browseLink: body.browseLink?.trim() || null,
-      successStoriesLink: body.successStoriesLink?.trim() || null
-    });
-
-    return c.json({ success: true, message: "Popular agents email sent" }, 200);
-  } catch (error) {
-    console.error("Send buyer popular agents email error:", error);
-    return c.json({ success: false, message: "Failed to send popular agents email" }, 500);
-  }
-});
-
-type SendBuyerRoiMailBody = {
-  to?: string;
-  buyerName?: string | null;
-  industry?: string | null;
-  caseStudies?: string | null;
-  demoLink?: string | null;
-};
-
-mailRoutes.post("/send-buyer-roi", async (c) => {
-  try {
-    const body = (await c.req.json().catch(() => ({}))) as SendBuyerRoiMailBody;
-    const to = body.to?.trim();
-
-    if (!to || !isValidEmail(to)) {
-      return c.json({ success: false, message: "A valid recipient email is required" }, 400);
-    }
-
-    await sendBuyerRoiEmail({
-      to,
-      buyerName: body.buyerName?.trim() || null,
-      industry: body.industry?.trim() || null,
-      caseStudies: body.caseStudies?.trim() || null,
-      demoLink: body.demoLink?.trim() || null
-    });
-
-    return c.json({ success: true, message: "ROI email sent" }, 200);
-  } catch (error) {
-    console.error("Send buyer ROI email error:", error);
-    return c.json({ success: false, message: "Failed to send ROI email" }, 500);
   }
 });
 

@@ -29,6 +29,7 @@ import {
   policyScreensForEmergencies,
   resolveAfterHoursGreeting,
   resolveLifeThreateningInstruction,
+  VOICE_NODE_TYPES,
   type AfterHoursConversationState
 } from "@coreai/shared";
 import {
@@ -353,6 +354,7 @@ ${workflowMap}
             `Verified business facts (answer these directly and exactly; NEVER invent a street, city, state, postal code, landmark, or link that is not listed):\n${business.factsLines.map((line) => `- ${line}`).join("\n")}`
           ]
         : []),
+      ...(business.rulesSection?.trim() ? [business.rulesSection.trim()] : []),
       ...afterHoursSections,
       turnState
     ]
@@ -595,6 +597,37 @@ export function workflowCapabilities(workflowJson: unknown, channel: AgentChanne
   };
 }
 
+/**
+ * Spoken once in the greeting whenever the deployed assistant records calls.
+ * Interim universal wording until per-state (one/two-party) consent logic
+ * ships — two-party-consent states require the caller to hear this.
+ */
+export const RECORDING_DISCLOSURE_LINE = "Just so you know, this call may be recorded.";
+
+/** End Flow node's "Call recording" toggle — recording stays on unless explicitly disabled. */
+export function workflowCallRecordingEnabled(workflowJson: unknown): boolean {
+  const node = nodesOf(workflowJson).find(
+    (n) => asString(n.data?.type) === VOICE_NODE_TYPES.endFlow
+  );
+  const value = node?.data?.callRecording;
+
+  return !(value === false || String(value ?? "").trim().toLowerCase() === "false");
+}
+
+/**
+ * Append the recording disclosure unless the greeting already discloses
+ * recording. Only "recorded"/"recording" count — a greeting that merely
+ * mentions "records" (e.g. "we keep detailed records") must NOT suppress
+ * the legally required notice.
+ */
+export function withRecordingDisclosure(message: string): string {
+  const trimmed = (message ?? "").trim();
+  if (!trimmed) return RECORDING_DISCLOSURE_LINE;
+  if (/\brecord(?:ed|ing)\b/i.test(trimmed)) return trimmed;
+  const separator = /[.!?]$/.test(trimmed) ? " " : ". ";
+  return `${trimmed}${separator}${RECORDING_DISCLOSURE_LINE}`;
+}
+
 /* ------------------------------- entry point ------------------------------ */
 
 export type AgentWorkflowInput = {
@@ -638,6 +671,23 @@ export async function runAgentWorkflow(params: {
     assistantName: resolveAssistantName(input.business.assistantName, asString(aiNode?.data?.assistantName)),
     name: resolveBusinessName(input.business.name)
   };
+
+  // [DISABLED:non-handoff] owner-rules loading for this runtime.
+  // if (business.businessId && !business.rulesSection) {
+  //   try {
+  //     const { compileRulesPromptSection, getEffectiveRules } = await import(
+  //       "../business/rules/rules-service.js"
+  //     );
+  //     business.rulesSection = compileRulesPromptSection(
+  //       await getEffectiveRules({
+  //         businessId: business.businessId,
+  //         installedAgentId: business.installedAgentId ?? null
+  //       })
+  //     );
+  //   } catch (error) {
+  //     console.error("[graph-runner] rules load failed (run continues without them)", error);
+  //   }
+  // }
 
   const firstMessage = firstMessageOf(aiNode, business);
   const nodeInstructions = aiNodeInstructions(aiNode);

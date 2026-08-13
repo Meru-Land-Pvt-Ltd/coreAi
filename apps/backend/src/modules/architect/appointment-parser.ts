@@ -63,6 +63,10 @@ const MONTHS: Record<string, number> = {
 export type ParsedAppointment = {
   startAt: Date;
   endAt: Date;
+  /** Wall-clock parts in the business time zone — what the slot lock keys on. */
+  date: string;
+  hour: number;
+  minute: number;
 };
 
 type DateParts = {
@@ -236,6 +240,9 @@ export function parseRequestedAppointment(
 
   return {
     startAt,
-    endAt: new Date(startAt.getTime() + durationMinutes * 60 * 1000)
+    endAt: new Date(startAt.getTime() + durationMinutes * 60 * 1000),
+    date: `${date.year}-${String(date.monthIndex + 1).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`,
+    hour: time.hour,
+    minute: time.minute
   };
 }

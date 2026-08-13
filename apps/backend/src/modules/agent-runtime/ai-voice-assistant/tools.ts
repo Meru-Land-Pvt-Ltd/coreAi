@@ -21,7 +21,8 @@ import {
   CANCEL_FAILED_MESSAGE,
   RESCHEDULE_FAILED_MESSAGE
 } from "../../architect/twilio-business-routing";
-import type { NormalizedToolResult, VoiceToolContext } from "./types";
+import { runTransferToHumanTool } from "./human-transfer";
+import type { VoiceToolContext } from "./types";
 
 export interface ToolCallInput {
   id: string;
@@ -104,7 +105,7 @@ export async function executeToolGateway(
       } else if (isNotify) {
         payload = await runSendNotificationTool(toolCall.parameters, ctx as never);
       } else if (isTransfer) {
-        payload = await runTransferCallTool(toolCall.parameters, ctx);
+        payload = await runTransferToHumanTool(toolCall.parameters, ctx);
       } else {
         payload = { ok: true };
       }
@@ -164,23 +165,3 @@ export async function executeToolGateway(
   };
 }
 
-async function runTransferCallTool(
-  params: Record<string, unknown>,
-  ctx: VoiceToolContext
-): Promise<NormalizedToolResult> {
-  const target = (params.destinationNumber as string) || (params.department as string) || ctx.business?.teamPhone;
-  if (!target) {
-    return {
-      success: false,
-      code: "NO_TRANSFER_DESTINATION",
-      message: "No transfer phone number or department configured for this business."
-    };
-  }
-
-  return {
-    success: true,
-    code: "TRANSFER_INITIATED",
-    message: `Transferring call to ${target}. Please stay on the line.`,
-    data: { destination: target }
-  };
-}

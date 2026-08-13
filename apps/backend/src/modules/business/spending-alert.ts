@@ -13,7 +13,8 @@ const spendingAlertSchema = z.object({
   thresholdCents: z.number().int().min(1).max(100_000_000)
 });
 
-async function currentSpendMicroUsd(businessId: string, month: string) {
+/** THE month-to-date execution-spend formula — usage-cap and alerts must agree. */
+export async function currentSpendMicroUsd(businessId: string, month: string) {
   const usage = await prisma.agentUsageExecution.aggregate({
     where: { businessId, billingMonth: month },
     _sum: { amountMicroUsd: true, legacyBilledCostMicroUsd: true }

@@ -9,7 +9,7 @@ import { CallRecordingPlayer } from "@/components/common/call-recording-player";
 import { pauseInstalledAgent, resumeInstalledAgent } from "@/components/business/features/api";
 import { AgentPauseConfirmationModal } from "@/components/business/agent-pause-confirmation-modal";
 import { BusinessPageHeader } from "@/components/business/business-page-header";
-import { BUSINESS_AGENTS_PATH, BUSINESS_BILLING_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH, businessSetupPath, businessAgentDetailPath } from "@/lib/routes";
+import { BUSINESS_AGENTS_PATH, BUSINESS_ANALYTICS_PATH, BUSINESS_BILLING_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH, businessSetupPath, businessAgentDetailPath } from "@/lib/routes";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 
 type ApiPurchasedAgent = {
@@ -619,9 +619,22 @@ export default function BusinessDashboardPage() {
             />
 
             <section aria-label="Key metrics" className="mb-6 grid grid-cols-1 gap-4 sm:mb-8 sm:grid-cols-2 sm:gap-6 xl:grid-cols-3">
-                {dashboardMetrics.map((metric) => (
-                    <MetricCard key={metric.label} metric={metric} />
-                ))}
+                {dashboardMetrics.map((metric) =>
+                    // "Calls Handled" is the entry point into Business Analytics —
+                    // the card itself is unchanged, only wrapped in a link.
+                    metric.label === "Calls Handled" ? (
+                        <Link
+                            key={metric.label}
+                            href={BUSINESS_ANALYTICS_PATH}
+                            data-testid="dashboard-calls-handled-analytics-link"
+                            className="block min-w-0 rounded-2xl transition-shadow duration-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-amber-500"
+                        >
+                            <MetricCard metric={metric} />
+                        </Link>
+                    ) : (
+                        <MetricCard key={metric.label} metric={metric} />
+                    )
+                )}
             </section>
 
             <div className="grid min-w-0 grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-3">

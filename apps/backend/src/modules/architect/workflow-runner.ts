@@ -35,6 +35,7 @@ import {
   getDefaultAppointmentWindow,
   listAvailableSlots
 } from "./google-calendar-connector";
+import { reserveSlotForInstant, topAlternativeLabels } from "../business/scheduling";
 import { startVapiOutboundCall } from "./vapi-connector";
 import {
   calendlyBookMeetingForInvitee,
@@ -2343,18 +2344,70 @@ async function runGoogleCalendarConnectorNode({
     return;
   }
 
-  const appointment = await createGoogleCalendarAppointment({
-    userId: context.business?.ownerId || userId,
-    calendarId,
-    timeZone,
-    businessName,
-    customerName: context.caller_name,
-    customerPhone,
-    service,
-    startAt,
-    endAt,
-    description
-  });
+  const createLiveBooking = () =>
+    createGoogleCalendarAppointment({
+      userId: context.business?.ownerId || userId,
+      calendarId,
+      timeZone,
+      businessName,
+      customerName: context.caller_name,
+      customerPhone,
+      service,
+      startAt,
+      endAt,
+      description
+    });
+
+  const bookingBusinessId = optionalString(context.business?.id);
+
+  // Live workflow bookings go through the same advisory-lock reservation as
+  // voice/Telegram bookings — a calendar node must never double-book a slot.
+  // Keyed by instant so the lock uses the schedule engine's own timezone,
+  // never the node's fallback timezone.
+  if (bookingBusinessId) {
+    const reservation = await reserveSlotForInstant({
+      businessId: bookingBusinessId,
+      installedAgentId: context.installedAgentId ?? null,
+      startAt,
+      serviceName: service,
+      createBooking: createLiveBooking
+    });
+
+    if (!reservation.ok) {
+      const alternatives = topAlternativeLabels(reservation.result);
+      context.calendarAppointment = {
+        id: null,
+        calendarId,
+        summary,
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+        timeZone,
+        status: "FAILED",
+        htmlLink: null,
+        errorCode: "SLOT_UNAVAILABLE",
+        remediation: alternatives.length
+          ? `Nearby openings: ${alternatives.join(", ")}.`
+          : "Offer the customer a different time."
+      };
+      logs.push(
+        createLog(
+          node,
+          "error",
+          `That time is not bookable — it is outside bookable hours or already taken.${
+            alternatives.length ? ` Nearby openings: ${alternatives.join(", ")}.` : ""
+          }`,
+          context.calendarAppointment
+        )
+      );
+      return;
+    }
+
+    context.calendarAppointment = { ...reservation.booking, status: "CREATED" };
+    logs.push(createLog(node, "success", "Google Calendar appointment created.", context.calendarAppointment));
+    return;
+  }
+
+  const appointment = await createLiveBooking();
 
   context.calendarAppointment = { ...appointment, status: "CREATED" };
   logs.push(createLog(node, "success", "Google Calendar appointment created.", context.calendarAppointment));

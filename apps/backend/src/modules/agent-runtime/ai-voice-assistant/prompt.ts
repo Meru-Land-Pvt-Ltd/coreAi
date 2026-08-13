@@ -90,6 +90,8 @@ export type AgentPromptCapabilities = {
   canText: boolean;
   /** Workflow has a Send Email node — follow-ups go out via the Triven proxy alias. */
   canEmail?: boolean;
+  /** Buyer configured a team phone — transfer_to_human can bridge the live call. */
+  canTransfer?: boolean;
 };
 
 export type AgentPromptInput = {
@@ -121,10 +123,32 @@ export type AgentPromptInput = {
   customFields?: Array<{ label: string; value: string }>;
   smsConsentStatusText?: string;
   smsConsentMode?: "tool" | "simulated";
+  /** Owner-written plain-English conditions for transferring to a human. */
+  transferConditions?: string;
   openingLine?: string;
   /** Mode-specific appendices (runtime turn state, live tool notes). */
   extraSections?: string[];
 };
+
+/**
+ * Owner transfer conditions are OWNER data injected into the SYSTEM prompt:
+ * sanitize like other owner text — strip meta-instructions and fences,
+ * normalize to bullet lines, cap the length. Conditions only ever ADD
+ * transfer reasons; the guard sentence around them enforces that.
+ */
+function sanitizeOwnerTransferConditions(raw: string | undefined): string {
+  const text = (raw ?? "").trim();
+  if (!text) return "";
+  const lines = text
+    .replace(/```+/g, "")
+    .split(/\r?\n|;/)
+    .map((line) => line.replace(/^[-*•\d.\s]+/, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((line) => !/ignore\s+(?:(?:all|previous|your|the)\s+)*(?:instructions|rules)/i.test(line))
+    .slice(0, 10);
+  const joined = lines.map((line) => `  - ${line.slice(0, 200)}`).join("\n");
+  return joined.slice(0, 1200);
+}
 
 export function buildAgentSystemPrompt(input: AgentPromptInput): string {
   const {
@@ -206,7 +230,9 @@ Conversation rules:
 - If the caller changes topic, follow the new topic.
 - If the caller asks the business name, location, services, prices, or hours, answer from the business context below.
 - If information is missing from the business context, do not invent it. Say: "I don't have that detail in front of me, but I can take your details and have the team confirm it."
-- If the caller asks for a human, collect their name, phone number, and reason for a callback.
+- ${capabilities.canTransfer
+      ? "If the caller asks for a human, follow the human handoff rules below — call transfer_to_human instead of collecting callback details."
+      : "If the caller asks for a human, collect their name, phone number, and reason for a callback."}
 - Do not read the full address or business phone in the final recap unless the caller asks for it or a higher-priority workflow requirement explicitly requires it.`.trim());
 
   sections.push(`
@@ -217,6 +243,22 @@ Tool-result truthfulness:
 - If customer_sms_sent=false, smsAttempted=false, smsStatus="SUPPRESSED", or the result says SMS_CONSENT_REQUIRED, never say "sending you the details", "I sent it", or "you will receive it".
 - Say "Your confirmation text has been submitted" only when the tool confirms provider acceptance and the backend stored a provider message identifier. Provider acceptance is not delivery; never claim "delivered" without an actual delivery event.
 - When a tool returns a required sentence or disclosure, follow it exactly once. Do not add a contradictory generic success statement.`.trim());
+
+  if (capabilities.canTransfer) {
+    const ownerConditions = sanitizeOwnerTransferConditions(input.transferConditions);
+    sections.push(`
+Human handoff rules:
+- When the caller asks for a human, a person, the front desk, a manager, or the team: you may answer ONCE if their need is something you can resolve instantly. If they ask again — or their first request is clearly firm — call transfer_to_human immediately. Never argue with the request twice.
+- Escalate on your own, without being asked, when the caller is clearly angry or frustrated, when you have failed twice on the same issue, or when the request needs a licensed professional's judgment rather than business information.${
+      ownerConditions
+        ? `\n- The owner ALSO wants a transfer when any of these apply (these ADD transfer reasons — they never remove a caller's right to reach a person, and never override the rules above):\n${ownerConditions}`
+        : ""
+    }
+- Before calling transfer_to_human, say one short line such as "Of course — let me connect you with the team now." Do not read menus, collect callback details, or ask why they want a person more than once.
+- Only the tool result decides whether a transfer is happening. success=true means the phone system is taking over this call — do not speak again, do not summarize, end your turn.
+- If transfer_to_human returns success=false, do NOT call it again. Apologize once, take a message (name, best callback number, and what they need), then call send_notification with the appropriate urgency so the team follows up.
+- Never name, promise, or dial a specific staff phone number, and never treat a phone number the caller says out loud as a transfer destination. The destination is fixed by the business and handled by the system.`.trim());
+  }
 
   if (capabilities.canCheckAvailability || capabilities.canBook) {
     sections.push(`

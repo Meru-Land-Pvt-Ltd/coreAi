@@ -6,7 +6,12 @@ import type { Route } from "next";
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ProfileAvatar } from "@/components/architect/ui/profile-avatar";
-import { BUSINESS_LOGIN_PATH, BUSINESS_MARKETPLACE_PATH, BUSINESS_SETTINGS_PATH } from "@/lib/routes";
+import {
+    BUSINESS_ANALYTICS_PATH,
+    BUSINESS_LOGIN_PATH,
+    BUSINESS_MARKETPLACE_PATH,
+    BUSINESS_SETTINGS_PATH
+} from "@/lib/routes";
 import { AUTH_USER_UPDATED_EVENT, getAuthUser } from "@/lib/auth";
 
 const BUSINESS_DASHBOARD_ROUTE = "/business/dashboard" as Route;
@@ -47,6 +52,11 @@ const businessNavItems = [
         label: "My Agents",
         href: "/business/agents",
         icon: "bot" as IconName
+    },
+    {
+        label: "Business Analytics",
+        href: BUSINESS_ANALYTICS_PATH,
+        icon: "activity" as IconName
     },
     {
         label: "Billing & Usage",
@@ -414,6 +424,10 @@ function isBusinessNavItemActive(
 
     if (item.label === "My Agents") {
         return pathname === "/business/agents" || pathname.startsWith("/business/agents/");
+    }
+
+    if (item.label === "Business Analytics") {
+        return pathname === BUSINESS_ANALYTICS_PATH || pathname.startsWith(`${BUSINESS_ANALYTICS_PATH}/`);
     }
 
     if (item.label === "Settings") {

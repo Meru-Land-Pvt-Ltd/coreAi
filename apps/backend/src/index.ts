@@ -7,6 +7,14 @@ import { preloadPlatformApiSettings } from "./modules/admin/platform-api-setting
 import { attachDeepgramLiveProxy } from "./modules/ai-provider-engine/deepgram-live-proxy";
 import { startBillingScheduler, stopBillingScheduler } from "./modules/business/billing-cycle";
 import { startEarningReleaseWorker, stopEarningReleaseWorker } from "./modules/payouts/release-worker";
+// [DISABLED:non-handoff] worker imports for the commented starts below.
+// import { startReminderWorker, stopReminderWorker } from "./modules/business/reminders/reminder-worker";
+// import {
+//   startRetentionSweepWorker,
+//   stopRetentionSweepWorker
+// } from "./modules/business/conversation-understanding/retention";
+// import { evaluateRecentCalls } from "./modules/business/quality/evaluate";
+import { escalateStaleWaiting } from "./modules/business/inbox/inbox-service";
 import {
   registerTelegramManagerWebhook,
   telegramManagerEnvironmentConfigured
@@ -26,6 +34,21 @@ const server = serve(
     await initProviderEngine();
     startBillingScheduler();
     startEarningReleaseWorker();
+    // [DISABLED:non-handoff] reminder + retention workers and quality sweep.
+    // startReminderWorker();
+    // startRetentionSweepWorker();
+    // const qualitySweep = setInterval(() => {
+    //   evaluateRecentCalls({ limit: 20 }).catch((error) =>
+    //     console.error("[quality] sweep failed", error)
+    //   );
+    // }, 15 * 60 * 1000);
+    // qualitySweep.unref();
+    // Inbox SLA escalation (human handoff, Part 1): waiting threads nobody
+    // claimed get bumped to managers.
+    const inboxSlaSweep = setInterval(() => {
+      escalateStaleWaiting().catch((error) => console.error("[inbox] SLA sweep failed", error));
+    }, 60 * 1000);
+    inboxSlaSweep.unref();
     if (telegramManagerEnvironmentConfigured()) {
       void registerTelegramManagerWebhook()
         .then((result) => {
@@ -49,6 +72,9 @@ async function shutdown(signal: string) {
 
   stopBillingScheduler();
   stopEarningReleaseWorker();
+  // [DISABLED:non-handoff]
+  // stopReminderWorker();
+  // stopRetentionSweepWorker();
 
   await prisma.$disconnect();
 

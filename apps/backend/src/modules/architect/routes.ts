@@ -46,7 +46,8 @@ import {
   handleTwilioMessageStatus,
   handleTwilioMissedCall,
   handleTwilioVoice,
-  handleTwilioVoiceAction
+  handleTwilioVoiceAction,
+  handleTwilioTransferResult
 } from "./twilio-business-routing";
 // The live Vapi webhook stays on the battle-tested handler — every webhook
 // test suite drives THIS implementation. The ai-voice-assistant module's
@@ -254,6 +255,8 @@ architectRoutes.post("/connectors/twilio/voice", handleTwilioVoice);
 architectRoutes.post("/connectors/twilio/voice/:workflowId", handleTwilioVoice);
 architectRoutes.post("/connectors/twilio/voice-action", handleTwilioVoiceAction);
 architectRoutes.post("/connectors/twilio/voice-action/:workflowId", handleTwilioVoiceAction);
+// Live human-handoff dial result (transfer_to_human) — Twilio-signed webhook.
+architectRoutes.post("/connectors/twilio/transfer-result/:handoffId", handleTwilioTransferResult);
 architectRoutes.post("/connectors/twilio/inbound-sms", handleTwilioInboundSms);
 architectRoutes.post("/connectors/twilio/inbound-sms/:workflowId", handleTwilioInboundSms);
 // SMS delivery-status callback (https://triven.ai/api/architect/connectors/twilio/message-status).
