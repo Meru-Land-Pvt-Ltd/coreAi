@@ -494,6 +494,7 @@ export async function createVapiInboundTwiml({
   businessHours,
   firstMessageOverride,
   callerContext,
+  crmContextSection,
   twilioCallSid
 }: {
   callerNumber: string;
@@ -508,6 +509,12 @@ export async function createVapiInboundTwiml({
   businessHours?: VapiBusinessHoursVariables | null;
   firstMessageOverride?: string | null;
   callerContext?: VapiCallerContext | null;
+  /**
+   * Rendered CRM record for this caller, injected as a system message override
+   * so the agent can use their history for the whole call. Empty/null for an
+   * unknown caller, which leaves the deployed prompt exactly as-is.
+   */
+  crmContextSection?: string | null;
   /** Twilio CallSid of the inbound leg — stored so transfer_to_human can redirect it. */
   twilioCallSid?: string | null;
 }): Promise<string | null> {
@@ -535,7 +542,17 @@ export async function createVapiInboundTwiml({
         businessHours,
         callerContext
       }),
-      ...(firstMessageOverride?.trim() ? { firstMessage: firstMessageOverride.trim() } : {})
+      ...(firstMessageOverride?.trim() ? { firstMessage: firstMessageOverride.trim() } : {}),
+      // Additive system message: it supplements the deployed prompt rather than
+      // replacing it, so an agent with no CRM connected is byte-for-byte
+      // unchanged.
+      ...(crmContextSection?.trim()
+        ? {
+            model: {
+              messages: [{ role: "system", content: crmContextSection.trim() }]
+            }
+          }
+        : {})
     },
     metadata: {
       ...metadata,

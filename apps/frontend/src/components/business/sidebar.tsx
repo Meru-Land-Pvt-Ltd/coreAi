@@ -8,6 +8,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ProfileAvatar } from "@/components/architect/ui/profile-avatar";
 import {
     BUSINESS_ANALYTICS_PATH,
+    BUSINESS_CRM_PATH,
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
     BUSINESS_SETTINGS_PATH
@@ -33,6 +34,7 @@ type IconName =
     | "dashboard"
     | "bot"
     | "activity"
+    | "crm"
     | "card"
     | "settings"
     | "marketplace"
@@ -52,6 +54,11 @@ const businessNavItems = [
         label: "My Agents",
         href: "/business/agents",
         icon: "bot" as IconName
+    },
+    {
+        label: "CRM",
+        href: BUSINESS_CRM_PATH,
+        icon: "crm" as IconName
     },
     {
         label: "Business Analytics",
@@ -330,6 +337,17 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
         );
     }
 
+    if (name === "crm") {
+        return (
+            <svg {...common}>
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+        );
+    }
+
     if (name === "card") {
         return (
             <svg {...common}>
@@ -428,6 +446,10 @@ function isBusinessNavItemActive(
 
     if (item.label === "Business Analytics") {
         return pathname === BUSINESS_ANALYTICS_PATH || pathname.startsWith(`${BUSINESS_ANALYTICS_PATH}/`);
+    }
+
+    if (item.label === "CRM") {
+        return pathname === BUSINESS_CRM_PATH || pathname.startsWith(`${BUSINESS_CRM_PATH}/`);
     }
 
     if (item.label === "Settings") {

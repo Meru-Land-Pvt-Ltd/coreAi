@@ -274,38 +274,39 @@ model Business {
   /// Days to keep recordings/transcripts/summaries. null = keep indefinitely.
   recordingRetentionDays         Int?
 
-  appointments    Appointment[]
-  owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  knowledgeBases  BusinessKnowledgeBase[]
-  knowledgeFiles  BusinessKnowledgeFile[]
-  phoneNumbers    BusinessPhoneNumber[]
-  profile         BusinessProfile?
-  conversations   Conversation[]
-  installedAgents InstalledAgent[]
-  leads           Lead[]
-  vapiCalls       VapiCall[]
-  usageInvoices   BusinessUsageInvoice[]
-  payments        Payment[]
-  workflowRuns    WorkflowRun[]
-  emailAliases    BusinessEmailAlias[]
-  emailMessages   EmailMessage[]
-  smsExecutions   SmsExecution[]
-  smsConsents     SmsConsent[]
-  specialHours    BusinessSpecialHours[]
-  executionUsages AgentUsageExecution[]
-  memoryRecords   MemoryRecord[]
-  telegramBots    TelegramBotConnection[]
-  telegramStates  TelegramConversationState[]
-  telegramActions TelegramMessageExecution[]
-  businessServices BusinessService[]
-  handoffEvents   HandoffEvent[]
-  teamMembers     BusinessTeamMember[]
-  memberInvites   BusinessMemberInvite[]
-  activityLogs    BusinessActivityLog[]
-  customers       Customer[]
-  agentRules      BusinessAgentRule[]
+  appointments        Appointment[]
+  owner               User                        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  knowledgeBases      BusinessKnowledgeBase[]
+  knowledgeFiles      BusinessKnowledgeFile[]
+  phoneNumbers        BusinessPhoneNumber[]
+  profile             BusinessProfile?
+  conversations       Conversation[]
+  installedAgents     InstalledAgent[]
+  leads               Lead[]
+  vapiCalls           VapiCall[]
+  usageInvoices       BusinessUsageInvoice[]
+  payments            Payment[]
+  workflowRuns        WorkflowRun[]
+  emailAliases        BusinessEmailAlias[]
+  emailMessages       EmailMessage[]
+  smsExecutions       SmsExecution[]
+  smsConsents         SmsConsent[]
+  specialHours        BusinessSpecialHours[]
+  executionUsages     AgentUsageExecution[]
+  memoryRecords       MemoryRecord[]
+  telegramBots        TelegramBotConnection[]
+  telegramStates      TelegramConversationState[]
+  telegramActions     TelegramMessageExecution[]
+  businessServices    BusinessService[]
+  handoffEvents       HandoffEvent[]
+  teamMembers         BusinessTeamMember[]
+  memberInvites       BusinessMemberInvite[]
+  activityLogs        BusinessActivityLog[]
+  customers           Customer[]
+  agentRules          BusinessAgentRule[]
   unansweredQuestions UnansweredQuestion[]
-  evaluations     ConversationEvaluation[]
+  evaluations         ConversationEvaluation[]
+  crmConnections      CrmConnection[]
 
   @@index([ownerId])
   @@index([type])
@@ -359,21 +360,21 @@ model BusinessProfile {
 /// one-day special hours, temporary closures. One row per (business, date);
 /// the date is a calendar date in the business timezone.
 model BusinessSpecialHours {
-  id          String   @id @default(cuid())
-  businessId  String
+  id               String          @id @default(cuid())
+  businessId       String
   installedAgentId String?
   /// "YYYY-MM-DD" calendar date in the business timezone.
-  date        String
+  date             String
   /// "holiday" | "special" | "closure"
-  kind        String   @default("special")
-  closed      Boolean  @default(true)
+  kind             String          @default("special")
+  closed           Boolean         @default(true)
   /// [{ open: "HH:mm", close: "HH:mm" }, …] when not closed.
-  periodsJson Json?
-  note        String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  installedAgent InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  periodsJson      Json?
+  note             String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  business         Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent   InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, installedAgentId, date])
   @@index([businessId])
@@ -401,27 +402,27 @@ model BusinessPhoneNumber {
 }
 
 model InstalledAgent {
-  id                        String                  @id @default(cuid())
+  id                        String                      @id @default(cuid())
   businessId                String
   workflowId                String
   listingId                 String?
   name                      String
-  status                    String                  @default("ACTIVE")
+  status                    String                      @default("ACTIVE")
   pausedAt                  DateTime?
-  installSource             InstallSource           @default(MARKETPLACE_PURCHASE)
-  executionFeeCents         Int                     @default(0)
-  trialExecutionLimit       Int                     @default(50)
-  trialExecutionsUsed       Int                     @default(0)
-  executionBillingStartedAt DateTime                @default(now())
+  installSource             InstallSource               @default(MARKETPLACE_PURCHASE)
+  executionFeeCents         Int                         @default(0)
+  trialExecutionLimit       Int                         @default(50)
+  trialExecutionsUsed       Int                         @default(0)
+  executionBillingStartedAt DateTime                    @default(now())
   configJson                Json?
-  createdAt                 DateTime                @default(now())
-  updatedAt                 DateTime                @updatedAt
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @updatedAt
   phoneNumbers              BusinessPhoneNumber[]
   knowledgeFiles            BusinessKnowledgeFile[]
   specialHours              BusinessSpecialHours[]
-  business                  Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  listing                   AgentListing?           @relation(fields: [listingId], references: [id])
-  workflow                  WorkflowDefinition      @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  business                  Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  listing                   AgentListing?               @relation(fields: [listingId], references: [id])
+  workflow                  WorkflowDefinition          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   workflowRuns              WorkflowRun[]
   executionUsages           AgentUsageExecution[]
   usageInvoices             BusinessUsageInvoice[]
@@ -443,38 +444,38 @@ model InstalledAgent {
 /// One dedicated Telegram bot for one installed agent. Bot access tokens and
 /// webhook secrets are AES-GCM encrypted before they reach these columns.
 model TelegramBotConnection {
-  id                     String         @id @default(cuid())
-  businessId             String
-  installedAgentId       String         @unique
-  requestedUsername      String         @unique
-  webhookConnectionId    String         @unique @default(cuid())
-  botUserId              String?        @unique
-  botUsername            String?        @unique
-  botDisplayName         String
-  botTokenEncrypted      String?
-  webhookSecretEncrypted String
-  managerBotId           String?
-  provisioningMode       String         @default("MANAGED")
-  provisioningStatus     String         @default("PENDING_APPROVAL")
-  webhookStatus          String         @default("PENDING")
-  setupNonceHash         String?
-  telegramOwnerUserId    String?
-  ownerChatId            String?
-  ownerNotificationStatus String        @default("NOT_CONNECTED")
+  id                         String                      @id @default(cuid())
+  businessId                 String
+  installedAgentId           String                      @unique
+  requestedUsername          String                      @unique
+  webhookConnectionId        String                      @unique @default(cuid())
+  botUserId                  String?                     @unique
+  botUsername                String?                     @unique
+  botDisplayName             String
+  botTokenEncrypted          String?
+  webhookSecretEncrypted     String
+  managerBotId               String?
+  provisioningMode           String                      @default("MANAGED")
+  provisioningStatus         String                      @default("PENDING_APPROVAL")
+  webhookStatus              String                      @default("PENDING")
+  setupNonceHash             String?
+  telegramOwnerUserId        String?
+  ownerChatId                String?
+  ownerNotificationStatus    String                      @default("NOT_CONNECTED")
   ownerNotificationNonceHash String?
-  status                 String         @default("PENDING")
-  lastWebhookAt          DateTime?
-  lastSuccessfulSendAt   DateTime?
-  lastProviderErrorCode  String?
-  lastError              String?
-  credentialRotatedAt    DateTime?
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
-  business               Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  installedAgent         InstalledAgent @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
-  conversationStates     TelegramConversationState[]
-  processedUpdates       TelegramProcessedUpdate[]
-  messageExecutions      TelegramMessageExecution[]
+  status                     String                      @default("PENDING")
+  lastWebhookAt              DateTime?
+  lastSuccessfulSendAt       DateTime?
+  lastProviderErrorCode      String?
+  lastError                  String?
+  credentialRotatedAt        DateTime?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  business                   Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent             InstalledAgent              @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  conversationStates         TelegramConversationState[]
+  processedUpdates           TelegramProcessedUpdate[]
+  messageExecutions          TelegramMessageExecution[]
 
   @@index([businessId])
   @@index([status])
@@ -554,26 +555,26 @@ model TelegramMessageExecution {
 }
 
 model BusinessService {
-  id                    String         @id @default(cuid())
-  businessId            String
-  installedAgentId      String?
-  slug                  String
-  name                  String
-  description           String?
-  durationMinutes       Int            @default(30)
-  priceCents            Int?
-  priceVisible          Boolean        @default(false)
-  active                Boolean        @default(true)
-  calendarId            String?
-  routingRuleJson       Json?
-  staffMappingJson      Json?
-  bufferMinutes         Int            @default(10)
-  minimumNoticeMinutes  Int            @default(0)
-  maximumAdvanceDays    Int            @default(30)
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
-  business              Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  installedAgent        InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  id                   String          @id @default(cuid())
+  businessId           String
+  installedAgentId     String?
+  slug                 String
+  name                 String
+  description          String?
+  durationMinutes      Int             @default(30)
+  priceCents           Int?
+  priceVisible         Boolean         @default(false)
+  active               Boolean         @default(true)
+  calendarId           String?
+  routingRuleJson      Json?
+  staffMappingJson     Json?
+  bufferMinutes        Int             @default(10)
+  minimumNoticeMinutes Int             @default(0)
+  maximumAdvanceDays   Int             @default(30)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  business             Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent       InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, installedAgentId, slug])
   @@index([businessId, installedAgentId, active])
@@ -646,13 +647,13 @@ model BusinessKnowledgeFile {
 }
 
 model Conversation {
-  id            String                @id @default(cuid())
-  businessId    String
-  channel       String
-  customerPhone String
-  status        String                @default("OPEN")
+  id                   String                @id @default(cuid())
+  businessId           String
+  channel              String
+  customerPhone        String
+  status               String                @default("OPEN")
   /// Shared-inbox state machine: AI_ACTIVE | WAITING_FOR_HUMAN | HUMAN_ACTIVE | RETURNED_TO_AI | CLOSED
-  aiState              String    @default("AI_ACTIVE")
+  aiState              String                @default("AI_ACTIVE")
   /// BusinessTeamMember.id currently handling this thread (HUMAN_ACTIVE).
   assignedTeamMemberId String?
   waitingSince         DateTime?
@@ -666,10 +667,10 @@ model Conversation {
   summary              String?
   lastInboundAt        DateTime?
   lastOutboundAt       DateTime?
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
-  business      Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  messages      ConversationMessage[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  business             Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  messages             ConversationMessage[]
 
   @@unique([businessId, channel, customerPhone])
   @@index([businessId])
@@ -714,7 +715,7 @@ model Lead {
 }
 
 model Appointment {
-  id                 String    @id @default(cuid())
+  id                 String                @id @default(cuid())
   businessId         String
   installedAgentId   String?
   conversationId     String?
@@ -725,8 +726,8 @@ model Appointment {
   customerId         String?
   service            String?
   source             String?
-  bookingReference   String?   @unique
-  idempotencyKey     String?   @unique
+  bookingReference   String?               @unique
+  idempotencyKey     String?               @unique
   providerName       String?
   bookingCallId      String?
   startAt            DateTime
@@ -734,18 +735,18 @@ model Appointment {
   timeZone           String?
   calendarEventId    String?
   calendarEventLink  String?
-  status             String    @default("BOOKED")
+  status             String                @default("BOOKED")
   notes              String?
   cancelledAt        DateTime?
   cancellationSource String?
   cancellationReason String?
   cancellationCallId String?
-  executionMode      String    @default("LIVE")
+  executionMode      String                @default("LIVE")
   testSessionId      String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  business           Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  installedAgent     InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  business           Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent     InstalledAgent?       @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
   reminders          AppointmentReminder[]
 
   @@index([businessId])
@@ -848,35 +849,35 @@ model VapiCall {
 }
 
 model HandoffEvent {
-  id               String    @id @default(cuid())
-  businessId       String
-  installedAgentId String?
+  id                   String           @id @default(cuid())
+  businessId           String
+  installedAgentId     String?
   /// VOICE | SMS | CHAT | EMAIL
-  channel          String    @default("VOICE")
-  executionMode    String    @default("LIVE")
-  vapiCallId       String?
-  twilioCallSid    String?
-  customerPhone    String?
+  channel              String           @default("VOICE")
+  executionMode        String           @default("LIVE")
+  vapiCallId           String?
+  twilioCallSid        String?
+  customerPhone        String?
   /// E.164 the call was sent to. Resolved server-side only — never model input.
-  destination      String?
-  reason           String?
+  destination          String?
+  reason               String?
   /// customer | ai | policy
-  requestedBy      String    @default("customer")
+  requestedBy          String           @default("customer")
   /// INITIATED | CONNECTED | NO_ANSWER | FAILED | MESSAGE_TAKEN | SIMULATED
-  status           String    @default("INITIATED")
-  waitSeconds      Int?
+  status               String           @default("INITIATED")
+  waitSeconds          Int?
   /// BusinessTeamMember.id that took (or was last dialed for) this handoff.
   assignedTeamMemberId String?
   connectedAt          DateTime?
-  attemptsCount        Int       @default(0)
+  attemptsCount        Int              @default(0)
   conversationId       String?
   customerId           String?
-  metadataJson     Json?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  resolvedAt       DateTime?
-  business         Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  attempts         HandoffAttempt[]
+  metadataJson         Json?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  resolvedAt           DateTime?
+  business             Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  attempts             HandoffAttempt[]
 
   @@index([businessId, createdAt])
   @@index([businessId, status])
@@ -885,29 +886,29 @@ model HandoffEvent {
 }
 
 model PlatformPhoneNumber {
-  id                  String              @id @default(cuid())
-  phoneNumber         String              @unique
+  id                           String              @id @default(cuid())
+  phoneNumber                  String              @unique
   /// Normalized E.164 form of phoneNumber (backfilled; canonical for lookups going forward).
-  e164                String?             @unique
-  provider            ConnectorProvider   @default(TWILIO)
-  status              PlatformPhoneStatus @default(AVAILABLE)
-  twilioSid           String?             @unique
+  e164                         String?             @unique
+  provider                     ConnectorProvider   @default(TWILIO)
+  status                       PlatformPhoneStatus @default(AVAILABLE)
+  twilioSid                    String?             @unique
   /// Provider-agnostic number id (alias for twilioSid; future non-Twilio providers).
-  providerNumberId    String?
-  country             String?
-  region              String?
-  locality            String?
+  providerNumberId             String?
+  country                      String?
+  region                       String?
+  locality                     String?
   /// e.g. { "voice": true, "sms": false, "mms": false }
-  capabilities        Json?
-  voiceEnabled        Boolean             @default(true)
-  smsEnabled          Boolean             @default(true)
-  mmsEnabled          Boolean?
-  businessId          String?
-  buyerUserId         String?
-  installedAgentId    String?
-  assignedAt          DateTime?
+  capabilities                 Json?
+  voiceEnabled                 Boolean             @default(true)
+  smsEnabled                   Boolean             @default(true)
+  mmsEnabled                   Boolean?
+  businessId                   String?
+  buyerUserId                  String?
+  installedAgentId             String?
+  assignedAt                   DateTime?
   /// Legacy one-time billing marker retained for migration compatibility.
-  feeBilledAt         DateTime?
+  feeBilledAt                  DateTime?
   /// Twilio's account-specific recurring monthly price at the last pricing lookup.
   providerMonthlyPriceMicroUsd Int?
   /// Buyer monthly price: round(provider monthly USD) + 1 USD.
@@ -916,19 +917,19 @@ model PlatformPhoneNumber {
   pricingNumberType            String?
   pricingFetchedAt             DateTime?
   /// Admin provisioning metadata (numbers purchased through the admin panel).
-  purchasedByAdminId  String?
-  purchasedAt         DateTime?
-  releasedAt          DateTime?
-  voiceWebhookUrl     String?
-  smsWebhookUrl       String?
-  webhookStatus       PhoneWebhookStatus  @default(UNKNOWN)
-  complianceStatus    String?
-  a2pStatus           String?
-  isPlatformSmsSender Boolean             @default(false)
-  lastSyncedAt        DateTime?
-  lastError           String?
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
+  purchasedByAdminId           String?
+  purchasedAt                  DateTime?
+  releasedAt                   DateTime?
+  voiceWebhookUrl              String?
+  smsWebhookUrl                String?
+  webhookStatus                PhoneWebhookStatus  @default(UNKNOWN)
+  complianceStatus             String?
+  a2pStatus                    String?
+  isPlatformSmsSender          Boolean             @default(false)
+  lastSyncedAt                 DateTime?
+  lastError                    String?
+  createdAt                    DateTime            @default(now())
+  updatedAt                    DateTime            @updatedAt
 
   @@index([status])
   @@index([businessId])
@@ -973,38 +974,38 @@ model Payment {
   billingEmail   String?
   billingAddress String?
 
-  description         String?
-  invoiceKind         PaymentInvoiceKind @default(PURCHASE)
+  description                  String?
+  invoiceKind                  PaymentInvoiceKind @default(PURCHASE)
   /// Stable scheduler/idempotency key, for example
   /// "post-trial:<trialPaymentId>" or "subscription:<user>:<listing>:2026-07".
-  invoiceKey          String?            @unique
-  periodStart         DateTime?
-  periodEnd           DateTime?
-  dueAt               DateTime?
-  graceEndsAt         DateTime?
-  paidAt              DateTime?
-  canceledAt          DateTime?
-  suspendedAt         DateTime?
+  invoiceKey                   String?            @unique
+  periodStart                  DateTime?
+  periodEnd                    DateTime?
+  dueAt                        DateTime?
+  graceEndsAt                  DateTime?
+  paidAt                       DateTime?
+  canceledAt                   DateTime?
+  suspendedAt                  DateTime?
   /// Set after the buyer receives the reminder sent during the final 24 hours.
   trialEndingOneDayEmailSentAt DateTime?
   /// Set only after the buyer's trial-ended lifecycle email is accepted by SES.
   /// A null value lets the hourly billing cycle safely retry failed delivery.
-  trialEndedEmailSentAt DateTime?
+  trialEndedEmailSentAt        DateTime?
   /// One-time gentle reminder for a pending agent invoice.
-  pendingReminderSentAt DateTime?
-  pendingReminderCount  Int       @default(0)
-  paymentAttemptCount Int                @default(0)
-  paymentPendingAt    DateTime?
+  pendingReminderSentAt        DateTime?
+  pendingReminderCount         Int                @default(0)
+  paymentAttemptCount          Int                @default(0)
+  paymentPendingAt             DateTime?
   /// Buyer-facing fee breakdown: [{ label, amountCents }].
-  lineItemsJson       Json?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  lineItemsJson                Json?
+  createdAt                    DateTime           @default(now())
+  updatedAt                    DateTime           @updatedAt
 
-  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  business Business?         @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  listing  AgentListing?     @relation(fields: [listingId], references: [id])
-  installedAgent InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
-  earning  ArchitectEarning?
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business       Business?         @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  listing        AgentListing?     @relation(fields: [listingId], references: [id])
+  installedAgent InstalledAgent?   @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
+  earning        ArchitectEarning?
 
   @@index([userId])
   @@index([businessId])
@@ -1045,11 +1046,11 @@ model ContactSubmission {
 }
 
 model SupportIssue {
-  id       String @id @default(cuid())
-  name     String?
-  email    String?
+  id    String  @id @default(cuid())
+  name  String?
+  email String?
   /// The written issue description ("" when the user only sent a document/voice).
-  issue    String @default("")
+  issue String  @default("")
 
   documentName      String?
   documentMimeType  String?
@@ -2129,29 +2130,29 @@ model IntegrationDisclosureConsent {
 
 /// Architect-owned Meta Cloud API WhatsApp connection (MVP manual credentials).
 model WhatsAppConnection {
-  id                   String                   @id @default(cuid())
-  architectUserId      String
+  id                    String                   @id @default(cuid())
+  architectUserId       String
   /// Buyer scoping: the business this number serves. Inbound routing prefers
   /// this over architect scanning (plan channel requirement).
-  businessId           String?
+  businessId            String?
   /// The installed agent whose runtime answers on this number.
-  installedAgentId     String?
-  displayName          String?
-  businessName         String?
-  phoneNumber          String
+  installedAgentId      String?
+  displayName           String?
+  businessName          String?
+  phoneNumber           String
   /// Meta phone_number_id — public ID used for webhook routing (plaintext).
-  phoneNumberId        String
+  phoneNumberId         String
   /// Meta WhatsApp Business Account ID (plaintext).
-  businessAccountId    String
-  accessTokenEnc       String
+  businessAccountId     String
+  accessTokenEnc        String
   webhookVerifyTokenEnc String
-  appSecretEnc         String?
-  status               WhatsAppConnectionStatus @default(PENDING)
-  qualityRating        String?
-  lastConnectedAt      DateTime?
-  lastError            String?
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
+  appSecretEnc          String?
+  status                WhatsAppConnectionStatus @default(PENDING)
+  qualityRating         String?
+  lastConnectedAt       DateTime?
+  lastError             String?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
 
   architect     User                   @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
   conversations WhatsAppConversation[]
@@ -2164,14 +2165,14 @@ model WhatsAppConnection {
 }
 
 model WhatsAppConversation {
-  id             String    @id @default(cuid())
-  connectionId   String
-  contactPhone   String
-  contactName    String?
-  lastMessage    String?
-  lastMessageAt  DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  connectionId  String
+  contactPhone  String
+  contactName   String?
+  lastMessage   String?
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   connection WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   messages   WhatsAppMessage[]
@@ -2221,17 +2222,17 @@ model WhatsAppWebhookLog {
 /// A key absent here falls back to the matching environment variable, which
 /// keeps every existing deployment working until an admin fills the form in.
 model PlatformApiSetting {
-  id             String   @id @default(cuid())
+  id              String   @id @default(cuid())
   /// Environment-variable name, e.g. "OPENAI_API_KEY". Unique.
-  key            String   @unique
+  key             String   @unique
   /// AES-encrypted with ENCRYPTION_KEY — never stored or returned in plaintext.
-  valueEncrypted String
+  valueEncrypted  String
   /// True for credentials (masked in every API response). False for non-secret
   /// settings like model names and voice ids, which are returned in full.
-  secret         Boolean  @default(true)
+  secret          Boolean  @default(true)
   updatedByUserId String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   updatedBy User? @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
@@ -2420,24 +2421,24 @@ model HandoffAttempt {
 // ============================================================================
 
 model BusinessAgentRule {
-  id               String    @id @default(cuid())
+  id               String                     @id @default(cuid())
   businessId       String
   installedAgentId String?
   title            String
   instruction      String
   /// COMPLIANCE | SAFETY | BOOKING | ESCALATION | BUSINESS_POLICY | SALES | TONE | CUSTOM
-  category         String    @default("CUSTOM")
+  category         String                     @default("CUSTOM")
   /// Lower wins within a tier; COMPLIANCE/SAFETY always outrank other tiers.
-  priority         Int       @default(100)
-  active           Boolean   @default(true)
+  priority         Int                        @default(100)
+  active           Boolean                    @default(true)
   startsAt         DateTime?
   endsAt           DateTime?
-  version          Int       @default(1)
+  version          Int                        @default(1)
   createdByUserId  String?
   updatedByUserId  String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  business         Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  business         Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
   versions         BusinessAgentRuleVersion[]
 
   @@index([businessId, active])
@@ -2592,4 +2593,123 @@ model ConversationEvaluation {
   @@index([businessId, createdAt])
   @@index([businessId, overallScore])
   @@index([businessId, status])
+}
+
+/// ---------------------------------------------------------------------------
+/// Customer-context CRM.
+///
+/// Triven does not replace the customer's CRM — it becomes the AI layer on top
+/// of it. HubSpot is the first live adapter; the provider enum and the
+/// per-business `isActive` flag exist so Salesforce/Zoho/Pipedrive can be added
+/// without reshaping these tables or the buyer UI.
+/// ---------------------------------------------------------------------------
+
+enum CrmProvider {
+  HUBSPOT
+  // Add SALESFORCE, ZOHO, PIPEDRIVE, … in a later migration when that adapter
+  // ships. The UI catalog lists coming-soon providers without an enum value.
+}
+
+enum CrmConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  PENDING
+}
+
+model CrmConnection {
+  id                    String              @id @default(cuid())
+  businessId            String
+  provider              CrmProvider         @default(HUBSPOT)
+  /// True for the one CRM used for AI lookup + after-call sync. At most one
+  /// CONNECTED row per business should be isActive.
+  isActive              Boolean             @default(true)
+  portalId              String?
+  encryptedAccessToken  String?
+  encryptedRefreshToken String?
+  expiresAt             DateTime?
+  scopes                String?
+  status                CrmConnectionStatus @default(PENDING)
+  lastSyncedAt          DateTime?
+  lastError             String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  business              Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contactCache          CrmContactCache[]
+  objectMappings        CrmObjectMapping[]
+
+  @@unique([businessId, provider])
+  @@index([businessId])
+  @@index([businessId, isActive])
+  @@index([portalId])
+  @@index([status])
+}
+
+model CrmContactCache {
+  id           String        @id @default(cuid())
+  connectionId String
+  businessId   String
+  /// Provider-side contact id (HubSpot contact id).
+  contactId    String
+  /// E.164. The only reliable identifier for consumer callers — indexed so a
+  /// mid-call lookup stays well under the latency budget.
+  phone        String?
+  email        String?
+  firstName    String?
+  lastName     String?
+  company      String?
+  owner        String?
+  stage        String?
+  lastActivity DateTime?
+  lastSynced   DateTime      @default(now())
+  /// Short AI insight line rendered in the table.
+  insight      String?
+  /// Extra provider properties (vip, preferred language, …).
+  payloadJson  Json?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  connection   CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, contactId])
+  @@index([businessId])
+  @@index([phone])
+  @@index([email])
+  @@index([lastSynced])
+  @@index([businessId, phone])
+}
+
+model CrmObjectMapping {
+  id            String        @id @default(cuid())
+  connectionId  String
+  businessId    String
+  /// "lead" | "appointment" | "conversation" | "vapi_call" | "whatsapp_conversation"
+  trivenEntity  String
+  trivenId      String
+  /// "contact" | "deal" | "note" | "task" | "meeting"
+  hubspotObject String
+  hubspotId     String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  connection    CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, trivenEntity, trivenId])
+  @@index([businessId])
+  @@index([hubspotObject, hubspotId])
+}
+
+model CrmWebhookEvent {
+  id           String    @id @default(cuid())
+  connectionId String?
+  businessId   String?
+  eventType    String
+  payloadJson  Json
+  /// PENDING | PROCESSING | DONE | FAILED
+  status       String    @default("PENDING")
+  attempts     Int       @default(0)
+  lastError    String?
+  createdAt    DateTime  @default(now())
+  processedAt  DateTime?
+
+  @@index([status, createdAt])
+  @@index([businessId])
 }

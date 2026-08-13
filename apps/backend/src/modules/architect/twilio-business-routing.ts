@@ -6150,8 +6150,9 @@ export async function handleVapiWebhook(c: Context) {
       void syncCallToCrm({
         businessId: businessContext.businessId,
         customerPhone,
-        // Only a name the agent actually collected — never invented.
-        spokenName: typeof metadata.customerName === "string" ? metadata.customerName : null,
+        // spokenName is intentionally omitted: the webhook payload carries no
+        // name, so syncCallToCrm reads whatever the agent's own tools recorded
+        // (booking / captured lead). Never invented.
         summary: summary ?? null,
         callId: callId ?? null,
         channel: "VOICE"
