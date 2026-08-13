@@ -51,7 +51,12 @@ vi.mock("../../architect/twilio-connector", () => ({
   twilioRestAuthHeader: mocks.authHeader
 }));
 
-import { buildTransferTwiml, runTransferToHumanTool, type TransferToolContext } from "./human-transfer";
+import {
+  buildTransferTwiml,
+  resolveTransferCallerId,
+  runTransferToHumanTool,
+  type TransferToolContext
+} from "./human-transfer";
 
 function makeCtx(overrides: Partial<TransferToolContext> = {}): TransferToolContext {
   return {
@@ -313,5 +318,32 @@ describe("buildTransferTwiml", () => {
     // Ampersands in the action URL must be XML-escaped or Twilio rejects the document.
     expect(twiml).toContain("a=1&amp;b=2");
     expect(twiml).toContain("<Say>");
+    // Domestic default: caller-ID passthrough (no callerId attribute).
+    expect(twiml).not.toContain("callerId=");
+  });
+
+  it("stamps an explicit callerId when one is provided", () => {
+    const twiml = buildTransferTwiml({
+      destination: "+918006045606",
+      actionUrl: "https://api.test.triven.ai/x",
+      timeoutSeconds: 20,
+      callerId: "+17252245895"
+    });
+    expect(twiml).toContain('callerId="+17252245895"');
+  });
+});
+
+describe("resolveTransferCallerId", () => {
+  it("international destinations present the business's own Twilio number", () => {
+    expect(resolveTransferCallerId("+918006045606", "+17252245895")).toBe("+17252245895");
+    expect(resolveTransferCallerId("+447700900123", "+17252245895")).toBe("+17252245895");
+  });
+
+  it("domestic (+1) destinations keep caller-ID passthrough", () => {
+    expect(resolveTransferCallerId("+15550001111", "+17252245895")).toBeNull();
+  });
+
+  it("degrades to passthrough when the business number is unknown", () => {
+    expect(resolveTransferCallerId("+918006045606", null)).toBeNull();
   });
 });

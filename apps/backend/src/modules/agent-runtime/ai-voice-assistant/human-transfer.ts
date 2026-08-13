@@ -96,15 +96,33 @@ export function buildTransferTwiml(params: {
   destination: string;
   actionUrl: string;
   timeoutSeconds: number;
+  /**
+   * Explicit caller ID for the bridged leg. Default (absent) passes the
+   * customer's number through — right for domestic transfers. International
+   * destinations need the business's own Twilio number: many carriers (India
+   * among them) reject calls arriving on international routes that present a
+   * local caller ID (anti-spoofing).
+   */
+  callerId?: string | null;
 }): string {
+  const callerIdAttr = params.callerId ? ` callerId="${escapeXml(params.callerId)}"` : "";
   return [
     "<Response>",
     "<Say>Connecting you with the team now. Please hold.</Say>",
-    `<Dial timeout="${params.timeoutSeconds}" action="${escapeXml(params.actionUrl)}" method="POST" answerOnBridge="true">`,
+    `<Dial timeout="${params.timeoutSeconds}" action="${escapeXml(params.actionUrl)}" method="POST" answerOnBridge="true"${callerIdAttr}>`,
     `<Number>${escapeXml(params.destination)}</Number>`,
     "</Dial>",
     "</Response>"
   ].join("");
+}
+
+/** International hop (non-NANP destination) → present the business's own number. */
+export function resolveTransferCallerId(
+  destination: string,
+  businessNumber: string | null | undefined
+): string | null {
+  if (destination.startsWith("+1")) return null;
+  return businessNumber || null;
 }
 
 export async function runTransferToHumanTool(
@@ -280,7 +298,8 @@ export async function runTransferToHumanTool(
   const twiml = buildTransferTwiml({
     destination: firstTarget.destination,
     actionUrl,
-    timeoutSeconds: env.TWILIO_FORWARD_TIMEOUT_SECONDS
+    timeoutSeconds: env.TWILIO_FORWARD_TIMEOUT_SECONDS,
+    callerId: resolveTransferCallerId(firstTarget.destination, businessNumber)
   });
 
   const fetchImpl = deps.fetchImpl ?? fetch;

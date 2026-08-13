@@ -39,7 +39,10 @@ import {
 } from "../agent-runtime/graph-runner";
 import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/agent-knowledge";
 import { checkUsageCapAndNotify } from "../business/usage-cap";
-import { runTransferToHumanTool } from "../agent-runtime/ai-voice-assistant/human-transfer";
+import {
+  resolveTransferCallerId,
+  runTransferToHumanTool
+} from "../agent-runtime/ai-voice-assistant/human-transfer";
 import { parsePendingTargets, sendWarmHandoffContext } from "../business/team/handoff-routing";
 // [DISABLED:non-handoff] imports for the commented hooks in this file.
 // import {
@@ -131,6 +134,7 @@ import {
   smsHelpReplyText
 } from "../notifications/sms-consent";
 import { createVapiInboundTwiml, isRealId, startVapiOutboundCall, type VapiCallerContext } from "./vapi-connector";
+import { buildCrmGreeting, buildCrmPromptSection, loadCrmCallerContext, syncCallToCrm } from "../crm";
 import { enqueueEmail } from "../email/email-queue";
 import {
   applyBuyerEmailRecipients,
@@ -1441,13 +1445,46 @@ async function buildVapiAnswerTwiml({
 
   const callerContext = await resolveCallerContext(business.businessId, callerNumber, business.timeZone);
 
+  /*
+   * Customer-context CRM lookup.
+   *
+   * A recognised caller is greeted BY NAME in the first spoken sentence and the
+   * agent carries their CRM record for the rest of the call. An unknown caller
+   * gets the generic greeting untouched, and after-call sync creates them.
+   *
+   * loadCrmCallerContext fails open (returns an unknown caller) on any CRM
+   * error or timeout — the phone must always answer.
+   */
+  const crmContext = business.businessId
+    ? await loadCrmCallerContext({
+        businessId: business.businessId,
+        phone: callerNumber,
+        deep: true
+      })
+    : null;
+
+  // An after-hours greeting is a policy decision and outranks the CRM greeting;
+  // only personalise when nothing else has claimed the first message.
+  if (!firstMessageOverride && crmContext?.known) {
+    const crmGreeting = buildCrmGreeting({
+      context: crmContext,
+      businessName: business.businessName
+    });
+    if (crmGreeting) {
+      firstMessageOverride = workflowCallRecordingEnabled(agent.workflowJson)
+        ? withRecordingDisclosure(crmGreeting)
+        : crmGreeting;
+    }
+  }
+
   return createVapiInboundTwiml({
     callerNumber,
-    callerName,
+    callerName: callerName ?? crmContext?.fullName ?? null,
     reason,
     businessHours: hoursVariables,
     firstMessageOverride,
     callerContext,
+    crmContextSection: crmContext ? buildCrmPromptSection(crmContext) : null,
     business: {
       businessId: business.businessId,
       businessName: business.businessName,
@@ -1962,10 +1999,18 @@ export async function handleTwilioTransferResult(c: Context) {
     }
 
     const actionUrl = `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/twilio/transfer-result/${handoff.id}`;
+    // International destinations present the business's own number as caller
+    // ID — foreign routes with local caller IDs get rejected (anti-spoofing).
+    const cascadeCallerId = resolveTransferCallerId(
+      next.destination,
+      typeof priorMetadata.calledNumber === "string" ? priorMetadata.calledNumber : null
+    );
     const nextDialTwiml = [
       "<Response>",
       "<Say>Trying the next available team member. Please hold.</Say>",
-      `<Dial timeout="${env.TWILIO_FORWARD_TIMEOUT_SECONDS}" action="${escapeXml(actionUrl)}" method="POST" answerOnBridge="true">`,
+      `<Dial timeout="${env.TWILIO_FORWARD_TIMEOUT_SECONDS}" action="${escapeXml(actionUrl)}" method="POST" answerOnBridge="true"${
+        cascadeCallerId ? ` callerId="${escapeXml(cascadeCallerId)}"` : ""
+      }>`,
       `<Number>${escapeXml(next.destination)}</Number>`,
       "</Dial>",
       "</Response>"
@@ -6088,9 +6133,37 @@ export async function handleVapiWebhook(c: Context) {
       }
     };
 
+    /**
+     * After-call CRM sync (customer-context CRM).
+     *
+     * Existing contact (phone match) → update it and attach the AI summary.
+     * New caller → create the contact FROM THE PHONE NUMBER, then attach the
+     * summary. Email and company are omitted when the caller never gave them.
+     *
+     * Fire-and-forget: a CRM outage must never hold up or fail the Vapi
+     * webhook response, and syncCallToCrm never throws.
+     */
+    const syncCallToCrmOnCallEnd = () => {
+      if (executionMode !== "LIVE" || !isEndOfCallEvent) return;
+      if (!businessContext?.businessId || !customerPhone) return;
+
+      void syncCallToCrm({
+        businessId: businessContext.businessId,
+        customerPhone,
+        // Only a name the agent actually collected — never invented.
+        spokenName: typeof metadata.customerName === "string" ? metadata.customerName : null,
+        summary: summary ?? null,
+        callId: callId ?? null,
+        channel: "VOICE"
+      }).catch((error) => {
+        console.error("[vapi-webhook] CRM sync failed (non-fatal)", error);
+      });
+    };
+
     if (toolCalls.length === 0) {
       await settleLiveEndOfCall();
       await clearAfterHoursOnCallEnd();
+      syncCallToCrmOnCallEnd();
 
       // DISABLED: the per-call "AI call summary" email to the buyer.
       //
@@ -6136,6 +6209,7 @@ export async function handleVapiWebhook(c: Context) {
 
     if (agentPaused) {
       await clearAfterHoursOnCallEnd();
+      syncCallToCrmOnCallEnd();
       console.log("[vapi-webhook] response status", 200, "(agent paused — tools blocked)");
       return c.json({
         results: toolCalls.map((toolCall) => ({
