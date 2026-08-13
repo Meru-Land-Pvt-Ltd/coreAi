@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { safeRedirectPathFromState, verifyStatePayload } from "./oauth";
-import { computeHubSpotV3Signature, verifyHubSpotSignature } from "./webhook";
+import { computeHubSpotV3Signature, resolveWebhookSecret, verifyHubSpotSignature } from "./webhook";
 import { CRM_CATALOG, findCatalogEntry, isLiveProvider, providerDisplayName } from "../catalog";
 
 /**
@@ -124,6 +124,34 @@ describe("verifyHubSpotSignature", () => {
     const verdict = verifyHubSpotSignature({ secret, method: "POST", uri, body, timestamp, signature, now });
     expect(verdict.valid).toBe(false);
     expect(verdict.reason).toMatch(/window/i);
+  });
+});
+
+describe("resolveWebhookSecret", () => {
+  it("falls back to the client secret when no webhook secret is set", () => {
+    expect(resolveWebhookSecret({ clientSecret: "client-abc" })).toBe("client-abc");
+  });
+
+  it("treats a blank KEY= line as absent, not as an empty secret", () => {
+    // dotenv parses `HUBSPOT_CLIENT_SECRET_WEBHOOK=` as "", which `??` would
+    // have kept — leaving production rejecting every webhook as unsigned.
+    expect(resolveWebhookSecret({ webhookSecret: "", clientSecret: "client-abc" })).toBe(
+      "client-abc"
+    );
+    expect(resolveWebhookSecret({ webhookSecret: "   ", clientSecret: "client-abc" })).toBe(
+      "client-abc"
+    );
+  });
+
+  it("prefers an explicitly rotated webhook secret", () => {
+    expect(resolveWebhookSecret({ webhookSecret: "rotated", clientSecret: "client-abc" })).toBe(
+      "rotated"
+    );
+  });
+
+  it("returns undefined when neither is configured", () => {
+    expect(resolveWebhookSecret({ webhookSecret: "", clientSecret: "" })).toBeUndefined();
+    expect(resolveWebhookSecret({})).toBeUndefined();
   });
 });
 

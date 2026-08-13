@@ -5,22 +5,20 @@ import { enqueueHubSpotWebhookEvent } from "./hubspot-queue";
 import { recordHubSpotWebhookEvent } from "./sync.service";
 import { hubspotWebhookUrl } from "./token.service";
 
-/**
- * Public HubSpot webhook endpoint (no JWT — HubSpot has no Triven token).
- *
- * Authenticity comes from the v3 request signature. In production an unsigned
- * or mis-signed request is rejected outright; outside production it is allowed
- * with a warning so local tunnels stay usable.
- *
- * The handler stores and returns. HubSpot retries anything it does not get a
- * fast 2xx for, so no CRM work happens inside the request.
- */
-
 /** HubSpot rejects its own replays after 5 minutes; match that window. */
 const MAX_SIGNATURE_AGE_MS = 5 * 60 * 1000;
 
-function webhookSecret(): string | undefined {
-  return env.HUBSPOT_CLIENT_SECRET_WEBHOOK ?? env.HUBSPOT_CLIENT_SECRET;
+export function resolveWebhookSecret(
+  source: { webhookSecret?: string; clientSecret?: string } = {
+    webhookSecret: env.HUBSPOT_CLIENT_SECRET_WEBHOOK,
+    clientSecret: env.HUBSPOT_CLIENT_SECRET
+  }
+): string | undefined {
+  const explicit = source.webhookSecret?.trim();
+  if (explicit) return explicit;
+
+  const fallback = source.clientSecret?.trim();
+  return fallback || undefined;
 }
 
 /**
@@ -81,7 +79,7 @@ export async function handleHubSpotWebhookPost(c: Context) {
   const rawBody = await c.req.text();
   const signature = c.req.header("x-hubspot-signature-v3") ?? "";
   const timestamp = c.req.header("x-hubspot-request-timestamp") ?? "";
-  const secret = webhookSecret();
+  const secret = resolveWebhookSecret();
 
   if (secret && signature && timestamp) {
     const verdict = verifyHubSpotSignature({
