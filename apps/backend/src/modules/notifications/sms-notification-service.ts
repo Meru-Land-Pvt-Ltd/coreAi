@@ -474,6 +474,134 @@ export async function sendAppointmentConfirmationSms(
   });
 }
 
+export type DashboardAppointmentNotificationInput = {
+  appointmentId: string;
+  businessId: string;
+  customerPhone: string;
+  customerName?: string | null;
+  serviceName?: string | null;
+  appointmentDate: Date | string;
+  appointmentTime?: string;
+  timeZone?: string | null;
+  reason?: string;
+  installedAgentId?: string | null;
+};
+
+export async function sendAppointmentDashboardCancellationSms(
+  input: DashboardAppointmentNotificationInput
+): Promise<SmsSendOutcome> {
+  const business = await prisma.business.findUnique({
+    where: { id: input.businessId },
+    include: { profile: { select: { timeZone: true } } }
+  });
+  if (!business) {
+    return {
+      attempted: false,
+      sent: false,
+      simulated: false,
+      testCredentials: false,
+      alreadySent: false,
+      suppressed: false,
+      executionId: null,
+      messageSid: null,
+      status: null,
+      from: null,
+      messagingServiceSid: null,
+      error: "Business not found for appointment cancellation.",
+      errorCode: null
+    };
+  }
+
+  const timeZone = input.timeZone || business.profile?.timeZone || "America/New_York";
+  const startAt = toDate(input.appointmentDate);
+  const businessPhone = await resolveBusinessDisplayPhone(input.businessId, input.installedAgentId);
+  const dateStr = formatDateInZone(startAt, timeZone);
+  const timeStr = input.appointmentTime || formatTimeInZone(startAt, timeZone);
+  const service = input.serviceName && input.serviceName !== "your" ? `${input.serviceName} ` : "";
+  const customerName = input.customerName || "there";
+
+  const lines = [
+    `${smsAttributionPrefix(business.name)}Hi ${customerName}, your ${service}appointment on ${dateStr} at ${timeStr} has been cancelled.`
+  ];
+  if (input.reason?.trim()) {
+    lines.push(`Reason: ${input.reason.trim()}`);
+  }
+  if (businessPhone) {
+    lines.push(`To reschedule, please call ${businessPhone}.`);
+  }
+  lines.push("Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.");
+
+  return sendTrackedSms({
+    to: input.customerPhone,
+    body: lines.join("\n"),
+    messageType: "APPOINTMENT_CANCELLATION",
+    businessId: input.businessId,
+    businessName: business.name,
+    smsPurpose: "CANCELLATION_CONFIRMATION",
+    installedAgentId: input.installedAgentId ?? null,
+    appointmentId: input.appointmentId
+  });
+}
+
+export async function sendAppointmentDashboardRescheduleRequestSms(
+  input: DashboardAppointmentNotificationInput
+): Promise<SmsSendOutcome> {
+  const business = await prisma.business.findUnique({
+    where: { id: input.businessId },
+    include: { profile: { select: { timeZone: true } } }
+  });
+  if (!business) {
+    return {
+      attempted: false,
+      sent: false,
+      simulated: false,
+      testCredentials: false,
+      alreadySent: false,
+      suppressed: false,
+      executionId: null,
+      messageSid: null,
+      status: null,
+      from: null,
+      messagingServiceSid: null,
+      error: "Business not found for appointment reschedule request.",
+      errorCode: null
+    };
+  }
+
+  const timeZone = input.timeZone || business.profile?.timeZone || "America/New_York";
+  const startAt = toDate(input.appointmentDate);
+  const businessPhone = await resolveBusinessDisplayPhone(input.businessId, input.installedAgentId);
+  const dateStr = formatDateInZone(startAt, timeZone);
+  const timeStr = input.appointmentTime || formatTimeInZone(startAt, timeZone);
+  const service = input.serviceName && input.serviceName !== "your" ? `${input.serviceName} ` : "";
+  const customerName = input.customerName || "there";
+
+  const lines = [
+    `${smsAttributionPrefix(business.name)}Hi ${customerName}, we need to reschedule your ${service}appointment on ${dateStr} at ${timeStr}.`
+  ];
+  if (input.reason?.trim()) {
+    lines.push(`Note: ${input.reason.trim()}`);
+  }
+  if (businessPhone) {
+    lines.push(`Please call us at ${businessPhone} to pick a new time slot.`);
+  } else {
+    lines.push("Please contact us to pick a new time slot.");
+  }
+  lines.push("Reply STOP to opt out or HELP for assistance. Msg & data rates may apply.");
+
+  return sendTrackedSms({
+    to: input.customerPhone,
+    body: lines.join("\n"),
+    messageType: "APPOINTMENT_RESCHEDULE",
+    businessId: input.businessId,
+    businessName: business.name,
+    smsPurpose: "RESCHEDULE_REQUEST",
+    installedAgentId: input.installedAgentId ?? null,
+    appointmentId: input.appointmentId
+  });
+}
+
+
 /* ---------------------- delivery status (webhook) ------------------------- */
 
 export type TwilioStatusCallbackParams = {

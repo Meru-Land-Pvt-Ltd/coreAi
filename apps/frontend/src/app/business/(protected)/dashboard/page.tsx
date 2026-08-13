@@ -11,6 +11,7 @@ import { AgentPauseConfirmationModal } from "@/components/business/agent-pause-c
 import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { BUSINESS_AGENTS_PATH, BUSINESS_BILLING_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH, businessSetupPath, businessAgentDetailPath } from "@/lib/routes";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
+import { BookingActionsModal } from "@/components/business/booking-actions-modal";
 
 type ApiPurchasedAgent = {
     purchaseId: string;
@@ -402,6 +403,15 @@ export default function BusinessDashboardPage() {
     const [overviewState, setOverviewState] = useState<"loading" | "ready" | "error">("loading");
     const [agents, setAgents] = useState<Agent[]>([]);
     const [agentsState, setAgentsState] = useState<"loading" | "ready" | "error">("loading");
+    const [bookingActionModal, setBookingActionModal] = useState<{
+        isOpen: boolean;
+        mode: "cancel" | "reschedule";
+        booking: DashboardBooking | null;
+    }>({
+        isOpen: false,
+        mode: "cancel",
+        booking: null
+    });
 
     const {
         pricing: executionPricing,
@@ -488,6 +498,14 @@ export default function BusinessDashboardPage() {
         setCurrentUser(readCoreAiUser());
         setFullDate(getFullDate());
     }, []);
+
+    async function reloadOverview() {
+        const result = await apiGet<DashboardOverview>("/business/dashboard");
+        if (result.success && result.data) {
+            setOverview(result.data);
+            setOverviewState("ready");
+        }
+    }
 
     useEffect(() => {
         let active = true;
@@ -746,7 +764,16 @@ export default function BusinessDashboardPage() {
                         ) : (
                             <div className="max-h-96 divide-y divide-gray-50 overflow-y-auto" data-testid="dashboard-bookings-list">
                                 {(overview?.bookings?.items ?? []).map((booking) => (
-                                    <BookingRow key={booking.id} booking={booking} />
+                                    <BookingRow
+                                        key={booking.id}
+                                        booking={booking}
+                                        onCancel={(targetBooking) =>
+                                            setBookingActionModal({ isOpen: true, mode: "cancel", booking: targetBooking })
+                                        }
+                                        onRequestReschedule={(targetBooking) =>
+                                            setBookingActionModal({ isOpen: true, mode: "reschedule", booking: targetBooking })
+                                        }
+                                    />
                                 ))}
                             </div>
                         )}
@@ -895,6 +922,14 @@ export default function BusinessDashboardPage() {
                     </section>
                 </div>
             </div>
+
+            <BookingActionsModal
+                isOpen={bookingActionModal.isOpen}
+                mode={bookingActionModal.mode}
+                booking={bookingActionModal.booking}
+                onClose={() => setBookingActionModal({ isOpen: false, mode: "cancel", booking: null })}
+                onSuccess={() => void reloadOverview()}
+            />
         </main>
     );
 }
@@ -1240,12 +1275,22 @@ function bookingStatusTone(status: string) {
     const value = status.toUpperCase();
     if (value === "BOOKED" || value === "CONFIRMED") return "bg-green-50 text-green-700";
     if (value === "CANCELLED" || value === "CANCELED") return "bg-red-50 text-red-600";
+    if (value === "RESCHEDULE_REQUESTED") return "bg-amber-50 text-amber-800 border border-amber-200";
     return "bg-slate-100 text-slate-600";
 }
 
-function BookingRow({ booking }: { booking: DashboardBooking }) {
+function BookingRow({
+    booking,
+    onCancel,
+    onRequestReschedule
+}: {
+    booking: DashboardBooking;
+    onCancel?: (booking: DashboardBooking) => void;
+    onRequestReschedule?: (booking: DashboardBooking) => void;
+}) {
     const customer = booking.customerName?.trim() || booking.customerPhone;
     const isUpcoming = new Date(booking.startAt).getTime() > Date.now();
+    const isCancelled = booking.status.toUpperCase() === "CANCELLED" || booking.status.toUpperCase() === "CANCELED";
     const isRescheduled = Boolean(booking.previousScheduleLabel || booking.previousScheduledAt);
     const startClock = formatBookingClock(booking.startAt, booking.timeZone);
     const endClock = formatBookingClock(booking.endAt, booking.timeZone);
@@ -1291,8 +1336,30 @@ function BookingRow({ booking }: { booking: DashboardBooking }) {
                     </span>
                 ) : null}
                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${bookingStatusTone(booking.status)}`} data-testid="dashboard-booking-status">
-                    {booking.status}
+                    {booking.status === "RESCHEDULE_REQUESTED" ? "Reschedule Requested" : booking.status}
                 </span>
+
+                {isUpcoming && !isCancelled ? (
+                    <>
+                        <button
+                            type="button"
+                            onClick={() => onRequestReschedule?.(booking)}
+                            className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-white px-2.5 py-0.5 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-50"
+                            data-testid={`dashboard-booking-request-reschedule-${booking.id}`}
+                        >
+                            Request Reschedule
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => onCancel?.(booking)}
+                            className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-white px-2.5 py-0.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50"
+                            data-testid={`dashboard-booking-cancel-${booking.id}`}
+                        >
+                            Cancel
+                        </button>
+                    </>
+                ) : null}
+
                 {booking.confirmationSms && (booking.confirmationSms.status === "UNDELIVERED" || booking.confirmationSms.status === "FAILED") ? (
                     <span
                         className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700"
