@@ -7,6 +7,7 @@ export * from "./execution-mode";
 export * from "./google-disclosure";
 export * from "./llm-models";
 export * from "./node-registry";
+export * from "./architect-node-catalog";
 export * from "./prompt-variables";
 export * from "./sms-consent";
 export * from "./spoken-date";

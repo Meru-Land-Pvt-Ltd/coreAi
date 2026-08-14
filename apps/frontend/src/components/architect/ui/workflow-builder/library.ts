@@ -68,7 +68,7 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem("ai.context_reply", { icon: "sparkles", accent: "violet" }),
       paletteItem("ai.memory", { icon: "database", accent: "violet" }),
       {
-        ...      paletteItem("ai.image_generation", { icon: "image", accent: "violet" }),
+        ...paletteItem("ai.image_generation", { icon: "image", accent: "violet" }),
         badge: "BETA"
       },
       {
@@ -105,28 +105,23 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(CALENDLY_NODE_TYPES.action, { icon: "calendly", accent: "blue", kind: "CALENDLY" })
     ]
   },
-  /* Keep the common reply action visible; advanced Telegram actions remain
-     hidden until their dedicated UX is ready. */
+  /* Keep the common reply action visible by default; advanced Telegram actions
+     stay in the palette so Admin → Builder nodes can turn them on. */
   {
     title: "Telegram Features",
     items: [
-      paletteItem(TELEGRAM_NODE_TYPES.sendMessage, { icon: "telegram", accent: "blue" })
+      paletteItem(TELEGRAM_NODE_TYPES.sendMessage, { icon: "telegram", accent: "blue" }),
+      paletteItem(TELEGRAM_NODE_TYPES.sendButtons, { icon: "telegram", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.answerCallback, { icon: "telegram", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.requestContact, { icon: "telegram", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.sendPhoto, { icon: "image", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.sendDocument, { icon: "file", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.sendVoice, { icon: "mic", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.sendLocation, { icon: "map-pin", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.editMessage, { icon: "edit", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.deleteMessage, { icon: "trash", accent: "red" })
     ]
   },
-  // {
-  //   title: "Telegram Bot Advanced",
-  //   items: [
-  //     paletteItem(TELEGRAM_NODE_TYPES.sendButtons, { icon: "telegram", accent: "green" }),
-  //     paletteItem(TELEGRAM_NODE_TYPES.answerCallback, { icon: "telegram", accent: "green" }),
-  //     paletteItem(TELEGRAM_NODE_TYPES.requestContact, { icon: "telegram", accent: "green" }),
-  //     paletteItem(TELEGRAM_NODE_TYPES.sendPhoto, { icon: "image", accent: "green" }),
-  //     paletteItem(TELEGRAM_NODE_TYPES.sendDocument, { icon: "file", accent: "green" }),
-  //     paletteItem(TELEGRAM_NODE_TYPES.sendVoice, { icon: "mic", accent: "green" }),
-  //     paletteItem(TELEGRAM_NODE_TYPES.sendLocation, { icon: "map-pin", accent: "green" }),
-  //     paletteItem(TELEGRAM_NODE_TYPES.editMessage, { icon: "edit", accent: "green" }),
-  //     paletteItem(TELEGRAM_NODE_TYPES.deleteMessage, { icon: "trash", accent: "red" })
-  //   ]
-  // },
   {
     title: "Communication",
     items: [
@@ -135,22 +130,23 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem("action.send_whatsapp", { icon: "whatsapp", accent: "green" })
     ]
   },
-  // {
-  //   title: "CRM / Data",
-  //   items: [
-  //     paletteItem("action.save_lead", { icon: "capture", accent: "blue" }),
-  //     paletteItem("action.save_conversation_message", { icon: "message", accent: "green" })
-  //   ]
-  // },
+  {
+    title: "CRM / Data",
+    items: [
+      paletteItem("action.save_lead", { icon: "capture", accent: "blue" }),
+      paletteItem("action.save_conversation_message", { icon: "message", accent: "green" })
+    ]
+  },
   {
     title: "Routing / Logic",
     items: [
       paletteItem("logic.condition", { icon: "diamond", accent: "orange", kind: "BUSINESS HOURS" }),
-      // Human Handoff is intentionally hidden from the architect library.
-      // paletteItem("action.human_handoff", { icon: "phone-call", accent: "red" }),
+      paletteItem("action.human_handoff", { icon: "phone-call", accent: "red" }),
       paletteItem(VOICE_NODE_TYPES.endFlow, { icon: "capture", accent: "slate" })
     ]
   }
 ];
 
-// Coming Soon nodes are intentionally hidden from the architect library.
+export function libraryItemType(item: LibraryItem): string {
+  return typeof item.overrides?.type === "string" ? item.overrides.type : "";
+}

@@ -13,6 +13,7 @@ import {
   LifeBuoy,
   LogOut,
   KeyRound,
+  LayoutGrid,
   Mail,
   MessageSquareText,
   Phone,
@@ -53,7 +54,8 @@ const NAV_GROUPS: Array<{ label: string; items: AdminNavItem[] }> = [
       { label: "Pricing", href: "/admin/pricing" as Route, icon: Tags },
       { label: "Phone numbers", href: "/admin/phone-numbers" as Route, icon: Phone },
       { label: "Mail", href: "/admin/mail" as Route, icon: Mail },
-      { label: "Manage API", href: "/admin/manage-api" as Route, icon: KeyRound }
+      { label: "Manage API", href: "/admin/manage-api" as Route, icon: KeyRound },
+      { label: "Builder nodes", href: "/admin/builder-nodes" as Route, icon: LayoutGrid }
     ]
   },
   {

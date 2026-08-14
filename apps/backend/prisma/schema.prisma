@@ -2240,6 +2240,31 @@ model PlatformApiSetting {
   @@index([updatedAt])
 }
 
+/// Admin-controlled palette presentation for architect workflow-builder nodes.
+/// Missing rows / null label+group use catalog defaults from @coreai/shared.
+model ArchitectNodeVisibility {
+  id        String   @id @default(cuid())
+  nodeType  String   @unique
+  visible   Boolean  @default(true)
+  /// Null = catalog label.
+  label     String?
+  /// Null = catalog group.
+  group     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([visible])
+}
+
+/// Admin-created architect palette groups. Catalog groups live in shared code;
+/// extra names here survive refresh even before a node is assigned.
+model ArchitectNodeGroup {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 // ============================================================================
 // Business team / RBAC (plan Parts 1 & 6). One business is no longer one
 // login: members are people (optionally linked to a User login) with roles,
