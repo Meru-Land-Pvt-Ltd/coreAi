@@ -9,6 +9,7 @@ import {
   formatUsdRate,
   useBuyerExecutionPricing
 } from "@/components/business/execution-pricing-summary";
+import { AiPricingSection } from "@/components/business/ai-pricing-section";
 import { buildTransparentExecutionPricing } from "@/lib/transparent-execution-pricing";
 import {
   ASSIGNMENT_PATH,
@@ -341,6 +342,8 @@ export default function PricingPage() {
             </p>
           </div>
         </section>
+
+        <AiPricingSection />
 
         <section id="calculator" className="scroll-mt-24 px-6 py-20 sm:py-24">
           <div className="mx-auto max-w-5xl">

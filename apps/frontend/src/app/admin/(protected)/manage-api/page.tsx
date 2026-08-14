@@ -1,21 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Check, LoaderCircle, Search } from "lucide-react";
+import { LLM_PROVIDERS } from "@coreai/shared";
 import {
   getAdminApiSettings,
   updateAdminApiSettings,
   type AdminApiSettingField,
   type AdminApiSettingGroup
 } from "@/components/admin/features/api";
+import {
+  formatAiTokenPrice,
+  previewAdminAiProviderModels,
+  type AiPricingModel
+} from "@/components/business/ai-pricing-api";
 
 /**
- * Admin → Manage API.
+ * Admin -> Manage API.
  *
  * Platform credentials live in the database so a key can be rotated without a
  * redeploy. A key left blank here keeps using the matching .env value, so this
  * page can be adopted one field at a time and never takes a provider offline.
  *
- * Stored secrets are only ever returned masked — the plaintext never leaves the
+ * Stored secrets are only ever returned masked - the plaintext never leaves the
  * server, which is why a saved field shows "••••" rather than the real key.
  */
 
@@ -25,24 +32,45 @@ const SOURCE_BADGE: Record<AdminApiSettingField["source"], { label: string; clas
   unset: { label: "Not set", className: "border-slate-200 bg-slate-50 text-slate-500" }
 };
 
+type ModelSearchState = {
+  loading: boolean;
+  error: string;
+  models: AiPricingModel[];
+};
+
 export default function ManageApiPage() {
   const [groups, setGroups] = useState<AdminApiSettingGroup[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [modelSearches, setModelSearches] = useState<Record<string, ModelSearchState>>({});
+  const [selectedModels, setSelectedModels] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const aiProvidersByEnvKey = useMemo(
+    () => new Map(LLM_PROVIDERS.map((provider) => [provider.envKey, provider] as const)),
+    []
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     const response = await getAdminApiSettings();
-    if (!response.success || !response.data) {
+    if (!response.success) {
       setError(response.error ?? "Could not load API settings.");
       setLoading(false);
       return;
     }
-    setGroups(response.data.groups);
+    const data = response.data;
+    if (!data) {
+      setError("Could not load API settings.");
+      setLoading(false);
+      return;
+    }
+    setGroups(data.groups);
     setDrafts({});
+    setModelSearches({});
+    setSelectedModels({});
     setError("");
     setLoading(false);
   }, []);
@@ -51,7 +79,7 @@ export default function ManageApiPage() {
     void load();
   }, [load]);
 
-  // Only edited fields are sent — an untouched masked value must never be saved
+  // Only edited fields are sent - an untouched masked value must never be saved
   // back, or the mask itself would overwrite the real key.
   const edited = Object.entries(drafts).filter(([, value]) => value !== undefined);
 
@@ -62,21 +90,99 @@ export default function ManageApiPage() {
     setError("");
 
     const response = await updateAdminApiSettings(edited.map(([key, value]) => ({ key, value })));
-    if (!response.success || !response.data) {
+    if (!response.success) {
       setError(response.error ?? "Could not save API settings.");
       setSaving(false);
       return;
     }
+    const data = response.data;
+    if (!data) {
+      setError("Could not save API settings.");
+      setSaving(false);
+      return;
+    }
 
-    setGroups(response.data.groups);
+    setGroups(data.groups);
     setDrafts({});
-    const { saved, cleared } = response.data;
+    setModelSearches({});
+    setSelectedModels({});
+    const { saved, cleared } = data;
     setMessage(
       cleared > 0
         ? `Saved ${saved} key${saved === 1 ? "" : "s"}, cleared ${cleared} back to .env.`
-        : `Saved ${saved} key${saved === 1 ? "" : "s"}. Changes are live immediately — no restart needed.`
+        : `Saved ${saved} key${saved === 1 ? "" : "s"}. Changes are live immediately - no restart needed.`
     );
     setSaving(false);
+  }
+
+  async function searchModels(providerId: string, apiKey?: string) {
+    setModelSearches((current) => ({
+      ...current,
+      [providerId]: {
+        loading: true,
+        error: "",
+        models: current[providerId]?.models ?? []
+      }
+    }));
+
+    const response = await previewAdminAiProviderModels(providerId, apiKey?.trim() || undefined);
+    if (!response.success) {
+      setModelSearches((current) => ({
+        ...current,
+        [providerId]: {
+          loading: false,
+          error: response.error ?? "Could not load models.",
+          models: []
+        }
+      }));
+      return;
+    }
+    const data = response.data;
+    if (!data) {
+      setModelSearches((current) => ({
+        ...current,
+        [providerId]: {
+          loading: false,
+          error: "Could not load models.",
+          models: []
+        }
+      }));
+      return;
+    }
+
+    setModelSearches((current) => ({
+      ...current,
+      [providerId]: {
+        loading: false,
+        error: "",
+        models: data.models
+      }
+    }));
+    setSelectedModels((current) => {
+      const currentSelection = current[providerId];
+      const stillAvailable = data.models.some((model) => model.modelId === currentSelection);
+      return {
+        ...current,
+        [providerId]: stillAvailable
+          ? currentSelection ?? ""
+          : data.models[0]?.modelId ?? currentSelection ?? ""
+      };
+    });
+  }
+
+  function clearProviderSearch(providerId: string) {
+    setModelSearches((current) => {
+      if (!(providerId in current)) return current;
+      const next = { ...current };
+      delete next[providerId];
+      return next;
+    });
+    setSelectedModels((current) => {
+      if (!(providerId in current)) return current;
+      const next = { ...current };
+      delete next[providerId];
+      return next;
+    });
   }
 
   return (
@@ -131,6 +237,10 @@ export default function ManageApiPage() {
                 {group.fields.map((field) => {
                   const badge = SOURCE_BADGE[field.source];
                   const draft = drafts[field.key];
+                  const provider = aiProvidersByEnvKey.get(field.key);
+                  const searchState = provider ? modelSearches[provider.id] : undefined;
+                  const canSearch = Boolean(provider && (draft?.trim() || field.source !== "unset"));
+
                   return (
                     <div key={field.key}>
                       <div className="flex items-center justify-between gap-2">
@@ -155,18 +265,110 @@ export default function ManageApiPage() {
                         autoComplete="off"
                         value={draft ?? ""}
                         placeholder={field.value || "Not configured"}
-                        onChange={(event) =>
-                          setDrafts((current) => ({ ...current, [field.key]: event.target.value }))
-                        }
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setDrafts((current) => ({ ...current, [field.key]: value }));
+                          if (provider) clearProviderSearch(provider.id);
+                        }}
                         className="mt-1.5 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-sm text-slate-800 placeholder:font-sans placeholder:text-slate-400 focus:border-amber-300 focus:outline-none focus:ring-4 focus:ring-amber-100"
                       />
 
                       <p className="mt-1 text-[11px] text-slate-400">
                         <span className="font-mono">{field.key}</span>
                         {draft !== undefined && draft.trim() === "" && field.source === "admin"
-                          ? " — saving blank restores the .env value"
+                          ? " - saving blank restores the .env value"
                           : ""}
                       </p>
+
+                      {provider ? (
+                        <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50/50 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              disabled={!canSearch || searchState?.loading === true}
+                              onClick={() => void searchModels(provider.id, draft)}
+                              className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {searchState?.loading ? (
+                                <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Search aria-hidden="true" className="h-3.5 w-3.5" />
+                              )}
+                              Search
+                            </button>
+                            <span className="text-[11px] text-slate-500">
+                              {canSearch
+                                ? "Click Search to load the live model list."
+                                : "Add or save a key to enable model search."}
+                            </span>
+                          </div>
+
+                          {searchState?.error ? (
+                            <p className="mt-2 text-xs font-medium text-red-600">{searchState.error}</p>
+                          ) : null}
+
+                          {searchState?.models.length ? (
+                            <div className="mt-3 space-y-2">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                Available models
+                              </p>
+                              <div className="grid gap-2">
+                                {searchState.models.map((model) => {
+                                  const selected = selectedModels[provider.id] === model.modelId;
+                                  const inputPrice =
+                                    model.inputPricePer1MToken === null
+                                      ? "N/A"
+                                      : formatAiTokenPrice(model.inputPricePer1MToken);
+                                  const outputPrice =
+                                    model.outputPricePer1MToken === null
+                                      ? "N/A"
+                                      : formatAiTokenPrice(model.outputPricePer1MToken);
+                                  return (
+                                    <button
+                                      key={model.modelId}
+                                      type="button"
+                                      onClick={() =>
+                                        setSelectedModels((current) => ({
+                                          ...current,
+                                          [provider.id]: model.modelId
+                                        }))
+                                      }
+                                      className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition ${
+                                        selected
+                                          ? "border-amber-300 bg-white shadow-sm"
+                                          : "border-amber-100 bg-white/80 hover:border-amber-200 hover:bg-white"
+                                      }`}
+                                    >
+                                      <span className="min-w-0">
+                                        <span className="block truncate text-sm font-semibold text-slate-900">
+                                          {model.displayName}
+                                        </span>
+                                        <span className="block truncate font-mono text-[11px] text-slate-500">
+                                          {model.modelId}
+                                        </span>
+                                      </span>
+                                      <span className="shrink-0 text-right text-[11px] text-slate-600">
+                                        <span className="block font-semibold text-slate-900">
+                                          Input: {inputPrice}
+                                        </span>
+                                        <span className="block">
+                                          Output: {outputPrice}
+                                        </span>
+                                      </span>
+                                      {selected ? (
+                                        <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-amber-600" />
+                                      ) : null}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <p className="text-[11px] text-slate-500">
+                                Click a model to mark it as selected for this key.
+                              </p>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -199,7 +401,7 @@ export default function ManageApiPage() {
             data-testid="admin-manage-api-save"
             className="rounded-xl bg-amber-500 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-50"
           >
-            {saving ? "Saving…" : "Save changes"}
+            {saving ? "Saving..." : "Save changes"}
           </button>
         </div>
       </div>

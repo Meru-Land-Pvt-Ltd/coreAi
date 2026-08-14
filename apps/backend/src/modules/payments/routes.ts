@@ -50,6 +50,11 @@ import {
   type InstalledAgentUsageStats
 } from "../business/installed-agent-run-stats";
 import { reconcileBusinessExecutionUsage } from "../business/execution-billing";
+import {
+  listAiProviderModels,
+  listAiProviderSummaries,
+  ProviderModelDiscoveryError
+} from "../ai-provider-engine/provider-model-discovery";
 
 export const paymentRoutes = new Hono();
 
@@ -82,6 +87,29 @@ paymentRoutes.get("/execution-pricing", async (c) => {
     },
     phoneNumberBilling
   });
+});
+
+paymentRoutes.get("/ai-pricing", async (c) => {
+  return successResponse(c, {
+    providers: listAiProviderSummaries()
+  });
+});
+
+paymentRoutes.get("/ai-pricing/:providerId", async (c) => {
+  try {
+    const result = await listAiProviderModels(c.req.param("providerId"));
+    return successResponse(c, result, "AI models loaded");
+  } catch (error) {
+    if (error instanceof ProviderModelDiscoveryError) {
+      return errorResponse(c, error.message, error.status, error.code);
+    }
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not load AI models.",
+      503,
+      "MODEL_DISCOVERY_FAILED"
+    );
+  }
 });
 
 paymentRoutes.use("*", requireAuth);

@@ -18,6 +18,10 @@ import {
   listPlatformApiSettings,
   savePlatformApiSettings
 } from "./platform-api-settings";
+import {
+  listAiProviderModels,
+  ProviderModelDiscoveryError
+} from "../ai-provider-engine/provider-model-discovery";
 
 export const adminRoutes = new Hono();
 
@@ -77,6 +81,34 @@ adminRoutes.put("/api-settings", async (c) => {
   }).catch(() => undefined);
 
   return successResponse(c, { groups: await listPlatformApiSettings(), ...result }, "API settings saved");
+});
+
+const aiPricingPreviewSchema = z.object({
+  apiKey: z.string().trim().max(4000).optional()
+});
+
+adminRoutes.post("/api-settings/ai-pricing/:providerId", async (c) => {
+  const parsed = aiPricingPreviewSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid API key preview payload", 422, "VALIDATION_ERROR");
+  }
+
+  try {
+    const result = await listAiProviderModels(c.req.param("providerId"), {
+      apiKey: parsed.data.apiKey
+    });
+    return successResponse(c, result, "AI models loaded");
+  } catch (error) {
+    if (error instanceof ProviderModelDiscoveryError) {
+      return errorResponse(c, error.message, error.status, error.code);
+    }
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not load AI models.",
+      503,
+      "MODEL_DISCOVERY_FAILED"
+    );
+  }
 });
 
 function parsePagination(c: { req: { query: (k: string) => string | undefined } }) {
