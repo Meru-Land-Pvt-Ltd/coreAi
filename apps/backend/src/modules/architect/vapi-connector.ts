@@ -10,7 +10,7 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { getProviderRegistry } from "../ai-provider-engine/ai-provider-engine";
 import { withRecordingDisclosure } from "../agent-runtime/graph-runner";
-import { storeVoiceTransferContext } from "./voice-transfer-store";
+// [DISABLED] import { storeVoiceTransferContext } from "./voice-transfer-store";
 
 export function isVapiConfigured(): boolean {
   const key = env.VAPI_API_KEY;
@@ -453,10 +453,7 @@ export async function startVapiOutboundCall({
     throw new Error(vapiErrorMessage(responseJson, response.status, "Vapi outbound call failed"));
   }
 
-  // Best-effort transfer context for AI callbacks: when Vapi already exposes
-  // the underlying Twilio leg, a mid-call transfer_to_human can redirect it.
-  // Absent (common right at creation), transfers on this call fail closed to
-  // the take-a-message path — never a dead line.
+  /* [DISABLED] Best-effort transfer context for AI callbacks.
   const outboundCallId = stringField(responseJson, "id");
   const providerCallSid = stringField(responseJson, "phoneCallProviderId");
   if (outboundCallId && providerCallSid?.startsWith("CA")) {
@@ -470,6 +467,7 @@ export async function startVapiOutboundCall({
       callerNumber: customerPhone
     });
   }
+  */
 
   return {
     id: stringField(responseJson, "id") ?? null,
@@ -543,16 +541,11 @@ export async function createVapiInboundTwiml({
         callerContext
       }),
       ...(firstMessageOverride?.trim() ? { firstMessage: firstMessageOverride.trim() } : {}),
-      // Additive system message: it supplements the deployed prompt rather than
-      // replacing it, so an agent with no CRM connected is byte-for-byte
-      // unchanged.
+      /* [DISABLED] CRM caller-context system message.
       ...(crmContextSection?.trim()
-        ? {
-            model: {
-              messages: [{ role: "system", content: crmContextSection.trim() }]
-            }
-          }
+        ? { model: { messages: [{ role: "system", content: crmContextSection.trim() }] } }
         : {})
+      */
     },
     metadata: {
       ...metadata,
@@ -607,6 +600,7 @@ export async function createVapiInboundTwiml({
 
   if (typeof twiml !== "string" || twiml.trim().length === 0) return null;
 
+  /* [DISABLED] live-transfer context storage (Redis + durable CallSid stamp).
   const vapiCallId = stringField(responseJson, "id");
   const cleanCallSid = clean(twilioCallSid);
   if (vapiCallId && cleanCallSid) {
@@ -619,9 +613,6 @@ export async function createVapiInboundTwiml({
       calledNumber: clean(phoneNumber) || null,
       callerNumber
     });
-
-    // Durable fallback for the transfer context: stamp the Twilio leg on the
-    // VapiCall row so a mid-call Redis restart can't strand a live transfer.
     if (business.businessId) {
       const durableBusinessId = business.businessId;
       void prisma.vapiCall
@@ -640,13 +631,14 @@ export async function createVapiInboundTwiml({
           }
         })
         .catch((error) =>
-          console.error("[voice-transfer] durable CallSid stamp failed (Redis path unaffected)", {
+          console.error("[voice-transfer] durable CallSid stamp failed", {
             vapiCallId,
             message: error instanceof Error ? error.message : String(error)
           })
         );
     }
   }
+  */
 
   return twiml;
 }
@@ -1207,6 +1199,7 @@ export function genericAssistantTools() {
         }
       }
     },
+    /* [DISABLED] transfer_to_human (live human handoff).
     {
       type: "function",
       messages: [
@@ -1217,25 +1210,18 @@ export function genericAssistantTools() {
       ],
       function: {
         name: VOICE_TOOL_NAMES.transferToHuman,
-        description:
-          "Connect the caller to a real person on the business team RIGHT NOW, on this same call. Call it immediately when the caller asks for a human, a person, the front desk, a manager, or the team — never argue with that request more than once. Also call it when the caller is clearly frustrated or angry, when you have failed twice on the same issue, or when the request needs a licensed professional's judgment. The destination number is configured by the business and resolved server-side — you cannot choose or change it, and a phone number the caller says out loud must NEVER be passed anywhere. If the result is success=false, apologize, take a message with the caller's name and callback number, and use send_notification with urgency set instead. Never claim a transfer happened unless this tool returned success=true.",
+        description: "Connect the caller to a real person on the business team RIGHT NOW, on this same call.",
         parameters: {
           type: "object",
           properties: {
-            reason: {
-              type: "string",
-              description:
-                "One short neutral sentence on why the caller needs a person, e.g. 'caller asked to speak with the front desk about a billing question'. Never include medical details or card numbers."
-            },
-            caller_requested: {
-              type: "boolean",
-              description: "true when the caller explicitly asked for a human; false when you decided to escalate."
-            }
+            reason: { type: "string", description: "One short neutral sentence on why the caller needs a person." },
+            caller_requested: { type: "boolean", description: "true when the caller explicitly asked for a human." }
           },
           required: ["reason"]
         }
       }
     }
+    */
   ];
 }
 
@@ -1262,11 +1248,9 @@ export function shouldIncludeAssistantTool(
   if (toolName === VOICE_TOOL_NAMES.recordSmsConsent) {
     return includeTools?.recordSmsConsent === true;
   }
-  // transfer_to_human FAILS CLOSED: it exists only when the buyer configured
-  // a team phone to bridge to. Advertising it without a destination would make
-  // the assistant promise transfers it can never perform.
+  // [DISABLED] transfer_to_human is never attached while handoff is off.
   if (toolName === VOICE_TOOL_NAMES.transferToHuman) {
-    return includeTools?.transferToHuman === true;
+    return false;
   }
   if (!includeTools) return true;
   if (toolName === VOICE_TOOL_NAMES.checkAvailability) return includeTools.checkAvailability !== false;

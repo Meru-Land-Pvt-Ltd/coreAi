@@ -22,9 +22,9 @@ import { calendarEventTitleForMode,
 import { env, isProduction } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { apiErrorStatus, errorMessage, isRecord } from "../../lib/error-utils";
-import { teamRoutes } from "./team/team-routes";
-import { acceptInvite, TeamServiceError } from "./team/team-service";
-import { inboxRoutes } from "./inbox/inbox-routes";
+// [DISABLED] import { teamRoutes } from "./team/team-routes";
+// [DISABLED] import { acceptInvite, TeamServiceError } from "./team/team-service";
+// [DISABLED] import { inboxRoutes } from "./inbox/inbox-routes";
 // [DISABLED:non-handoff] imports for the commented mounts below.
 // import { reminderRoutes } from "./reminders/reminder-routes";
 // import { qualityRoutes } from "./quality/quality-routes";
@@ -399,8 +399,7 @@ businessRoutes.post("/billing/webhook", handleStripeWebhook);
 
 businessRoutes.use("*", requireAuth);
 
-// Invite acceptance sits BEFORE the BUSINESS role gate on purpose: a freshly
-// invited user has no BUSINESS role yet — accepting grants it.
+/* [DISABLED] team invite acceptance (sits before the BUSINESS role gate).
 businessRoutes.post("/team/invites/accept", async (c) => {
   const authUser = c.get("authUser");
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -417,12 +416,13 @@ businessRoutes.post("/team/invites/accept", async (c) => {
     return errorResponse(c, "Could not accept the invite", 500, "INVITE_ACCEPT_FAILED");
   }
 });
+*/
 
 businessRoutes.use("*", requireRole(["BUSINESS"]));
 
-// Human handoff (plan Part 1) stays live: staff/team + shared inbox.
-businessRoutes.route("/team", teamRoutes);
-businessRoutes.route("/inbox", inboxRoutes);
+// [DISABLED] staff/team + shared inbox mounts.
+// businessRoutes.route("/team", teamRoutes);
+// businessRoutes.route("/inbox", inboxRoutes);
 // [DISABLED:non-handoff] Re-enable by uncommenting the mounts below.
 // businessRoutes.route("/reminders", reminderRoutes);
 // businessRoutes.route("/quality", qualityRoutes);
@@ -1552,10 +1552,8 @@ const businessSetupSchema = z.object({
   timeZone: z.string().trim().optional().or(z.literal("")),
   tone: z.string().trim().default("friendly"),
   escalationRules: z.string().trim().optional().or(z.literal("")),
-  /** Owner's plain-English conditions for transferring a live call to a human. */
-  transferConditions: z.string().trim().max(1500).optional().or(z.literal("")),
-  /** Master switch for live human transfer (default on when a team phone exists). */
-  transferEnabled: z.boolean().optional(),
+  // [DISABLED] transferConditions: z.string().trim().max(1500).optional().or(z.literal("")),
+  // [DISABLED] transferEnabled: z.boolean().optional(),
 
   services: z.array(z.string().trim().min(1)).default([]),
   faqs: z.array(faqItemSchema).default([]),
@@ -4145,8 +4143,7 @@ businessRoutes.post("/setup", async (c) => {
         escalationRules: cleanOptional(input.escalationRules),
         bookingUrl: cleanOptional(input.bookingUrl),
         teamPhone: cleanOptional(input.teamPhone),
-        transferConditions: cleanOptional(input.transferConditions),
-        ...(input.transferEnabled !== undefined ? { transferEnabled: input.transferEnabled } : {}),
+        // [DISABLED] transferConditions / transferEnabled persistence.
         ...(input.hours.length > 0 ? { hours: input.hours } : {})
       },
       silence: {

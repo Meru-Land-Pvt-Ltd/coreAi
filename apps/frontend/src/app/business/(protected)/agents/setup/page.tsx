@@ -663,8 +663,9 @@ function SetupWizard() {
   // Location-based number selection (country → state → city → search → confirm).
   const [forwardToPhone, setForwardToPhone] = useState("");
   const [teamPhone, setTeamPhone] = useState("");
-  const [transferEnabled, setTransferEnabled] = useState(true);
-  const [transferConditions, setTransferConditions] = useState("");
+  // [DISABLED] Human-transfer settings UI is temporarily turned off.
+  // const [transferEnabled, setTransferEnabled] = useState(true);
+  // const [transferConditions, setTransferConditions] = useState("");
   const [answeringMode, setAnsweringMode] = useState("NO_ANSWER");
   const [calendar, setCalendar] = useState<{ connected: boolean; email: string | null }>({
     connected: false,
@@ -940,8 +941,9 @@ function SetupWizard() {
         if (!isNewInstall) {
           setBookingUrl(data.profile.bookingUrl ?? "");
           setTeamPhone(data.profile.teamPhone ?? "");
-          setTransferEnabled((data.profile as { transferEnabled?: boolean }).transferEnabled !== false);
-          setTransferConditions((data.profile as { transferConditions?: string | null }).transferConditions ?? "");
+          // [DISABLED] Human-transfer settings UI is temporarily turned off.
+          // setTransferEnabled((data.profile as { transferEnabled?: boolean }).transferEnabled !== false);
+          // setTransferConditions((data.profile as { transferConditions?: string | null }).transferConditions ?? "");
           setTone(data.profile.tone ?? "friendly");
           setServicesText((data.profile.services ?? []).join("\n"));
           setCalendarId(data.profile.calendarId ?? "primary");
@@ -1327,8 +1329,9 @@ function SetupWizard() {
       forwardToPhone: forwardToPhone.trim(),
       bookingUrl: bookingUrl.trim(),
       teamPhone: teamPhone.trim(),
-      transferEnabled,
-      transferConditions: transferConditions.trim(),
+      // [DISABLED] Human-transfer settings UI is temporarily turned off.
+      // transferEnabled,
+      // transferConditions: transferConditions.trim(),
       ...(tzValue !== savedTimeZoneRef.current ? { timeZone: tzValue } : {}),
       tone,
       services: parseLines(servicesText),
@@ -2232,8 +2235,9 @@ function SetupWizard() {
               assignedNumber={assignedNumber}
               forwardToPhone={forwardToPhone}
               teamPhone={teamPhone}
-              transferEnabled={transferEnabled}
-              transferConditions={transferConditions}
+              // [DISABLED] Human-transfer settings UI is temporarily turned off.
+              // transferEnabled={transferEnabled}
+              // transferConditions={transferConditions}
               answeringMode={answeringMode}
               calendar={calendar}
               calendarBusy={calendarBusy}
@@ -2252,14 +2256,15 @@ function SetupWizard() {
                 setTeamPhone(value);
                 setConfigDirty(true);
               }}
-              onTransferEnabled={(value) => {
-                setTransferEnabled(value);
-                setConfigDirty(true);
-              }}
-              onTransferConditions={(value) => {
-                setTransferConditions(value);
-                setConfigDirty(true);
-              }}
+              // [DISABLED] Human-transfer settings UI is temporarily turned off.
+              // onTransferEnabled={(value) => {
+              //   setTransferEnabled(value);
+              //   setConfigDirty(true);
+              // }}
+              // onTransferConditions={(value) => {
+              //   setTransferConditions(value);
+              //   setConfigDirty(true);
+              // }}
               onAnsweringMode={setAnsweringMode}
               onConnectCalendar={handleConnectCalendar}
               onDisconnectCalendar={handleDisconnectCalendar}
@@ -2765,8 +2770,9 @@ function StepConnect({
   assignedNumber,
   forwardToPhone,
   teamPhone,
-  transferEnabled,
-  transferConditions,
+  // [DISABLED] Human-transfer settings UI is temporarily turned off.
+  // transferEnabled,
+  // transferConditions,
   answeringMode,
   calendar,
   calendarBusy,
@@ -2778,8 +2784,9 @@ function StepConnect({
   onSelectPhone,
   onForward,
   onTeamPhone,
-  onTransferEnabled,
-  onTransferConditions,
+  // [DISABLED] Human-transfer settings UI is temporarily turned off.
+  // onTransferEnabled,
+  // onTransferConditions,
   onAnsweringMode,
   onConnectCalendar,
   onDisconnectCalendar,
@@ -2817,8 +2824,9 @@ function StepConnect({
   assignedNumber: string | null;
   forwardToPhone: string;
   teamPhone: string;
-  transferEnabled: boolean;
-  transferConditions: string;
+  // [DISABLED] Human-transfer settings UI is temporarily turned off.
+  // transferEnabled: boolean;
+  // transferConditions: string;
   answeringMode: string;
   calendar: { connected: boolean; email: string | null };
   calendarBusy: boolean;
@@ -2836,8 +2844,9 @@ function StepConnect({
   onSelectPhone: (id: string) => void;
   onForward: (v: string) => void;
   onTeamPhone: (v: string) => void;
-  onTransferEnabled: (v: boolean) => void;
-  onTransferConditions: (v: string) => void;
+  // [DISABLED] Human-transfer settings UI is temporarily turned off.
+  // onTransferEnabled: (v: boolean) => void;
+  // onTransferConditions: (v: string) => void;
   onAnsweringMode: (v: string) => void;
   onConnectCalendar: () => void;
   onDisconnectCalendar: () => void;
@@ -3068,7 +3077,9 @@ function StepConnect({
         </div>
       ) : null}
 
-      {/* SECTION — Human transfer (live handoff to a real person) */}
+      {/* [DISABLED] SECTION — Human transfer (live handoff to a real person).
+          Temporarily disabled. Original JSX preserved verbatim below. */}
+      {/* [DISABLED]
       <div className="mt-6 border-t border-gray-100 pt-6" data-testid="business-setup-transfer-section">
         <h3 className="text-sm font-bold text-slate-900 mb-1">Transfer to a real person</h3>
         <p className="text-xs text-slate-500 mb-3">
@@ -3136,6 +3147,7 @@ function StepConnect({
           </p>
         )}
       </div>
+      */}
 
       {/* SECTION 3 — Calendar Connection block */}
       {showCalendar ? (

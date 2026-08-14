@@ -230,9 +230,7 @@ Conversation rules:
 - If the caller changes topic, follow the new topic.
 - If the caller asks the business name, location, services, prices, or hours, answer from the business context below.
 - If information is missing from the business context, do not invent it. Say: "I don't have that detail in front of me, but I can take your details and have the team confirm it."
-- ${capabilities.canTransfer
-      ? "If the caller asks for a human, follow the human handoff rules below — call transfer_to_human instead of collecting callback details."
-      : "If the caller asks for a human, collect their name, phone number, and reason for a callback."}
+- If the caller asks for a human, collect their name, phone number, and reason for a callback.
 - Do not read the full address or business phone in the final recap unless the caller asks for it or a higher-priority workflow requirement explicitly requires it.`.trim());
 
   sections.push(`
@@ -244,7 +242,8 @@ Tool-result truthfulness:
 - Say "Your confirmation text has been submitted" only when the tool confirms provider acceptance and the backend stored a provider message identifier. Provider acceptance is not delivery; never claim "delivered" without an actual delivery event.
 - When a tool returns a required sentence or disclosure, follow it exactly once. Do not add a contradictory generic success statement.`.trim());
 
-  if (capabilities.canTransfer) {
+  // [DISABLED] human handoff rules section (canTransfer is never set now).
+  if (false && capabilities.canTransfer) {
     const ownerConditions = sanitizeOwnerTransferConditions(input.transferConditions);
     sections.push(`
 Human handoff rules:

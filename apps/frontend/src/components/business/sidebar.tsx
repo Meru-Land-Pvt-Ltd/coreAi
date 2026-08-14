@@ -8,7 +8,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { ProfileAvatar } from "@/components/architect/ui/profile-avatar";
 import {
     BUSINESS_ANALYTICS_PATH,
-    BUSINESS_CRM_PATH,
+    // [DISABLED] CRM (HubSpot) navigation is temporarily turned off.
+    // BUSINESS_CRM_PATH,
     BUSINESS_LOGIN_PATH,
     BUSINESS_MARKETPLACE_PATH,
     BUSINESS_SETTINGS_PATH
@@ -55,11 +56,12 @@ const businessNavItems = [
         href: "/business/agents",
         icon: "bot" as IconName
     },
-    {
-        label: "CRM",
-        href: BUSINESS_CRM_PATH,
-        icon: "crm" as IconName
-    },
+    // [DISABLED] CRM (HubSpot) navigation entry is temporarily turned off.
+    // {
+    //     label: "CRM",
+    //     href: BUSINESS_CRM_PATH,
+    //     icon: "crm" as IconName
+    // },
     {
         label: "Business Analytics",
         href: BUSINESS_ANALYTICS_PATH,
@@ -448,9 +450,10 @@ function isBusinessNavItemActive(
         return pathname === BUSINESS_ANALYTICS_PATH || pathname.startsWith(`${BUSINESS_ANALYTICS_PATH}/`);
     }
 
-    if (item.label === "CRM") {
-        return pathname === BUSINESS_CRM_PATH || pathname.startsWith(`${BUSINESS_CRM_PATH}/`);
-    }
+    // [DISABLED] CRM (HubSpot) navigation entry is temporarily turned off.
+    // if (item.label === "CRM") {
+    //     return pathname === BUSINESS_CRM_PATH || pathname.startsWith(`${BUSINESS_CRM_PATH}/`);
+    // }
 
     if (item.label === "Settings") {
         return pathname === BUSINESS_SETTINGS_PATH;

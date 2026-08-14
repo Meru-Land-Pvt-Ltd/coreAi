@@ -482,12 +482,10 @@ async function buildInstalledAgentAssistantPlan(
       canCheckAvailability: capabilities.canCheckAvailability,
       canBook: capabilities.canBook,
       canText: capabilities.canText,
-      canEmail: capabilities.canEmail,
-      // Buyer master switch: transfer needs a destination AND not being
-      // explicitly turned off in setup.
-      canTransfer: Boolean(deployTokenValues.teamPhone) && agentDetails.transferEnabled !== false
+      canEmail: capabilities.canEmail
+      // [DISABLED] canTransfer: Boolean(deployTokenValues.teamPhone) && agentDetails.transferEnabled !== false
     },
-    transferConditions: cleanString(agentDetails.transferConditions as string | undefined) || undefined,
+    // [DISABLED] transferConditions: cleanString(agentDetails.transferConditions as string | undefined) || undefined,
     nodeInstructions: nodeInstructions
       ? fillDeployTemplate(
           sanitizeLegacyFallbacks(
@@ -574,10 +572,8 @@ export async function deployInstalledAgentVoiceAssistant(
       checkAvailability: plan.capabilities.canCheckAvailability,
       bookAppointment: plan.capabilities.canBook,
       sendNotification: plan.capabilities.canText || plan.capabilities.canEmail === true,
-      recordSmsConsent: plan.capabilities.canText,
-      // Live human handoff: needs a configured team phone AND the buyer's
-      // transfer switch on (setup "transfer to a person" setting).
-      transferToHuman: Boolean(plan.teamPhone) && plan.transferEnabled
+      recordSmsConsent: plan.capabilities.canText
+      // [DISABLED] transferToHuman: Boolean(plan.teamPhone) && plan.transferEnabled
     }
   });
 
@@ -881,10 +877,8 @@ export async function startInstalledAgentPreviewCall(
       checkAvailability: plan.capabilities.canCheckAvailability,
       bookAppointment: plan.capabilities.canBook,
       sendNotification: plan.capabilities.canText || plan.capabilities.canEmail === true,
-      recordSmsConsent: plan.capabilities.canText,
-      // The prompt advertises handoff when a team phone exists and the buyer's
-      // switch is on; preview calls simulate instead of touching telephony.
-      transferToHuman: Boolean(plan.teamPhone) && plan.transferEnabled
+      recordSmsConsent: plan.capabilities.canText
+      // [DISABLED] transferToHuman: Boolean(plan.teamPhone) && plan.transferEnabled
     },
     silenceTimeoutSeconds: 60,
     maxDurationSeconds: PREVIEW_MAX_DURATION_SECONDS,

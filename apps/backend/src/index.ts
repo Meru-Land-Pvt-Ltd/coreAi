@@ -14,7 +14,7 @@ import { startEarningReleaseWorker, stopEarningReleaseWorker } from "./modules/p
 //   stopRetentionSweepWorker
 // } from "./modules/business/conversation-understanding/retention";
 // import { evaluateRecentCalls } from "./modules/business/quality/evaluate";
-import { escalateStaleWaiting } from "./modules/business/inbox/inbox-service";
+// [DISABLED] import { escalateStaleWaiting } from "./modules/business/inbox/inbox-service";
 import {
   registerTelegramManagerWebhook,
   telegramManagerEnvironmentConfigured
@@ -43,12 +43,11 @@ const server = serve(
     //   );
     // }, 15 * 60 * 1000);
     // qualitySweep.unref();
-    // Inbox SLA escalation (human handoff, Part 1): waiting threads nobody
-    // claimed get bumped to managers.
-    const inboxSlaSweep = setInterval(() => {
-      escalateStaleWaiting().catch((error) => console.error("[inbox] SLA sweep failed", error));
-    }, 60 * 1000);
-    inboxSlaSweep.unref();
+    // [DISABLED] inbox SLA escalation sweep.
+    // const inboxSlaSweep = setInterval(() => {
+    //   escalateStaleWaiting().catch((error) => console.error("[inbox] SLA sweep failed", error));
+    // }, 60 * 1000);
+    // inboxSlaSweep.unref();
     if (telegramManagerEnvironmentConfigured()) {
       void registerTelegramManagerWebhook()
         .then((result) => {

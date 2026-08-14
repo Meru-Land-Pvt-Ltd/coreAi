@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BusinessPageHeader } from "@/components/business/business-page-header";
-import { BUSINESS_CRM_PATH, BUSINESS_SETUP_PATH } from "@/lib/routes";
+// [DISABLED] BUSINESS_CRM_PATH is commented out in @/lib/routes while the CRM UI
+// is turned off. This component is no longer rendered (the /business/crm page is
+// inert), so it keeps a local copy of the path to stay type-clean.
+// [DISABLED] import { BUSINESS_CRM_PATH, BUSINESS_SETUP_PATH } from "@/lib/routes";
+import type { Route } from "next";
+import { BUSINESS_SETUP_PATH } from "@/lib/routes";
+
+const BUSINESS_CRM_PATH = "/business/crm" as Route;
 import {
   addCrmContactNote,
   disconnectHubSpot,

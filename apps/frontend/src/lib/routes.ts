@@ -8,7 +8,8 @@ export const BUSINESS_MARKETPLACE_PUBLIC_PATH = "/marketplace" as Route;
 export const BUSINESS_CHECKOUT_PATH = "/business/checkout" as Route;
 export const BUSINESS_AGENTS_PATH = "/business/agents" as Route;
 export const BUSINESS_ANALYTICS_PATH = "/business/analytics" as Route;
-export const BUSINESS_CRM_PATH = "/business/crm" as Route;
+// [DISABLED] CRM (HubSpot) UI is temporarily turned off — nothing links to it.
+// export const BUSINESS_CRM_PATH = "/business/crm" as Route;
 export const BUSINESS_PAYMENT_SUCCESS_PATH = "/business/paymentsuccess" as Route;
 export const BUSINESS_PAYMENT_FAILED_PATH = "/business/paymentfailed" as Route;
 export const BUSINESS_BILLING_PATH = "/business/billingandusage" as Route;

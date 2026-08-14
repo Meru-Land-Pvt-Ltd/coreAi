@@ -9,8 +9,8 @@ import { authRoutes } from "./modules/auth/routes";
 import { healthRoutes } from "./modules/health/routes";
 import { architectRoutes } from "./modules/architect/routes";
 import { businessRoutes } from "./modules/business/routes";
-import { crmRoutes } from "./modules/crm/routes";
-import { handleHubSpotWebhookPost } from "./modules/crm/hubspot/webhook";
+// [DISABLED] import { crmRoutes } from "./modules/crm/routes";
+// [DISABLED] import { handleHubSpotWebhookPost } from "./modules/crm/hubspot/webhook";
 import { mailRoutes } from "./modules/mails/routes";
 import { adminRoutes } from "./modules/admin/routes";
 import { paymentRoutes } from "./modules/payments/routes";
@@ -53,8 +53,9 @@ app.route("/architect", architectRoutes);
 app.route("/api/architect", architectRoutes);
 app.route("/business", businessRoutes);
 app.route("/api/business", businessRoutes);
-app.route("/crm", crmRoutes);
-app.route("/api/crm", crmRoutes);
+// [DISABLED] HubSpot CRM routes
+// app.route("/crm", crmRoutes);
+// app.route("/api/crm", crmRoutes);
 app.route("/integrations", integrationsRoutes);
 app.route("/api/integrations", integrationsRoutes);
 app.route("/mail", mailRoutes);
@@ -101,11 +102,9 @@ app.post("/webhook/calendly", handleCalendlyWebhookPost);
 app.get("/api/webhook/calendly", handleCalendlyOAuthMisdirectGet);
 app.post("/api/webhook/calendly", handleCalendlyWebhookPost);
 
-// HubSpot CRM — public webhook (v3 request signature verified in the handler).
-// OAuth redirect URI must be /crm/hubspot/callback (NOT this path).
-// Production webhook: https://triven.ai/api/webhook/hubspot
-app.post("/webhook/hubspot", handleHubSpotWebhookPost);
-app.post("/api/webhook/hubspot", handleHubSpotWebhookPost);
+// [DISABLED] HubSpot CRM public webhook.
+// app.post("/webhook/hubspot", handleHubSpotWebhookPost);
+// app.post("/api/webhook/hubspot", handleHubSpotWebhookPost);
 
 app.notFound((c) => {
   console.warn(`[app] Route not found: ${c.req.method} ${c.req.url}`);

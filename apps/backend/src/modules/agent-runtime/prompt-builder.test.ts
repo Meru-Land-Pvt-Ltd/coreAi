@@ -279,6 +279,7 @@ describe("buildAgentSystemPrompt cross-industry roster wording", () => {
 
 });
 
+/* [DISABLED] human-handoff transfer conditions (feature disabled).
 describe("owner transfer conditions (human handoff)", () => {
   it("renders sanitized owner conditions inside the handoff rules as ADD-only reasons", () => {
     const prompt = buildAgentSystemPrompt(
@@ -306,3 +307,4 @@ describe("owner transfer conditions (human handoff)", () => {
     expect(withoutTransfer).not.toContain("Human handoff rules:");
   });
 });
+*/

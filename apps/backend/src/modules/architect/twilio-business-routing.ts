@@ -39,11 +39,12 @@ import {
 } from "../agent-runtime/graph-runner";
 import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/agent-knowledge";
 import { checkUsageCapAndNotify } from "../business/usage-cap";
-import {
-  resolveTransferCallerId,
-  runTransferToHumanTool
-} from "../agent-runtime/ai-voice-assistant/human-transfer";
-import { parsePendingTargets, sendWarmHandoffContext } from "../business/team/handoff-routing";
+// [DISABLED] human-handoff imports.
+// import {
+//   resolveTransferCallerId,
+//   runTransferToHumanTool
+// } from "../agent-runtime/ai-voice-assistant/human-transfer";
+// import { parsePendingTargets, sendWarmHandoffContext } from "../business/team/handoff-routing";
 // [DISABLED:non-handoff] imports for the commented hooks in this file.
 // import {
 //   cancelRemindersForAppointment,
@@ -58,9 +59,8 @@ import { parsePendingTargets, sendWarmHandoffContext } from "../business/team/ha
 //   classifyCallOutcome,
 //   classifySentiment
 // } from "../business/conversation-understanding/classify";
-// Human handoff (Part 1) stays live: human-request detection + inbox pause gate.
-import { detectHumanRequest, generateSmsAiReply } from "../business/sms-ai/sms-ai";
-import { isAiPausedForConversation } from "../business/inbox/inbox-service";
+// [DISABLED] import { detectHumanRequest, generateSmsAiReply } from "../business/sms-ai/sms-ai";
+// [DISABLED] import { isAiPausedForConversation } from "../business/inbox/inbox-service";
 import {
   checkBusinessExactTime,
   reserveSlotForInstant,
@@ -134,7 +134,7 @@ import {
   smsHelpReplyText
 } from "../notifications/sms-consent";
 import { createVapiInboundTwiml, isRealId, startVapiOutboundCall, type VapiCallerContext } from "./vapi-connector";
-import { buildCrmGreeting, buildCrmPromptSection, loadCrmCallerContext, syncCallToCrm } from "../crm";
+// [DISABLED] import { buildCrmGreeting, buildCrmPromptSection, loadCrmCallerContext, syncCallToCrm } from "../crm";
 import { enqueueEmail } from "../email/email-queue";
 import {
   applyBuyerEmailRecipients,
@@ -1445,46 +1445,28 @@ async function buildVapiAnswerTwiml({
 
   const callerContext = await resolveCallerContext(business.businessId, callerNumber, business.timeZone);
 
-  /*
-   * Customer-context CRM lookup.
-   *
-   * A recognised caller is greeted BY NAME in the first spoken sentence and the
-   * agent carries their CRM record for the rest of the call. An unknown caller
-   * gets the generic greeting untouched, and after-call sync creates them.
-   *
-   * loadCrmCallerContext fails open (returns an unknown caller) on any CRM
-   * error or timeout — the phone must always answer.
+  /* [DISABLED] Customer-context CRM lookup + personalised greeting.
+   * const crmContext = business.businessId
+   *   ? await loadCrmCallerContext({ businessId: business.businessId, phone: callerNumber, deep: true })
+   *   : null;
+   * if (!firstMessageOverride && crmContext?.known) {
+   *   const crmGreeting = buildCrmGreeting({ context: crmContext, businessName: business.businessName });
+   *   if (crmGreeting) {
+   *     firstMessageOverride = workflowCallRecordingEnabled(agent.workflowJson)
+   *       ? withRecordingDisclosure(crmGreeting)
+   *       : crmGreeting;
+   *   }
+   * }
    */
-  const crmContext = business.businessId
-    ? await loadCrmCallerContext({
-        businessId: business.businessId,
-        phone: callerNumber,
-        deep: true
-      })
-    : null;
-
-  // An after-hours greeting is a policy decision and outranks the CRM greeting;
-  // only personalise when nothing else has claimed the first message.
-  if (!firstMessageOverride && crmContext?.known) {
-    const crmGreeting = buildCrmGreeting({
-      context: crmContext,
-      businessName: business.businessName
-    });
-    if (crmGreeting) {
-      firstMessageOverride = workflowCallRecordingEnabled(agent.workflowJson)
-        ? withRecordingDisclosure(crmGreeting)
-        : crmGreeting;
-    }
-  }
 
   return createVapiInboundTwiml({
     callerNumber,
-    callerName: callerName ?? crmContext?.fullName ?? null,
+    callerName: callerName ?? null,
     reason,
     businessHours: hoursVariables,
     firstMessageOverride,
     callerContext,
-    crmContextSection: crmContext ? buildCrmPromptSection(crmContext) : null,
+    // [DISABLED] crmContextSection: crmContext ? buildCrmPromptSection(crmContext) : null,
     business: {
       businessId: business.businessId,
       businessName: business.businessName,
@@ -1781,8 +1763,8 @@ export async function handleTwilioVoice(c: Context) {
       callerNumber,
       callerName,
       calledNumber,
-      reason: "Inbound call answered live by the AI receptionist.",
-      twilioCallSid: readBodyString(body, ["CallSid", "callSid"]) || null
+      reason: "Inbound call answered live by the AI receptionist."
+      // [DISABLED] twilioCallSid: readBodyString(body, ["CallSid", "callSid"]) || null
     });
 
     if (aiTwiml) {
@@ -1886,6 +1868,7 @@ export async function handleTwilioMissedCall(c: Context) {
  * call and runs the missed-call machinery (lead + consent-gated text-back),
  * so a failed handoff never dead-ends.
  */
+/* [DISABLED] live human-handoff dial-result callback (cascade + settle).
 export async function handleTwilioTransferResult(c: Context) {
   const handoffId = c.req.param("handoffId") || "";
   const body = await parseBody(c);
@@ -2080,6 +2063,7 @@ export async function handleTwilioTransferResult(c: Context) {
     "I'm sorry, no one on the team is available right now. Please try again a little later. Thank you for calling."
   );
 }
+*/
 
 function isSmsCancelRequest(body: string): boolean {
   return /^c$/i.test((body ?? "").trim().replace(/[.!]+$/, ""));
@@ -2375,60 +2359,26 @@ export async function handleTwilioInboundSms(c: Context) {
     providerId: readBodyString(body, ["MessageSid", "SmsSid"])
   });
 
-  // Shared-inbox gate (plan Part 1D): a thread waiting for — or held by — a
-  // human never gets an AI/template reply racing the person. The inbound
-  // message is already recorded above, so staff see it in the inbox.
+  /* [DISABLED] shared-inbox AI pause gate.
   if (conversation && isAiPausedForConversation(conversation)) {
     console.log("[inbound-sms] AI paused for conversation (human active/waiting)", {
       conversationId: conversation.id
     });
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
+  */
 
   const history = conversation?.id ? await loadConversationHistory(conversation.id) : [];
   let replyBody: string;
   let bookedEventId: string | null = null;
   let bookedAppointmentId: string | null = null;
 
-  // Explicit human request beats booking parsing and AI chat alike.
+  /* [DISABLED] explicit human-request → inbox takeover on SMS.
   if (agent.business?.businessId && detectHumanRequest(incomingBody)) {
-    const takeover = await generateSmsAiReply({
-      context: {
-        businessId: agent.business.businessId,
-        installedAgentId: agent.business.installedAgentId ?? null,
-        businessName: agent.business.businessName,
-        businessType: agent.business.businessType,
-        services: agent.business.services,
-        faqs: agent.business.faqs,
-        tone: agent.business.tone,
-        bookingUrl: agent.business.bookingUrl
-      },
-      conversationId: conversation?.id ?? null,
-      customerPhone,
-      inboundBody: incomingBody,
-      history
-    });
-    if (takeover.humanRequested && takeover.reply) {
-      const ack = await sendTrackedSms({
-        to: customerPhone,
-        body: takeover.reply,
-        messageType: "WORKFLOW_SMS",
-        businessId: agent.business.businessId,
-        businessName: agent.business.businessName,
-        smsPurpose: "SUPPORT_RESPONSE",
-        installedAgentId: agent.business.installedAgentId ?? null,
-        dedupeKey: inboundMessageSid ? `inbound-reply:${inboundMessageSid}` : null
-      });
-      await upsertConversation({
-        businessId: agent.business.businessId,
-        customerPhone,
-        direction: "OUTBOUND",
-        body: takeover.reply,
-        providerId: ack.messageSid
-      });
-      return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
-    }
+    const takeover = await generateSmsAiReply({ ... });
+    if (takeover.humanRequested && takeover.reply) { ...ack + record...; return; }
   }
+  */
 
   const smsWorkflowCanBook = workflowCapabilities(agent.workflowJson, "sms").canBook;
 
@@ -6133,33 +6083,20 @@ export async function handleVapiWebhook(c: Context) {
       }
     };
 
-    /**
-     * After-call CRM sync (customer-context CRM).
-     *
-     * Existing contact (phone match) → update it and attach the AI summary.
-     * New caller → create the contact FROM THE PHONE NUMBER, then attach the
-     * summary. Email and company are omitted when the caller never gave them.
-     *
-     * Fire-and-forget: a CRM outage must never hold up or fail the Vapi
-     * webhook response, and syncCallToCrm never throws.
+    /* [DISABLED] After-call CRM sync (customer-context CRM).
+     * const syncCallToCrmOnCallEnd = () => {
+     *   if (executionMode !== "LIVE" || !isEndOfCallEvent) return;
+     *   if (!businessContext?.businessId || !customerPhone) return;
+     *   void syncCallToCrm({
+     *     businessId: businessContext.businessId,
+     *     customerPhone,
+     *     summary: summary ?? null,
+     *     callId: callId ?? null,
+     *     channel: "VOICE"
+     *   }).catch((error) => console.error("[vapi-webhook] CRM sync failed (non-fatal)", error));
+     * };
      */
-    const syncCallToCrmOnCallEnd = () => {
-      if (executionMode !== "LIVE" || !isEndOfCallEvent) return;
-      if (!businessContext?.businessId || !customerPhone) return;
-
-      void syncCallToCrm({
-        businessId: businessContext.businessId,
-        customerPhone,
-        // spokenName is intentionally omitted: the webhook payload carries no
-        // name, so syncCallToCrm reads whatever the agent's own tools recorded
-        // (booking / captured lead). Never invented.
-        summary: summary ?? null,
-        callId: callId ?? null,
-        channel: "VOICE"
-      }).catch((error) => {
-        console.error("[vapi-webhook] CRM sync failed (non-fatal)", error);
-      });
-    };
+    const syncCallToCrmOnCallEnd = () => {};
 
     if (toolCalls.length === 0) {
       await settleLiveEndOfCall();
@@ -6269,9 +6206,11 @@ export async function handleVapiWebhook(c: Context) {
       const isCheck = !isConsent && !isLookup && !isCancel && !isReschedule && !isVerify && (fnName.startsWith("check") || fnName.includes("availab"));
       const isBook = !isConsent && !isLookup && !isCancel && !isReschedule && !isVerify && fnName.startsWith("book");
       const isNotify = !isConsent && !isLookup && !isCancel && !isReschedule && !isVerify && (fnName.startsWith("send") || fnName.includes("notif"));
+      /* [DISABLED] live human handoff dispatch.
       const isTransfer =
         !isConsent && !isLookup && !isUpdateContact && !isCancel && !isReschedule && !isVerify && !isCheck && !isBook && !isNotify &&
         (fnName.includes("transfer") || fnName.includes("human") || fnName.includes("forward"));
+      */
       const ctx: VapiToolContext = {
         ...baseCtx,
         patientPhone: argStr(toolCall.parameters, PHONE_ARG_KEYS) || customerPhone
@@ -6311,10 +6250,8 @@ export async function handleVapiWebhook(c: Context) {
           else if (isCheck) payload = await runCheckAvailabilityTool(toolCall.parameters, ctx);
           else if (isBook) payload = await runBookAppointmentTool(toolCall.parameters, ctx);
           else if (isNotify) payload = await runSendNotificationTool(toolCall.parameters, ctx);
+          /* [DISABLED] live human handoff dispatch.
           else if (isTransfer) {
-            // Live human handoff — this handler is the PRODUCTION webhook, so
-            // the transfer must dispatch here, not only in the
-            // ai-voice-assistant gateway.
             payload = await runTransferToHumanTool(toolCall.parameters, {
               business: businessContext,
               customerPhone,
@@ -6324,6 +6261,7 @@ export async function handleVapiWebhook(c: Context) {
               summary
             });
           }
+          */
           else payload = { ok: true };
         } catch (error) {
           // #8 Distributed call state unavailable → deterministic fail-closed
