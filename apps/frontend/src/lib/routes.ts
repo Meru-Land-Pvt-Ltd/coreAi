@@ -52,6 +52,11 @@ export function publicAgentPath(agentId: string): Route {
   return `/agent/${agentId}` as Route;
 }
 
+/** Published hosted agent page (triven.ai/a/<slug>) — public, no login. */
+export function publishedAgentPagePath(slug: string): Route {
+  return `/a/${encodeURIComponent(slug)}` as Route;
+}
+
 /** Public share URL for a marketplace listing — same as publicAgentPath. */
 export function businessAgentSharePath(listingId: string): Route {
   return publicAgentPath(listingId);

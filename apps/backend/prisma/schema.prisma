@@ -160,11 +160,36 @@ model AgentListing {
   workflow               WorkflowDefinition?  @relation(fields: [workflowId], references: [id])
   installedAgents        InstalledAgent[]
   payments               Payment[]
+  publishedPage          PublishedAgentPage?
 
   @@index([architectUserId])
   @@index([workflowId])
   @@index([status])
   @@index([status, createdAt])
+}
+
+/// Public hosted page for a published agent (triven.ai/a/<slug>): customers
+/// try the agent in sandboxed demo mode and follow the CTA into the purchase
+/// funnel. One page per approved listing; the architect customizes template
+/// and copy from the workflow's manage screen.
+model PublishedAgentPage {
+  id               String       @id @default(cuid())
+  slug             String       @unique
+  listingId        String       @unique
+  workflowId       String
+  architectUserId  String
+  template         String       @default("chat")
+  headline         String?
+  welcomeMessage   String?
+  suggestedPrompts String[]
+  accentColor      String?
+  status           String       @default("LIVE")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  listing          AgentListing @relation(fields: [listingId], references: [id])
+
+  @@index([workflowId])
+  @@index([architectUserId])
 }
 
 model Project {

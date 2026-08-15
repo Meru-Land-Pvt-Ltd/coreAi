@@ -257,3 +257,29 @@ export type ArchitectTestDeploymentInput = {
   faqs?: string[];
   knowledge?: string[];
 };
+export type AgentPageTemplate = "chat" | "voice" | "media" | "form";
+
+export type AgentPageConfig = {
+  slug: string;
+  template: AgentPageTemplate;
+  headline: string | null;
+  welcomeMessage: string | null;
+  suggestedPrompts: string[];
+  accentColor: string | null;
+  status: "LIVE";
+};
+
+export type AgentPageManageData = {
+  page: AgentPageConfig | null;
+  url: string | null;
+  defaultTemplate: AgentPageTemplate;
+};
+
+export type AgentPageUpdateBody = {
+  template?: AgentPageTemplate;
+  headline?: string;
+  welcomeMessage?: string;
+  suggestedPrompts?: string[];
+  /** null clears the accent back to the default; omitting leaves it unchanged. */
+  accentColor?: string | null;
+};

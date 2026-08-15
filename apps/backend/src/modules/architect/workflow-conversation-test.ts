@@ -158,6 +158,7 @@ export async function runArchitectConversationTest({
   simulateBusinessHoursState,
   testSessionId,
   useTestCalendar,
+  forceTestAvailability,
   businessIdentity
 }: {
   userId: string;
@@ -175,6 +176,9 @@ export async function runArchitectConversationTest({
   testSessionId?: string;
   /** Architect only: create real events in the architect's own test calendar. */
   useTestCalendar?: boolean;
+  /** Public agent-page traffic: never read the architect's real calendar —
+   * availability is always business-hours test slots. */
+  forceTestAvailability?: boolean;
   /** Required when executionMode is BUSINESS_TEST. */
   businessIdentity?: ConversationTestBusinessIdentity;
 }): Promise<ArchitectConversationTestResult> {
@@ -331,7 +335,8 @@ export async function runArchitectConversationTest({
       workflowId,
       testSessionId: session ?? undefined,
       businessName: business.name,
-      useTestCalendar: useTestCalendar === true
+      useTestCalendar: useTestCalendar === true,
+      forceTestAvailability: forceTestAvailability === true
     });
   }
 

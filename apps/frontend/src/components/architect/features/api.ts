@@ -1,6 +1,9 @@
 import { apiClient, apiDelete, apiGet, apiPatch, apiPost, apiPut } from "@/lib/api";
 import type { AgentConfigureData, AgentMarketplacePreview } from "@coreai/shared";
 import type {
+  AgentPageConfig,
+  AgentPageManageData,
+  AgentPageUpdateBody,
   ArchitectListing,
   ArchitectProfile,
   ArchitectProject,
@@ -1562,4 +1565,12 @@ export function callbackWhatsAppEmbeddedSignup(params: {
     phoneNumber: params.phoneNumber
   });
   return apiGet<{ connection: WhatsAppConnection }>(`/integrations/whatsapp/callback?${qs.toString()}`);
+}
+
+export function getAgentPageConfig(workflowId: string) {
+  return apiGet<AgentPageManageData>(`/agent-pages/manage/${workflowId}`);
+}
+
+export function updateAgentPageConfig(workflowId: string, body: AgentPageUpdateBody) {
+  return apiPatch<{ page: AgentPageConfig; url: string }>(`/agent-pages/manage/${workflowId}`, body);
 }

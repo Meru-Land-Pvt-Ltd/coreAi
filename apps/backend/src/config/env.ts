@@ -174,6 +174,10 @@ const envSchema = z.object({
 
   /** Platform-wide cap on marketplace demo call starts per day (cost control). */
   MARKETPLACE_DEMO_GLOBAL_DAILY_LIMIT: z.coerce.number().int().positive().default(200),
+  /** Published agent pages: sandboxed uses per IP per page per day. */
+  AGENT_PAGE_DAILY_LIMIT: z.coerce.number().int().positive().default(20),
+  /** Published agent pages: platform-wide cap on sandboxed uses per day (cost control). */
+  AGENT_PAGE_GLOBAL_DAILY_LIMIT: z.coerce.number().int().positive().default(2000),
   /** Pinecone Vector Database configuration */
   PINECONE_API_KEY: z.string().optional(),
   PINECONE_INDEX_NAME: z.string().default("memory"),
