@@ -4,9 +4,10 @@ export type NodeCategory =
   | "logic"
   | "data"
   | "ai"
-  | "integration";
+  | "integration"
+  | "product";
 
-export type RunnerNodeKind = "trigger" | "ai" | "condition" | "connector" | "output";
+export type RunnerNodeKind = "trigger" | "ai" | "condition" | "connector" | "output" | "block";
 
 export type NodeRuntime = {
   nodeKind: RunnerNodeKind;
@@ -106,6 +107,29 @@ export const DEEPGRAM_NODE_TYPES = {
   /** Legacy unified node (older canvases). Prefer stt/tts. */
   speech: "ai.deepgram"
 } as const;
+
+/**
+ * Product blocks — sections of the customer-facing product page (/a/<slug>)
+ * and the builder's Test preview. They are Face anchors, not executors:
+ * backendExecutable is false and the workflow engine skips nodeKind "block"
+ * at run time (see executeSingleNodeInRunner in workflow-runner.ts).
+ */
+export const BLOCK_NODE_TYPES = {
+  promptComposer: "block.prompt_composer",
+  presetGallery: "block.preset_gallery",
+  modelPicker: "block.model_picker",
+  actionButton: "block.action_button",
+  outputStage: "block.output_stage",
+  continueChain: "block.continue_chain",
+  historyShelf: "block.history_shelf"
+} as const;
+
+export type BlockNodeType = (typeof BLOCK_NODE_TYPES)[keyof typeof BLOCK_NODE_TYPES];
+
+/** True for any product-block node slug ("block.*"), known or future. */
+export function isBlockNodeType(type: string | null | undefined): boolean {
+  return (type ?? "").startsWith("block.");
+}
 
 export type DeepgramNodeMode = "stt" | "tts";
 
@@ -2178,6 +2202,95 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     capability: "flow.end",
     requiredVariables: [],
     producedVariables: ["flow.status", "flow.closing_message"]
+  }),
+
+  // ---- Product blocks ("Your Product" palette group) ----
+  // Pre-designed sections of the customer page. The engine skips them at run
+  // time; the Face Blueprint (agent-pages/blueprint.ts) reads them to assemble
+  // the customer-facing page and the builder's Test preview.
+  def({
+    type: BLOCK_NODE_TYPES.promptComposer,
+    label: "Prompt Box",
+    category: "product",
+    description: "Where your customer types what they want.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "block" },
+    defaultConfig: { placeholder: "Describe what you want…" }
+  }),
+  def({
+    type: BLOCK_NODE_TYPES.presetGallery,
+    label: "Styles Gallery",
+    category: "product",
+    description: "Ready-made styles your customer can pick with one tap.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "block" },
+    defaultConfig: { presets: [] }
+  }),
+  def({
+    type: BLOCK_NODE_TYPES.modelPicker,
+    label: "Model Picker",
+    category: "product",
+    description: "Lets your customer choose which AI creates their result.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "block" },
+    defaultConfig: { options: [] }
+  }),
+  def({
+    type: BLOCK_NODE_TYPES.actionButton,
+    label: "Button",
+    category: "product",
+    description: "A button your customer presses — wire it to the brains it should run.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "block" },
+    defaultConfig: { label: "Go" }
+  }),
+  def({
+    type: BLOCK_NODE_TYPES.outputStage,
+    label: "Result Viewer",
+    category: "product",
+    description: "Shows your customer their finished result — image, video, or words.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "block" },
+    defaultConfig: { kind: "auto" }
+  }),
+  def({
+    type: BLOCK_NODE_TYPES.continueChain,
+    label: "Continue Button",
+    category: "product",
+    description: "One tap for your customer to keep going from their last result.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "block" },
+    defaultConfig: { label: "Continue" }
+  }),
+  def({
+    type: BLOCK_NODE_TYPES.historyShelf,
+    label: "History Shelf",
+    category: "product",
+    description: "Everything your customer made this visit, ready to bring back.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "block" },
+    defaultConfig: {}
   }),
 
   // ---- B. Near-term marketplace nodes (coming soon) ----

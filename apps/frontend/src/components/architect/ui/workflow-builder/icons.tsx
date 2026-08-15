@@ -273,6 +273,46 @@ export function BuilderIcon({
     );
   }
 
+  // Lucide-style sliders-horizontal — pick/tune between options (Model Picker).
+  if (name === "sliders") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="21" y1="6" x2="14" y2="6" />
+        <line x1="10" y1="6" x2="3" y2="6" />
+        <line x1="21" y1="12" x2="12" y2="12" />
+        <line x1="8" y1="12" x2="3" y2="12" />
+        <line x1="21" y1="18" x2="16" y2="18" />
+        <line x1="12" y1="18" x2="3" y2="18" />
+        <line x1="14" y1="4" x2="14" y2="8" />
+        <line x1="8" y1="10" x2="8" y2="14" />
+        <line x1="16" y1="16" x2="16" y2="20" />
+      </svg>
+    );
+  }
+
+  // Right-pointing arrow — forward / continue (Continue Button).
+  if (name === "arrow-right") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M5 12h14" />
+        <path d="m12 5 7 7-7 7" />
+      </svg>
+    );
+  }
+
+  // Lucide-style mouse-pointer-click — a press target (Button block).
+  if (name === "pointer-click") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 9l5 12 1.8-5.2L21 14 9 9z" />
+        <path d="M7.2 2.2 8 5.1" />
+        <path d="M5.1 8 2.2 7.2" />
+        <path d="M14 4.1 12 6" />
+        <path d="m6 12-1.9 2" />
+      </svg>
+    );
+  }
+
   // Lucide-style layout-template — industry standard for template / gallery surfaces.
   if (name === "layout-template" || name === "template" || name === "gallery") {
     return (

@@ -10,6 +10,7 @@ import { ChatTemplate } from "@/components/agent-page/chat-template";
 import { VoiceTemplate } from "@/components/agent-page/voice-template";
 import { MediaTemplate } from "@/components/agent-page/media-template";
 import { FormTemplate } from "@/components/agent-page/form-template";
+import { FaceRenderer } from "@/components/agent-page/face-renderer";
 import {
   createPublicAgentPageRuntime,
   type AgentPageData
@@ -157,7 +158,11 @@ export default function PublishedAgentPage() {
 
   return (
     <AgentPageShell data={data} runtime={runtime}>
-      {data.page.template === "voice" ? (
+      {data.blueprint ? (
+        // The architect placed product blocks on their canvas — the page
+        // assembles its interface from them instead of a default template.
+        <FaceRenderer data={data} slug={slug} runtime={runtime} blueprint={data.blueprint} />
+      ) : data.page.template === "voice" ? (
         <VoiceTemplate data={data} slug={slug} runtime={runtime} />
       ) : data.page.template === "media" ? (
         <MediaTemplate data={data} slug={slug} runtime={runtime} />

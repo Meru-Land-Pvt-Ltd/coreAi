@@ -9,7 +9,8 @@ export function isNodeKind(value: unknown): value is NodeKind {
     value === "ai" ||
     value === "condition" ||
     value === "connector" ||
-    value === "output"
+    value === "output" ||
+    value === "block"
   );
 }
 

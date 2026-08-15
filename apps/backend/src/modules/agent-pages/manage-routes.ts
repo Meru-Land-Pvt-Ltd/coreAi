@@ -5,6 +5,7 @@ import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
+import { deriveFaceBlueprint } from "./blueprint";
 import { inferAgentPageTemplate, ensurePublishedAgentPage, type AgentPageTemplate } from "./slug";
 
 /**
@@ -72,11 +73,14 @@ export function registerAgentPageManageRoutes(routes: Hono) {
     }
 
     const defaultTemplate = inferAgentPageTemplate(workflow.workflowJson);
+    // Non-null only when the graph contains product blocks — the builder's
+    // Test preview then assembles the page from those blocks.
+    const blueprint = deriveFaceBlueprint(workflow.workflowJson);
 
     const listing = await prisma.agentListing.findFirst({ where: { workflowId } });
     if (!listing) {
       // No listing yet — nothing to publish a page for.
-      return successResponse(c, { page: null, url: null, defaultTemplate });
+      return successResponse(c, { page: null, url: null, defaultTemplate, blueprint });
     }
 
     const page = await ensurePublishedAgentPage({
@@ -89,13 +93,14 @@ export function registerAgentPageManageRoutes(routes: Hono) {
       }
     });
     if (!page) {
-      return successResponse(c, { page: null, url: null, defaultTemplate });
+      return successResponse(c, { page: null, url: null, defaultTemplate, blueprint });
     }
 
     return successResponse(c, {
       page: serializeAgentPage(page),
       url: agentPageUrl(page.slug),
-      defaultTemplate
+      defaultTemplate,
+      blueprint
     });
   });
 

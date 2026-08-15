@@ -7,10 +7,12 @@ import { ChatTemplate } from "@/components/agent-page/chat-template";
 import { VoiceTemplate } from "@/components/agent-page/voice-template";
 import { MediaTemplate } from "@/components/agent-page/media-template";
 import { FormTemplate } from "@/components/agent-page/form-template";
+import { FaceRenderer } from "@/components/agent-page/face-renderer";
 import type {
   AgentPageData,
   AgentPageRuntime,
-  AgentPageTemplate
+  AgentPageTemplate,
+  FaceBlueprint
 } from "@/components/agent-page/types";
 
 /**
@@ -19,7 +21,9 @@ import type {
  * Renders THE REAL customer Face (the same chat/voice/media/form templates
  * that ship on the public /a/<slug> pages) inside a device frame, powered by
  * a preview AgentPageRuntime built from three engine callbacks the container
- * provides. This component is pure: no API imports, no builder state — just
+ * provides. When the graph carries product blocks (`blueprint`), the frame
+ * shows the block-assembled page (FaceRenderer) instead — exactly like the
+ * live page. This component is pure: no API imports, no builder state — just
  * props in, the finished product out.
  */
 
@@ -44,6 +48,14 @@ export type PreviewPanelProps = {
   page?: AgentPageData["page"] | null;
   /** Backend-inferred default template (from the manage endpoint). */
   defaultTemplate?: AgentPageTemplate;
+  /**
+   * The product blocks the architect placed on their canvas (from the manage
+   * endpoint, derived from the saved graph). Non-null means the graph decides
+   * the product: the preview assembles the page from these blocks
+   * (FaceRenderer) and the look pills hide. Null/undefined keeps the
+   * template Faces exactly as before.
+   */
+  blueprint?: FaceBlueprint | null;
   /** Shown in the page footer, exactly like the published page byline. */
   architectName?: string | null;
   /** While the agent is under review, testing is paused — say so plainly. */
@@ -102,6 +114,7 @@ export function PreviewPanel({
   hasMediaNode,
   page = null,
   defaultTemplate,
+  blueprint = null,
   architectName,
   underReview = false,
   onSendChat,
@@ -249,38 +262,54 @@ export function PreviewPanel({
           data-testid="preview-panel-frame"
         >
           <AgentPageShell data={data} runtime={runtime}>
-            {/* Chat, media and form stay mounted while hidden so switching
-                looks never wipes a transcript or a feed of creations. Voice
-                mounts only while active: leaving it hangs up and releases the
-                microphone — a live call must never keep running unseen. */}
-            <div
-              className={face === "chat" ? "contents" : "hidden"}
-              hidden={face !== "chat"}
-              data-testid="preview-panel-face-slot-chat"
-            >
-              <ChatTemplate data={data} slug={data.page.slug} runtime={runtime} />
-            </div>
-            {face === "voice" ? (
-              <VoiceTemplate data={data} slug={data.page.slug} runtime={runtime} />
-            ) : null}
-            <div
-              className={face === "media" ? "contents" : "hidden"}
-              hidden={face !== "media"}
-              data-testid="preview-panel-face-slot-media"
-            >
-              <MediaTemplate data={data} slug={data.page.slug} runtime={runtime} />
-            </div>
-            <div
-              className={face === "form" ? "contents" : "hidden"}
-              hidden={face !== "form"}
-              data-testid="preview-panel-face-slot-form"
-            >
-              <FormTemplate data={data} slug={data.page.slug} runtime={runtime} />
-            </div>
+            {blueprint ? (
+              // The architect placed product blocks on their canvas — the
+              // preview assembles the page from them, exactly like /a/<slug>.
+              <FaceRenderer
+                data={data}
+                slug={data.page.slug}
+                runtime={runtime}
+                blueprint={blueprint}
+              />
+            ) : (
+              <>
+                {/* Chat, media and form stay mounted while hidden so switching
+                    looks never wipes a transcript or a feed of creations. Voice
+                    mounts only while active: leaving it hangs up and releases the
+                    microphone — a live call must never keep running unseen. */}
+                <div
+                  className={face === "chat" ? "contents" : "hidden"}
+                  hidden={face !== "chat"}
+                  data-testid="preview-panel-face-slot-chat"
+                >
+                  <ChatTemplate data={data} slug={data.page.slug} runtime={runtime} />
+                </div>
+                {face === "voice" ? (
+                  <VoiceTemplate data={data} slug={data.page.slug} runtime={runtime} />
+                ) : null}
+                <div
+                  className={face === "media" ? "contents" : "hidden"}
+                  hidden={face !== "media"}
+                  data-testid="preview-panel-face-slot-media"
+                >
+                  <MediaTemplate data={data} slug={data.page.slug} runtime={runtime} />
+                </div>
+                <div
+                  className={face === "form" ? "contents" : "hidden"}
+                  hidden={face !== "form"}
+                  data-testid="preview-panel-face-slot-form"
+                >
+                  <FormTemplate data={data} slug={data.page.slug} runtime={runtime} />
+                </div>
+              </>
+            )}
           </AgentPageShell>
         </div>
 
         <div className="mx-auto mt-4 flex w-full max-w-2xl flex-none flex-wrap items-center gap-x-3 gap-y-2 pb-1">
+          {/* With product blocks on the canvas, the graph decides the product —
+              the look pills would contradict it, so they step aside. */}
+          {blueprint ? null : (
           <div
             role="group"
             className="flex flex-wrap items-center gap-1 rounded-full border border-gray-200 bg-white/85 p-1 shadow-sm backdrop-blur"
@@ -309,6 +338,7 @@ export function PreviewPanel({
               );
             })}
           </div>
+          )}
 
           <button
             type="button"

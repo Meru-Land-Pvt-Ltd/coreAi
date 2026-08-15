@@ -64,6 +64,7 @@ export function WorkflowBuilderStyles() {
       .workflow-edge.edge-blue path.react-flow__edge-path { filter: drop-shadow(0 0 6px rgba(59, 130, 246, .28)); }
       .workflow-edge.edge-red path.react-flow__edge-path { filter: drop-shadow(0 0 6px rgba(239, 68, 68, .28)); }
       .workflow-edge.edge-slate path.react-flow__edge-path { filter: drop-shadow(0 0 6px rgba(100, 116, 139, .22)); }
+      .workflow-edge.edge-rose path.react-flow__edge-path { filter: drop-shadow(0 0 6px rgba(244, 63, 94, .28)); }
       .react-flow__edge.selected path.react-flow__edge-path, .react-flow__edge:focus path.react-flow__edge-path { stroke-width: 3.6 !important; stroke-dasharray: 7 8 !important; animation-duration: .5s !important; filter: drop-shadow(0 0 5px rgba(245,158,11,.55)); }
       .react-flow__edge-textbg { stroke: rgba(226, 232, 240, .9); stroke-width: 1px; }
       @keyframes core-edge-flow { to { stroke-dashoffset: -26; } }

@@ -3,6 +3,7 @@ import {
   CALENDLY_NODE_TYPES,
   CORE_CONNECTOR_ACTIONS,
   DEEPGRAM_NODE_TYPES,
+  isBlockNodeType,
   resolveDeepgramMode,
   MAX_WORKFLOW_CHAIN_DEPTH,
   TELEGRAM_NODE_TYPES,
@@ -4667,6 +4668,16 @@ async function executeSingleNodeInRunner(params: {
   const nodeKind = asString(node.data?.nodeKind);
 
   try {
+    // Product blocks (block.*) are sections of the customer-facing page, not
+    // engine work — skip them cleanly so a graph that mixes product sections
+    // with AI nodes still runs its AI nodes without erroring.
+    if (nodeKind === "block" || isBlockNodeType(asString(node.data?.type))) {
+      nodeLogs.push(
+        createLog(node, "success", "Product section — shown to your customer, nothing to run")
+      );
+      return { logs: nodeLogs, runFailed: false };
+    }
+
     if (nodeKind === "trigger") {
       runTriggerNode(node, context, nodeLogs);
       const triggerFiles = Array.isArray(input?.attachments)

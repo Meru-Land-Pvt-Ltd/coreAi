@@ -8,6 +8,7 @@ import { prisma } from "../../lib/prisma";
 import { runArchitectConversationTest } from "../architect/workflow-conversation-test";
 import { runWorkflowTest } from "../architect/workflow-runner";
 import { MarketplaceDemoError, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
+import { deriveFaceBlueprint } from "./blueprint";
 import { registerAgentPageManageRoutes } from "./manage-routes";
 import { agentPageRemainingToday, consumeAgentPageLimit, refundAgentPageUse } from "./rate-limit";
 import { extractRunOutput } from "./run-output";
@@ -155,6 +156,12 @@ agentPagesRoutes.get("/:slug", async (c) => {
   // Read-only: viewing the page never consumes a demo allowance.
   const remainingToday = await agentPageRemainingToday(getClientIp(c), slug);
 
+  // Non-null only when the graph contains product blocks — the page then
+  // assembles its interface from those blocks instead of the default Face.
+  // A missing workflow row degrades to null (default Face), never a 404:
+  // the page itself is still live.
+  const blueprint = deriveFaceBlueprint(await loadWorkflowJson(page.workflowId));
+
   return successResponse(c, {
     page: toPublicPagePayload(page),
     listing: {
@@ -170,7 +177,8 @@ agentPagesRoutes.get("/:slug", async (c) => {
       trialDays: listing.trialDays
     },
     architect: toPublicArchitectPayload(listing.architect),
-    limits: { remainingToday }
+    limits: { remainingToday },
+    blueprint
   });
 });
 

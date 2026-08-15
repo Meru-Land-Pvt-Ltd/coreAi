@@ -1,3 +1,5 @@
+import type { FaceBlueprint } from "@/components/agent-page/types";
+
 export type ArchitectProfile = {
   id: string;
   userId: string;
@@ -273,6 +275,13 @@ export type AgentPageManageData = {
   page: AgentPageConfig | null;
   url: string | null;
   defaultTemplate: AgentPageTemplate;
+  /**
+   * Non-null only when the workflow's canvas contains product blocks — the
+   * Test preview (and the live page) then assemble the customer interface
+   * from these blocks instead of a built-in template. Optional so older
+   * fixtures without the field keep compiling; absent reads as null.
+   */
+  blueprint?: FaceBlueprint | null;
 };
 
 export type AgentPageUpdateBody = {

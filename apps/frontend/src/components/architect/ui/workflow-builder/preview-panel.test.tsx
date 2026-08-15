@@ -186,6 +186,32 @@ describe("PreviewPanel", () => {
     expect(screen.queryByTestId("preview-panel-error")).toBeNull();
   });
 
+  it("assembles the page from product blocks when a blueprint arrives — pills step aside", () => {
+    render(
+      <PreviewPanel
+        {...makeProps()}
+        blueprint={{
+          blocks: [
+            { type: "block.prompt_composer", config: { placeholder: "Describe it" } },
+            { type: "block.output_stage", config: { kind: "auto" } }
+          ]
+        }}
+      />
+    );
+
+    // The block-assembled page replaces the template switch entirely.
+    expect(screen.getByTestId("agent-page-face")).toBeTruthy();
+    expect(screen.getByTestId("agent-block-prompt-composer")).toBeTruthy();
+    expect(screen.queryByTestId("preview-panel-face-slot-chat")).toBeNull();
+    // The graph decides the product now — no look pills.
+    expect(screen.queryByTestId("preview-panel-face-switcher")).toBeNull();
+    // The caption and the advanced door stay exactly as before.
+    expect(screen.getByTestId("preview-panel-caption").textContent).toBe(
+      "This is exactly what your customer will see."
+    );
+    expect(screen.getByTestId("preview-panel-advanced-toggle")).toBeTruthy();
+  });
+
   it("never raises the snag card for a failed voice start — the Face explains it", async () => {
     const props = makeProps({ hasVoiceNode: true });
     const user = userEvent.setup();

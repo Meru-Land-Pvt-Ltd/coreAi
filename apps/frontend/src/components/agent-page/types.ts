@@ -10,6 +10,21 @@ import { apiPost } from "@/lib/api";
 
 export type AgentPageTemplate = "chat" | "voice" | "media" | "form";
 
+/**
+ * One product block of a page assembled from the builder's "Your Product"
+ * palette group. Mirrors the backend blueprint payload exactly (see
+ * apps/backend/src/modules/agent-pages/blueprint.ts) — configs arrive
+ * pre-sanitized (caps + trimmed strings), the renderer only coerces shape.
+ */
+export type FaceBlueprintBlock = {
+  type: string;
+  config: Record<string, unknown>;
+};
+
+export type FaceBlueprint = {
+  blocks: FaceBlueprintBlock[];
+};
+
 export type AgentPageData = {
   page: {
     slug: string;
@@ -34,6 +49,13 @@ export type AgentPageData = {
   };
   architect: { displayName: string; photoUrl: string | null } | null;
   limits: { remainingToday: number };
+  /**
+   * Non-null only when the agent's graph contains product blocks — the page
+   * then assembles its interface from these blocks (FaceRenderer) instead of
+   * the default template. Optional because preview-built data and older
+   * fixtures omit it; absent/null keeps today's behavior untouched.
+   */
+  blueprint?: FaceBlueprint | null;
 };
 
 export type AgentPageTemplateProps = {

@@ -1,3 +1,4 @@
+import { isBlockNodeType } from "@coreai/shared";
 import { workflowHasTriggerNode, type CapabilityNode } from "./workflow-capabilities";
 
 export type GraphEdge = {
@@ -29,6 +30,14 @@ function isTriggerCapabilityNode(node: CapabilityNode): boolean {
   return workflowHasTriggerNode([node]);
 }
 
+/** Product blocks — sections of the customer page, not engine steps. */
+function isProductBlockNode(node: GraphNode): boolean {
+  return (
+    isBlockNodeType(String(node.data?.type ?? node.type ?? "")) ||
+    String(node.data?.nodeKind ?? "") === "block"
+  );
+}
+
 function reachableFrom(roots: string[], adjacency: Map<string, string[]>): Set<string> {
   const seen = new Set<string>();
   const queue = [...roots];
@@ -46,6 +55,16 @@ function reachableFrom(roots: string[], adjacency: Map<string, string[]>): Set<s
 /**
  * MVP rule: one trigger, one connected workflow.
  * Every non-trigger node must be reachable from that trigger via directed edges.
+ *
+ * Product blocks (block.*) relax this for the flagship story — "drag a Prompt
+ * Box, a brain, and a Result Viewer, connect them, press Test":
+ * - Blocks are page sections, not engine steps. They are never orphans (their
+ *   canvas position alone decides the customer page) and they count as extra
+ *   starting points for connectivity, so a brain wired only to a Prompt Box
+ *   is a connected product, not a stray step.
+ * - A graph that has product sections needs no trigger at all — the customer
+ *   page itself is what starts the agent.
+ * Graphs without blocks keep the exact rules and copy they had before.
  */
 export function analyzeWorkflowGraph(
   nodes: GraphNode[],
@@ -62,12 +81,20 @@ export function analyzeWorkflowGraph(
     };
   }
 
+  const blockNodeIds = new Set(
+    nodes
+      .map((node, index) => ({ node, id: nodeId(node, index) }))
+      .filter(({ node }) => isProductBlockNode(node))
+      .map(({ id }) => id)
+  );
+  const hasProductBlocks = blockNodeIds.size > 0;
+
   const triggerNodeIds = nodes
     .map((node, index) => ({ node, id: nodeId(node, index) }))
     .filter(({ node }) => isTriggerCapabilityNode(node))
     .map(({ id }) => id);
 
-  if (triggerNodeIds.length === 0) {
+  if (triggerNodeIds.length === 0 && !hasProductBlocks) {
     return {
       ok: false,
       issue: "missing_trigger",
@@ -83,9 +110,10 @@ export function analyzeWorkflowGraph(
     return {
       ok: false,
       issue: "multiple_triggers",
-      title: "One workflow only",
-      message:
-        "Keep a single trigger for now. Remove extra triggers so all steps belong to one connected flow.",
+      title: hasProductBlocks ? "One starting point only" : "One workflow only",
+      message: hasProductBlocks
+        ? "Keep a single trigger for now. Remove the extra ones so your agent has one clear starting point."
+        : "Keep a single trigger for now. Remove extra triggers so all steps belong to one connected flow.",
       orphanNodeIds: [],
       triggerNodeIds
     };
@@ -101,18 +129,22 @@ export function analyzeWorkflowGraph(
     adjacency.set(source, list);
   }
 
-  const reachable = reachableFrom(triggerNodeIds, adjacency);
+  // Blocks join the trigger as reachability roots: anything your product
+  // sections feed into belongs to the product.
+  const reachable = reachableFrom([...triggerNodeIds, ...blockNodeIds], adjacency);
   const orphanNodeIds = nodes
     .map((node, index) => nodeId(node, index))
-    .filter((id) => !reachable.has(id));
+    // Blocks are placed, not wired — position on the canvas is their meaning.
+    .filter((id) => !reachable.has(id) && !blockNodeIds.has(id));
 
   if (orphanNodeIds.length > 0) {
     return {
       ok: false,
       issue: "disconnected_nodes",
-      title: "Connect your workflow",
-      message:
-        "Some nodes are not linked to your trigger. Connect them into one flow, or remove unused nodes before continuing.",
+      title: hasProductBlocks ? "Connect your steps" : "Connect your workflow",
+      message: hasProductBlocks
+        ? "Some steps aren't linked in yet. Connect each one into your flow, or remove the ones you aren't using."
+        : "Some nodes are not linked to your trigger. Connect them into one flow, or remove unused nodes before continuing.",
       orphanNodeIds,
       triggerNodeIds
     };

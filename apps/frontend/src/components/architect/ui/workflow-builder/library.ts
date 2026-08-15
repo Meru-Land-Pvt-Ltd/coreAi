@@ -1,5 +1,6 @@
 import {
   getNodeDefinition,
+  BLOCK_NODE_TYPES,
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
   TELEGRAM_NODE_TYPES,
@@ -95,6 +96,21 @@ export const libraryGroups: LibraryGroup[] = [
           subtitle: "Generate text or JSON using a select LLM model"
         }
       }
+    ]
+  },
+  /* Pre-designed sections of the customer page. Architects toggle and fill
+     content — Triven owns the pixels. The engine skips these at run time; the
+     customer page and Test preview assemble themselves from these blocks. */
+  {
+    title: "Your Product",
+    items: [
+      paletteItem(BLOCK_NODE_TYPES.promptComposer, { icon: "edit", accent: "rose", kind: "PRODUCT" }),
+      paletteItem(BLOCK_NODE_TYPES.presetGallery, { icon: "gallery", accent: "rose", kind: "PRODUCT" }),
+      paletteItem(BLOCK_NODE_TYPES.modelPicker, { icon: "sliders", accent: "rose", kind: "PRODUCT" }),
+      paletteItem(BLOCK_NODE_TYPES.actionButton, { icon: "pointer-click", accent: "rose", kind: "PRODUCT" }),
+      paletteItem(BLOCK_NODE_TYPES.outputStage, { icon: "eye", accent: "rose", kind: "PRODUCT" }),
+      paletteItem(BLOCK_NODE_TYPES.continueChain, { icon: "arrow-right", accent: "rose", kind: "PRODUCT" }),
+      paletteItem(BLOCK_NODE_TYPES.historyShelf, { icon: "clock", accent: "rose", kind: "PRODUCT" })
     ]
   },
   {

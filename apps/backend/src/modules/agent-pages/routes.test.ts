@@ -206,6 +206,68 @@ describe("GET /agent-pages/:slug", () => {
     expect(consumeLimitMock).not.toHaveBeenCalled();
   });
 
+  it("returns blueprint null when the graph has no product blocks", async () => {
+    const response = await buildApp().request(`/agent-pages/${SLUG}`);
+
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { data: { blueprint: unknown } };
+    expect(json.data.blueprint).toBeNull();
+  });
+
+  it("derives the blueprint from block nodes, ordered by canvas position (y then x)", async () => {
+    workflowFindUniqueMock.mockResolvedValue({
+      workflowJson: {
+        nodes: [
+          {
+            id: "out-1",
+            type: "coreNode",
+            position: { x: 0, y: 400 },
+            data: { type: "block.output_stage", nodeKind: "block", kind: "image" }
+          },
+          {
+            id: "ai-1",
+            type: "coreNode",
+            position: { x: 0, y: 0 },
+            data: { type: "ai.llm_call", nodeKind: "ai" }
+          },
+          {
+            id: "prompt-1",
+            type: "coreNode",
+            position: { x: 0, y: 100 },
+            data: {
+              type: "block.prompt_composer",
+              nodeKind: "block",
+              placeholder: "Describe your dream tattoo…"
+            }
+          }
+        ],
+        edges: []
+      }
+    });
+
+    const response = await buildApp().request(`/agent-pages/${SLUG}`);
+
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as {
+      data: { blueprint: { blocks: Array<{ type: string; config: Record<string, unknown> }> } };
+    };
+    expect(json.data.blueprint.blocks).toEqual([
+      { type: "block.prompt_composer", config: { placeholder: "Describe your dream tattoo…" } },
+      { type: "block.output_stage", config: { kind: "image" } }
+    ]);
+  });
+
+  it("degrades to a null blueprint (not a 404) when the workflow row is missing", async () => {
+    workflowFindUniqueMock.mockResolvedValue(null);
+
+    const response = await buildApp().request(`/agent-pages/${SLUG}`);
+
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { data: { blueprint: unknown; page: { slug: string } } };
+    expect(json.data.blueprint).toBeNull();
+    expect(json.data.page.slug).toBe(SLUG);
+  });
+
   it("falls back to the user's full name when the profile has no display name", async () => {
     const page = livePage();
     page.listing.architect.architectProfile = {

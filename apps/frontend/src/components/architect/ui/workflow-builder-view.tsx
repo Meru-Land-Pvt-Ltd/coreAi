@@ -560,27 +560,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     if (activeTab === "test") setTestView("preview");
   }, [activeTab]);
 
-  // The saved customer-page design (template, accent, headline, welcome,
-  // suggested prompts) so the preview shows exactly what the customer will
-  // see. Refetched on every Test entry to pick up Publish-tab edits; a miss
-  // simply leaves the preview on its built-in defaults.
-  useEffect(() => {
-    if (activeTab !== "test" || !currentWorkflowId) return;
-
-    let cancelled = false;
-    getAgentPageConfig(currentWorkflowId)
-      .then((result) => {
-        if (!cancelled && result.success && result.data) setPreviewPageData(result.data);
-      })
-      .catch(() => {
-        // Preview still works without the saved design.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, currentWorkflowId]);
-
   useEffect(() => {
     if (loading) return;
     if (tabRequiresConnectedFlow(activeTab) && !isConnectedWorkflowReady) {
@@ -759,6 +738,46 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     save: saveDraft,
     isMeaningful: meaningfulForSave
   });
+
+  // The saved customer-page design (template, accent, headline, welcome,
+  // suggested prompts) PLUS the product blueprint derived from the graph, so
+  // the preview shows exactly what the customer will see. Refetched on every
+  // Test entry to pick up Publish-tab and canvas edits; a miss simply leaves
+  // the preview on its built-in defaults.
+  //
+  // ORDERING GUARANTEE: the manage endpoint derives the blueprint from the
+  // SAVED workflow, so pending canvas edits are flushed first (awaited) and
+  // the fetch starts only after that save settles — the architect's
+  // just-placed blocks are always in the preview they open. A failed or
+  // empty save still fetches: the preview then shows the last saved state.
+  // (This effect lives below the autosave hook because it awaits `saveNow`.)
+  useEffect(() => {
+    if (activeTab !== "test" || !currentWorkflowId) return;
+
+    let cancelled = false;
+    void (async () => {
+      if (!isUnderReview) {
+        // Same review-lock rule as the run engines: never write while locked.
+        try {
+          await saveNow();
+        } catch {
+          // Fetch proceeds on the last saved state.
+        }
+      }
+      if (cancelled) return;
+
+      try {
+        const result = await getAgentPageConfig(currentWorkflowId);
+        if (!cancelled && result.success && result.data) setPreviewPageData(result.data);
+      } catch {
+        // Preview still works without the saved design.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, currentWorkflowId, isUnderReview, saveNow]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -2537,6 +2556,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             hasMediaNode={hasMediaNode}
             page={previewPageData?.page ?? null}
             defaultTemplate={previewPageData?.defaultTemplate}
+            blueprint={previewPageData?.blueprint ?? null}
             architectName={architectName}
             underReview={isUnderReview}
             onSendChat={sendPreviewChat}

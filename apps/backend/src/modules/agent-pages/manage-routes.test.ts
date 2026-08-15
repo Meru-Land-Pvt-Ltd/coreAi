@@ -137,10 +137,50 @@ describe("GET /manage/:workflowId", () => {
     const response = await buildApp().request("/manage/workflow-1");
     expect(response.status).toBe(200);
     const json = (await response.json()) as {
-      data: { page: null; url: null; defaultTemplate: string };
+      data: { page: null; url: null; defaultTemplate: string; blueprint: null };
     };
-    expect(json.data).toEqual({ page: null, url: null, defaultTemplate: "voice" });
+    expect(json.data).toEqual({ page: null, url: null, defaultTemplate: "voice", blueprint: null });
     expect(pageCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("returns blueprint null when the graph has no product blocks", async () => {
+    const response = await buildApp().request("/manage/workflow-1");
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { data: { blueprint: unknown } };
+    expect(json.data.blueprint).toBeNull();
+  });
+
+  it("derives the blueprint from block nodes in the workflow graph", async () => {
+    workflowFindFirstMock.mockResolvedValue({
+      ...workflowRow,
+      workflowJson: {
+        nodes: [
+          {
+            id: "prompt-1",
+            type: "coreNode",
+            position: { x: 0, y: 0 },
+            data: { type: "block.prompt_composer", nodeKind: "block", placeholder: "Type here…" }
+          },
+          {
+            id: "out-1",
+            type: "coreNode",
+            position: { x: 0, y: 200 },
+            data: { type: "block.output_stage", nodeKind: "block", kind: "video" }
+          }
+        ],
+        edges: []
+      }
+    });
+
+    const response = await buildApp().request("/manage/workflow-1");
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as {
+      data: { blueprint: { blocks: Array<{ type: string; config: Record<string, unknown> }> } };
+    };
+    expect(json.data.blueprint.blocks).toEqual([
+      { type: "block.prompt_composer", config: { placeholder: "Type here…" } },
+      { type: "block.output_stage", config: { kind: "video" } }
+    ]);
   });
 
   it("auto-creates the page on first GET when the listing exists and no page does", async () => {
