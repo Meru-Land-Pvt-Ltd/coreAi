@@ -3,25 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Bot, Phone, PhoneOff } from "lucide-react";
-import { apiPost } from "@/lib/api";
 import { publicAgentPath } from "@/lib/routes";
 import { agentPageAccent, agentPageAccentForeground, type AgentPageTemplateProps } from "./types";
 
 /**
  * Voice template — a hero page with one oversized round call button.
  * Reuses the proven public demo-call session flow (agent-demo-call.tsx):
- * POST /agent-pages/:slug/voice-session, then the shared @vapi-ai/web client.
+ * runtime.startVoiceSession(), then the shared @vapi-ai/web client.
  */
-
-/** Response of POST /agent-pages/:slug/voice-session — a marketplace demo session. */
-type VoiceSession = {
-  publicKey: string;
-  assistantId: string;
-  assistantOverrides?: Record<string, unknown>;
-  listingId: string;
-  maxDurationSeconds: number;
-  remainingDemosToday: number;
-};
 
 type VapiEventName =
   | "call-start"
@@ -122,6 +111,9 @@ type CallState = "idle" | "connecting" | "live" | "ended";
 type Caption = { id: number; role: "user" | "assistant"; text: string };
 
 const MAX_VISIBLE_CAPTIONS = 3;
+/** How long the preview CTA's "goes live when you publish" note stays up —
+ *  mirrors AgentPageShell's timed dismiss. */
+const PREVIEW_CTA_NOTE_MS = 2600;
 
 const voiceKeyframes = `
 @keyframes agent-page-voice-pulse {
@@ -140,7 +132,7 @@ const voiceKeyframes = `
 }
 `;
 
-export function VoiceTemplate({ data, slug }: AgentPageTemplateProps) {
+export function VoiceTemplate({ data, runtime }: AgentPageTemplateProps) {
   const accent = agentPageAccent(data);
   // Light accents flip button text/icons to dark slate so they stay legible.
   const accentText = agentPageAccentForeground(accent);
@@ -148,10 +140,19 @@ export function VoiceTemplate({ data, slug }: AgentPageTemplateProps) {
   const headline = page.headline ?? listing.name;
   const subline = page.welcomeMessage ?? listing.tagline;
 
+  // Architect previews are never rate-limited, and their "Get this agent"
+  // button must not leave the builder — it only explains itself.
+  const isPreview = runtime.mode === "preview";
+
   const [state, setState] = useState<CallState>("idle");
   const [notice, setNotice] = useState("");
   const [limitReached, setLimitReached] = useState(false);
+  const [previewCtaNote, setPreviewCtaNote] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  // Whether this session has a countdown at all — live sessions always do
+  // (the timer stays visible for them, exactly as before the runtime
+  // refactor, including the final "0:00" frame); preview sessions omit it.
+  const [countdownActive, setCountdownActive] = useState(false);
   const [agentSpeaking, setAgentSpeaking] = useState(false);
   const [captions, setCaptions] = useState<Caption[]>([]);
   const [partialCaption, setPartialCaption] = useState<Caption | null>(null);
@@ -159,6 +160,7 @@ export function VoiceTemplate({ data, slug }: AgentPageTemplateProps) {
   const clientRef = useRef<VapiWebClient | null>(null);
   const detachRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const previewCtaNoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startInFlightRef = useRef(false);
   const captionIdRef = useRef(0);
   // Countdown source of truth — the interval must never end the call from
@@ -175,9 +177,21 @@ export function VoiceTemplate({ data, slug }: AgentPageTemplateProps) {
       mountedRef.current = false;
       detachRef.current?.();
       if (timerRef.current) clearInterval(timerRef.current);
+      if (previewCtaNoteTimerRef.current) clearTimeout(previewCtaNoteTimerRef.current);
       void stopVoiceClient(clientRef.current);
     };
   }, []);
+
+  /** Preview-only: show the "goes live when you publish" note, then let it
+   *  fade — same timed dismiss as the shell's header CTA. */
+  function showPreviewCtaNote() {
+    setPreviewCtaNote(true);
+    if (previewCtaNoteTimerRef.current) clearTimeout(previewCtaNoteTimerRef.current);
+    previewCtaNoteTimerRef.current = setTimeout(() => {
+      previewCtaNoteTimerRef.current = null;
+      setPreviewCtaNote(false);
+    }, PREVIEW_CTA_NOTE_MS);
+  }
 
   function stopTimer() {
     if (timerRef.current) {
@@ -222,22 +236,23 @@ export function VoiceTemplate({ data, slug }: AgentPageTemplateProps) {
     setNotice("");
     setCaptions([]);
     setPartialCaption(null);
+    // A fresh call clears the ended-card's publish note immediately.
+    setPreviewCtaNote(false);
+    if (previewCtaNoteTimerRef.current) {
+      clearTimeout(previewCtaNoteTimerRef.current);
+      previewCtaNoteTimerRef.current = null;
+    }
     setState("connecting");
 
     try {
-      const response = await apiPost<{ session: VoiceSession }>(
-        `/agent-pages/${slug}/voice-session`,
-        {}
-      );
+      const result = await runtime.startVoiceSession();
       if (!mountedRef.current) return;
 
-      const session = response.success ? response.data?.session : undefined;
-      if (!session) {
+      if ("error" in result) {
         setState("idle");
         if (
-          response.status === 429 ||
-          response.code === "DEMO_LIMIT_REACHED" ||
-          response.code === "PAGE_LIMIT_REACHED"
+          !isPreview &&
+          (result.code === "DEMO_LIMIT_REACHED" || result.code === "PAGE_LIMIT_REACHED")
         ) {
           setLimitReached(true);
         } else {
@@ -245,6 +260,14 @@ export function VoiceTemplate({ data, slug }: AgentPageTemplateProps) {
         }
         return;
       }
+
+      const { session } = result;
+      // Preview sessions omit the countdown; live sessions always send one
+      // (any number — 0 keeps the pre-refactor behavior: "0:00" shows and the
+      // call auto-ends about a second in).
+      const maxDurationSeconds =
+        typeof session.maxDurationSeconds === "number" ? session.maxDurationSeconds : null;
+      setCountdownActive(maxDurationSeconds !== null);
 
       const client = await getVoiceClient(session.publicKey);
       if (!mountedRef.current) {
@@ -259,8 +282,9 @@ export function VoiceTemplate({ data, slug }: AgentPageTemplateProps) {
 
       const onCallStart = () => {
         setState("live");
-        secondsLeftRef.current = session.maxDurationSeconds;
-        setSecondsLeft(session.maxDurationSeconds);
+        if (maxDurationSeconds === null) return;
+        secondsLeftRef.current = maxDurationSeconds;
+        setSecondsLeft(maxDurationSeconds);
         stopTimer();
         timerRef.current = setInterval(() => {
           // Count down via the ref and end the call OUTSIDE any state
@@ -335,10 +359,9 @@ export function VoiceTemplate({ data, slug }: AgentPageTemplateProps) {
         }
       };
 
-      const started = await client.start(session.assistantId, {
-        ...(session.assistantOverrides ?? {}),
-        metadata: { listingId: session.listingId, purpose: "MARKETPLACE_DEMO" }
-      });
+      // The live runtime already merged the marketplace demo metadata into the
+      // overrides — this payload is identical to the pre-runtime behavior.
+      const started = await client.start(session.assistantId, asRecord(session.assistantOverrides));
 
       if (!mountedRef.current) {
         // Unmounted while the call was connecting — hang up immediately.
@@ -439,14 +462,35 @@ export function VoiceTemplate({ data, slug }: AgentPageTemplateProps) {
             <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
               That was a quick preview. Get the full agent and put it to work for you.
             </p>
-            <Link
-              href={publicAgentPath(listing.id)}
-              data-testid="agent-page-voice-cta"
-              className="mt-4 inline-flex w-full items-center justify-center rounded-xl px-6 py-3 text-base font-semibold text-white transition hover:opacity-90"
-              style={{ backgroundColor: accent, color: accentText }}
-            >
-              Get this agent
-            </Link>
+            {isPreview ? (
+              <button
+                type="button"
+                onClick={showPreviewCtaNote}
+                data-testid="agent-page-voice-cta"
+                className="mt-4 inline-flex w-full items-center justify-center rounded-xl px-6 py-3 text-base font-semibold text-white transition hover:opacity-90"
+                style={{ backgroundColor: accent, color: accentText }}
+              >
+                Get this agent
+              </button>
+            ) : (
+              <Link
+                href={publicAgentPath(listing.id)}
+                data-testid="agent-page-voice-cta"
+                className="mt-4 inline-flex w-full items-center justify-center rounded-xl px-6 py-3 text-base font-semibold text-white transition hover:opacity-90"
+                style={{ backgroundColor: accent, color: accentText }}
+              >
+                Get this agent
+              </Link>
+            )}
+            {isPreview && previewCtaNote ? (
+              <p
+                className="mt-2 text-xs leading-relaxed text-slate-500"
+                role="status"
+                data-testid="agent-page-preview-cta-note"
+              >
+                This button goes live when you publish.
+              </p>
+            ) : null}
             <button
               type="button"
               onClick={() => void startCall()}
@@ -480,12 +524,14 @@ export function VoiceTemplate({ data, slug }: AgentPageTemplateProps) {
                       />
                     ))}
                   </div>
-                  <span
-                    className="font-mono text-sm font-semibold tabular-nums text-slate-600"
-                    data-testid="agent-page-voice-timer"
-                  >
-                    {clock}
-                  </span>
+                  {countdownActive ? (
+                    <span
+                      className="font-mono text-sm font-semibold tabular-nums text-slate-600"
+                      data-testid="agent-page-voice-timer"
+                    >
+                      {clock}
+                    </span>
+                  ) : null}
                 </div>
 
                 <p

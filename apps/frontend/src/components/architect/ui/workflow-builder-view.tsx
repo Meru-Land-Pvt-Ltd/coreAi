@@ -44,8 +44,10 @@ import {
   getCalendlyOAuthUrl,
   listWhatsAppConnections,
   postGmailDisclosureConsent,
+  getAgentPageConfig,
   getLatestArchitectTestEvent,
   getWorkflowConfigure,
+  previewRunArchitectWorkflow,
   runArchitectWorkflowTest,
   runArchitectConversationTest,
   startArchitectTestDeployment,
@@ -58,6 +60,7 @@ import {
 } from "@/components/architect/features/api";
 import type { ArchitectTelegramTestConnection } from "@/components/architect/features/api";
 import type {
+  AgentPageManageData,
   ArchitectConversationMessage,
   ArchitectConversationToolCall,
   ArchitectTestCalendarEvent,
@@ -89,6 +92,12 @@ import { NodeInspector } from "./workflow-builder/node-inspector";
 import { defaultAgentDescription, defaultAgentName, defaultNodeData } from "./workflow-builder/node-defaults";
 import { parseEdges, parseNodes } from "./workflow-builder/parsers";
 import { PreviewModal } from "./workflow-builder/preview-modal";
+import {
+  PreviewPanel,
+  type PreviewChatResult,
+  type PreviewRunResult,
+  type PreviewVoiceResult
+} from "./workflow-builder/preview-panel";
 import { PublishPanel } from "./workflow-builder/publish-panel";
 import {
   TestPanel,
@@ -164,6 +173,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<BuilderTab>("build");
+  // Test tab view: the customer-facing preview by default; "advanced" reveals
+  // the full developer test console. Reset on every Test tab entry.
+  const [testView, setTestView] = useState<"preview" | "advanced">("preview");
+  // Saved customer-page design for the Test preview (null until fetched or
+  // when the workflow has never been configured/published).
+  const [previewPageData, setPreviewPageData] = useState<AgentPageManageData | null>(null);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>(null);
   const [flowGateNotice, setFlowGateNotice] = useState<{
     title: string;
@@ -443,6 +458,25 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const hasEmailNode = capabilities.hasEmailSend;
   const hasWhatsAppTrigger = capabilities.hasWhatsAppTrigger;
 
+  // Preview Face auto-pick flags, straight from the canvas node types.
+  // Voice: an AI voice conversation node. Media: an image/video GENERATION
+  // node ("generation" required so e.g. send_whatsapp_video doesn't count).
+  const hasVoiceNode = useMemo(
+    () =>
+      nodes.some((node) =>
+        String(node.data?.type ?? node.type ?? "").toLowerCase().includes("voice_conversation")
+      ),
+    [nodes]
+  );
+  const hasMediaNode = useMemo(
+    () =>
+      nodes.some((node) => {
+        const type = String(node.data?.type ?? node.type ?? "").toLowerCase();
+        return type.includes("image_generation") || type.includes("video_generation");
+      }),
+    [nodes]
+  );
+
   const needsGoogleConnection = hasGmailFlow || needsCalendarConnection;
   // Twilio/Vapi cards are for live sandbox only — browser call test does not need them.
   const liveSandboxActive =
@@ -519,6 +553,33 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     },
     [graphValidation.issue, graphValidation.message, graphValidation.title, isConnectedWorkflowReady]
   );
+
+  // Every entry to the Test tab opens on the customer preview; "Advanced
+  // testing" is a per-visit choice, never sticky.
+  useEffect(() => {
+    if (activeTab === "test") setTestView("preview");
+  }, [activeTab]);
+
+  // The saved customer-page design (template, accent, headline, welcome,
+  // suggested prompts) so the preview shows exactly what the customer will
+  // see. Refetched on every Test entry to pick up Publish-tab edits; a miss
+  // simply leaves the preview on its built-in defaults.
+  useEffect(() => {
+    if (activeTab !== "test" || !currentWorkflowId) return;
+
+    let cancelled = false;
+    getAgentPageConfig(currentWorkflowId)
+      .then((result) => {
+        if (!cancelled && result.success && result.data) setPreviewPageData(result.data);
+      })
+      .catch(() => {
+        // Preview still works without the saved design.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, currentWorkflowId]);
 
   useEffect(() => {
     if (loading) return;
@@ -1458,7 +1519,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
    * frontend-safe session, or an error reason so the card can fall back to
    * the local simulation with a clear label.
    */
-  async function startVapiBrowserTest(): Promise<ArchitectVapiBrowserTestSession | { error: string }> {
+  async function startVapiBrowserTest(
+    fallbackBusinessName?: string
+  ): Promise<ArchitectVapiBrowserTestSession | { error: string }> {
     if (blockIfUnderReview()) return { error: REVIEW_LOCK_MESSAGE };
 
     // Single-flight: one click → one save → one browser-test start request.
@@ -1469,13 +1532,15 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     vapiBrowserTestStartRef.current = true;
 
     try {
-      return await startVapiBrowserTestInner();
+      return await startVapiBrowserTestInner(fallbackBusinessName);
     } finally {
       vapiBrowserTestStartRef.current = false;
     }
   }
 
-  async function startVapiBrowserTestInner(): Promise<ArchitectVapiBrowserTestSession | { error: string }> {
+  async function startVapiBrowserTestInner(
+    fallbackBusinessName?: string
+  ): Promise<ArchitectVapiBrowserTestSession | { error: string }> {
     setMessage("Starting Vapi browser call...");
 
     // Flush pending edits so the browser test deploys the latest workflow
@@ -1488,7 +1553,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
     const result = await startArchitectVapiBrowserTest(currentWorkflowIdRef.current, {
       testContext: {
-        businessName: businessName.trim() || "Sample Business",
+        businessName: businessName.trim() || fallbackBusinessName || "Sample Business",
         businessType: businessType.trim() || "Service Business",
         callerName: callerName.trim() || "Test caller",
         callerPhone: callerNumber.trim() || "+15555550100",
@@ -1616,6 +1681,132 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return errorMessage;
     } finally {
       setChatting(false);
+    }
+  }
+
+  /* ---- Preview Test view: engine bridges for the customer-facing Face ---- */
+
+  /**
+   * Chat engine for the preview Face — the same save-then-conversation-test
+   * flow as the advanced console, mapped to the AgentPageRuntime result shape.
+   * The Face owns its own transcript; the developer console's transcript,
+   * logs and status panels are intentionally left untouched.
+   */
+  async function sendPreviewChat(
+    messageText: string,
+    history: { role: "user" | "assistant"; content: string }[],
+    sessionId?: string
+  ): Promise<PreviewChatResult> {
+    if (blockIfUnderReview()) return { error: REVIEW_LOCK_MESSAGE };
+
+    const cleanMessage = messageText.trim();
+    if (!cleanMessage) return { error: "Please type a message." };
+
+    try {
+      // Flush pending edits first — the engine reads the agent from the DB.
+      const saved = await saveAgent(false);
+      if (!saved || !currentWorkflowIdRef.current) {
+        return { error: "We couldn't save your latest changes. Please try again." };
+      }
+
+      // Thread one session id across the whole preview conversation so its
+      // records group exactly like the advanced console's test does.
+      const previewSessionId = sessionId || testSessionIdRef.current;
+      const serviceName = appointmentService.trim();
+
+      const result = await runArchitectConversationTest(currentWorkflowIdRef.current, {
+        message: cleanMessage,
+        history: history.slice(-30),
+        testSessionId: previewSessionId,
+        useTestCalendar,
+        // After-hours simulation ("current" = no override, real behavior).
+        simulateBusinessHoursState: testAfterHoursState,
+        testContext: {
+          // The preview must sound like the architect's product, not a demo:
+          // fall back to the agent's name before the generic sample business.
+          businessName: businessName.trim() || agentName.trim() || "Sample Business",
+          businessType: businessType.trim() || "Service Business",
+          callerName: callerName.trim() || "Test caller",
+          callerPhone: callerNumber.trim() || "+15555550100",
+          calendarId: calendarId.trim() || "primary",
+          timeZone: timeZone.trim() || browserTimeZone(),
+          appointmentService: serviceName || undefined,
+          requestedDate: testDate || undefined,
+          requestedTime: testTime || undefined,
+          services: serviceName
+            ? [serviceName, "General inquiry"]
+            : ["Consultation", "Appointment booking", "General inquiry"],
+          faqs: [
+            "Pricing depends on the selected service.",
+            "Urgent requests should be escalated to the team."
+          ]
+        }
+      });
+
+      if (!result.success || !result.data) {
+        return {
+          error: result.error ?? "This agent had trouble replying. Please try again.",
+          ...(result.code ? { code: result.code } : {})
+        };
+      }
+
+      return { reply: result.data.conversation.reply, sessionId: previewSessionId };
+    } catch (err) {
+      return {
+        error: err instanceof Error ? err.message : "This agent had trouble replying. Please try again."
+      };
+    }
+  }
+
+  /**
+   * Voice engine for the preview Face — the exact advanced-console start flow
+   * (review lock, single-flight, save-first), mapped to the runtime session.
+   */
+  async function startPreviewVoice(): Promise<PreviewVoiceResult> {
+    const result = await startVapiBrowserTest(agentName.trim() || undefined);
+    if ("error" in result) return { error: result.error };
+    return {
+      session: {
+        publicKey: result.publicKey,
+        assistantId: result.assistantId,
+        // The exact metadata the advanced console sends on start — backend
+        // webhook auth recognizes these browser-test calls by it, so preview
+        // calls must carry it too or their webhooks are treated differently.
+        assistantOverrides: {
+          metadata: { businessId: result.businessId, purpose: "ARCHITECT_TEST" }
+        }
+      }
+    };
+  }
+
+  /** One-shot engine for the media/form Faces — sandboxed architect preview run. */
+  async function runPreviewOnce(prompt: string, sessionId?: string): Promise<PreviewRunResult> {
+    if (blockIfUnderReview()) return { error: REVIEW_LOCK_MESSAGE };
+
+    try {
+      // Save first so the one-shot run always exercises the latest canvas.
+      const saved = await saveAgent(false);
+      if (!saved || !currentWorkflowIdRef.current) {
+        return { error: "We couldn't save your latest changes. Please try again." };
+      }
+
+      const result = await previewRunArchitectWorkflow(currentWorkflowIdRef.current, {
+        prompt,
+        ...(sessionId ? { sessionId } : {})
+      });
+
+      if (!result.success || !result.data) {
+        return {
+          error: result.error ?? "This agent had trouble responding. Please try again.",
+          ...(result.code ? { code: result.code } : {})
+        };
+      }
+
+      return { output: result.data.output };
+    } catch (err) {
+      return {
+        error: err instanceof Error ? err.message : "This agent had trouble responding. Please try again."
+      };
     }
   }
 
@@ -2338,7 +2529,38 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           </section>
         ) : null}
 
-        {activeTab === "test" ? (
+        {activeTab === "test" && testView === "preview" ? (
+          <PreviewPanel
+            workflowId={currentWorkflowId}
+            workflowName={agentName}
+            hasVoiceNode={hasVoiceNode}
+            hasMediaNode={hasMediaNode}
+            page={previewPageData?.page ?? null}
+            defaultTemplate={previewPageData?.defaultTemplate}
+            architectName={architectName}
+            underReview={isUnderReview}
+            onSendChat={sendPreviewChat}
+            onStartVoice={startPreviewVoice}
+            onRunOnce={runPreviewOnce}
+            onOpenAdvanced={() => setTestView("advanced")}
+          />
+        ) : null}
+
+        {activeTab === "test" && testView === "advanced" ? (
+          <div className="absolute inset-0 flex flex-col">
+            <div className="flex flex-none items-center border-b border-gray-100 bg-white px-4 py-1.5">
+              <button
+                type="button"
+                onClick={() => setTestView("preview")}
+                data-testid="preview-panel-back-to-preview"
+                className="text-xs font-medium text-slate-500 underline-offset-4 transition hover:text-slate-900 hover:underline"
+              >
+                &larr; Simple preview
+              </button>
+            </div>
+            {/* Positioned so the TestPanel's absolute-inset root fills exactly
+                the space under the back bar — its own markup is untouched. */}
+            <div className="relative min-h-0 flex-1">
           <TestPanel
             hasGmailFlow={hasGmailFlow}
             hasEmailNode={hasEmailNode}
@@ -2481,6 +2703,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onTelegramCommandChange={updateTelegramCommand}
             onTelegramCustomCommandsChange={updateTelegramCustomCommands}
           />
+            </div>
+          </div>
         ) : null}
 
         {activeTab === "configure" ? (

@@ -1,10 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Bot } from "lucide-react";
 import { HOME_PATH, publicAgentPath } from "@/lib/routes";
-import { agentPageAccent, agentPageAccentForeground, type AgentPageData } from "./types";
+import {
+  agentPageAccent,
+  agentPageAccentForeground,
+  type AgentPageData,
+  type AgentPageRuntime
+} from "./types";
+
+/** How long the preview CTA's "goes live when you publish" note stays up. */
+const PREVIEW_CTA_NOTE_MS = 2600;
 
 /**
  * Minimal branded chrome shared by every published-page template: sticky
@@ -12,12 +20,17 @@ import { agentPageAccent, agentPageAccentForeground, type AgentPageData } from "
  * and a one-line footer. Templates render inside `children` and manage their
  * own scrolling — the shell pins itself to the visual viewport (100dvh) so
  * composers are never hidden behind the mobile keyboard.
+ *
+ * In preview mode (the builder's Test tab) the CTA keeps its exact look but
+ * explains itself with a soft note instead of navigating away.
  */
 export function AgentPageShell({
   data,
+  runtime,
   children
 }: {
   data: AgentPageData;
+  runtime: AgentPageRuntime;
   children: ReactNode;
 }) {
   const accent = agentPageAccent(data);
@@ -25,9 +38,33 @@ export function AgentPageShell({
   const accentText = agentPageAccentForeground(accent);
   const { listing, architect } = data;
 
+  const isPreview = runtime.mode === "preview";
+  const [previewCtaNote, setPreviewCtaNote] = useState(false);
+  const noteTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (noteTimerRef.current !== null) window.clearTimeout(noteTimerRef.current);
+    };
+  }, []);
+
+  const showPreviewCtaNote = () => {
+    setPreviewCtaNote(true);
+    if (noteTimerRef.current !== null) window.clearTimeout(noteTimerRef.current);
+    noteTimerRef.current = window.setTimeout(() => {
+      noteTimerRef.current = null;
+      setPreviewCtaNote(false);
+    }, PREVIEW_CTA_NOTE_MS);
+  };
+
   return (
     <div
-      className="flex h-[100dvh] flex-col bg-white text-slate-900 antialiased"
+      className={
+        isPreview
+          ? // Preview fills the builder's device frame instead of the viewport.
+            "flex h-full flex-col bg-white text-slate-900 antialiased"
+          : "flex h-[100dvh] flex-col bg-white text-slate-900 antialiased"
+      }
       data-testid="agent-page"
     >
       <header className="sticky top-0 z-50 flex-none border-b border-gray-100 bg-white/90 backdrop-blur">
@@ -67,15 +104,39 @@ export function AgentPageShell({
             ) : null}
           </div>
 
-          <Link
-            href={publicAgentPath(listing.id)}
-            className="flex-none rounded-xl px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-            style={{ backgroundColor: accent, color: accentText }}
-            data-testid="agent-page-cta"
-          >
-            Get this agent
-          </Link>
+          {isPreview ? (
+            <button
+              type="button"
+              onClick={showPreviewCtaNote}
+              className="flex-none rounded-xl px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+              style={{ backgroundColor: accent, color: accentText }}
+              data-testid="agent-page-cta"
+            >
+              Get this agent
+            </button>
+          ) : (
+            <Link
+              href={publicAgentPath(listing.id)}
+              className="flex-none rounded-xl px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+              style={{ backgroundColor: accent, color: accentText }}
+              data-testid="agent-page-cta"
+            >
+              Get this agent
+            </Link>
+          )}
         </div>
+
+        {/* Sticky positioning makes the header the containing block, so this
+            note hangs just below the CTA without touching the live layout. */}
+        {isPreview && previewCtaNote ? (
+          <p
+            className="absolute right-4 top-full mt-2 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-medium text-slate-600 shadow-md sm:right-6"
+            role="status"
+            data-testid="agent-page-preview-cta-note"
+          >
+            This button goes live when you publish.
+          </p>
+        ) : null}
       </header>
 
       <main className="flex min-h-0 flex-1 flex-col">{children}</main>

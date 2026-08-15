@@ -10,7 +10,6 @@ import {
 } from "react";
 import Link from "next/link";
 import { Bot, RefreshCw, Send } from "lucide-react";
-import { apiPost } from "@/lib/api";
 import { publicAgentPath } from "@/lib/routes";
 import { agentPageAccent, agentPageAccentForeground, type AgentPageTemplateProps } from "./types";
 
@@ -28,19 +27,13 @@ function isCoarsePointer(): boolean {
   );
 }
 
-type ChatResponse = {
-  reply: string;
-  sessionId: string;
-  remainingToday: number;
-};
-
 /** The backend accepts at most this many prior turns per request. */
 const MAX_HISTORY_TURNS = 20;
 /** Composer grows with the draft up to ~4 lines, then scrolls internally. */
 const MAX_COMPOSER_HEIGHT_PX = 120;
 const MAX_SUGGESTED_PROMPTS = 4;
 
-export function ChatTemplate({ data, slug }: AgentPageTemplateProps) {
+export function ChatTemplate({ data, runtime }: AgentPageTemplateProps) {
   const accent = agentPageAccent(data);
   // Light accents flip button text/icons to dark slate so they stay legible.
   const accentText = agentPageAccentForeground(accent);
@@ -50,10 +43,16 @@ export function ChatTemplate({ data, slug }: AgentPageTemplateProps) {
     .filter((prompt) => prompt.trim().length > 0)
     .slice(0, MAX_SUGGESTED_PROMPTS);
 
+  // Architect previews are never rate-limited — the limit card is a
+  // published-page concept and must not appear while testing a draft.
+  const isPreview = runtime.mode === "preview";
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [limitReached, setLimitReached] = useState(data.limits.remainingToday <= 0);
+  const [limitReached, setLimitReached] = useState(
+    !isPreview && data.limits.remainingToday <= 0
+  );
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
 
   const sessionIdRef = useRef<string | null>(null);
@@ -90,30 +89,35 @@ export function ChatTemplate({ data, slug }: AgentPageTemplateProps) {
         .slice(-MAX_HISTORY_TURNS)
         .map(({ role, content }) => ({ role, content }));
 
-      const response = await apiPost<ChatResponse>(`/agent-pages/${slug}/chat`, {
+      const result = await runtime.sendChat({
         message: text,
-        ...(history.length > 0 ? { history } : {}),
-        ...(sessionIdRef.current ? { sessionId: sessionIdRef.current } : {})
+        history,
+        sessionId: sessionIdRef.current ?? undefined
       });
 
       setSending(false);
 
-      const payload = response.success ? response.data : undefined;
-      if (payload) {
-        sessionIdRef.current = payload.sessionId;
-        setMessages((prev) => [...prev, { role: "assistant", content: payload.reply }]);
-        if (payload.remainingToday <= 0) setLimitReached(true);
+      if (!("error" in result)) {
+        sessionIdRef.current = result.sessionId;
+        setMessages((prev) => [...prev, { role: "assistant", content: result.reply }]);
+        if (!isPreview && typeof result.remainingToday === "number" && result.remainingToday <= 0)
+          setLimitReached(true);
         return;
       }
 
-      if (response.code === "PAGE_LIMIT_REACHED" || response.status === 429) {
+      // Both limit codes count — before the runtime refactor any HTTP 429
+      // raised the limit card, whichever limiter produced it.
+      if (
+        !isPreview &&
+        (result.code === "PAGE_LIMIT_REACHED" || result.code === "DEMO_LIMIT_REACHED")
+      ) {
         setLimitReached(true);
         return;
       }
 
       setFailedMessage(text);
     },
-    [slug]
+    [runtime, isPreview]
   );
 
   const sendMessage = useCallback(

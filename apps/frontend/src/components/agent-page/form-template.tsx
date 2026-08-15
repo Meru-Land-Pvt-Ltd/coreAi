@@ -3,20 +3,14 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Check, Copy, Paperclip, RefreshCw } from "lucide-react";
-import { apiPost } from "@/lib/api";
 import { publicAgentPath } from "@/lib/routes";
 import { agentPageAccent, agentPageAccentForeground, type AgentPageTemplateProps } from "./types";
 
 /**
- * Form template — one clean "What do you need?" card that submits to
- * POST /agent-pages/:slug/run and renders the result as readable prose
+ * Form template — one clean "What do you need?" card that submits via
+ * runtime.runOnce() and renders the result as readable prose
  * with copy-to-clipboard and attachment links.
  */
-
-type RunResponse = {
-  output: { text: string | null; mediaUrls: string[] };
-  remainingToday: number;
-};
 
 type FormResult = {
   text: string | null;
@@ -39,17 +33,23 @@ function attachmentLabel(url: string, index: number): string {
   return `Attachment ${index + 1}`;
 }
 
-export function FormTemplate({ data, slug }: AgentPageTemplateProps) {
+export function FormTemplate({ data, runtime }: AgentPageTemplateProps) {
   const accent = agentPageAccent(data);
   // Light accents flip button text to dark slate so it stays legible.
   const accentText = agentPageAccentForeground(accent);
   const { listing, page } = data;
   const headline = page.headline ?? listing.name;
 
+  // Architect previews are never rate-limited — the limit card is a
+  // published-page concept and must not appear while testing a draft.
+  const isPreview = runtime.mode === "preview";
+
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<FormResult | null>(null);
-  const [limitReached, setLimitReached] = useState(data.limits.remainingToday <= 0);
+  const [limitReached, setLimitReached] = useState(
+    !isPreview && data.limits.remainingToday <= 0
+  );
   const [failedPrompt, setFailedPrompt] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -58,18 +58,27 @@ export function FormTemplate({ data, slug }: AgentPageTemplateProps) {
     setFailedPrompt(null);
     setCopied(false);
 
-    const response = await apiPost<RunResponse>(`/agent-pages/${slug}/run`, { prompt });
+    const runResult = await runtime.runOnce({ prompt });
 
     setSubmitting(false);
 
-    const payload = response.success ? response.data : undefined;
-    if (payload) {
-      setResult({ text: payload.output.text, mediaUrls: payload.output.mediaUrls });
-      if (payload.remainingToday <= 0) setLimitReached(true);
+    if (!("error" in runResult)) {
+      setResult({ text: runResult.output.text, mediaUrls: runResult.output.mediaUrls });
+      if (
+        !isPreview &&
+        typeof runResult.remainingToday === "number" &&
+        runResult.remainingToday <= 0
+      )
+        setLimitReached(true);
       return;
     }
 
-    if (response.code === "PAGE_LIMIT_REACHED" || response.status === 429) {
+    // Both limit codes count — before the runtime refactor any HTTP 429
+    // raised the limit card, whichever limiter produced it.
+    if (
+      !isPreview &&
+      (runResult.code === "PAGE_LIMIT_REACHED" || runResult.code === "DEMO_LIMIT_REACHED")
+    ) {
       setLimitReached(true);
       return;
     }

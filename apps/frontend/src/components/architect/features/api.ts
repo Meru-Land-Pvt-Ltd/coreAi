@@ -903,6 +903,21 @@ export function runArchitectWorkflowTest(
   );
 }
 
+/**
+ * One sandboxed one-shot run for the builder's Test tab preview (media/form
+ * Faces). Same engine + output extraction as the public page's run endpoint,
+ * but architect-authed — never counted against the public page limiter.
+ */
+export function previewRunArchitectWorkflow(
+  workflowId: string,
+  body: { prompt: string; sessionId?: string }
+) {
+  return apiPost<{ output: { text: string | null; mediaUrls: string[] } }>(
+    `/architect/workflows/${workflowId}/preview-run`,
+    body
+  );
+}
+
 export function runArchitectWorkflowLive(
   workflowId: string,
   body: {

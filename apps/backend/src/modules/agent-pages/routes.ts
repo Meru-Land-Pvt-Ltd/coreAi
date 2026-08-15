@@ -10,6 +10,7 @@ import { runWorkflowTest } from "../architect/workflow-runner";
 import { MarketplaceDemoError, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
 import { registerAgentPageManageRoutes } from "./manage-routes";
 import { agentPageRemainingToday, consumeAgentPageLimit, refundAgentPageUse } from "./rate-limit";
+import { extractRunOutput } from "./run-output";
 import type { AgentPageTemplate } from "./slug";
 
 /**
@@ -135,65 +136,6 @@ function toPublicArchitectPayload(
  */
 function engineSessionId(slug: string, sessionId: string): string {
   return `page:${slug}:${sessionId}`;
-}
-
-// ---------------------------------------------------------------------------
-// Media extraction for /run.
-// ---------------------------------------------------------------------------
-
-/**
- * Explicit media keys only — a generic "url" field (booking links, webhook
- * echoes) must never surface as visitor-facing media.
- */
-const MEDIA_URL_KEYS = new Set(["imageUrl", "videoUrl", "mediaUrl"]);
-const MAX_MEDIA_URLS = 8;
-
-/** http(s) URLs plus data: image/video URIs (the image node emits data URIs). */
-function isRenderableMediaUrl(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    (/^https?:\/\//i.test(value) || /^data:(image|video)\//i.test(value))
-  );
-}
-
-function collectMediaUrls(output: unknown, found: Set<string>, depth = 0): void {
-  if (typeof output !== "object" || output === null || Array.isArray(output)) return;
-
-  for (const [key, value] of Object.entries(output as Record<string, unknown>)) {
-    if (MEDIA_URL_KEYS.has(key) && isRenderableMediaUrl(value)) {
-      found.add(value);
-    } else if (depth < 1 && typeof value === "object" && value !== null && !Array.isArray(value)) {
-      collectMediaUrls(value, found, depth + 1);
-    }
-  }
-}
-
-/**
- * Media from a one-shot run. The image-generation node never logs its URL —
- * the log line carries "[Binary Image Data]" — so the real result is read
- * from context.image_url and context.imagePipeline[nodeId].imageUrl (usually
- * data: URIs). Log outputs are still scanned for explicit media keys emitted
- * by other node types.
- */
-function extractRunMediaUrls(result: { context?: unknown; logs?: unknown[] }): string[] {
-  const found = new Set<string>();
-  const context = (result.context ?? {}) as Record<string, unknown>;
-
-  if (isRenderableMediaUrl(context.image_url)) found.add(context.image_url);
-
-  const pipeline = context.imagePipeline;
-  if (pipeline && typeof pipeline === "object" && !Array.isArray(pipeline)) {
-    for (const entry of Object.values(pipeline as Record<string, unknown>)) {
-      const imageUrl = (entry as { imageUrl?: unknown } | null)?.imageUrl;
-      if (isRenderableMediaUrl(imageUrl)) found.add(imageUrl);
-    }
-  }
-
-  for (const log of result.logs ?? []) {
-    collectMediaUrls((log as { output?: unknown }).output, found);
-  }
-
-  return [...found].slice(0, MAX_MEDIA_URLS);
 }
 
 // ---------------------------------------------------------------------------
@@ -392,11 +334,8 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
       mode: "test"
     });
 
-    const aiOutput = (result.context as { ai?: { output?: unknown } } | undefined)?.ai?.output;
-    const text = typeof aiOutput === "string" ? aiOutput : null;
-
     return successResponse(c, {
-      output: { text, mediaUrls: extractRunMediaUrls(result) },
+      output: extractRunOutput(result),
       remainingToday: decision.remainingToday
     });
   } catch (error) {

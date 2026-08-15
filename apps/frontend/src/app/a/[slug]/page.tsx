@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { apiGet } from "@/lib/api";
@@ -10,7 +10,10 @@ import { ChatTemplate } from "@/components/agent-page/chat-template";
 import { VoiceTemplate } from "@/components/agent-page/voice-template";
 import { MediaTemplate } from "@/components/agent-page/media-template";
 import { FormTemplate } from "@/components/agent-page/form-template";
-import type { AgentPageData } from "@/components/agent-page/types";
+import {
+  createPublicAgentPageRuntime,
+  type AgentPageData
+} from "@/components/agent-page/types";
 
 type PageState =
   | { status: "loading" }
@@ -70,6 +73,9 @@ export default function PublishedAgentPage() {
 
   const [state, setState] = useState<PageState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
+
+  // The live runtime — the same public-API calls the templates always made.
+  const runtime = useMemo(() => createPublicAgentPageRuntime(slug), [slug]);
 
   useEffect(() => {
     if (!slug) return;
@@ -150,15 +156,15 @@ export default function PublishedAgentPage() {
   const { data } = state;
 
   return (
-    <AgentPageShell data={data}>
+    <AgentPageShell data={data} runtime={runtime}>
       {data.page.template === "voice" ? (
-        <VoiceTemplate data={data} slug={slug} />
+        <VoiceTemplate data={data} slug={slug} runtime={runtime} />
       ) : data.page.template === "media" ? (
-        <MediaTemplate data={data} slug={slug} />
+        <MediaTemplate data={data} slug={slug} runtime={runtime} />
       ) : data.page.template === "form" ? (
-        <FormTemplate data={data} slug={slug} />
+        <FormTemplate data={data} slug={slug} runtime={runtime} />
       ) : (
-        <ChatTemplate data={data} slug={slug} />
+        <ChatTemplate data={data} slug={slug} runtime={runtime} />
       )}
     </AgentPageShell>
   );

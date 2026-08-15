@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChatTemplate } from "./chat-template";
-import type { AgentPageData } from "./types";
+import {
+  createPublicAgentPageRuntime,
+  type AgentPageData,
+  type AgentPageRuntime
+} from "./types";
 
 const mocks = vi.hoisted(() => ({
   apiPost: vi.fn()
@@ -38,6 +42,23 @@ function pageData(overrides?: Partial<AgentPageData["limits"]>): AgentPageData {
   };
 }
 
+/** The live runtime over the mocked apiPost — the pre-runtime wire behavior. */
+function liveRuntime(): AgentPageRuntime {
+  return createPublicAgentPageRuntime("helpful-agent-abc123");
+}
+
+function previewRuntime(overrides?: Partial<AgentPageRuntime>): AgentPageRuntime {
+  return {
+    mode: "preview",
+    sendChat: vi
+      .fn()
+      .mockResolvedValue({ reply: "Preview reply", sessionId: "preview-session" }),
+    startVoiceSession: vi.fn().mockResolvedValue({ error: "not used in this test" }),
+    runOnce: vi.fn().mockResolvedValue({ error: "not used in this test" }),
+    ...overrides
+  };
+}
+
 beforeEach(() => {
   cleanup();
   mocks.apiPost.mockReset().mockResolvedValue({
@@ -53,7 +74,9 @@ afterEach(() => {
 describe("ChatTemplate", () => {
   it("shows the empty state and sends a typed message, then renders the reply", async () => {
     const user = userEvent.setup();
-    render(<ChatTemplate data={pageData()} slug="helpful-agent-abc123" />);
+    render(
+      <ChatTemplate data={pageData()} slug="helpful-agent-abc123" runtime={liveRuntime()} />
+    );
 
     expect(screen.getByTestId("agent-page-headline").textContent).toBe(
       "Ask me anything about your bookings"
@@ -75,7 +98,9 @@ describe("ChatTemplate", () => {
 
   it("sends history and the sessionId from the first reply on the second turn", async () => {
     const user = userEvent.setup();
-    render(<ChatTemplate data={pageData()} slug="helpful-agent-abc123" />);
+    render(
+      <ChatTemplate data={pageData()} slug="helpful-agent-abc123" runtime={liveRuntime()} />
+    );
 
     await user.type(screen.getByTestId("agent-page-composer"), "First{Enter}");
     await screen.findByTestId("agent-page-assistant-message");
@@ -94,7 +119,9 @@ describe("ChatTemplate", () => {
 
   it("sends a suggested prompt when its chip is tapped", async () => {
     const user = userEvent.setup();
-    render(<ChatTemplate data={pageData()} slug="helpful-agent-abc123" />);
+    render(
+      <ChatTemplate data={pageData()} slug="helpful-agent-abc123" runtime={liveRuntime()} />
+    );
 
     await user.click(screen.getAllByTestId("agent-page-suggested-prompt")[0]);
 
@@ -112,7 +139,9 @@ describe("ChatTemplate", () => {
     });
 
     const user = userEvent.setup();
-    render(<ChatTemplate data={pageData()} slug="helpful-agent-abc123" />);
+    render(
+      <ChatTemplate data={pageData()} slug="helpful-agent-abc123" runtime={liveRuntime()} />
+    );
 
     await user.type(screen.getByTestId("agent-page-composer"), "One more{Enter}");
 
@@ -131,7 +160,9 @@ describe("ChatTemplate", () => {
     });
 
     const user = userEvent.setup();
-    render(<ChatTemplate data={pageData()} slug="helpful-agent-abc123" />);
+    render(
+      <ChatTemplate data={pageData()} slug="helpful-agent-abc123" runtime={liveRuntime()} />
+    );
 
     await user.type(screen.getByTestId("agent-page-composer"), "Hello{Enter}");
     await screen.findByTestId("agent-page-error");
@@ -145,5 +176,47 @@ describe("ChatTemplate", () => {
       "Happy to help!"
     );
     expect(screen.queryByTestId("agent-page-error")).toBeNull();
+  });
+
+  it("preview mode talks to the runtime, not the public API", async () => {
+    const runtime = previewRuntime();
+    const user = userEvent.setup();
+    render(<ChatTemplate data={pageData()} slug="helpful-agent-abc123" runtime={runtime} />);
+
+    await user.type(screen.getByTestId("agent-page-composer"), "Testing my draft{Enter}");
+
+    expect(runtime.sendChat).toHaveBeenCalledWith({
+      message: "Testing my draft",
+      history: [],
+      sessionId: undefined
+    });
+    expect((await screen.findByTestId("agent-page-assistant-message")).textContent).toBe(
+      "Preview reply"
+    );
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("preview mode never shows the limit card — not for zero remaining, not for limit errors", async () => {
+    const runtime = previewRuntime({
+      sendChat: vi
+        .fn()
+        .mockResolvedValue({ error: "limited", code: "PAGE_LIMIT_REACHED" })
+    });
+    const user = userEvent.setup();
+    render(
+      <ChatTemplate
+        data={pageData({ remainingToday: 0 })}
+        slug="helpful-agent-abc123"
+        runtime={runtime}
+      />
+    );
+
+    // remainingToday: 0 shows the limit card on the live page — not in preview.
+    expect(screen.queryByTestId("agent-page-limit-card")).toBeNull();
+
+    await user.type(screen.getByTestId("agent-page-composer"), "Hello{Enter}");
+    await screen.findByTestId("agent-page-error");
+
+    expect(screen.queryByTestId("agent-page-limit-card")).toBeNull();
   });
 });

@@ -3,23 +3,17 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { Bot, Download, ExternalLink, RefreshCw, Sparkles } from "lucide-react";
-import { apiPost } from "@/lib/api";
 import { publicAgentPath } from "@/lib/routes";
 import { agentPageAccent, agentPageAccentForeground, type AgentPageTemplateProps } from "./types";
 
 /**
  * Media template — a centered prompt composer that creates images or videos
- * via POST /agent-pages/:slug/run and shows every creation in a feed of
+ * via runtime.runOnce() and shows every creation in a feed of
  * responsive media grids (newest first). Media arrives either as http(s) URLs
  * or as data: URIs (the image engine returns inline data) — data URIs render
  * in <img>/<video> but browsers block opening them as a page, so their tile
  * action is a real download instead of open-in-new-tab.
  */
-
-type RunResponse = {
-  output: { text: string | null; mediaUrls: string[] };
-  remainingToday: number;
-};
 
 type Creation = {
   id: number;
@@ -54,7 +48,7 @@ function isCoarsePointer(): boolean {
   );
 }
 
-export function MediaTemplate({ data, slug }: AgentPageTemplateProps) {
+export function MediaTemplate({ data, runtime }: AgentPageTemplateProps) {
   const accent = agentPageAccent(data);
   // Light accents flip button text/icons to dark slate so they stay legible.
   const accentText = agentPageAccentForeground(accent);
@@ -64,10 +58,16 @@ export function MediaTemplate({ data, slug }: AgentPageTemplateProps) {
     .filter((prompt) => prompt.trim().length > 0)
     .slice(0, MAX_SUGGESTED_PROMPTS);
 
+  // Architect previews are never rate-limited — the limit card is a
+  // published-page concept and must not appear while testing a draft.
+  const isPreview = runtime.mode === "preview";
+
   const [draft, setDraft] = useState("");
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [creations, setCreations] = useState<Creation[]>([]);
-  const [limitReached, setLimitReached] = useState(data.limits.remainingToday <= 0);
+  const [limitReached, setLimitReached] = useState(
+    !isPreview && data.limits.remainingToday <= 0
+  );
   const [failedPrompt, setFailedPrompt] = useState<string | null>(null);
 
   const creationIdRef = useRef(0);
@@ -76,27 +76,32 @@ export function MediaTemplate({ data, slug }: AgentPageTemplateProps) {
     setPendingPrompt(prompt);
     setFailedPrompt(null);
 
-    const response = await apiPost<RunResponse>(`/agent-pages/${slug}/run`, { prompt });
+    const result = await runtime.runOnce({ prompt });
 
     setPendingPrompt(null);
 
-    const payload = response.success ? response.data : undefined;
-    if (payload) {
+    if (!("error" in result)) {
       creationIdRef.current += 1;
       setCreations((prev) => [
         {
           id: creationIdRef.current,
           prompt,
-          text: payload.output.text,
-          mediaUrls: payload.output.mediaUrls
+          text: result.output.text,
+          mediaUrls: result.output.mediaUrls
         },
         ...prev
       ]);
-      if (payload.remainingToday <= 0) setLimitReached(true);
+      if (!isPreview && typeof result.remainingToday === "number" && result.remainingToday <= 0)
+        setLimitReached(true);
       return;
     }
 
-    if (response.code === "PAGE_LIMIT_REACHED" || response.status === 429) {
+    // Both limit codes count — before the runtime refactor any HTTP 429
+    // raised the limit card, whichever limiter produced it.
+    if (
+      !isPreview &&
+      (result.code === "PAGE_LIMIT_REACHED" || result.code === "DEMO_LIMIT_REACHED")
+    ) {
       setLimitReached(true);
       return;
     }

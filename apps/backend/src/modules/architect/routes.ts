@@ -8,6 +8,7 @@ import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { apiErrorStatus } from "../../lib/error-utils";
 import { prisma } from "../../lib/prisma";
+import { extractRunOutput } from "../agent-pages/run-output";
 import { MarketplaceDemoError, normalizeDemoCallCustomInfo, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import {
@@ -2441,6 +2442,74 @@ architectRoutes.post("/workflows/:workflowId/conversation-test", async (c) => {
       error instanceof Error ? error.message : "Could not run browser conversation test",
       500,
       "ARCHITECT_CONVERSATION_TEST_FAILED"
+    );
+  }
+});
+
+const architectPreviewRunSchema = z.object({
+  prompt: z
+    .string({ message: "Prompt is required" })
+    .trim()
+    .min(1, "Prompt is required")
+    .max(4000, "Prompt is too long (4000 characters max)"),
+  /** Accepted for parity with the public page runtime; one-shot runs are stateless. */
+  sessionId: z.string().trim().max(64).optional()
+});
+
+// One sandboxed one-shot run for the builder's Test tab preview (media/form
+// Faces). Same engine + output extraction as the public /agent-pages/:slug/run
+// endpoint, but architect-authed with ownership — and never rate-limited by
+// the public page limiter.
+architectRoutes.post("/workflows/:workflowId/preview-run", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const workflowId = c.req.param("workflowId");
+
+    if (!workflowId) {
+      return errorResponse(c, "Agent id is required", 422, "WORKFLOW_ID_REQUIRED");
+    }
+
+    const input = architectPreviewRunSchema.parse(await c.req.json().catch(() => ({})));
+
+    const workflow = await prisma.workflowDefinition.findFirst({
+      where: {
+        id: workflowId,
+        architectUserId: authUser.id
+      }
+    });
+
+    if (!workflow) {
+      return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+    }
+
+    const result = await runWorkflowTest({
+      userId: authUser.id,
+      workflowId,
+      workflowJson: workflow.workflowJson,
+      input: { message: input.prompt },
+      mode: "test"
+    });
+
+    return successResponse(c, { output: extractRunOutput(result) }, "Preview run completed");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(
+        c,
+        error.issues[0]?.message ?? "Invalid preview input",
+        422,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    // Engine failures are logged server-side only — the architect gets a calm,
+    // human message with no stack or config detail.
+    console.error("[architect-preview-run] failed", error);
+
+    return errorResponse(
+      c,
+      "This agent had trouble responding. Please try again.",
+      500,
+      "PREVIEW_RUN_FAILED"
     );
   }
 });
