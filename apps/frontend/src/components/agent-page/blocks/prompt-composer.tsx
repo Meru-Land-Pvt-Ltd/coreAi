@@ -71,7 +71,7 @@ export function PromptComposerBlock({
     <form
       onSubmit={handleSubmit}
       data-testid="agent-block-prompt-composer"
-      className="mt-6 rounded-2xl border border-gray-200 bg-white p-2 shadow-sm transition focus-within:border-amber-400 focus-within:ring-4 focus-within:ring-amber-100 motion-reduce:transition-none"
+      className="mt-6 rounded-2xl border border-gray-200 bg-white p-2 shadow-sm transition focus-within:border-amber-400 motion-reduce:transition-none"
     >
       <textarea
         rows={2}

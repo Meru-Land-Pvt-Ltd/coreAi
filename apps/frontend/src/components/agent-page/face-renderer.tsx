@@ -532,8 +532,17 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
     }
   }
 
+  // "Pin the box at the bottom" (Claude-style): the Prompt Box docks as a
+  // sticky footer instead of flowing inline, when the design dial says so.
+  const pinComposerBottom = data.design?.composerPosition === "bottom";
+  const composerIndex = blueprint.blocks.findIndex(
+    (block) => block.type === BLOCK_NODE_TYPES.promptComposer
+  );
+  const dockComposer = pinComposerBottom && composerIndex !== -1;
+
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto" data-testid="agent-page-face">
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="agent-page-face">
+      <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="flex flex-col items-center text-center">
           {listing.iconUrl ? (
@@ -569,7 +578,9 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
           ) : null}
         </div>
 
-        {blueprint.blocks.map(renderBlock)}
+        {blueprint.blocks.map((block, index) =>
+          dockComposer && index === composerIndex ? null : renderBlock(block, index)
+        )}
 
         {/* Pages without a Result Viewer still surface failures honestly. */}
         {!hasOutputStage && failedRun !== null && !running ? (
@@ -589,6 +600,15 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
           </div>
         ) : null}
       </div>
+      </div>
+
+      {dockComposer ? (
+        <div className="flex-none border-t border-gray-100 bg-white/85 backdrop-blur">
+          <div className="mx-auto w-full max-w-3xl px-4 pb-4 sm:px-6">
+            {renderBlock(blueprint.blocks[composerIndex], composerIndex)}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
