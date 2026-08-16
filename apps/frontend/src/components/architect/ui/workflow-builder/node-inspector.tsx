@@ -129,8 +129,12 @@ export function NodeInspector({
   workflowId?: string | null;
   /** True while the Test preview is on screen (Design Brain skips its "check the Test tab" note). */
   previewVisible?: boolean;
-  /** Design Brain applied a patch — the builder refetches the Test preview data. */
-  onDesignApplied?: () => void;
+  /**
+   * Design Brain applied a patch — the builder refetches the Test preview
+   * data; `graphChanged` true means the saved canvas graph changed too and
+   * the builder reloads nodes/edges from the server.
+   */
+  onDesignApplied?: (result: { graphChanged?: boolean }) => void;
 }) {
   if (!selectedNode) return <EmptyProperties />;
 

@@ -1,9 +1,76 @@
+import { Activity, Clapperboard, FileText, Image as ImageIcon, MessageCircle, Phone } from "lucide-react";
 import { libraryGroups } from "./library";
 import { SidebarNodeCard } from "./card/sidebar-node-card";
 import type { BuilderNodeData, NodeKind } from "./types";
 
 /** Re-export for canvas drop handler consumers. */
 export { BUILDER_NODE_DRAG_TYPE } from "./card/sidebar-node-card";
+
+type FaceTemplateCard = {
+  slug: string;
+  title: string;
+  promise: string;
+  Icon: typeof MessageCircle;
+  /** Literal Tailwind classes (JIT needs them spelled out). */
+  cardClasses: string;
+  iconClasses: string;
+};
+
+/**
+ * "Start with a Face" — one tap imports a fully wired, working product via the
+ * same template mechanism as the Dental/Receptionist cards (slug → import).
+ * Only faces whose runtime fully works today get a live card.
+ */
+const FACE_TEMPLATE_CARDS: FaceTemplateCard[] = [
+  {
+    slug: "chatbot",
+    title: "Chatbot",
+    promise: "A ChatGPT-style product with your knowledge",
+    Icon: MessageCircle,
+    cardClasses: "border-emerald-300 bg-emerald-50 hover:border-emerald-400",
+    iconClasses: "text-emerald-600"
+  },
+  {
+    slug: "voice-agent",
+    title: "Voice Agent",
+    promise: "Answers the phone, chats, and books appointments",
+    Icon: Phone,
+    cardClasses: "border-violet-300 bg-violet-50 hover:border-violet-400",
+    iconClasses: "text-violet-600"
+  },
+  {
+    slug: "image-studio",
+    title: "Image Studio",
+    promise: "Describe it, pick a style, get a picture",
+    Icon: ImageIcon,
+    cardClasses: "border-sky-300 bg-sky-50 hover:border-sky-400",
+    iconClasses: "text-sky-600"
+  },
+  {
+    slug: "form-tool",
+    title: "Form Tool",
+    promise: "Turns a short request into a finished report",
+    Icon: FileText,
+    cardClasses: "border-amber-300 bg-amber-50 hover:border-amber-400",
+    iconClasses: "text-amber-600"
+  }
+];
+
+/** No working engine yet — honest "Coming soon" cards with no click action. */
+const FACE_COMING_SOON_CARDS: Array<Pick<FaceTemplateCard, "slug" | "title" | "promise" | "Icon">> = [
+  {
+    slug: "video-studio",
+    title: "Video Studio",
+    promise: "Clips made from a written idea",
+    Icon: Clapperboard
+  },
+  {
+    slug: "monitor",
+    title: "Monitor",
+    promise: "Watches things for you and reports back",
+    Icon: Activity
+  }
+];
 
 export function ComponentLibrary({
   searchTerm,
@@ -48,6 +115,17 @@ export function ComponentLibrary({
       </div>
 
       <div className="builder-sidebar-scroll flex-1 overflow-y-auto overflow-x-hidden px-4 pb-6 pt-4">
+        {/* One set: the two existing industry cards stay first and unchanged,
+            the generic faces follow, coming-soon faces close the list. */}
+        <p
+          className="mb-0.5 text-xs font-bold uppercase tracking-wider text-slate-400"
+          data-testid="face-template-section-title"
+        >
+          Start with a Face
+        </p>
+        <p className="mb-2 text-[11px] text-slate-500" data-testid="face-template-section-subtitle">
+          One tap builds a working product you can restyle
+        </p>
         <button
           type="button"
           onClick={() => onUseTemplate("dental-ai-receptionist")}
@@ -58,7 +136,7 @@ export function ComponentLibrary({
             <span className="block min-w-0 text-xs font-semibold text-slate-900" data-testid="architect-ui-workflow-builder-component-library-dental-text">Dental AI Receptionist</span>
             <span className="inline-flex h-5.5 shrink-0 items-center rounded-md bg-violet-600 px-2.5 text-[11px] font-semibold text-white" data-testid="architect-ui-workflow-builder-component-library-dental-badge rounded-md">Recommended · Latest</span>
           </span>
-          <span className="mt-0.5 block text-[11px] leading-snug text-slate-500" data-testid="architect-ui-workflow-builder-component-library-dental-helper-text">6 voice nodes: call → AI → calendar → book → SMS → end</span>
+          <span className="mt-0.5 block text-[11px] leading-snug text-slate-500" data-testid="architect-ui-workflow-builder-component-library-dental-helper-text">6 voice steps: call → AI → calendar → book → SMS → end</span>
         </button>
         <button
           type="button"
@@ -67,13 +145,62 @@ export function ComponentLibrary({
           className="mb-3 w-full rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-left transition hover:border-amber-400"
         >
           <span className="block text-xs font-semibold text-slate-900" data-testid="architect-ui-workflow-builder-component-library-missed-call-text">AI Receptionist Template</span>
-          <span className="mt-0.5 block text-[11px] text-slate-500" data-testid="architect-ui-workflow-builder-component-library-load-exact-flow-text">Import the 3-node flow</span>
+          <span className="mt-0.5 block text-[11px] text-slate-500" data-testid="architect-ui-workflow-builder-component-library-load-exact-flow-text">Import the 3-step flow</span>
         </button>
+
+        {FACE_TEMPLATE_CARDS.map((card) => (
+          <button
+            key={card.slug}
+            type="button"
+            onClick={() => onUseTemplate(card.slug)}
+            data-testid={`face-template-${card.slug}`}
+            className={`mb-3 w-full rounded-xl border-2 px-3 py-2 text-left transition ${card.cardClasses}`}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <card.Icon className={`h-4 w-4 shrink-0 ${card.iconClasses}`} aria-hidden="true" />
+              <span className="block min-w-0 text-xs font-semibold text-slate-900">{card.title}</span>
+            </span>
+            <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">{card.promise}</span>
+          </button>
+        ))}
+
+        {FACE_COMING_SOON_CARDS.map((card) => (
+          <div
+            key={card.slug}
+            aria-disabled="true"
+            data-testid={`face-template-${card.slug}`}
+            className="mb-3 w-full cursor-default select-none rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-left opacity-70"
+          >
+            <span className="flex min-w-0 items-center justify-between gap-2">
+              <span className="flex min-w-0 items-center gap-2">
+                <card.Icon className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+                <span className="block min-w-0 text-xs font-semibold text-slate-500">{card.title}</span>
+              </span>
+              <span className="inline-flex shrink-0 items-center rounded-md bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                Coming soon
+              </span>
+            </span>
+            <span className="mt-0.5 block text-[11px] leading-snug text-slate-400">{card.promise}</span>
+          </div>
+        ))}
 
         <div className="space-y-6">
           {filteredGroups.map((group) => (
             <div key={group.title}>
-              <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="architect-ui-workflow-builder-component-library-group-title-text">{group.title}</p>
+              <p
+                className={`${group.subtitle ? "mb-0.5" : "mb-2"} text-xs font-bold uppercase tracking-wider text-slate-400`}
+                data-testid="architect-ui-workflow-builder-component-library-group-title-text"
+              >
+                {group.title}
+              </p>
+              {group.subtitle ? (
+                <p
+                  className="mb-2 text-[11px] text-slate-500"
+                  data-testid="architect-ui-workflow-builder-component-library-group-subtitle-text"
+                >
+                  {group.subtitle}
+                </p>
+              ) : null}
               <div className="grid grid-cols-2 gap-2">
                 {group.items.map((item) => (
                   <SidebarNodeCard

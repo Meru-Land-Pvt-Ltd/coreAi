@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, 
 import { createPortal } from "react-dom";
 import {
   addEdge,
+  ControlButton,
   Controls,
   ReactFlow,
   useEdgesState,
@@ -86,6 +87,7 @@ import { ConfigurePanel } from "./workflow-builder/configure-panel";
 import { CoreNode } from "./workflow-builder/core-node";
 import { createFlowEdge } from "./workflow-builder/edge-utils";
 import { BuilderIcon } from "./workflow-builder/icons";
+import { applyTidyPositions } from "./workflow-builder/layout-graph";
 import { MobileSheet } from "./workflow-builder/mobile-sheet";
 import { NodeInspector } from "./workflow-builder/node-inspector";
 import { defaultAgentDescription, defaultAgentName, defaultNodeData } from "./workflow-builder/node-defaults";
@@ -163,6 +165,113 @@ function telegramTestServices(value: string): string[] {
   return Array.from(
     new Set(value.split(/\r?\n|,/).map((service) => service.trim()).filter(Boolean))
   ).slice(0, 30);
+}
+
+/**
+ * Keep the current selection only while its node still exists — the reload
+ * contract for server-side graph changes (Design Brain rewires the canvas).
+ */
+export function nextSelectedNodeId(
+  current: string | null,
+  nodes: readonly { id: string }[]
+): string | null {
+  return current && nodes.some((node) => node.id === current) ? current : null;
+}
+
+/**
+ * The four live Faces an empty canvas offers. Slugs match the sidebar
+ * template cards (component-library) — clicking inserts through the exact
+ * same template-import path (onUseTemplate) the sidebar cards use.
+ */
+const FACE_PICKER_CHOICES = [
+  {
+    slug: "chatbot",
+    label: "Chatbot",
+    icon: "message-circle",
+    blurb: "A friendly chat that answers questions"
+  },
+  {
+    slug: "voice-agent",
+    label: "Voice Agent",
+    icon: "phone-call",
+    blurb: "Talks with callers and books appointments"
+  },
+  {
+    slug: "image-studio",
+    label: "Image Studio",
+    icon: "image",
+    blurb: "Turns written ideas into pictures"
+  },
+  {
+    slug: "form-tool",
+    label: "Form Tool",
+    icon: "file",
+    blurb: "Collects details and returns a finished result"
+  }
+] as const;
+
+/**
+ * Empty-canvas Face picker — a centered card over the canvas only (the
+ * palette stays fully usable beside it). Renders nothing the moment any
+ * piece exists. The fade-enter animation is reduced-motion-safe: the
+ * builder's global prefers-reduced-motion rule collapses all animation.
+ */
+export function EmptyCanvasFacePicker({
+  nodeCount,
+  importingSlug,
+  onPick
+}: {
+  /** Live canvas piece count — the picker only exists while it is zero. */
+  nodeCount: number;
+  /** Template slug currently importing (disables the cards), or null. */
+  importingSlug: string | null;
+  /** Same insert path as the sidebar template cards (onUseTemplate). */
+  onPick: (slug: string) => void;
+}) {
+  if (nodeCount > 0) return null;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-4">
+      <div
+        data-testid="canvas-picker"
+        className="fade-enter pointer-events-auto w-full max-w-xl rounded-3xl border border-gray-200 bg-white/95 p-6 shadow-xl backdrop-blur"
+      >
+        <h2 className="text-center text-lg font-black tracking-tight text-slate-900" data-testid="canvas-picker-title">
+          What are you building?
+        </h2>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {FACE_PICKER_CHOICES.map((choice) => (
+            <button
+              key={choice.slug}
+              type="button"
+              data-testid={`canvas-picker-${choice.slug}`}
+              onClick={() => onPick(choice.slug)}
+              disabled={importingSlug !== null}
+              className="group flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 text-left transition hover:border-amber-300 hover:bg-amber-50/60 hover:shadow-md disabled:cursor-wait disabled:opacity-60"
+            >
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-600 transition group-hover:bg-amber-200">
+                <BuilderIcon name={choice.icon} className="h-5 w-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-bold text-slate-900">{choice.label}</span>
+                <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                  {importingSlug === choice.slug ? "Setting things up..." : choice.blurb}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <p
+          className="mt-5 text-center text-xs font-medium text-slate-400"
+          data-testid="canvas-picker-drag-hint"
+        >
+          or drag pieces from the left panel
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: string }) {
@@ -795,6 +904,92 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       }
     })();
   }, []);
+
+  /**
+   * Graph reload contract: refetch the saved workflow row and replace the
+   * canvas nodes/edges with the server's copy — used when the Design Brain
+   * (or any server-side helper) changed the saved graph behind the canvas.
+   * The selection survives only if its node still exists; a failed fetch
+   * leaves the canvas untouched.
+   */
+  const reloadWorkflowFromServer = useCallback(async () => {
+    const id = currentWorkflowIdRef.current;
+    if (!id) return;
+
+    try {
+      const result = await getArchitectWorkflow(id);
+      if (!result.success || !result.data) return;
+
+      const loadedWorkflow = result.data.workflow;
+      const parsedNodes = parseNodes(loadedWorkflow);
+      const parsedEdges = parseEdges(loadedWorkflow);
+
+      setWorkflow(loadedWorkflow);
+      setNodes(parsedNodes);
+      setEdges(parsedEdges);
+      setSelectedNodeId((current) => nextSelectedNodeId(current, parsedNodes));
+    } catch {
+      // Network hiccup — the canvas keeps its current state.
+    }
+  }, [setEdges, setNodes]);
+
+  /**
+   * Design Brain result router: a pure styling change only refetches the
+   * page design; a graph change reloads the canvas from the server first,
+   * then refetches the design (the blueprint derives from the saved graph).
+   */
+  const handleDesignApplied = useCallback(
+    (result?: { graphChanged?: boolean }) => {
+      if (result?.graphChanged) {
+        void (async () => {
+          await reloadWorkflowFromServer();
+          refreshAgentPageConfig();
+        })();
+        return;
+      }
+      refreshAgentPageConfig();
+    },
+    [refreshAgentPageConfig, reloadWorkflowFromServer]
+  );
+
+  /* ---- "Clean up" — tidy the canvas into the layered Face→Brain→Hands→Face grid ---- */
+
+  const [tidiedToastVisible, setTidiedToastVisible] = useState(false);
+  const tidiedToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveAfterTidyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (tidiedToastTimerRef.current) clearTimeout(tidiedToastTimerRef.current);
+      if (saveAfterTidyTimerRef.current) clearTimeout(saveAfterTidyTimerRef.current);
+    };
+  }, []);
+
+  function tidyCanvas() {
+    if (blockIfUnderReview()) return;
+    if (nodes.length === 0) return;
+
+    const tidied = applyTidyPositions(nodes, edges);
+    if (tidied.moved) {
+      setNodes(tidied.nodes);
+      // Persist through the exact same path a manual drag uses: give the
+      // history hook one commit debounce to adopt the moved pieces, then
+      // save that snapshot (autosave would also catch it moments later).
+      if (saveAfterTidyTimerRef.current) clearTimeout(saveAfterTidyTimerRef.current);
+      saveAfterTidyTimerRef.current = setTimeout(() => {
+        void saveAgent(false);
+      }, 700);
+    }
+
+    // Frame the tidied layout after the new positions have rendered.
+    requestAnimationFrame(() => {
+      flowInstanceRef.current?.fitView({ padding: 0.2 });
+    });
+
+    setTidiedToastVisible(true);
+    if (tidiedToastTimerRef.current) clearTimeout(tidiedToastTimerRef.current);
+    tidiedToastTimerRef.current = setTimeout(() => setTidiedToastVisible(false), 1600);
+  }
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -2191,7 +2386,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       variableNodePrefixes={variableNodePrefixes}
       workflowId={currentWorkflowId || null}
       previewVisible={activeTab === "test"}
-      onDesignApplied={refreshAgentPageConfig}
+      onDesignApplied={handleDesignApplied}
     />
   );
 
@@ -2448,8 +2643,36 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 className="bg-transparent"
                 proOptions={{ hideAttribution: true }}
               >
-                <Controls showInteractive={false} />
+                <Controls showInteractive={false}>
+                  <ControlButton
+                    onClick={tidyCanvas}
+                    disabled={nodes.length === 0}
+                    title="Tidy my canvas"
+                    aria-label="Tidy my canvas"
+                    data-testid="canvas-cleanup"
+                  >
+                    {/* Wand sweep — one click tidies the whole canvas. */}
+                    <BuilderIcon name="wand" className="h-3 w-3" />
+                  </ControlButton>
+                </Controls>
               </ReactFlow>
+
+              <EmptyCanvasFacePicker
+                nodeCount={nodes.length}
+                importingSlug={importingSlug}
+                onPick={(slug) => void importTemplate(slug)}
+              />
+
+              {tidiedToastVisible ? (
+                <div
+                  data-testid="canvas-cleanup-toast"
+                  role="status"
+                  aria-live="polite"
+                  className="fade-enter pointer-events-none absolute bottom-6 left-1/2 z-20 -translate-x-1/2 rounded-full bg-slate-900/90 px-4 py-1.5 text-xs font-semibold text-white shadow-lg"
+                >
+                  Tidied.
+                </div>
+              ) : null}
 
               <div className="absolute right-2 top-2 z-10 hidden max-w-[calc(100%-1rem)] items-center gap-2 overflow-hidden rounded-xl border border-gray-200 bg-white/90 px-2.5 py-1.5 text-[11px] text-slate-500 shadow-sm backdrop-blur md:right-4 md:top-4 md:flex md:gap-3 md:px-3 md:py-2">
                 <span className="flex items-center gap-1" data-testid="architect-ui-workflow-builder-view-scroll-zoom-text">
@@ -2521,7 +2744,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onStartVoice={startPreviewVoice}
             onRunOnce={runPreviewOnce}
             onOpenAdvanced={() => setTestView("advanced")}
-            onDesignApplied={refreshAgentPageConfig}
+            onDesignApplied={handleDesignApplied}
           />
         ) : null}
 

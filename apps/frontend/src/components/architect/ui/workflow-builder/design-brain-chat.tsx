@@ -57,8 +57,13 @@ export function DesignBrainChat({
   variant: DesignBrainChatVariant;
   /** Inspector only: true while the architect is watching the Test preview. */
   previewVisible?: boolean;
-  /** Called after a change lands so the Test preview refetches the page. */
-  onApplied?: () => void;
+  /**
+   * Called after a change lands so the Test preview refetches the page.
+   * `graphChanged` is true when the Design Brain also changed the saved
+   * canvas graph — the builder then reloads nodes/edges from the server.
+   * Backward compatible: zero-argument callbacks keep working unchanged.
+   */
+  onApplied?: (result: { graphChanged?: boolean }) => void;
 }) {
   const docked = variant === "docked";
   /** Testid prefix — "design-brain-*" in the sidebar, "design-dock-*" beside the preview. */
@@ -99,12 +104,13 @@ export function DesignBrainChat({
       const data = result.success ? result.data : undefined;
 
       if (data) {
-        const applied = Object.keys(data.patch ?? {}).length > 0;
+        const graphChanged = data.graphChanged === true;
+        const applied = Object.keys(data.patch ?? {}).length > 0 || graphChanged;
         setMessages((current) => [
           ...current,
           { id: nextMessageId(), role: "assistant", content: data.reply, applied }
         ]);
-        if (applied) onApplied?.();
+        if (applied) onApplied?.({ graphChanged });
       } else {
         setMessages((current) => [
           ...current,

@@ -199,6 +199,8 @@ export type ComingSoonItem = {
 
 export type LibraryGroup = {
   title: string;
+  /** Plain-English one-liner rendered under the group title. */
+  subtitle?: string;
   items: LibraryItem[];
 };
 

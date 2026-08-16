@@ -19,8 +19,12 @@ export function DesignBrainPanel({
   workflowId: string | null;
   /** True while the architect is watching the Test preview. */
   previewVisible?: boolean;
-  /** Called after a patch lands so the Test preview refetches the page. */
-  onDesignApplied?: () => void;
+  /**
+   * Called after a patch lands so the Test preview refetches the page.
+   * `graphChanged` true means the saved canvas graph changed too and the
+   * builder should reload nodes/edges from the server.
+   */
+  onDesignApplied?: (result: { graphChanged?: boolean }) => void;
 }) {
   return (
     <DesignBrainChat

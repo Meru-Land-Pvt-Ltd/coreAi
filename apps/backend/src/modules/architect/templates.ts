@@ -1,6 +1,9 @@
 import {
+  BLOCK_NODE_TYPES,
+  DESIGN_BRAIN_NODE_TYPE,
   getNodeDefinition,
   TELEGRAM_NODE_TYPES,
+  VOICE_NODE_PRESENTATION,
   VOICE_NODE_TYPES,
   workflowJsonForTemplate
 } from "@coreai/shared";
@@ -61,6 +64,246 @@ function tedges(ids: string[]) {
 
 function flow(specs: NodeSpec[]) {
   return { nodes: tnodes(specs), edges: tedges(specs.map((s) => s.id)) };
+}
+
+// ---- "Start with a Face" templates ----------------------------------------
+// One tap in the builder sidebar imports a fully wired, working product. The
+// node data copies the shapes the palette produces (see library.ts paletteItem
+// + node-defaults.ts) so a template import and manual building are identical.
+
+type PlacedNodeSpec = NodeSpec & { x: number; y: number };
+
+/** tnodes with explicit canvas positions for clean, non-linear layouts. */
+function placedNodes(specs: PlacedNodeSpec[]) {
+  return tnodes(specs).map((node, index) => ({
+    ...node,
+    position: { x: specs[index].x, y: specs[index].y }
+  }));
+}
+
+function tedge(id: string, source: string, target: string) {
+  return { id, source, target };
+}
+
+/** Palette presentation for product blocks (mirrors library.ts). Result Viewer
+ * gets no `kind` here — its flat config already uses `kind: "auto"`. */
+const FACE_BLOCK_PRESENTATION: Record<string, Record<string, unknown>> = {
+  [DESIGN_BRAIN_NODE_TYPE]: { icon: "wand", accent: "rose", kind: "DESIGN" },
+  [BLOCK_NODE_TYPES.promptComposer]: { icon: "edit", accent: "rose", kind: "PRODUCT" },
+  [BLOCK_NODE_TYPES.presetGallery]: { icon: "gallery", accent: "rose", kind: "PRODUCT" },
+  [BLOCK_NODE_TYPES.actionButton]: { icon: "pointer-click", accent: "rose", kind: "PRODUCT" },
+  [BLOCK_NODE_TYPES.outputStage]: { icon: "eye", accent: "rose" },
+  [BLOCK_NODE_TYPES.historyShelf]: { icon: "clock", accent: "rose", kind: "PRODUCT" }
+};
+
+function blockData(type: string, config: Record<string, unknown> = {}): Record<string, unknown> {
+  return { ...(FACE_BLOCK_PRESENTATION[type] ?? {}), ...config };
+}
+
+/**
+ * AI Brain (ai.llm_call) node data — mirrors the builder's defaultNodeData for
+ * ai.llm_call (node-defaults.ts) with Gemini as the provider. ai.llm_call has
+ * no registry definition, so the full shape lives in spec.data.
+ */
+function aiBrainData(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    type: "ai.llm_call",
+    nodeKind: "ai",
+    kind: "AI Brain",
+    label: "AI Brain",
+    title: "AI Brain",
+    subtitle: "Generate text or JSON using a select LLM model",
+    icon: "sparkles",
+    accent: "violet",
+    llmProvider: "gemini",
+    llmModel: "gemini-3.5-flash",
+    llmRequirements: "",
+    llmSystemPrompt: "You are a helpful assistant.",
+    llmPrompt: "",
+    llmContext: "",
+    llmTemperature: "0.7",
+    llmMaxTokens: "1024",
+    llmOutputFormat: "text",
+    llmOutputKey: "ai.output",
+    ...overrides
+  };
+}
+
+const CHATBOT_SYSTEM_PROMPT =
+  "You are a friendly, helpful assistant for this business. Answer in plain language, keep replies warm and concise, and use the business details you are given. If you are not sure about something, say so honestly.";
+
+const IMAGE_STUDIO_SYSTEM_PROMPT =
+  "You write vivid picture descriptions. Turn the customer's idea — and any style they picked — into one clear description an image maker can follow: subject, setting, mood, colors, and style. Reply with the description only.";
+
+const FORM_TOOL_SYSTEM_PROMPT =
+  "You turn a short request into a finished, well-organized report. Structure every reply with a clear title, short headed sections, and a closing summary. Write in plain business language the customer can use right away.";
+
+/** Chatbot Face: Prompt Box → AI Brain → Result Viewer → History Shelf, styled by a Design Brain. */
+function buildChatbotFaceWorkflow(): WorkflowTemplate["workflowJson"] {
+  return {
+    nodes: placedNodes([
+      { id: "design-brain", type: DESIGN_BRAIN_NODE_TYPE, x: 80, y: 80, data: blockData(DESIGN_BRAIN_NODE_TYPE) },
+      {
+        id: "prompt-box",
+        type: BLOCK_NODE_TYPES.promptComposer,
+        x: 80,
+        y: 300,
+        data: blockData(BLOCK_NODE_TYPES.promptComposer, { placeholder: "Ask me anything…" })
+      },
+      { id: "ai-brain", type: "ai.llm_call", x: 400, y: 300, data: aiBrainData({ llmSystemPrompt: CHATBOT_SYSTEM_PROMPT }) },
+      { id: "result-viewer", type: BLOCK_NODE_TYPES.outputStage, x: 720, y: 300, data: blockData(BLOCK_NODE_TYPES.outputStage) },
+      { id: "history-shelf", type: BLOCK_NODE_TYPES.historyShelf, x: 1040, y: 300, data: blockData(BLOCK_NODE_TYPES.historyShelf) }
+    ]),
+    edges: [
+      tedge("e-style", "design-brain", "prompt-box"),
+      tedge("e-ask", "prompt-box", "ai-brain"),
+      tedge("e-show", "ai-brain", "result-viewer"),
+      tedge("e-history", "result-viewer", "history-shelf")
+    ]
+  };
+}
+
+/** Voice Agent Face: the dental voice-booking chain with generic business copy. */
+function buildVoiceAgentFaceWorkflow(): WorkflowTemplate["workflowJson"] {
+  const voice = (type: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    ...(VOICE_NODE_PRESENTATION[type] ?? {}),
+    ...extra
+  });
+  return {
+    nodes: placedNodes([
+      {
+        id: "phone-call",
+        type: VOICE_NODE_TYPES.phoneCallTrigger,
+        x: 80,
+        y: 300,
+        data: voice(VOICE_NODE_TYPES.phoneCallTrigger)
+      },
+      {
+        id: "voice-conversation",
+        type: VOICE_NODE_TYPES.voiceConversation,
+        x: 360,
+        y: 300,
+        data: voice(VOICE_NODE_TYPES.voiceConversation, {
+          firstMessage: "Thanks for calling! How can I help you today?",
+          systemPrompt:
+            "You are the friendly phone receptionist for this business. Answer questions using its saved details, and when the caller wants an appointment, check open times and book the one they choose. Keep replies short, warm, and natural."
+        })
+      },
+      {
+        id: "calendar-availability",
+        type: VOICE_NODE_TYPES.calendarAvailability,
+        x: 640,
+        y: 300,
+        data: voice(VOICE_NODE_TYPES.calendarAvailability)
+      },
+      {
+        id: "book-appointment",
+        type: VOICE_NODE_TYPES.bookAppointment,
+        x: 920,
+        y: 300,
+        data: voice(VOICE_NODE_TYPES.bookAppointment)
+      },
+      {
+        id: "end-flow",
+        type: VOICE_NODE_TYPES.endFlow,
+        x: 1200,
+        y: 300,
+        data: voice(VOICE_NODE_TYPES.endFlow, {
+          closingMessage: "Thanks for calling! Have a great day."
+        })
+      }
+    ]),
+    edges: [
+      tedge("e-answer", "phone-call", "voice-conversation"),
+      tedge("e-check", "voice-conversation", "calendar-availability"),
+      tedge("e-book", "calendar-availability", "book-appointment"),
+      tedge("e-end", "book-appointment", "end-flow")
+    ]
+  };
+}
+
+/** Image Studio Face: Prompt Box + Styles Gallery → AI Brain → Image Generation → Result Viewer → History Shelf. */
+function buildImageStudioFaceWorkflow(): WorkflowTemplate["workflowJson"] {
+  return {
+    nodes: placedNodes([
+      { id: "design-brain", type: DESIGN_BRAIN_NODE_TYPE, x: 80, y: 80, data: blockData(DESIGN_BRAIN_NODE_TYPE) },
+      {
+        id: "prompt-box",
+        type: BLOCK_NODE_TYPES.promptComposer,
+        x: 80,
+        y: 300,
+        data: blockData(BLOCK_NODE_TYPES.promptComposer, { placeholder: "Describe the picture you want…" })
+      },
+      {
+        id: "styles-gallery",
+        type: BLOCK_NODE_TYPES.presetGallery,
+        x: 80,
+        y: 520,
+        data: blockData(BLOCK_NODE_TYPES.presetGallery, {
+          presets: [
+            { id: "photo", title: "Photo", emoji: "📷", promptFragment: "a crisp, true-to-life photograph with natural light" },
+            { id: "watercolor", title: "Watercolor", emoji: "🎨", promptFragment: "a soft watercolor painting with gentle colors" },
+            { id: "3d", title: "3D", emoji: "🧊", promptFragment: "a polished 3D scene with soft studio lighting" },
+            { id: "sketch", title: "Sketch", emoji: "✏️", promptFragment: "a clean pencil sketch with simple, confident lines" }
+          ]
+        })
+      },
+      {
+        id: "ai-brain",
+        type: "ai.llm_call",
+        x: 400,
+        y: 300,
+        data: aiBrainData({ llmSystemPrompt: IMAGE_STUDIO_SYSTEM_PROMPT })
+      },
+      {
+        id: "image-generation",
+        type: "ai.image_generation",
+        x: 720,
+        y: 300,
+        // Empty prompt on purpose: the image step then uses the AI Brain's output.
+        data: { icon: "image", accent: "violet", kind: "IMAGE GENERATION" }
+      },
+      { id: "result-viewer", type: BLOCK_NODE_TYPES.outputStage, x: 1040, y: 300, data: blockData(BLOCK_NODE_TYPES.outputStage) },
+      { id: "history-shelf", type: BLOCK_NODE_TYPES.historyShelf, x: 1040, y: 520, data: blockData(BLOCK_NODE_TYPES.historyShelf) }
+    ]),
+    edges: [
+      tedge("e-style", "design-brain", "prompt-box"),
+      tedge("e-ask", "prompt-box", "ai-brain"),
+      tedge("e-styles", "styles-gallery", "ai-brain"),
+      tedge("e-imagine", "ai-brain", "image-generation"),
+      tedge("e-show", "image-generation", "result-viewer"),
+      tedge("e-history", "result-viewer", "history-shelf")
+    ]
+  };
+}
+
+/** Form Tool Face: Prompt Box + Button → AI Brain (structured report) → Result Viewer. */
+function buildFormToolFaceWorkflow(): WorkflowTemplate["workflowJson"] {
+  return {
+    nodes: placedNodes([
+      {
+        id: "prompt-box",
+        type: BLOCK_NODE_TYPES.promptComposer,
+        x: 80,
+        y: 300,
+        data: blockData(BLOCK_NODE_TYPES.promptComposer, { placeholder: "Describe what you need" })
+      },
+      {
+        id: "create-button",
+        type: BLOCK_NODE_TYPES.actionButton,
+        x: 80,
+        y: 520,
+        data: blockData(BLOCK_NODE_TYPES.actionButton, { label: "Create my report" })
+      },
+      { id: "ai-brain", type: "ai.llm_call", x: 400, y: 300, data: aiBrainData({ llmSystemPrompt: FORM_TOOL_SYSTEM_PROMPT }) },
+      { id: "result-viewer", type: BLOCK_NODE_TYPES.outputStage, x: 720, y: 300, data: blockData(BLOCK_NODE_TYPES.outputStage) }
+    ]),
+    edges: [
+      tedge("e-ask", "prompt-box", "ai-brain"),
+      tedge("e-press", "create-button", "ai-brain"),
+      tedge("e-show", "ai-brain", "result-viewer")
+    ]
+  };
 }
 
 /**
@@ -263,6 +506,59 @@ const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | 
       { id: "ai", type: "ai.context_reply" },
       { id: "sms", type: "action.send_sms" }
     ])
+  },
+  // ---- "Start with a Face" (builder sidebar) ----
+  {
+    id: "tpl-face-chatbot",
+    slug: "chatbot",
+    title: "Chatbot",
+    category: "Faces",
+    difficulty: "Beginner",
+    description: "A ChatGPT-style product with your knowledge.",
+    forks: 0,
+    rating: 5,
+    reviewCount: 0,
+    tags: ["Face", "Chat"],
+    workflowJson: buildChatbotFaceWorkflow()
+  },
+  {
+    id: "tpl-face-voice-agent",
+    slug: "voice-agent",
+    title: "Voice Agent",
+    category: "Faces",
+    difficulty: "Beginner",
+    description: "Answers the phone, chats with callers, and books appointments.",
+    forks: 0,
+    rating: 5,
+    reviewCount: 0,
+    tags: ["Face", "Voice", "Scheduling"],
+    workflowJson: buildVoiceAgentFaceWorkflow()
+  },
+  {
+    id: "tpl-face-image-studio",
+    slug: "image-studio",
+    title: "Image Studio",
+    category: "Faces",
+    difficulty: "Beginner",
+    description: "Customers describe a picture, pick a style, and get an image.",
+    forks: 0,
+    rating: 5,
+    reviewCount: 0,
+    tags: ["Face", "Images"],
+    workflowJson: buildImageStudioFaceWorkflow()
+  },
+  {
+    id: "tpl-face-form-tool",
+    slug: "form-tool",
+    title: "Form Tool",
+    category: "Faces",
+    difficulty: "Beginner",
+    description: "Customers fill in what they need and get a ready-made report.",
+    forks: 0,
+    rating: 5,
+    reviewCount: 0,
+    tags: ["Face", "Reports"],
+    workflowJson: buildFormToolFaceWorkflow()
   },
   {
     id: "tpl-appointment-reminder",

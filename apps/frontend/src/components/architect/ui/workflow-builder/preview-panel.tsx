@@ -93,9 +93,10 @@ export type PreviewPanelProps = {
   /**
    * Called after the floating Design Brain lands a styling change so the
    * container refetches the saved page + design and the preview restyles
-   * in front of the architect.
+   * in front of the architect. `graphChanged` true means the saved canvas
+   * graph changed too and the builder reloads nodes/edges from the server.
    */
-  onDesignApplied?: () => void;
+  onDesignApplied?: (result: { graphChanged?: boolean }) => void;
 };
 
 /**

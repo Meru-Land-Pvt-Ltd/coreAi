@@ -321,4 +321,10 @@ export type DesignChatData = {
   patch: Record<string, unknown>;
   design: DesignConfig;
   page: Partial<AgentPageConfig> | null;
+  /**
+   * True when the Design Brain also changed the saved canvas graph (added or
+   * rewired pieces), so the builder must reload nodes/edges from the server —
+   * not just refetch the page design. Additive: older backends omit it.
+   */
+  graphChanged?: boolean;
 };
