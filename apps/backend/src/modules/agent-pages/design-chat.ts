@@ -21,15 +21,24 @@ import {
   resolveDesign,
   type DesignConfig
 } from "./design";
+import {
+  applyGraphOps,
+  blockCatalogForPrompt,
+  currentBlocksForPrompt
+} from "./graph-patch";
 import { ensureDraftAgentListingAndPage, type AgentPageTemplate } from "./slug";
 
 /**
  * Design Brain chat: the architect types natural language, the model answers
  * with a strictly-validated DesignPatch. The model can only turn the dials in
- * `designConfigSchema` plus the four content columns — nothing else it says
- * ever reaches the page. Every byte of model output passes through the zod
- * gate below; on invalid output we retry once with the validation error, then
- * fall back to a friendly "couldn't apply" reply with an empty patch.
+ * `designConfigSchema`, the four content columns, and — via "graphOps" — the
+ * block sections of the canvas itself (add/remove/reorder/updateBlockConfig,
+ * applied server-side by applyGraphOps, which whitelists config per the shared
+ * registry and can never touch brains, triggers, connectors, or the Design
+ * Brain). Nothing else the model says ever reaches the page. Every byte of
+ * model output passes through the zod gate below; on invalid output we retry
+ * once with the validation error, then fall back to a friendly "couldn't
+ * apply" reply with an empty patch.
  *
  * LLM entry: the exact path ai.llm_call uses in the workflow runner —
  * resolveConfiguredLlmProvider (fallback chain) into
@@ -83,6 +92,14 @@ export const designPatchSchema = z.object({
       .array(z.string().trim().max(80, "each suggested prompt must be 80 characters or fewer"))
       .max(4, "up to 4 suggested prompts are allowed")
       .transform((prompts) => prompts.filter((prompt) => prompt.length > 0))
+      .optional(),
+    // Section changes. Deliberately loose here: each op is validated inside
+    // applyGraphOps, where an unknown/malformed op is STRIPPED with a friendly
+    // note instead of failing the whole patch (a non-array still fails the
+    // gate and triggers the retry).
+    graphOps: z
+      .array(z.unknown())
+      .max(20, "up to 20 section changes are allowed")
       .optional()
   })
 });
@@ -132,14 +149,16 @@ type PageContent = {
 export function buildDesignChatSystemPrompt(
   design: DesignConfig,
   content: PageContent,
-  houseRules = ""
+  houseRules = "",
+  workflowJson?: unknown
 ): string {
   const rules = houseRules.trim();
+  const currentBlocks = currentBlocksForPrompt(workflowJson);
   return [
     // The admin-editable constitution (Admin → Design Brain rules) leads the
     // prompt so it outranks everything else. Empty rules add nothing.
     ...(rules ? [`HOUSE RULES you must always obey:\n${rules}`, ""] : []),
-    "You are the Design Brain for a published AI agent page. An architect chats with you in plain language; you adjust the page's look by outputting a JSON patch. You can ONLY turn the dials listed below — you never write code, CSS, or invent new options.",
+    "You are the Design Brain for a published AI agent page. An architect chats with you in plain language; you adjust the page's look by outputting a JSON patch, and you can also add, remove, move, or edit the page's sections through graphOps. You only use the dials and operations listed below — you never write code, CSS, or invent new options.",
     "",
     "DIALS (the only design keys you may set, with every allowed value):",
     `- theme: "light" | "dark" | "warm" (page-wide color mood; default "${DESIGN_DEFAULTS.theme}")`,
@@ -157,13 +176,55 @@ export function buildDesignChatSystemPrompt(
     `CURRENT DESIGN: ${JSON.stringify(design)}`,
     `CURRENT CONTENT: ${JSON.stringify(content)}`,
     "",
+    "PAGE SECTIONS (every kind of section the page can have, with its editable properties):",
+    blockCatalogForPrompt(),
+    "",
+    "SECTIONS CURRENTLY ON THE PAGE, top to bottom (use these EXACT nodeIds in ops):",
+    currentBlocks || "(none yet — the page has no sections)",
+    "",
+    'SECTION CHANGES: the patch may also carry "graphOps", an array of these four operations and nothing else:',
+    '- { "op": "addBlock", "blockType": "block.…", "config": { … }, "position": "start" | "end" | { "after": "<nodeId>" } }',
+    '- { "op": "removeBlock", "nodeId": "<nodeId>" }',
+    '- { "op": "reorderBlock", "nodeId": "<nodeId>", "to": "start" | "end" | { "after": "<nodeId>" } }',
+    '- { "op": "updateBlockConfig", "nodeId": "<nodeId>", "config": { … } }',
+    "Use only nodeIds from the sections list and only each section's editable properties. Sections only: brains, inputs, connectors, and the Design Brain can never be touched through graphOps.",
+    "",
+    "EXAMPLES:",
+    'Architect: "add a button called Book now"',
+    'You: {"reply":"Added a Book now button to your page.","patch":{"graphOps":[{"op":"addBlock","blockType":"block.action_button","config":{"label":"Book now"}}]}}',
+    'Architect: "remove the history shelf"',
+    'You: {"reply":"The history shelf is gone.","patch":{"graphOps":[{"op":"removeBlock","nodeId":"blk-history"}]}}',
+    'Architect: "limit the prompt box to 500 characters"',
+    // The registry has no character-limit key on block.prompt_composer (its
+    // only editable property is "placeholder"), so the honest answer is the
+    // OUTPUT RULES impossible-request path — teaching an op here that the
+    // whitelist strips would make the model claim changes that never happen.
+    // When the registry gains such a key, turn this into a worked
+    // updateBlockConfig example.
+    'You: {"reply":"There is no character limit setting for the prompt box yet — I can change its hint text, or add, move, and remove sections.","patch":{}}',
+    "",
     "OUTPUT RULES:",
     '- Output ONLY a single JSON object matching exactly: { "reply": string, "patch": { ...allowed keys only... } }. No markdown, no code fences, no commentary before or after.',
     "- Include in patch only the keys the architect asked to change.",
+    '- Section changes go inside the patch as "graphOps" exactly per SECTION CHANGES; leave "graphOps" out entirely when no sections change.',
     "- reply: a short, warm confirmation of what you changed — 200 characters max, plain everyday words, no technical jargon. Reply in the same language the architect wrote in.",
-    '- If the request is impossible with these dials, set "patch" to {} and use "reply" to kindly explain what IS possible.',
+    '- If the request is impossible with these dials and operations, set "patch" to {} and use "reply" to kindly explain what IS possible.',
     "- Never invent keys or values outside the lists above. The page must always stay mobile-friendly — the dials guarantee that, so never try to work around them."
   ].join("\n");
+}
+
+/**
+ * Weave applyGraphOps notes into the model's confirmation so the architect
+ * hears one natural sentence stream ("Added it. Tell me which brain to
+ * connect it to."). Duplicate notes collapse; missing end punctuation is
+ * added.
+ */
+export function weaveReplyWithNotes(reply: string, notes: string[]): string {
+  const parts = [reply, ...new Set(notes)]
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .map((part) => (/[.!?…]$/.test(part) ? part : `${part}.`));
+  return parts.join(" ");
 }
 
 /**
@@ -296,7 +357,8 @@ export function registerAgentPageDesignChatRoute(routes: Hono) {
           welcomeMessage: page.welcomeMessage,
           suggestedPrompts: page.suggestedPrompts
         },
-        houseRules
+        houseRules,
+        workflow.workflowJson
       );
 
       const conversationHistory: AIMessage[] = (input.history ?? []).map((turn) => ({
@@ -316,7 +378,9 @@ export function registerAgentPageDesignChatRoute(routes: Hono) {
           conversationHistory,
           messages: [...messages],
           temperature: 0.2,
-          maxTokens: 400,
+          // Roomy enough for a patch carrying several graphOps (e.g. a preset
+          // list) — the zod gate still caps what any of it can do.
+          maxTokens: 1200,
           outputFormat: "json",
           task: "agent-page-design-chat"
         };
@@ -364,7 +428,8 @@ export function registerAgentPageDesignChatRoute(routes: Hono) {
           reply: DESIGN_CHAT_FALLBACK_REPLY,
           patch: {},
           design: currentDesign,
-          page: serializeAgentPage(page)
+          page: serializeAgentPage(page),
+          graphChanged: false
         });
       }
 
@@ -399,11 +464,34 @@ export function registerAgentPageDesignChatRoute(routes: Hono) {
         });
       }
 
+      // Section changes last: applyGraphOps mutates a clone of the canvas
+      // (already fetched above for the ownership check) and can never touch
+      // brains, triggers, connectors, or the Design Brain. The row is written
+      // only when something actually changed; op notes become part of the
+      // reply either way.
+      let graphChanged = false;
+      let opNotes: string[] = [];
+      if (patch.graphOps !== undefined && patch.graphOps.length > 0) {
+        const opResult = applyGraphOps({
+          workflowJson: workflow.workflowJson,
+          ops: patch.graphOps
+        });
+        opNotes = opResult.notes;
+        if (opResult.changed) {
+          await prisma.workflowDefinition.update({
+            where: { id: workflow.id },
+            data: { workflowJson: opResult.workflowJson as Prisma.InputJsonValue }
+          });
+          graphChanged = true;
+        }
+      }
+
       return successResponse(c, {
-        reply,
+        reply: weaveReplyWithNotes(reply, opNotes),
         patch,
         design: resolveDesign(updatedPage.designJson),
-        page: serializeAgentPage(updatedPage)
+        page: serializeAgentPage(updatedPage),
+        graphChanged
       });
     }
   );

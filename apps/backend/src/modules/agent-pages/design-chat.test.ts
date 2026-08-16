@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   workflowFindFirst: vi.fn(),
+  workflowUpdate: vi.fn(),
   listingFindFirst: vi.fn(),
   listingCreate: vi.fn(),
   pageFindUnique: vi.fn(),
@@ -22,7 +23,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../lib/prisma", () => ({
   prisma: {
-    workflowDefinition: { findFirst: mocks.workflowFindFirst },
+    workflowDefinition: { findFirst: mocks.workflowFindFirst, update: mocks.workflowUpdate },
     agentListing: { findFirst: mocks.listingFindFirst, create: mocks.listingCreate },
     publishedAgentPage: {
       findUnique: mocks.pageFindUnique,
@@ -65,7 +66,8 @@ vi.mock("../admin/design-brain-rules", () => ({
 import {
   DESIGN_CHAT_FALLBACK_REPLY,
   designPatchSchema,
-  extractDesignChatJson
+  extractDesignChatJson,
+  weaveReplyWithNotes
 } from "./design-chat";
 import { registerAgentPageManageRoutes } from "./manage-routes";
 
@@ -74,6 +76,65 @@ const workflowRow = {
   architectUserId: "architect-1",
   name: "Front Desk Agent",
   workflowJson: { nodes: [{ data: { type: "ai.reply" } }] }
+};
+
+/** A real block canvas (builder shape) for graphOps tests: composer -> brain -> output. */
+function canvasWorkflowJson() {
+  return {
+    nodes: [
+      {
+        id: "blk-composer",
+        type: "coreNode",
+        position: { x: 0, y: 0 },
+        data: {
+          type: "block.prompt_composer",
+          nodeKind: "block",
+          label: "Prompt Box",
+          title: "Prompt Box",
+          placeholder: "Describe your trip…"
+        }
+      },
+      {
+        id: "ai-brain",
+        type: "coreNode",
+        position: { x: 780, y: 95 },
+        data: { type: "ai.llm_call", nodeKind: "ai", label: "AI Brain", title: "AI Brain" }
+      },
+      {
+        id: "blk-output",
+        type: "coreNode",
+        position: { x: 0, y: 190 },
+        data: {
+          type: "block.output_stage",
+          nodeKind: "block",
+          label: "Result Viewer",
+          title: "Result Viewer",
+          kind: "auto"
+        }
+      }
+    ],
+    edges: [
+      {
+        id: "edge-blk-composer-ai-brain",
+        source: "blk-composer",
+        target: "ai-brain",
+        animated: true,
+        style: { stroke: "#f59e0b", strokeWidth: 2.6 }
+      },
+      {
+        id: "edge-ai-brain-blk-output",
+        source: "ai-brain",
+        target: "blk-output",
+        animated: true,
+        style: { stroke: "#f59e0b", strokeWidth: 2.6 }
+      }
+    ]
+  };
+}
+
+type CanvasGraph = {
+  nodes: { id: string; data: Record<string, unknown> }[];
+  edges: { id: string; source: string; target: string }[];
 };
 
 const listingRow = {
@@ -147,9 +208,13 @@ beforeEach(() => {
   mocks.pageFindFirst.mockResolvedValue({ ...pageRow });
   mocks.resolveProvider.mockReturnValue({ providerId: "gemini" });
   mocks.getDesignBrainRules.mockResolvedValue("");
-  // The updated row mirrors whatever the route persists.
+  // The updated rows mirror whatever the route persists.
   mocks.pageUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     ...pageRow,
+    ...data
+  }));
+  mocks.workflowUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+    ...workflowRow,
     ...data
   }));
 });
@@ -171,6 +236,9 @@ describe("POST /manage/:workflowId/design-chat", () => {
     expect(body.data.design).toEqual({ ...DEFAULT_DESIGN, theme: "dark" });
     expect(body.data.page.accentColor).toBe("#16a34a");
     expect(body.data.page.slug).toBe(pageRow.slug);
+    // No graphOps in the patch: the canvas is untouched and the builder knows it.
+    expect(body.data.graphChanged).toBe(false);
+    expect(mocks.workflowUpdate).not.toHaveBeenCalled();
 
     expect(mocks.pageUpdate).toHaveBeenCalledTimes(1);
     expect(mocks.pageUpdate).toHaveBeenCalledWith({
@@ -192,7 +260,7 @@ describe("POST /manage/:workflowId/design-chat", () => {
     const [providerId, request] = mocks.execute.mock.calls[0];
     expect(providerId).toBe("gemini");
     expect(request.temperature).toBe(0.2);
-    expect(request.maxTokens).toBe(400);
+    expect(request.maxTokens).toBe(1200);
     expect(request.outputFormat).toBe("json");
     expect(request.messages).toEqual([{ role: "user", content: "hello" }]);
     // System prompt carries the dial schema + the current design.
@@ -215,6 +283,15 @@ describe("POST /manage/:workflowId/design-chat", () => {
     // And the dial contract still follows in full.
     expect(request.systemPrompt).toContain('"light" | "dark" | "warm"');
     expect(request.systemPrompt).toContain("OUTPUT RULES:");
+    // The block catalog rides after the rules and dial contract.
+    expect(request.systemPrompt).toContain("PAGE SECTIONS");
+    expect(request.systemPrompt).toContain("block.prompt_composer");
+    expect(request.systemPrompt.indexOf("HOUSE RULES")).toBeLessThan(
+      request.systemPrompt.indexOf("PAGE SECTIONS")
+    );
+    expect(request.systemPrompt.indexOf('"light" | "dark" | "warm"')).toBeLessThan(
+      request.systemPrompt.indexOf("PAGE SECTIONS")
+    );
   });
 
   it("omits the house-rules block entirely when the accessor returns empty", async () => {
@@ -306,7 +383,9 @@ describe("POST /manage/:workflowId/design-chat", () => {
     expect(body.data.reply).toBe(DESIGN_CHAT_FALLBACK_REPLY);
     expect(body.data.patch).toEqual({});
     expect(body.data.design).toEqual(DEFAULT_DESIGN);
+    expect(body.data.graphChanged).toBe(false);
     expect(mocks.pageUpdate).not.toHaveBeenCalled();
+    expect(mocks.workflowUpdate).not.toHaveBeenCalled();
   });
 
   it("rejects a non-hex accentColor at the gate and retries", async () => {
@@ -480,6 +559,187 @@ describe("POST /manage/:workflowId/design-chat", () => {
   });
 });
 
+describe("POST /manage/:workflowId/design-chat — graphOps", () => {
+  beforeEach(() => {
+    mocks.workflowFindFirst.mockResolvedValue({
+      ...workflowRow,
+      workflowJson: canvasWorkflowJson()
+    });
+  });
+
+  it("applies addBlock from the model: persists the patched canvas, auto-wires, graphChanged true", async () => {
+    mocks.execute.mockResolvedValue(
+      llmSuccess(
+        '{"reply":"Added a Book now button.","patch":{"graphOps":[{"op":"addBlock","blockType":"block.action_button","config":{"label":"Book now"}}]}}'
+      )
+    );
+
+    const res = await designChat(buildApp(), { instruction: "add a button called Book now" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.data.graphChanged).toBe(true);
+    expect(body.data.reply).toBe("Added a Book now button.");
+    // Pure section change: the page row is untouched.
+    expect(mocks.pageUpdate).not.toHaveBeenCalled();
+
+    expect(mocks.workflowUpdate).toHaveBeenCalledTimes(1);
+    const { where, data } = mocks.workflowUpdate.mock.calls[0][0];
+    expect(where).toEqual({ id: "workflow-1" });
+
+    const saved = data.workflowJson as CanvasGraph;
+    const added = saved.nodes.find((node) => node.data.type === "block.action_button");
+    expect(added).toBeDefined();
+    expect(added?.data.label).toBe("Book now");
+    expect(added?.data.nodeKind).toBe("block");
+    // Auto-wired to the canvas's single brain.
+    expect(saved.edges.some((edge) => edge.source === added?.id && edge.target === "ai-brain")).toBe(
+      true
+    );
+    // Existing nodes survive untouched.
+    expect(saved.nodes.map((node) => node.id)).toEqual(
+      expect.arrayContaining(["blk-composer", "ai-brain", "blk-output"])
+    );
+  });
+
+  it("mixed dials + ops: one page update AND one canvas update, both reflected in the response", async () => {
+    mocks.execute.mockResolvedValue(
+      llmSuccess(
+        '{"reply":"Dark theme is on and the result viewer is gone.","patch":{"theme":"dark","graphOps":[{"op":"removeBlock","nodeId":"blk-output"}]}}'
+      )
+    );
+
+    const res = await designChat(buildApp(), { instruction: "dark theme, remove the result viewer" });
+    const body = await res.json();
+
+    // The dial persisted to the page row, exactly as before.
+    expect(mocks.pageUpdate).toHaveBeenCalledWith({
+      where: { id: "page-1" },
+      data: { designJson: { ...DEFAULT_DESIGN, theme: "dark" } }
+    });
+    expect(body.data.design.theme).toBe("dark");
+
+    // The op persisted to the workflow row.
+    expect(mocks.workflowUpdate).toHaveBeenCalledTimes(1);
+    const saved = mocks.workflowUpdate.mock.calls[0][0].data.workflowJson as CanvasGraph;
+    expect(saved.nodes.some((node) => node.id === "blk-output")).toBe(false);
+    expect(
+      saved.edges.some((edge) => edge.source === "blk-output" || edge.target === "blk-output")
+    ).toBe(false);
+    // The brain itself survives.
+    expect(saved.nodes.some((node) => node.id === "ai-brain")).toBe(true);
+    expect(body.data.graphChanged).toBe(true);
+  });
+
+  it("refuses ops on non-block nodeIds: nothing persisted, graphChanged false, note woven into the reply", async () => {
+    mocks.execute.mockResolvedValue(
+      llmSuccess('{"reply":"Removed it.","patch":{"graphOps":[{"op":"removeBlock","nodeId":"ai-brain"}]}}')
+    );
+
+    const res = await designChat(buildApp(), { instruction: "remove the brain" });
+    const body = await res.json();
+
+    expect(mocks.workflowUpdate).not.toHaveBeenCalled();
+    expect(body.data.graphChanged).toBe(false);
+    expect(body.data.reply).toBe(
+      "Removed it. I couldn't find that section to remove, so nothing changed."
+    );
+  });
+
+  it("strips unknown ops with a note while still applying the valid ones", async () => {
+    mocks.execute.mockResolvedValue(
+      llmSuccess(
+        '{"reply":"Done.","patch":{"graphOps":[{"op":"teleportBlock","nodeId":"blk-composer"},{"op":"addBlock","blockType":"block.history_shelf"}]}}'
+      )
+    );
+
+    const res = await designChat(buildApp(), { instruction: "history shelf please" });
+    const body = await res.json();
+
+    expect(body.data.graphChanged).toBe(true);
+    expect(body.data.reply).toContain("Done.");
+    expect(body.data.reply).toContain("I skipped one change I couldn't understand.");
+
+    const saved = mocks.workflowUpdate.mock.calls[0][0].data.workflowJson as CanvasGraph;
+    expect(saved.nodes.some((node) => node.data.type === "block.history_shelf")).toBe(true);
+  });
+
+  it("asks which brain (woven into the reply) when the canvas has two brains", async () => {
+    const canvas = canvasWorkflowJson();
+    canvas.nodes.push({
+      id: "ai-brain-2",
+      type: "coreNode",
+      position: { x: 780, y: 400 },
+      data: { type: "ai.llm_call", nodeKind: "ai", label: "AI Brain", title: "AI Brain" }
+    });
+    mocks.workflowFindFirst.mockResolvedValue({ ...workflowRow, workflowJson: canvas });
+    mocks.execute.mockResolvedValue(
+      llmSuccess(
+        '{"reply":"Added the button.","patch":{"graphOps":[{"op":"addBlock","blockType":"block.action_button","config":{"label":"Go"}}]}}'
+      )
+    );
+
+    const res = await designChat(buildApp(), { instruction: "add a go button" });
+    const body = await res.json();
+
+    // The block IS added (graphChanged true) but left unwired, with the ask.
+    expect(body.data.graphChanged).toBe(true);
+    expect(body.data.reply).toBe("Added the button. Tell me which brain to connect it to.");
+    const saved = mocks.workflowUpdate.mock.calls[0][0].data.workflowJson as CanvasGraph;
+    const added = saved.nodes.find((node) => node.data.type === "block.action_button");
+    expect(saved.edges.some((edge) => edge.source === added?.id)).toBe(false);
+  });
+
+  it("system prompt carries the ops schema, few-shot examples, and the canvas's REAL nodeIds", async () => {
+    mocks.execute.mockResolvedValue(llmSuccess('{"reply":"ok","patch":{}}'));
+
+    await designChat(buildApp(), { instruction: "hello" });
+
+    const [, request] = mocks.execute.mock.calls[0];
+    const prompt = request.systemPrompt as string;
+
+    // Catalog: every block with editable properties.
+    expect(prompt).toContain("PAGE SECTIONS");
+    expect(prompt).toContain("block.action_button");
+    expect(prompt).toContain("presets (list of up to 8 items");
+
+    // Current sections: the real nodeIds + config from the workflow row.
+    expect(prompt).toContain('blk-composer — block.prompt_composer ("Prompt Box")');
+    expect(prompt).toContain('placeholder: "Describe your trip…"');
+    expect(prompt).toContain('blk-output — block.output_stage ("Result Viewer")');
+    // The brain is never offered as a section.
+    expect(prompt).not.toContain("- ai-brain");
+
+    // Ops schema + the three few-shot examples.
+    expect(prompt).toContain('"op": "addBlock"');
+    expect(prompt).toContain('"op": "removeBlock"');
+    expect(prompt).toContain('"op": "reorderBlock"');
+    expect(prompt).toContain('"op": "updateBlockConfig"');
+    expect(prompt).toContain('add a button called Book now');
+    expect(prompt).toContain('remove the history shelf');
+    expect(prompt).toContain('limit the prompt box to 500 characters');
+    // The limit example must stay honest: the composer's only editable key is
+    // "placeholder" — teaching a non-registry key (e.g. maxChars) would make
+    // the model emit ops the whitelist strips while its reply claims success.
+    expect(prompt).not.toContain("maxChars");
+
+    // Dial contract and output rules still intact, in order.
+    expect(prompt).toContain('"light" | "dark" | "warm"');
+    expect(prompt.indexOf('"light" | "dark" | "warm"')).toBeLessThan(prompt.indexOf("PAGE SECTIONS"));
+    expect(prompt.indexOf("PAGE SECTIONS")).toBeLessThan(prompt.indexOf("OUTPUT RULES:"));
+  });
+
+  it('shows "(none yet)" instead of sections for a canvas without blocks', async () => {
+    mocks.workflowFindFirst.mockResolvedValue({ ...workflowRow });
+    mocks.execute.mockResolvedValue(llmSuccess('{"reply":"ok","patch":{}}'));
+
+    await designChat(buildApp(), { instruction: "hello" });
+
+    const [, request] = mocks.execute.mock.calls[0];
+    expect(request.systemPrompt).toContain("(none yet — the page has no sections)");
+  });
+});
+
 describe("designPatchSchema (the zod gate)", () => {
   it("accepts every contract dial value and strips unknown keys", () => {
     const parsed = designPatchSchema.parse({
@@ -542,6 +802,42 @@ describe("designPatchSchema (the zod gate)", () => {
       patch: { headline: null, welcomeMessage: null }
     });
     expect(parsed.patch).toEqual({ headline: null, welcomeMessage: null });
+  });
+
+  it("passes graphOps through untouched (per-op stripping happens in applyGraphOps) but rejects non-arrays and floods", () => {
+    const ops = [
+      { op: "addBlock", blockType: "block.action_button", config: { label: "Book now" } },
+      { op: "definitelyNotAnOp" }
+    ];
+    const parsed = designPatchSchema.parse({ reply: "ok", patch: { graphOps: ops } });
+    // Both survive the gate — applyGraphOps strips the bad one WITH a note,
+    // so a single malformed op can't torpedo the whole patch via a retry.
+    expect(parsed.patch.graphOps).toEqual(ops);
+
+    expect(
+      designPatchSchema.safeParse({ reply: "ok", patch: { graphOps: "remove the shelf" } }).success
+    ).toBe(false);
+    expect(
+      designPatchSchema.safeParse({
+        reply: "ok",
+        patch: { graphOps: Array.from({ length: 21 }, () => ({ op: "removeBlock", nodeId: "x" })) }
+      }).success
+    ).toBe(false);
+  });
+});
+
+describe("weaveReplyWithNotes", () => {
+  it("joins the reply and op notes into one sentence stream, deduping and punctuating", () => {
+    expect(
+      weaveReplyWithNotes("Added it", [
+        "Tell me which brain to connect it to",
+        "Tell me which brain to connect it to"
+      ])
+    ).toBe("Added it. Tell me which brain to connect it to.");
+    expect(weaveReplyWithNotes("Done!", [])).toBe("Done!");
+    expect(weaveReplyWithNotes("", ["I skipped one change I couldn't understand."])).toBe(
+      "I skipped one change I couldn't understand."
+    );
   });
 });
 
