@@ -132,3 +132,59 @@ describe("BuilderHeader preview device switcher", () => {
     expect(onOpenAdvanced).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("BuilderHeader arrange toggle", () => {
+  it("stays hidden off the Preview step", () => {
+    renderHeader();
+    expect(screen.queryByTestId("preview-arrange-toggle")).toBeNull();
+  });
+
+  it("stays hidden on tablet and phone — desktop view only", () => {
+    renderHeader({
+      activeTab: "test",
+      showPreviewControls: true,
+      previewDevice: "tablet",
+      onArrangeModeChange: vi.fn()
+    });
+    expect(screen.queryByTestId("preview-arrange-toggle")).toBeNull();
+  });
+
+  it("renders on desktop with plain copy and reports the toggle upward", async () => {
+    const onArrangeModeChange = vi.fn();
+    const user = userEvent.setup();
+    renderHeader({
+      activeTab: "test",
+      showPreviewControls: true,
+      previewDevice: "desktop",
+      arrangeMode: false,
+      onArrangeModeChange
+    });
+
+    const toggle = screen.getByTestId("preview-arrange-toggle");
+    expect(toggle.textContent).toBe("Arrange");
+    expect(toggle.getAttribute("title")).toBe("Drag to arrange");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    await user.click(toggle);
+    expect(onArrangeModeChange).toHaveBeenCalledWith(true);
+  });
+
+  it("shows the amber active state while arrange mode is on, and toggles off", async () => {
+    const onArrangeModeChange = vi.fn();
+    const user = userEvent.setup();
+    renderHeader({
+      activeTab: "test",
+      showPreviewControls: true,
+      previewDevice: "desktop",
+      arrangeMode: true,
+      onArrangeModeChange
+    });
+
+    const toggle = screen.getByTestId("preview-arrange-toggle");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.className).toContain("bg-amber-500");
+
+    await user.click(toggle);
+    expect(onArrangeModeChange).toHaveBeenCalledWith(false);
+  });
+});

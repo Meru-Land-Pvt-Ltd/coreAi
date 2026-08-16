@@ -308,9 +308,18 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   // Which device the Test preview shows. Lives here — not in the panel — so
   // the compact switcher in the main header drives the preview stage.
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>("desktop");
+  // Arrange mode: drag the preview page's sections anywhere (desktop only).
+  // Owned here so the header pill and the preview stage stay one truth.
+  const [arrangeMode, setArrangeMode] = useState(false);
   // Saved customer-page design for the Test preview (null until fetched or
   // when the workflow has never been configured/published).
   const [previewPageData, setPreviewPageData] = useState<AgentPageManageData | null>(null);
+
+  // Arrange mode only exists on the Preview step's desktop view — leaving
+  // either always turns it off, so it can never linger invisibly.
+  useEffect(() => {
+    if (activeTab !== "test" || previewDevice !== "desktop") setArrangeMode(false);
+  }, [activeTab, previewDevice]);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>(null);
   const [flowGateNotice, setFlowGateNotice] = useState<{
     title: string;
@@ -2451,6 +2460,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         previewDevice={previewDevice}
         onPreviewDeviceChange={setPreviewDevice}
         showPreviewControls={activeTab === "test"}
+        arrangeMode={arrangeMode}
+        onArrangeModeChange={setArrangeMode}
         onOpenAdvanced={() => setTestView("advanced")}
         onUndo={undo}
         onRedo={redo}
@@ -2770,6 +2781,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             design={previewPageData?.design ?? null}
             architectName={architectName}
             underReview={isUnderReview}
+            arrangeMode={arrangeMode}
+            onArrangeExit={() => setArrangeMode(false)}
             onSendChat={sendPreviewChat}
             onStartVoice={startPreviewVoice}
             onRunOnce={runPreviewOnce}

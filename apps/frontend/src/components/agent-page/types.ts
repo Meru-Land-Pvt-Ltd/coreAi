@@ -19,11 +19,31 @@ export type AgentPageTemplate = "chat" | "voice" | "media" | "form";
 export type FaceBlueprintBlock = {
   type: string;
   config: Record<string, unknown>;
+  /**
+   * The canvas node this block came from — the stable key the Arrange
+   * Editor stores free-position layout under. Optional so payloads from
+   * older backends (without the field) keep rendering in stacked flow.
+   */
+  nodeId?: string;
 };
 
 export type FaceBlueprint = {
   blocks: FaceBlueprintBlock[];
 };
+
+/**
+ * One block's saved free-position spot on the desktop page, in pixels from
+ * the top-left of the block area. Backend-sanitized: integers, x/y within
+ * 0..4000, width (when present) within 200..1200.
+ */
+export type FaceLayoutEntry = {
+  x: number;
+  y: number;
+  w?: number;
+};
+
+/** Saved arrangement, keyed by the block's canvas nodeId. */
+export type FaceLayoutMap = Record<string, FaceLayoutEntry>;
 
 /**
  * Design Brain dials — mirrors the backend contract exactly (see
@@ -43,6 +63,13 @@ export type DesignConfig = {
   bubbleStyle: "bubbles" | "flat";
   /** This-session conversation list on lg+ screens; never on mobile. */
   showHistorySidebar: boolean;
+  /**
+   * Free-position desktop arrangement for block-assembled pages, keyed by
+   * block nodeId. Applies on desktop viewports only — small screens always
+   * keep the clean stacked flow. Optional so older payloads keep compiling;
+   * absent/empty means "no custom arrangement".
+   */
+  layout?: FaceLayoutMap;
 };
 
 export const AGENT_PAGE_DESIGN_DEFAULTS: DesignConfig = {

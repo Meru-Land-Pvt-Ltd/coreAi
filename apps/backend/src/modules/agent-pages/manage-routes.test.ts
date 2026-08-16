@@ -93,7 +93,8 @@ const DEFAULT_DESIGN = {
   composerPosition: "center",
   density: "cozy",
   bubbleStyle: "bubbles",
-  showHistorySidebar: false
+  showHistorySidebar: false,
+  layout: {}
 };
 
 function buildApp() {
@@ -253,8 +254,8 @@ describe("GET /manage/:workflowId", () => {
       data: { blueprint: { blocks: Array<{ type: string; config: Record<string, unknown> }> } };
     };
     expect(json.data.blueprint.blocks).toEqual([
-      { type: "block.prompt_composer", config: { placeholder: "Type here…" } },
-      { type: "block.output_stage", config: { kind: "video" } }
+      { nodeId: "prompt-1", type: "block.prompt_composer", config: { placeholder: "Type here…" } },
+      { nodeId: "out-1", type: "block.output_stage", config: { kind: "video" } }
     ]);
   });
 
@@ -388,5 +389,121 @@ describe("PATCH /manage/:workflowId", () => {
     expect(json.data.url).toBe("https://triven.ai/a/front-desk-agent-abc123");
     // The design rides along on PATCH so callers never lose the dials.
     expect(json.data.design).toEqual(DEFAULT_DESIGN);
+  });
+
+  it("does not touch designJson when the PATCH carries no design field", async () => {
+    await patchPage(buildApp(), "workflow-1", { headline: "Hi" });
+    expect(pageUpdateMock).toHaveBeenCalledTimes(1);
+    expect(pageUpdateMock.mock.calls[0][0].data).not.toHaveProperty("designJson");
+  });
+
+  it("does not touch designJson for design: {} (design present, no layout)", async () => {
+    await patchPage(buildApp(), "workflow-1", { headline: "Hi", design: {} });
+    expect(pageUpdateMock).toHaveBeenCalledTimes(1);
+    expect(pageUpdateMock.mock.calls[0][0].data).not.toHaveProperty("designJson");
+  });
+});
+
+describe("PATCH /manage/:workflowId — design.layout (Arrange mode)", () => {
+  const storedDesignJson = {
+    theme: "warm",
+    density: "compact",
+    layout: { "blk-old": { x: 8, y: 8 } }
+  };
+
+  beforeEach(() => {
+    pageFindFirstMock.mockResolvedValue({ ...pageRow, designJson: storedDesignJson });
+    // The updated row mirrors whatever the route persists.
+    pageUpdateMock.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...pageRow,
+      designJson: storedDesignJson,
+      ...data
+    }));
+  });
+
+  it("replaces the arrangement wholesale and preserves every other stored design key", async () => {
+    const layout = { "blk-composer": { x: 16, y: 24, w: 480 }, "blk-output": { x: 8, y: 400 } };
+    const response = await patchPage(buildApp(), "workflow-1", { design: { layout } });
+
+    expect(response.status).toBe(200);
+    expect(pageUpdateMock).toHaveBeenCalledWith({
+      where: { id: "page-1" },
+      data: expect.objectContaining({
+        designJson: { theme: "warm", density: "compact", layout }
+      })
+    });
+
+    // The response's resolved design carries the new arrangement.
+    const json = (await response.json()) as { data: { design: { layout: unknown } } };
+    expect(json.data.design).toEqual({
+      ...DEFAULT_DESIGN,
+      theme: "warm",
+      density: "compact",
+      layout
+    });
+  });
+
+  it("clears the arrangement with layout: {} (Reset arrangement)", async () => {
+    const response = await patchPage(buildApp(), "workflow-1", { design: { layout: {} } });
+
+    expect(response.status).toBe(200);
+    expect(pageUpdateMock).toHaveBeenCalledWith({
+      where: { id: "page-1" },
+      data: expect.objectContaining({
+        designJson: { theme: "warm", density: "compact", layout: {} }
+      })
+    });
+  });
+
+  it("drops invalid layout entries individually instead of rejecting the request", async () => {
+    const response = await patchPage(buildApp(), "workflow-1", {
+      design: {
+        layout: {
+          keep: { x: 16, y: 0 },
+          offGrid: { x: -8, y: 0 },
+          fractional: { x: 3.7, y: 0 },
+          tooWide: { x: 0, y: 0, w: 9000 },
+          decorated: { x: 8, y: 8, zIndex: 40 }
+        }
+      }
+    });
+
+    expect(response.status).toBe(200);
+    expect(pageUpdateMock).toHaveBeenCalledWith({
+      where: { id: "page-1" },
+      data: expect.objectContaining({
+        designJson: {
+          theme: "warm",
+          density: "compact",
+          layout: { keep: { x: 16, y: 0 }, decorated: { x: 8, y: 8 } }
+        }
+      })
+    });
+  });
+
+  it("bootstraps designJson from scratch when nothing was stored yet", async () => {
+    pageFindFirstMock.mockResolvedValue({ ...pageRow, designJson: null });
+    const layout = { "blk-1": { x: 0, y: 0 } };
+
+    const response = await patchPage(buildApp(), "workflow-1", { design: { layout } });
+
+    expect(response.status).toBe(200);
+    expect(pageUpdateMock).toHaveBeenCalledWith({
+      where: { id: "page-1" },
+      data: expect.objectContaining({ designJson: { layout } })
+    });
+  });
+
+  it("saves layout and content fields together in one update", async () => {
+    const layout = { "blk-1": { x: 24, y: 48 } };
+    await patchPage(buildApp(), "workflow-1", { headline: "Book faster", design: { layout } });
+
+    expect(pageUpdateMock).toHaveBeenCalledWith({
+      where: { id: "page-1" },
+      data: expect.objectContaining({
+        headline: "Book faster",
+        designJson: { theme: "warm", density: "compact", layout }
+      })
+    });
   });
 });

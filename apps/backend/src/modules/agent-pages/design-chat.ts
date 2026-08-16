@@ -124,7 +124,14 @@ export const designChatBodySchema = z.object({
     .optional()
 });
 
-const DIAL_KEYS = Object.keys(designConfigSchema.shape) as (keyof DesignConfig)[];
+// Every dial the chat may turn. layout is deliberately excluded: the Arrange
+// editor writes it through the manage PATCH — the model can never move blocks,
+// and because the merge below spreads the FULL resolved design (layout
+// included) over the dial changes, a stored arrangement survives any chat
+// restyle untouched.
+const DIAL_KEYS = (Object.keys(designConfigSchema.shape) as (keyof DesignConfig)[]).filter(
+  (key) => key !== "layout"
+);
 
 /** Same public page shape as the manage routes (kept local to avoid a module cycle). */
 function serializeAgentPage(page: PublishedAgentPage) {
@@ -154,6 +161,10 @@ export function buildDesignChatSystemPrompt(
 ): string {
   const rules = houseRules.trim();
   const currentBlocks = currentBlocksForPrompt(workflowJson);
+  // The Arrange editor's layout is not a dial the model may set, so it never
+  // enters the prompt — a large arrangement would only bloat it and tempt the
+  // model into echoing keys the gate strips anyway.
+  const { layout: _arrangedLayout, ...currentDials } = design;
   return [
     // The admin-editable constitution (Admin → Design Brain rules) leads the
     // prompt so it outranks everything else. Empty rules add nothing.
@@ -173,7 +184,7 @@ export function buildDesignChatSystemPrompt(
     "- welcomeMessage: string, 500 characters max, or null to clear it",
     "- suggestedPrompts: array of up to 4 strings, each 80 characters max",
     "",
-    `CURRENT DESIGN: ${JSON.stringify(design)}`,
+    `CURRENT DESIGN: ${JSON.stringify(currentDials)}`,
     `CURRENT CONTENT: ${JSON.stringify(content)}`,
     "",
     "PAGE SECTIONS (every kind of section the page can have, with its editable properties):",

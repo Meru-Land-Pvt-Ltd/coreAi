@@ -29,6 +29,13 @@ import { z } from "zod";
  */
 
 export type FaceBlueprintBlock = {
+  /**
+   * The canvas node's id — the stable key that design.layout entries (and any
+   * other per-block feature) point at. Real builder graphs always carry ids;
+   * a hand-written node without one gets a deterministic `block-<index>`
+   * fallback so the field is always present.
+   */
+  nodeId: string;
   type: string;
   config: Record<string, unknown>;
 };
@@ -133,6 +140,7 @@ function deriveBlockConfig(type: string, data: Record<string, unknown>): Record<
 
 type BlockEntry = {
   index: number;
+  nodeId: string;
   type: string;
   data: Record<string, unknown>;
   x: number | null;
@@ -188,6 +196,7 @@ export function deriveFaceBlueprint(workflowJson: unknown): FaceBlueprint | null
     const position = asRecord(raw.position);
     entries.push({
       index,
+      nodeId: typeof raw.id === "string" && raw.id.length > 0 ? raw.id : `block-${index}`,
       type,
       data,
       x: finiteNumber(position?.x),
@@ -206,6 +215,7 @@ export function deriveFaceBlueprint(workflowJson: unknown): FaceBlueprint | null
 
   return {
     blocks: ordered.map((entry) => ({
+      nodeId: entry.nodeId,
       type: entry.type,
       config: deriveBlockConfig(entry.type, entry.data)
     }))

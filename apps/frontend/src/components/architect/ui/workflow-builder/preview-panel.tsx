@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ClipboardList,
   MessageCircle,
@@ -21,8 +21,10 @@ import type {
   AgentPageRuntime,
   AgentPageTemplate,
   DesignConfig,
-  FaceBlueprint
+  FaceBlueprint,
+  FaceLayoutMap
 } from "@/components/agent-page/types";
+import { updateAgentPageConfig } from "@/components/architect/features/api";
 
 /**
  * PreviewPanel — the builder's default Test view.
@@ -85,6 +87,14 @@ export type PreviewPanelProps = {
   architectName?: string | null;
   /** While the agent is under review, testing is paused — say so plainly. */
   underReview?: boolean;
+  /**
+   * Arrange mode (the header's "Arrange" pill). Only takes effect on the
+   * desktop device with a block-assembled page; drops PATCH the layout via
+   * the manage endpoint and report through onDesignApplied.
+   */
+  arrangeMode?: boolean;
+  /** Escape inside the page (or any other exit) turns the pill off. */
+  onArrangeExit?: () => void;
   onSendChat: (
     message: string,
     history: ChatHistoryTurn[],
@@ -177,6 +187,8 @@ export function PreviewPanel({
   design = null,
   architectName,
   underReview = false,
+  arrangeMode = false,
+  onArrangeExit,
   onSendChat,
   onStartVoice,
   onRunOnce,
@@ -255,6 +267,50 @@ export function PreviewPanel({
     [onSendChat, onStartVoice, onRunOnce]
   );
 
+  // Arrange Editor plumbing: a drop saves the full layout map through the
+  // manage PATCH, then the container refetches so the preview (and the live
+  // page next visit) holds the saved truth. A failed save still refetches —
+  // the block then honestly snaps back to its last saved spot. Review-locked
+  // agents never write, same rule as every other builder surface.
+  const arrangeActive = arrangeMode && device === "desktop" && blueprint !== null && !underReview;
+
+  const handleArrangeCommit = useCallback(
+    async (layout: FaceLayoutMap) => {
+      try {
+        await updateAgentPageConfig(workflowId, { design: { layout } });
+      } catch {
+        // The refetch below restores the saved arrangement.
+      }
+      onDesignApplied?.({});
+    },
+    [workflowId, onDesignApplied]
+  );
+
+  const handleArrangeReset = useCallback(async () => {
+    try {
+      await updateAgentPageConfig(workflowId, { design: { layout: {} } });
+    } catch {
+      // The refetch below restores the saved arrangement.
+    }
+    onDesignApplied?.({});
+  }, [workflowId, onDesignApplied]);
+
+  const handleArrangeExit = useCallback(() => {
+    onArrangeExit?.();
+  }, [onArrangeExit]);
+
+  const arrangeHandlers = useMemo(
+    () =>
+      arrangeActive
+        ? {
+            onCommit: handleArrangeCommit,
+            onReset: handleArrangeReset,
+            onExit: handleArrangeExit
+          }
+        : null,
+    [arrangeActive, handleArrangeCommit, handleArrangeReset, handleArrangeExit]
+  );
+
   // The page config the Face renders. With a saved design we show it verbatim
   // (the preview promises "exactly what your customer will see"); otherwise a
   // minimal, real-looking default. Limits are a published-page concept;
@@ -315,6 +371,11 @@ export function PreviewPanel({
                 slug={data.page.slug}
                 runtime={runtime}
                 blueprint={blueprint}
+                // Device frames are CSS widths, not real windows — tell the
+                // renderer which flow to show instead of letting matchMedia
+                // read the browser window behind the frame.
+                layoutViewport={device === "desktop" ? "desktop" : "stacked"}
+                arrange={arrangeHandlers}
               />
             ) : (
               <>

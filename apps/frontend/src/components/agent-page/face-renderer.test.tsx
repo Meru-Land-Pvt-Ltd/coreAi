@@ -1,8 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { composeEngineInstructions, FaceRenderer } from "./face-renderer";
-import type { AgentPageData, AgentPageRuntime, FaceBlueprint } from "./types";
+import {
+  composeEngineInstructions,
+  FaceRenderer,
+  type FaceArrangeHandlers
+} from "./face-renderer";
+import {
+  AGENT_PAGE_DESIGN_DEFAULTS,
+  type AgentPageData,
+  type AgentPageRuntime,
+  type FaceBlueprint,
+  type FaceLayoutMap
+} from "./types";
 
 vi.mock("@/lib/api", () => ({ apiPost: vi.fn() }));
 
@@ -513,5 +523,191 @@ describe("FaceRenderer", () => {
     expect(
       screen.getByTestId("agent-block-prompt-input").getAttribute("placeholder")
     ).toBe("Describe what you want…");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Free-position layout (Arrange Editor)
+// ---------------------------------------------------------------------------
+
+function layoutPageData(layout: FaceLayoutMap): AgentPageData {
+  return { ...pageData(), design: { ...AGENT_PAGE_DESIGN_DEFAULTS, layout } };
+}
+
+function arrangedBlueprint(): FaceBlueprint {
+  return {
+    blocks: [
+      { type: "block.prompt_composer", nodeId: "node-composer", config: {} },
+      { type: "block.output_stage", nodeId: "node-stage", config: { kind: "auto" } },
+      {
+        type: "block.model_picker",
+        nodeId: "node-picker",
+        config: { options: [{ id: "fast", label: "Fast" }] }
+      }
+    ]
+  };
+}
+
+function arrangeHandlers(): FaceArrangeHandlers {
+  return { onCommit: vi.fn(), onReset: vi.fn(), onExit: vi.fn() };
+}
+
+function renderArranged(options: {
+  layout?: FaceLayoutMap;
+  layoutViewport?: "auto" | "desktop" | "stacked";
+  arrange?: FaceArrangeHandlers | null;
+  blueprint?: FaceBlueprint;
+}) {
+  return render(
+    <FaceRenderer
+      data={layoutPageData(options.layout ?? {})}
+      slug="dream-studio-abc123"
+      runtime={previewRuntime()}
+      blueprint={options.blueprint ?? arrangedBlueprint()}
+      layoutViewport={options.layoutViewport}
+      arrange={options.arrange ?? null}
+    />
+  );
+}
+
+/** Pointer events via MouseEvent — deterministic across jsdom versions. */
+function pointer(target: Element | Window, type: string, init?: MouseEventInit) {
+  fireEvent(target, new MouseEvent(type, { bubbles: true, cancelable: true, ...init }));
+}
+
+describe("FaceRenderer free-position layout", () => {
+  it("positions blocks with layout entries on desktop; the rest flow below", () => {
+    renderArranged({
+      layout: { "node-composer": { x: 16, y: 24, w: 480 } },
+      layoutViewport: "desktop"
+    });
+
+    const artboard = screen.getByTestId("agent-face-artboard");
+    const positioned = screen.getAllByTestId("agent-face-positioned-block");
+    expect(positioned).toHaveLength(1);
+    expect(positioned[0].style.left).toBe("16px");
+    expect(positioned[0].style.top).toBe("24px");
+    expect(positioned[0].style.width).toBe("480px");
+    expect(within(positioned[0]).getByTestId("agent-block-prompt-composer")).toBeTruthy();
+    // The artboard clears the lowest positioned block (fallback height in jsdom).
+    expect(artboard.style.minHeight).not.toBe("");
+
+    // Blocks without entries keep the stacked flow, below the artboard.
+    const picker = screen.getByTestId("agent-block-model-picker");
+    expect(precedes(artboard, picker)).toBe(true);
+    expect(artboard.contains(picker)).toBe(false);
+  });
+
+  it("small screens always keep the clean stacked flow, ignoring layout", () => {
+    renderArranged({
+      layout: { "node-composer": { x: 16, y: 24, w: 480 } },
+      layoutViewport: "stacked"
+    });
+
+    expect(screen.queryByTestId("agent-face-artboard")).toBeNull();
+    expect(screen.queryByTestId("agent-face-positioned-block")).toBeNull();
+    // Natural blueprint order: composer before stage.
+    expect(
+      precedes(
+        screen.getByTestId("agent-block-prompt-composer"),
+        screen.getByTestId("agent-block-output-stage")
+      )
+    ).toBe(true);
+  });
+
+  it("defaults to the stacked flow when the viewport is unknown (SSR-safe)", () => {
+    // jsdom has no matchMedia — exactly the SSR/first-paint situation, which
+    // must read as stacked so a custom desktop layout never breaks phones.
+    renderArranged({ layout: { "node-composer": { x: 16, y: 24 } } });
+    expect(screen.queryByTestId("agent-face-artboard")).toBeNull();
+  });
+
+  it("dragging a positioned block snaps to the 8px grid and commits the full map", () => {
+    const arrange = arrangeHandlers();
+    renderArranged({
+      layout: { "node-composer": { x: 8, y: 16, w: 400 } },
+      layoutViewport: "desktop",
+      arrange
+    });
+
+    const positioned = screen.getByTestId("agent-face-positioned-block");
+    const handle = within(positioned).getByTestId("agent-face-arrange-block");
+
+    pointer(handle, "pointerdown", { clientX: 100, clientY: 100 });
+    pointer(window, "pointermove", { clientX: 153, clientY: 217 });
+    // 8+53=61 → 64; 16+117=133 → 136 (nearest 8px gridline).
+    pointer(window, "pointerup");
+
+    expect(arrange.onCommit).toHaveBeenCalledTimes(1);
+    expect(arrange.onCommit).toHaveBeenCalledWith({
+      "node-composer": { x: 64, y: 136, w: 400 }
+    });
+    // Optimistic: the block sits at the dropped spot before any refetch.
+    expect(positioned.style.left).toBe("64px");
+    expect(positioned.style.top).toBe("136px");
+  });
+
+  it("dragging a flow block gives it an entry and preserves its siblings' spots", () => {
+    const arrange = arrangeHandlers();
+    renderArranged({
+      layout: { "node-composer": { x: 8, y: 16, w: 400 } },
+      layoutViewport: "desktop",
+      arrange
+    });
+
+    // The stage has no entry yet — it flows, wrapped in a drag surface.
+    const stage = screen.getByTestId("agent-block-output-stage");
+    const handle = stage.closest("[data-testid='agent-face-arrange-block']") as HTMLElement;
+    expect(handle).toBeTruthy();
+
+    pointer(handle, "pointerdown", { clientX: 0, clientY: 0 });
+    pointer(window, "pointermove", { clientX: 41, clientY: 79 });
+    pointer(window, "pointerup");
+
+    expect(arrange.onCommit).toHaveBeenCalledWith({
+      "node-composer": { x: 8, y: 16, w: 400 },
+      "node-stage": { x: 40, y: 80 }
+    });
+  });
+
+  it("a plain click never pins a block — no movement, no save", () => {
+    const arrange = arrangeHandlers();
+    renderArranged({ layoutViewport: "desktop", arrange });
+
+    const handles = screen.getAllByTestId("agent-face-arrange-block");
+    pointer(handles[0], "pointerdown", { clientX: 50, clientY: 50 });
+    pointer(window, "pointerup");
+
+    expect(arrange.onCommit).not.toHaveBeenCalled();
+  });
+
+  it("arrange mode shows the reset button and makes block controls inert", async () => {
+    const arrange = arrangeHandlers();
+    const user = userEvent.setup();
+    renderArranged({ layoutViewport: "desktop", arrange });
+
+    // Inner controls sit behind pointer-events-none, so drags never Generate.
+    expect(
+      screen.getByTestId("agent-block-prompt-input").closest(".pointer-events-none")
+    ).not.toBeNull();
+
+    await user.click(screen.getByTestId("preview-arrange-reset"));
+    expect(arrange.onReset).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(arrange.onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it("with arrange off, no drag surfaces exist and blocks stay interactive", () => {
+    renderArranged({
+      layout: { "node-composer": { x: 16, y: 24, w: 480 } },
+      layoutViewport: "desktop"
+    });
+
+    expect(screen.queryByTestId("agent-face-arrange-block")).toBeNull();
+    expect(screen.queryByTestId("preview-arrange-reset")).toBeNull();
+    expect(
+      screen.getByTestId("agent-block-prompt-input").closest(".pointer-events-none")
+    ).toBeNull();
   });
 });

@@ -225,7 +225,8 @@ describe("GET /agent-pages/:slug", () => {
       composerPosition: "center",
       density: "cozy",
       bubbleStyle: "bubbles",
-      showHistorySidebar: false
+      showHistorySidebar: false,
+      layout: {}
     });
   });
 
@@ -243,7 +244,8 @@ describe("GET /agent-pages/:slug", () => {
       composerPosition: "center",
       density: "cozy",
       bubbleStyle: "flat",
-      showHistorySidebar: false
+      showHistorySidebar: false,
+      layout: {}
     });
   });
 
@@ -285,8 +287,12 @@ describe("GET /agent-pages/:slug", () => {
       data: { blueprint: { blocks: Array<{ type: string; config: Record<string, unknown> }> } };
     };
     expect(json.data.blueprint.blocks).toEqual([
-      { type: "block.prompt_composer", config: { placeholder: "Describe your dream tattoo…" } },
-      { type: "block.output_stage", config: { kind: "image" } }
+      {
+        nodeId: "prompt-1",
+        type: "block.prompt_composer",
+        config: { placeholder: "Describe your dream tattoo…" }
+      },
+      { nodeId: "out-1", type: "block.output_stage", config: { kind: "image" } }
     ]);
   });
 

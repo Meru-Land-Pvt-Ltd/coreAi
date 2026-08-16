@@ -1,4 +1,4 @@
-import type { DesignConfig, FaceBlueprint } from "@/components/agent-page/types";
+import type { DesignConfig, FaceBlueprint, FaceLayoutMap } from "@/components/agent-page/types";
 
 export type ArchitectProfile = {
   id: string;
@@ -297,6 +297,14 @@ export type AgentPageUpdateBody = {
   suggestedPrompts?: string[];
   /** null clears the accent back to the default; omitting leaves it unchanged. */
   accentColor?: string | null;
+  /**
+   * Design dial patches riding the manage PATCH (additive). The Arrange
+   * Editor sends the FULL layout map on every drop ({} clears it); other
+   * saved dials are preserved server-side.
+   */
+  design?: {
+    layout?: FaceLayoutMap;
+  };
 };
 
 /** One turn of the Design Brain conversation, oldest first. */

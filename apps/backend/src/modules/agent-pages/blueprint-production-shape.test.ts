@@ -102,10 +102,12 @@ describe("deriveFaceBlueprint against the production workflowJson shape", () => 
     // Canvas order (y then x), not array order: prompt (y 1_000_100) comes
     // before styles (y 1_000_200) even though it was appended second.
     expect(blueprint!.blocks[0]).toEqual({
+      nodeId: "smoke-prompt",
       type: BLOCK_NODE_TYPES.promptComposer,
       config: { placeholder: "Describe your dream photo…" }
     });
     expect(blueprint!.blocks[1]).toEqual({
+      nodeId: "smoke-styles",
       type: BLOCK_NODE_TYPES.presetGallery,
       config: {
         presets: [

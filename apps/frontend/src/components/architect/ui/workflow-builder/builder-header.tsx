@@ -1,7 +1,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Monitor, Smartphone, Tablet } from "lucide-react";
+import { Monitor, Move, Smartphone, Tablet } from "lucide-react";
 import { cn } from "@/components/architect/ui/architect-ui";
 import { BuilderIcon } from "./icons";
 import type { PreviewDevice } from "./preview-panel";
@@ -64,6 +64,8 @@ export function BuilderHeader({
   previewDevice = "desktop",
   onPreviewDeviceChange,
   showPreviewControls = false,
+  arrangeMode = false,
+  onArrangeModeChange,
   onOpenAdvanced,
   onUndo,
   onRedo,
@@ -88,6 +90,9 @@ export function BuilderHeader({
   onPreviewDeviceChange?: (device: PreviewDevice) => void;
   /** True only on the Preview step — renders the compact device switcher. */
   showPreviewControls?: boolean;
+  /** Arrange mode (drag blocks on the preview page); desktop view only. */
+  arrangeMode?: boolean;
+  onArrangeModeChange?: (on: boolean) => void;
   /** Opens the full testing console (the quiet "Advanced testing" link). */
   onOpenAdvanced?: () => void;
   onUndo?: () => void;
@@ -194,6 +199,26 @@ export function BuilderHeader({
                   );
                 })}
               </div>
+              {previewDevice === "desktop" ? (
+                // Arrange: drag the page's sections anywhere (desktop view
+                // only — small screens always keep the clean stacked flow).
+                <button
+                  type="button"
+                  onClick={() => onArrangeModeChange?.(!arrangeMode)}
+                  aria-pressed={arrangeMode}
+                  title="Drag to arrange"
+                  data-testid="preview-arrange-toggle"
+                  className={cn(
+                    "flex h-8 flex-none items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition",
+                    arrangeMode
+                      ? "border-amber-500 bg-amber-500 text-white"
+                      : "border-slate-200 bg-white text-slate-500 hover:bg-amber-50 hover:text-amber-700"
+                  )}
+                >
+                  <Move className="h-3.5 w-3.5" aria-hidden="true" />
+                  Arrange
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={onOpenAdvanced}

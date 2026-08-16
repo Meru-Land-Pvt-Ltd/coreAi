@@ -1,12 +1,12 @@
 import type { Hono } from "hono";
-import type { PublishedAgentPage } from "@prisma/client";
+import type { Prisma, PublishedAgentPage } from "@prisma/client";
 import { z } from "zod";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import { deriveFaceBlueprint } from "./blueprint";
-import { resolveDesign } from "./design";
+import { agentPageLayoutSchema, resolveDesign } from "./design";
 import { registerAgentPageDesignChatRoute } from "./design-chat";
 import { ensureDraftAgentListingAndPage, inferAgentPageTemplate, type AgentPageTemplate } from "./slug";
 
@@ -42,7 +42,15 @@ const agentPageUpdateSchema = z.object({
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/, "Accent color must be a hex color like #f59e0b")
     .nullable()
-    .optional()
+    .optional(),
+  /**
+   * Desktop arrangement written by the builder's Arrange mode. `layout` is
+   * the COMPLETE arrangement and replaces the stored one wholesale ({} resets
+   * to the classic stacked flow); every other stored design key is preserved
+   * untouched. Entries are sanitized individually — a corrupt one is dropped
+   * without rejecting the request.
+   */
+  design: z.object({ layout: agentPageLayoutSchema.optional() }).optional()
 });
 
 /** Public-contract page shape (same as GET /agent-pages/:slug). */
@@ -130,6 +138,20 @@ export function registerAgentPageManageRoutes(routes: Hono) {
       return errorResponse(c, "Agent page not found", 404, "AGENT_PAGE_NOT_FOUND");
     }
 
+    // Arrange mode sends the complete arrangement: layout replaces the stored
+    // one wholesale ({} = reset) while every other stored design key — dials
+    // from the Design Brain included — rides along untouched. designJson is
+    // only written when a layout patch is actually present.
+    const layoutPatch = input.design?.layout;
+    let designJsonPatch: Prisma.InputJsonValue | undefined;
+    if (layoutPatch !== undefined) {
+      const storedDesign =
+        typeof page.designJson === "object" && page.designJson !== null && !Array.isArray(page.designJson)
+          ? (page.designJson as Record<string, unknown>)
+          : {};
+      designJsonPatch = { ...storedDesign, layout: layoutPatch } as Prisma.InputJsonValue;
+    }
+
     const updated = await prisma.publishedAgentPage.update({
       where: { id: page.id },
       data: {
@@ -137,7 +159,8 @@ export function registerAgentPageManageRoutes(routes: Hono) {
         headline: input.headline,
         welcomeMessage: input.welcomeMessage,
         suggestedPrompts: input.suggestedPrompts,
-        accentColor: input.accentColor
+        accentColor: input.accentColor,
+        ...(designJsonPatch !== undefined ? { designJson: designJsonPatch } : {})
       }
     });
 

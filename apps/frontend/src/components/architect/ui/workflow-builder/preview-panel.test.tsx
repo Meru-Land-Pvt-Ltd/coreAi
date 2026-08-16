@@ -8,7 +8,10 @@ import { PreviewPanel, type PreviewPanelProps } from "./preview-panel";
 const { designChatMock } = vi.hoisted(() => ({ designChatMock: vi.fn() }));
 
 vi.mock("@/components/architect/features/api", () => ({
-  designChat: designChatMock
+  designChat: designChatMock,
+  // The Arrange Editor's layout PATCH — never exercised by these tests, but
+  // the panel imports it, so the mocked module must carry it.
+  updateAgentPageConfig: vi.fn().mockResolvedValue({ success: true })
 }));
 
 function makeProps(overrides?: Partial<PreviewPanelProps>): PreviewPanelProps {

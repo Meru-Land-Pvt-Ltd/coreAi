@@ -1,8 +1,15 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode
+} from "react";
 import Link from "next/link";
-import { Bot, RefreshCw } from "lucide-react";
+import { Bot, GripVertical, RefreshCw } from "lucide-react";
 import { BLOCK_NODE_TYPES } from "@coreai/shared";
 import { publicAgentPath } from "@/lib/routes";
 import {
@@ -10,7 +17,9 @@ import {
   agentPageAccentForeground,
   type AgentPageData,
   type AgentPageRuntime,
-  type FaceBlueprint
+  type FaceBlueprint,
+  type FaceLayoutEntry,
+  type FaceLayoutMap
 } from "./types";
 import { PromptComposerBlock } from "./blocks/prompt-composer";
 import { PresetGalleryBlock, type FacePreset } from "./blocks/preset-gallery";
@@ -36,11 +45,36 @@ import { HistoryShelfBlock } from "./blocks/history-shelf";
  * it on the same session, and the History Shelf restores earlier runs.
  */
 
+/**
+ * Arrange-mode callbacks — present only inside the builder's Preview, on the
+ * desktop view. When set, every block grows a drag surface; a drop hands the
+ * FULL updated layout map to `onCommit` (the editor writes layout — whole
+ * map, not deltas — so backend merge semantics can never drop sibling
+ * entries).
+ */
+export type FaceArrangeHandlers = {
+  /** Persist the full layout map after a drop. */
+  onCommit: (layout: FaceLayoutMap) => void;
+  /** Clear the whole arrangement back to the stacked flow. */
+  onReset: () => void;
+  /** Leave arrange mode (Escape key). */
+  onExit: () => void;
+};
+
 export type FaceRendererProps = {
   data: AgentPageData;
   slug: string;
   runtime: AgentPageRuntime;
   blueprint: FaceBlueprint;
+  /**
+   * How the saved desktop arrangement applies. "auto" (default — the public
+   * page): a matchMedia hook decides, ≥1024px positions blocks, below stays
+   * the clean stacked flow. The builder preview passes "desktop"/"stacked"
+   * explicitly because its device frames are CSS widths, not real windows.
+   */
+  layoutViewport?: "auto" | "desktop" | "stacked";
+  /** Non-null turns arrange mode ON (builder Preview, desktop only). */
+  arrange?: FaceArrangeHandlers | null;
 };
 
 /** The backend accepts prompts up to this length (post-augmentation too). */
@@ -56,6 +90,104 @@ const MAX_RETAINED_RESULTS = 20;
 const DEFAULT_PROMPT_PLACEHOLDER = "Describe what you want…";
 const DEFAULT_CONTINUE_LABEL = "Continue";
 const DEFAULT_ACTION_BUTTON_LABEL = "Go";
+
+// ---------------------------------------------------------------------------
+// Free-position layout (Arrange Editor) — desktop only, invisible snap grid.
+// ---------------------------------------------------------------------------
+
+/** Invisible snap grid — every drop lands on it, so pages stay aligned. */
+const SNAP_GRID = 8;
+/** Layout coordinates live in 0..4000 (backend contract). */
+const COORD_MAX = 4000;
+const BLOCK_WIDTH_MIN = 200;
+const BLOCK_WIDTH_MAX = 1200;
+/** Breathing room under the lowest positioned block. */
+const ARTBOARD_BOTTOM_PADDING = 32;
+/** Height guess for a positioned block that hasn't been measured yet. */
+const FALLBACK_BLOCK_HEIGHT = 160;
+
+function clampCoord(value: number): number {
+  return Math.min(COORD_MAX, Math.max(0, value));
+}
+
+function snapToGrid(value: number): number {
+  return clampCoord(Math.round(value / SNAP_GRID) * SNAP_GRID);
+}
+
+function clampWidth(value: number): number {
+  return Math.min(BLOCK_WIDTH_MAX, Math.max(BLOCK_WIDTH_MIN, Math.round(value)));
+}
+
+/**
+ * Defensive read of design.layout — the backend sanitizes entries, but the
+ * renderer must survive hand-edited or stale payloads without crashing.
+ * Invalid entries are dropped individually.
+ */
+function sanitizeLayout(raw: unknown): FaceLayoutMap {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
+  const layout: FaceLayoutMap = {};
+  for (const [nodeId, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== "object" || value === null) continue;
+    const entry = value as Record<string, unknown>;
+    if (typeof entry.x !== "number" || !Number.isFinite(entry.x)) continue;
+    if (typeof entry.y !== "number" || !Number.isFinite(entry.y)) continue;
+    const clean: FaceLayoutEntry = {
+      x: clampCoord(Math.round(entry.x)),
+      y: clampCoord(Math.round(entry.y))
+    };
+    if (typeof entry.w === "number" && Number.isFinite(entry.w)) {
+      clean.w = clampWidth(entry.w);
+    }
+    layout[nodeId] = clean;
+  }
+  return layout;
+}
+
+/**
+ * Whether the live viewport counts as desktop for layout purposes. "auto"
+ * (public /a/ pages) watches a 1024px matchMedia query — below it the page
+ * ALWAYS stacks, so a custom desktop arrangement can never break a phone.
+ * SSR and first paint read as stacked, which is the safe direction.
+ */
+function useDesktopViewport(mode: "auto" | "desktop" | "stacked"): boolean {
+  const [autoDesktop, setAutoDesktop] = useState(false);
+
+  useEffect(() => {
+    if (mode !== "auto") return;
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(min-width: 1024px)");
+    const update = () => setAutoDesktop(query.matches);
+    update();
+    if (typeof query.addEventListener === "function") {
+      query.addEventListener("change", update);
+      return () => query.removeEventListener("change", update);
+    }
+    // Older Safari: the deprecated listener pair is all there is.
+    query.addListener(update);
+    return () => query.removeListener(update);
+  }, [mode]);
+
+  if (mode === "desktop") return true;
+  if (mode === "stacked") return false;
+  return autoDesktop;
+}
+
+/** In-flight drag bookkeeping — lives in a ref so moves never go stale. */
+type ArrangeDrag = {
+  nodeId: string;
+  startClientX: number;
+  startClientY: number;
+  /** Layout coords the block occupied when the drag began. */
+  originX: number;
+  originY: number;
+  /** Width to store with the entry (measured on first drag of a flow block). */
+  w?: number;
+  /** Whether the block already had a saved entry before this drag. */
+  hadEntry: boolean;
+  /** Latest snapped position, committed on drop. */
+  lastX: number;
+  lastY: number;
+};
 
 function newSessionId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -178,7 +310,13 @@ export function composeEngineInstructions(parts: {
   return lines.join("\n");
 }
 
-export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
+export function FaceRenderer({
+  data,
+  runtime,
+  blueprint,
+  layoutViewport = "auto",
+  arrange = null
+}: FaceRendererProps) {
   const accent = agentPageAccent(data);
   // Light accents flip button text/icons to dark slate so they stay legible.
   const accentText = agentPageAccentForeground(accent);
@@ -385,6 +523,226 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
     });
   }
 
+  // ------------------------- Free-position layout -------------------------
+
+  const isDesktopViewport = useDesktopViewport(layoutViewport);
+  const arrangeOn = arrange !== null && isDesktopViewport;
+
+  const savedLayout = useMemo(() => sanitizeLayout(data.design?.layout), [data.design]);
+
+  // Optimistic arrangement: a drop shows instantly here while the PATCH +
+  // refetch round-trips; the refreshed design (same values) then takes over.
+  const [draftLayout, setDraftLayout] = useState<FaceLayoutMap | null>(null);
+  useEffect(() => {
+    setDraftLayout(null);
+  }, [savedLayout]);
+
+  const layout = draftLayout ?? savedLayout;
+
+  // Refs so window-level drag listeners always read the current truth.
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  const arrangeRef = useRef(arrange);
+  arrangeRef.current = arrange;
+
+  const hasLayoutEntries = blueprint.blocks.some(
+    (block) => block.nodeId !== undefined && layout[block.nodeId] !== undefined
+  );
+  // The artboard exists whenever positioning is live OR the architect is
+  // arranging (so a first drag has a coordinate origin). Otherwise the page
+  // renders today's stacked flow untouched.
+  const layoutMode = isDesktopViewport && (hasLayoutEntries || arrangeOn);
+
+  const artboardRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<ArrangeDrag | null>(null);
+  // Mirror of the drag for rendering: the dragged block translates live.
+  const [dragVisual, setDragVisual] = useState<{
+    nodeId: string;
+    dx: number;
+    dy: number;
+  } | null>(null);
+
+  function beginArrangeDrag(event: ReactPointerEvent<HTMLDivElement>, nodeId: string) {
+    if (!arrangeOn || dragRef.current) return;
+    if (typeof event.button === "number" && event.button !== 0) return;
+    event.preventDefault();
+
+    const entry = layoutRef.current[nodeId];
+    let originX: number;
+    let originY: number;
+    let w = entry?.w;
+    if (entry) {
+      originX = entry.x;
+      originY = entry.y;
+    } else {
+      // First drag of a flow block: it takes off from exactly where it sits,
+      // keeping its rendered width so nothing visually jumps.
+      const artboardRect = artboardRef.current?.getBoundingClientRect();
+      const rect = event.currentTarget.getBoundingClientRect();
+      originX = clampCoord(Math.round(rect.left - (artboardRect?.left ?? rect.left)));
+      originY = clampCoord(Math.round(rect.top - (artboardRect?.top ?? rect.top)));
+      if (rect.width >= 1) w = clampWidth(rect.width);
+    }
+
+    dragRef.current = {
+      nodeId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      originX,
+      originY,
+      w,
+      hadEntry: entry !== undefined,
+      lastX: originX,
+      lastY: originY
+    };
+    setDragVisual({ nodeId, dx: 0, dy: 0 });
+  }
+
+  // Window-level move/up listeners: dragging keeps working outside the block
+  // and needs no pointer capture. Mounted only while arrange mode is on.
+  useEffect(() => {
+    if (!arrangeOn) return;
+
+    const handleMove = (event: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const x = snapToGrid(drag.originX + (event.clientX - drag.startClientX));
+      const y = snapToGrid(drag.originY + (event.clientY - drag.startClientY));
+      if (x === drag.lastX && y === drag.lastY) return;
+      drag.lastX = x;
+      drag.lastY = y;
+      setDragVisual({ nodeId: drag.nodeId, dx: x - drag.originX, dy: y - drag.originY });
+    };
+
+    const handleUp = () => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      dragRef.current = null;
+      setDragVisual(null);
+
+      const moved = drag.lastX !== drag.originX || drag.lastY !== drag.originY;
+      // A plain click (no movement) must never pin a flow block in place,
+      // and an unmoved positioned block needs no re-save.
+      if (!moved) return;
+
+      const next: FaceLayoutMap = { ...layoutRef.current };
+      next[drag.nodeId] = {
+        x: drag.lastX,
+        y: drag.lastY,
+        ...(drag.w !== undefined ? { w: drag.w } : {})
+      };
+      setDraftLayout(next);
+      arrangeRef.current?.onCommit(next);
+    };
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") arrangeRef.current?.onExit();
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
+      window.removeEventListener("keydown", handleKey);
+      dragRef.current = null;
+      setDragVisual(null);
+    };
+  }, [arrangeOn]);
+
+  // Measured heights of positioned blocks → the artboard's min-height, so
+  // flow content always clears the lowest positioned block.
+  const [blockHeights, setBlockHeights] = useState<Record<string, number>>({});
+  const positionedIdsSignature = blueprint.blocks
+    .map((block) => block.nodeId)
+    .filter((nodeId): nodeId is string => nodeId !== undefined && layout[nodeId] !== undefined)
+    .join("|");
+
+  useEffect(() => {
+    if (!layoutMode) return;
+    const artboard = artboardRef.current;
+    if (!artboard || typeof ResizeObserver === "undefined") return;
+
+    const measure = () => {
+      const next: Record<string, number> = {};
+      for (const el of artboard.querySelectorAll<HTMLElement>("[data-arrange-node]")) {
+        const id = el.dataset.arrangeNode;
+        if (id) next[id] = el.offsetHeight;
+      }
+      setBlockHeights((prev) => {
+        const prevKeys = Object.keys(prev);
+        if (
+          prevKeys.length === Object.keys(next).length &&
+          prevKeys.every((key) => prev[key] === next[key])
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    };
+
+    const observer = new ResizeObserver(measure);
+    for (const el of artboard.querySelectorAll("[data-arrange-node]")) observer.observe(el);
+    measure();
+    return () => observer.disconnect();
+  }, [layoutMode, positionedIdsSignature]);
+
+  let artboardMinHeight = 0;
+  for (const block of blueprint.blocks) {
+    if (block.nodeId === undefined) continue;
+    const entry = layout[block.nodeId];
+    if (!entry) continue;
+    const bottom =
+      entry.y + (blockHeights[block.nodeId] ?? FALLBACK_BLOCK_HEIGHT) + ARTBOARD_BOTTOM_PADDING;
+    if (bottom > artboardMinHeight) artboardMinHeight = bottom;
+  }
+
+  /**
+   * The arrange drag surface around one block. While arrange is ON the
+   * block's own controls go inert (pointer-events-none) so a drag can never
+   * press Generate; the whole surface drags, with a grip badge as the
+   * affordance and the live snap itself as the alignment guide.
+   */
+  function arrangeWrap(inner: ReactNode, nodeId: string | undefined, key: string) {
+    if (!arrangeOn || nodeId === undefined) return inner;
+    const dragging = dragVisual?.nodeId === nodeId;
+    return (
+      <div
+        key={key}
+        title="Drag to arrange"
+        data-testid="agent-face-arrange-block"
+        data-arrange-dragging={dragging ? "true" : "false"}
+        onPointerDown={(event) => beginArrangeDrag(event, nodeId)}
+        className={
+          "group/arrange relative touch-none rounded-2xl outline-dashed outline-2 -outline-offset-2 transition-[outline-color] " +
+          (dragging
+            ? "z-30 cursor-grabbing outline-amber-400"
+            : "cursor-grab outline-transparent hover:outline-amber-300")
+        }
+        style={
+          dragging && dragVisual
+            ? { transform: `translate3d(${dragVisual.dx}px, ${dragVisual.dy}px, 0)` }
+            : undefined
+        }
+      >
+        <span
+          aria-hidden="true"
+          data-testid="agent-face-arrange-grip"
+          className={
+            "pointer-events-none absolute -left-2.5 -top-2.5 z-10 grid h-6 w-6 place-items-center rounded-full border border-amber-200 bg-white text-amber-500 shadow-sm transition-opacity " +
+            (dragging ? "opacity-100" : "opacity-0 group-hover/arrange:opacity-100")
+          }
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </span>
+        <div className="pointer-events-none select-none">{inner}</div>
+      </div>
+    );
+  }
+
   const errorState =
     failedRun !== null && !running
       ? { onRetry: () => void performRun(failedRun) }
@@ -578,8 +936,79 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
           ) : null}
         </div>
 
-        {blueprint.blocks.map((block, index) =>
-          dockComposer && index === composerIndex ? null : renderBlock(block, index)
+        {arrangeOn ? (
+          <div
+            className="pointer-events-none sticky top-3 z-40 flex justify-center"
+            data-testid="agent-face-arrange-bar"
+          >
+            <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-amber-200 bg-amber-50/95 px-4 py-1.5 text-xs text-amber-900 shadow-sm backdrop-blur">
+              <span className="font-medium">Drag any section to move it</span>
+              <button
+                type="button"
+                data-testid="preview-arrange-reset"
+                onClick={() => arrange?.onReset()}
+                className="font-semibold underline underline-offset-2 transition hover:text-amber-950"
+              >
+                Reset arrangement
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {layoutMode ? (
+          <>
+            {/* The artboard: positioned blocks sit at their saved spots inside
+                this relative canvas; its min-height clears the lowest block so
+                flow content below never slides underneath. */}
+            <div
+              ref={artboardRef}
+              className="relative"
+              style={{ minHeight: artboardMinHeight }}
+              data-testid="agent-face-artboard"
+            >
+              {blueprint.blocks.map((block, index) => {
+                if (dockComposer && index === composerIndex) return null;
+                if (block.nodeId === undefined) return null;
+                const entry = layout[block.nodeId];
+                if (!entry) return null;
+                const inner = renderBlock(block, index);
+                if (!inner) return null;
+                return (
+                  <div
+                    key={`${block.type}-${index}`}
+                    className="absolute"
+                    style={{
+                      left: entry.x,
+                      top: entry.y,
+                      width: entry.w !== undefined ? entry.w : "100%",
+                      // Never overflow the column — pages stay professional
+                      // (and scroll-free) no matter where a block lands.
+                      maxWidth: `calc(100% - ${entry.x}px)`
+                    }}
+                    data-arrange-node={block.nodeId}
+                    data-testid="agent-face-positioned-block"
+                  >
+                    {arrangeWrap(inner, block.nodeId, `arrange-${block.nodeId}`)}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Blocks without a saved spot keep the clean stacked flow, below
+                the positioned ones, in canvas order. */}
+            {blueprint.blocks.map((block, index) => {
+              if (dockComposer && index === composerIndex) return null;
+              if (block.nodeId !== undefined && layout[block.nodeId] !== undefined) return null;
+              const inner = renderBlock(block, index);
+              if (!inner) return null;
+              return arrangeOn && block.nodeId !== undefined
+                ? arrangeWrap(inner, block.nodeId, `${block.type}-${index}`)
+                : inner;
+            })}
+          </>
+        ) : (
+          blueprint.blocks.map((block, index) =>
+            dockComposer && index === composerIndex ? null : renderBlock(block, index)
+          )
         )}
 
         {/* Pages without a Result Viewer still surface failures honestly. */}

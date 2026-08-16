@@ -166,8 +166,13 @@ const DEFAULT_DESIGN = {
   composerPosition: "center",
   density: "cozy",
   bubbleStyle: "bubbles",
-  showHistorySidebar: false
+  showHistorySidebar: false,
+  layout: {}
 };
+
+/** What the system prompt shows as CURRENT DESIGN: the dials only — the
+ * Arrange editor's layout is never a dial the model may set. */
+const { layout: _defaultLayout, ...DEFAULT_DIALS } = DEFAULT_DESIGN;
 
 function llmSuccess(text: string, structuredOutput: unknown = null) {
   return {
@@ -263,9 +268,11 @@ describe("POST /manage/:workflowId/design-chat", () => {
     expect(request.maxTokens).toBe(1200);
     expect(request.outputFormat).toBe("json");
     expect(request.messages).toEqual([{ role: "user", content: "hello" }]);
-    // System prompt carries the dial schema + the current design.
+    // System prompt carries the dial schema + the current design (dials only —
+    // the Arrange layout is not a dial and never enters the prompt).
     expect(request.systemPrompt).toContain('"light" | "dark" | "warm"');
-    expect(request.systemPrompt).toContain(JSON.stringify(DEFAULT_DESIGN));
+    expect(request.systemPrompt).toContain(JSON.stringify(DEFAULT_DIALS));
+    expect(request.systemPrompt).not.toContain('"layout"');
     expect(request.systemPrompt).toContain("same language");
   });
 
@@ -329,6 +336,49 @@ describe("POST /manage/:workflowId/design-chat", () => {
         designJson: { ...DEFAULT_DESIGN, theme: "warm", density: "compact", showHistorySidebar: true }
       }
     });
+  });
+
+  it("preserves a stored Arrange layout when the chat changes a dial", async () => {
+    const layout = { "blk-composer": { x: 16, y: 24, w: 480 } };
+    mocks.pageFindFirst.mockResolvedValue({
+      ...pageRow,
+      designJson: { theme: "warm", layout }
+    });
+    mocks.execute.mockResolvedValue(llmSuccess('{"reply":"Dark it is.","patch":{"theme":"dark"}}'));
+
+    const res = await designChat(buildApp(), { instruction: "dark theme" });
+    const body = await res.json();
+
+    expect(mocks.pageUpdate).toHaveBeenCalledWith({
+      where: { id: "page-1" },
+      data: { designJson: { ...DEFAULT_DESIGN, theme: "dark", layout } }
+    });
+    expect(body.data.design.layout).toEqual(layout);
+  });
+
+  it("never lets the model move blocks: a layout key in the patch is tolerated, not applied", async () => {
+    const layout = { "blk-composer": { x: 16, y: 24 } };
+    mocks.pageFindFirst.mockResolvedValue({
+      ...pageRow,
+      designJson: { layout }
+    });
+    mocks.execute.mockResolvedValue(
+      llmSuccess(
+        '{"reply":"Moved everything around!","patch":{"theme":"dark","layout":{"blk-composer":{"x":3999,"y":3999}}}}'
+      )
+    );
+
+    const res = await designChat(buildApp(), { instruction: "move the prompt box" });
+    const body = await res.json();
+
+    // Tolerated: no retry burned on the stray key…
+    expect(mocks.execute).toHaveBeenCalledTimes(1);
+    // …but the stored arrangement is untouched — only the dial lands.
+    expect(mocks.pageUpdate).toHaveBeenCalledWith({
+      where: { id: "page-1" },
+      data: { designJson: { ...DEFAULT_DESIGN, theme: "dark", layout } }
+    });
+    expect(body.data.design.layout).toEqual(layout);
   });
 
   it("passes the architect's history as conversationHistory", async () => {

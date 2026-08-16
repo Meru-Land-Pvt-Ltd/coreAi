@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveFaceBlueprint } from "./blueprint";
+import { deriveFaceBlueprint, type FaceBlueprint } from "./blueprint";
 
 /**
  * Face Blueprint derivation: null unless the graph has block.* nodes, blocks
@@ -20,6 +20,12 @@ function canvasNode(
     position: position ?? undefined,
     data: { type, nodeKind: "block", title: type, ...config }
   };
+}
+
+/** Blocks minus the nodeId (which the helper randomizes; asserted in its own
+ * describe below) so config/order tests can keep exact toEqual shapes. */
+function blockShapes(blueprint: FaceBlueprint | null) {
+  return blueprint?.blocks.map(({ type, config }) => ({ type, config }));
 }
 
 describe("deriveFaceBlueprint", () => {
@@ -86,7 +92,7 @@ describe("deriveFaceBlueprint", () => {
       ]
     });
 
-    expect(blueprint?.blocks).toEqual([
+    expect(blockShapes(blueprint)).toEqual([
       { type: "block.prompt_composer", config: { placeholder: "Dream it up" } },
       { type: "block.output_stage", config: { kind: "image" } },
       { type: "block.continue_chain", config: { label: "Continue" } }
@@ -158,7 +164,7 @@ describe("deriveFaceBlueprint", () => {
       ]
     });
 
-    expect(blueprint?.blocks).toEqual([
+    expect(blockShapes(blueprint)).toEqual([
       { type: "block.prompt_composer", config: { placeholder: "Describe what you want…" } },
       { type: "block.preset_gallery", config: { presets: [] } },
       { type: "block.model_picker", config: { options: [] } },
@@ -173,7 +179,7 @@ describe("deriveFaceBlueprint", () => {
       nodes: [canvasNode("block.future_thing", { x: 0, y: 0 }, { anything: "goes" })]
     });
 
-    expect(blueprint?.blocks).toEqual([{ type: "block.future_thing", config: {} }]);
+    expect(blockShapes(blueprint)).toEqual([{ type: "block.future_thing", config: {} }]);
   });
 
   it("derives Buttons with a trimmed label capped at 40 chars, falling back to Go", () => {
@@ -186,7 +192,7 @@ describe("deriveFaceBlueprint", () => {
       ]
     });
 
-    expect(blueprint?.blocks).toEqual([
+    expect(blockShapes(blueprint)).toEqual([
       { type: "block.action_button", config: { label: "Plan my yatra" } },
       { type: "block.action_button", config: { label: "B".repeat(40) } },
       { type: "block.action_button", config: { label: "Go" } },
@@ -204,7 +210,7 @@ describe("deriveFaceBlueprint", () => {
       ]
     });
 
-    expect(blueprint?.blocks).toEqual([
+    expect(blockShapes(blueprint)).toEqual([
       { type: "block.prompt_composer", config: { placeholder: "Describe what you want…" } },
       { type: "block.action_button", config: { label: "Plan my trip" } },
       { type: "block.action_button", config: { label: "Surprise me" } },
@@ -243,6 +249,50 @@ describe("deriveFaceBlueprint", () => {
     expect(blueprint?.blocks.map((block) => block.type)).toEqual([
       "block.prompt_composer",
       "block.output_stage"
+    ]);
+  });
+
+  it("carries each canvas node's id as nodeId — the key design.layout points at", () => {
+    const blueprint = deriveFaceBlueprint({
+      nodes: [
+        {
+          id: "blk-output",
+          type: "coreNode",
+          position: { x: 0, y: 200 },
+          data: { type: "block.output_stage", nodeKind: "block" }
+        },
+        {
+          id: "blk-composer",
+          type: "coreNode",
+          position: { x: 0, y: 0 },
+          data: { type: "block.prompt_composer", nodeKind: "block" }
+        }
+      ]
+    });
+
+    // Canvas order (y then x), each block keyed by its real canvas node id.
+    expect(blueprint?.blocks.map((block) => block.nodeId)).toEqual(["blk-composer", "blk-output"]);
+  });
+
+  it("falls back to a deterministic block-<index> nodeId when a node has no id", () => {
+    const blueprint = deriveFaceBlueprint({
+      nodes: [
+        { type: "coreNode", data: { type: "block.prompt_composer", nodeKind: "block" } },
+        { id: "", type: "coreNode", data: { type: "block.output_stage", nodeKind: "block" } },
+        {
+          id: "blk-real",
+          type: "coreNode",
+          data: { type: "block.history_shelf", nodeKind: "block" }
+        }
+      ]
+    });
+
+    // No usable positions -> array order; the index is the node's position in
+    // the original nodes array, so the fallback is stable for a given graph.
+    expect(blueprint?.blocks.map((block) => block.nodeId)).toEqual([
+      "block-0",
+      "block-1",
+      "blk-real"
     ]);
   });
 });
