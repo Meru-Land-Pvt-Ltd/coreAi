@@ -8,12 +8,13 @@ import { requireAuth, requireRole } from "../../middleware/auth";
 import { deriveFaceBlueprint } from "./blueprint";
 import { resolveDesign } from "./design";
 import { registerAgentPageDesignChatRoute } from "./design-chat";
-import { inferAgentPageTemplate, ensurePublishedAgentPage, type AgentPageTemplate } from "./slug";
+import { ensureDraftAgentListingAndPage, inferAgentPageTemplate, type AgentPageTemplate } from "./slug";
 
 /**
  * Architect manage endpoints for published agent pages. Ownership is the
  * workflow: only the architect who owns workflowId may read or edit the page.
- * The page row is created lazily on first GET once the workflow has a listing.
+ * The listing (DRAFT) and page rows are created lazily on first GET — draft
+ * workflows without a listing get bootstrapped automatically.
  */
 
 const agentPageUpdateSchema = z.object({
@@ -62,7 +63,7 @@ function agentPageUrl(slug: string): string {
 }
 
 export function registerAgentPageManageRoutes(routes: Hono) {
-  /** Page (auto-created when the workflow has a listing) + public URL. */
+  /** Page (listing + page auto-created for draft workflows) + public URL. */
   routes.get("/manage/:workflowId", requireAuth, requireRole(["ARCHITECT"]), async (c) => {
     const authUser = c.get("authUser");
     const workflowId = c.req.param("workflowId");
@@ -79,37 +80,16 @@ export function registerAgentPageManageRoutes(routes: Hono) {
     // Test preview then assembles the page from those blocks.
     const blueprint = deriveFaceBlueprint(workflow.workflowJson);
 
-    const listing = await prisma.agentListing.findFirst({ where: { workflowId } });
-    if (!listing) {
-      // No listing yet — nothing to publish a page for. The design defaults
-      // still ship so the Test preview renders the real starting look.
-      return successResponse(c, {
-        page: null,
-        url: null,
-        defaultTemplate,
-        blueprint,
-        design: resolveDesign(null)
-      });
-    }
-
-    const page = await ensurePublishedAgentPage({
-      listing: {
-        id: listing.id,
-        name: listing.name,
-        architectUserId: listing.architectUserId,
-        workflowId: listing.workflowId,
-        workflow: { workflowJson: workflow.workflowJson }
-      }
+    // Universal bootstrap: a draft workflow with no listing gets a minimal
+    // DRAFT one plus its page row, so the Test preview always renders the
+    // real page + design (never a placeholder). Public visibility is still
+    // gated on listing approval, so nothing leaks.
+    const page = await ensureDraftAgentListingAndPage({
+      id: workflow.id,
+      name: workflow.name,
+      architectUserId: workflow.architectUserId,
+      workflowJson: workflow.workflowJson
     });
-    if (!page) {
-      return successResponse(c, {
-        page: null,
-        url: null,
-        defaultTemplate,
-        blueprint,
-        design: resolveDesign(null)
-      });
-    }
 
     return successResponse(c, {
       page: serializeAgentPage(page),

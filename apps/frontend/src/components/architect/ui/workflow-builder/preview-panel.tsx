@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState, type CSSProperties } from "react";
-import { ClipboardList, MessageCircle, Phone, Sparkles } from "lucide-react";
+import { ClipboardList, MessageCircle, Phone, Sparkles, Wand2, X } from "lucide-react";
+import { DesignBrainChat } from "./design-brain-chat";
 import { AgentPageShell } from "@/components/agent-page/agent-page-shell";
 import { ChatTemplate } from "@/components/agent-page/chat-template";
 import { VoiceTemplate } from "@/components/agent-page/voice-template";
@@ -24,8 +25,9 @@ import type {
  * a preview AgentPageRuntime built from three engine callbacks the container
  * provides. When the graph carries product blocks (`blueprint`), the frame
  * shows the block-assembled page (FaceRenderer) instead — exactly like the
- * live page. This component is pure: no API imports, no builder state — just
- * props in, the finished product out.
+ * live page. The engines arrive as props; the one exception is the Design
+ * Brain dock beside the frame, whose chat talks to the styling endpoint
+ * itself and reports back through onDesignApplied so the frame refetches.
  */
 
 type ChatHistoryTurn = { role: "user" | "assistant"; content: string };
@@ -76,6 +78,12 @@ export type PreviewPanelProps = {
   onStartVoice: () => Promise<PreviewVoiceResult>;
   onRunOnce: (prompt: string, sessionId?: string) => Promise<PreviewRunResult>;
   onOpenAdvanced: () => void;
+  /**
+   * Called after the docked Design Brain lands a styling change so the
+   * container refetches the saved page + design and the frame restyles
+   * in front of the architect.
+   */
+  onDesignApplied?: () => void;
 };
 
 /**
@@ -129,8 +137,13 @@ export function PreviewPanel({
   onSendChat,
   onStartVoice,
   onRunOnce,
-  onOpenAdvanced
+  onOpenAdvanced,
+  onDesignApplied
 }: PreviewPanelProps) {
+  // Below xl the Design Brain lives behind the floating "Style" pill; this
+  // opens it as a slide-over sheet. On xl+ the dock is always visible and
+  // this flag is ignored (pill and sheet chrome are hidden by CSS).
+  const [dockOpen, setDockOpen] = useState(false);
   // Face priority: a manual pill pick wins; then the architect's saved page
   // template; then the backend's inferred default; last, the local node
   // heuristic for drafts we know nothing about. (Voice outranks media.)
@@ -224,11 +237,16 @@ export function PreviewPanel({
 
   return (
     <div
-      className="h-full min-h-0 w-full overflow-y-auto"
+      className="relative flex h-full min-h-0 w-full overflow-hidden"
       style={DOT_GRID_STYLE}
       data-testid="preview-panel"
     >
-      <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6 sm:py-8">
+      {/* Center: the device frame keeps its own centered, scrollable column —
+          on xl+ the Design Brain dock sits beside it as a flex sibling, so
+          the frame centers in the remaining space with no horizontal scroll. */}
+      <div className="relative h-full min-h-0 min-w-0 flex-1">
+        <div className="h-full min-h-0 w-full overflow-y-auto">
+          <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6 sm:py-8">
         <p
           className="text-center text-[13px] font-medium tracking-wide text-slate-500"
           data-testid="preview-panel-caption"
@@ -363,7 +381,69 @@ export function PreviewPanel({
             Advanced testing
           </button>
         </div>
+          </div>
+        </div>
+
+        {/* Below xl the dock hides behind this floating pill. */}
+        <button
+          type="button"
+          onClick={() => setDockOpen(true)}
+          data-testid="design-dock-toggle"
+          className={
+            "absolute bottom-5 right-4 z-30 inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-600/30 transition hover:bg-rose-700 xl:hidden" +
+            PILL_FOCUS_CLASSES
+          }
+        >
+          <Wand2 className="h-4 w-4" aria-hidden="true" />
+          Style
+        </button>
       </div>
+
+      {/* Small-screen scrim behind the slide-over — tap anywhere to close. */}
+      {dockOpen ? (
+        <button
+          type="button"
+          aria-label="Close styling"
+          onClick={() => setDockOpen(false)}
+          data-testid="design-dock-backdrop"
+          className="absolute inset-0 z-30 bg-slate-900/30 xl:hidden"
+        />
+      ) : null}
+
+      {/* The Design Brain dock: a fixed-width column beside the frame on xl+,
+          a right slide-over sheet behind the "Style" pill below that. */}
+      <aside
+        data-testid="design-dock"
+        data-open={dockOpen ? "true" : "false"}
+        className={
+          "absolute inset-y-0 right-0 z-40 flex w-[340px] max-w-[88vw] shrink-0 flex-col border-l border-gray-200 bg-white transition-transform duration-200 xl:static xl:z-auto xl:translate-x-0 xl:shadow-none " +
+          (dockOpen ? "translate-x-0 shadow-2xl" : "translate-x-full shadow-none")
+        }
+      >
+        <div className="flex items-start justify-between gap-2 border-b border-gray-100 px-4 pb-3 pt-4">
+          <div>
+            <h3
+              className="text-xs font-bold uppercase tracking-wider text-slate-400"
+              data-testid="design-dock-title"
+            >
+              Design Brain
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500" data-testid="design-dock-intro">
+              Type how it should look — watch it change.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDockOpen(false)}
+            aria-label="Close"
+            data-testid="design-dock-close"
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600 xl:hidden"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+        <DesignBrainChat variant="docked" workflowId={workflowId} onApplied={onDesignApplied} />
+      </aside>
     </div>
   );
 }

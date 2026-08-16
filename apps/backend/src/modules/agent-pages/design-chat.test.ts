@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   workflowFindFirst: vi.fn(),
   listingFindFirst: vi.fn(),
+  listingCreate: vi.fn(),
   pageFindUnique: vi.fn(),
   pageFindFirst: vi.fn(),
   pageCreate: vi.fn(),
@@ -21,7 +22,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../lib/prisma", () => ({
   prisma: {
     workflowDefinition: { findFirst: mocks.workflowFindFirst },
-    agentListing: { findFirst: mocks.listingFindFirst },
+    agentListing: { findFirst: mocks.listingFindFirst, create: mocks.listingCreate },
     publishedAgentPage: {
       findUnique: mocks.pageFindUnique,
       findFirst: mocks.pageFindFirst,
@@ -60,7 +61,19 @@ import {
 } from "./design-chat";
 import { registerAgentPageManageRoutes } from "./manage-routes";
 
-const workflowRow = { id: "workflow-1", architectUserId: "architect-1" };
+const workflowRow = {
+  id: "workflow-1",
+  architectUserId: "architect-1",
+  name: "Front Desk Agent",
+  workflowJson: { nodes: [{ data: { type: "ai.reply" } }] }
+};
+
+const listingRow = {
+  id: "listing-abc123",
+  name: "Front Desk Agent",
+  architectUserId: "architect-1",
+  workflowId: "workflow-1"
+};
 
 const pageRow = {
   id: "page-1",
@@ -330,14 +343,76 @@ describe("POST /manage/:workflowId/design-chat", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
-  it("404s (AGENT_PAGE_NOT_FOUND) when the page does not exist yet", async () => {
-    mocks.pageFindFirst.mockResolvedValue(null);
+  it("bootstraps a DRAFT listing + page for a listing-less draft, then applies the patch", async () => {
+    mocks.pageFindFirst.mockResolvedValue(null); // no page for this draft yet
+    mocks.listingFindFirst.mockResolvedValue(null); // and no listing either
+    mocks.listingCreate.mockResolvedValue({ ...listingRow });
+    mocks.pageFindUnique.mockResolvedValue(null);
+    mocks.pageCreate.mockResolvedValue({ ...pageRow });
+    mocks.execute.mockResolvedValue(
+      llmSuccess('{"reply":"Dark theme is on.","patch":{"theme":"dark"}}')
+    );
 
     const res = await designChat(buildApp(), { instruction: "dark theme" });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.code).toBe("AGENT_PAGE_NOT_FOUND");
-    expect(mocks.execute).not.toHaveBeenCalled();
+
+    // Minimal DRAFT listing: free, unpublished, owned by the architect.
+    expect(mocks.listingCreate).toHaveBeenCalledWith({
+      data: {
+        name: "Front Desk Agent",
+        shortDescription: "Draft — not yet published.",
+        priceCents: 0,
+        pricingModel: "FREE",
+        status: "DRAFT",
+        architectUserId: "architect-1",
+        workflowId: "workflow-1"
+      }
+    });
+    expect(mocks.pageCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        listingId: "listing-abc123",
+        workflowId: "workflow-1",
+        architectUserId: "architect-1",
+        template: "chat",
+        status: "LIVE"
+      })
+    });
+    expect(body.data.reply).toBe("Dark theme is on.");
+    expect(body.data.design.theme).toBe("dark");
+    expect(mocks.pageUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the listing name "Untitled Agent" when the draft has no name', async () => {
+    mocks.workflowFindFirst.mockResolvedValue({ ...workflowRow, name: "" });
+    mocks.pageFindFirst.mockResolvedValue(null);
+    mocks.listingFindFirst.mockResolvedValue(null);
+    mocks.listingCreate.mockResolvedValue({ ...listingRow, name: "Untitled Agent" });
+    mocks.pageFindUnique.mockResolvedValue(null);
+    mocks.pageCreate.mockResolvedValue({ ...pageRow });
+    mocks.execute.mockResolvedValue(llmSuccess('{"reply":"ok","patch":{}}'));
+
+    const res = await designChat(buildApp(), { instruction: "hello" });
+    expect(res.status).toBe(200);
+    expect(mocks.listingCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ name: "Untitled Agent" })
+    });
+  });
+
+  it("tolerates a concurrent bootstrap: listing create loses the race, winner's rows are reused", async () => {
+    mocks.pageFindFirst.mockResolvedValue(null);
+    mocks.listingFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...listingRow });
+    mocks.listingCreate.mockRejectedValue(Object.assign(new Error("duplicate"), { code: "P2002" }));
+    mocks.pageFindUnique.mockResolvedValue({ ...pageRow }); // winner already made the page
+    mocks.execute.mockResolvedValue(llmSuccess('{"reply":"ok","patch":{}}'));
+
+    const res = await designChat(buildApp(), { instruction: "hello" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(mocks.listingFindFirst).toHaveBeenCalledTimes(2);
+    expect(mocks.pageCreate).not.toHaveBeenCalled();
+    expect(body.data.page.slug).toBe(pageRow.slug);
   });
 
   it("422s on bad bodies: missing, too long, oversized history, bad role", async () => {

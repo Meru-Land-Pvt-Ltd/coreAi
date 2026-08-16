@@ -10,6 +10,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 const {
   workflowFindFirstMock,
   listingFindFirstMock,
+  listingCreateMock,
   pageFindUniqueMock,
   pageFindFirstMock,
   pageCreateMock,
@@ -17,6 +18,7 @@ const {
 } = vi.hoisted(() => ({
   workflowFindFirstMock: vi.fn(),
   listingFindFirstMock: vi.fn(),
+  listingCreateMock: vi.fn(),
   pageFindUniqueMock: vi.fn(),
   pageFindFirstMock: vi.fn(),
   pageCreateMock: vi.fn(),
@@ -26,7 +28,7 @@ const {
 vi.mock("../../lib/prisma", () => ({
   prisma: {
     workflowDefinition: { findFirst: workflowFindFirstMock },
-    agentListing: { findFirst: listingFindFirstMock },
+    agentListing: { findFirst: listingFindFirstMock, create: listingCreateMock },
     publishedAgentPage: {
       findUnique: pageFindUniqueMock,
       findFirst: pageFindFirstMock,
@@ -57,6 +59,7 @@ const originalFrontendUrl = env.FRONTEND_URL;
 const workflowRow = {
   id: "workflow-1",
   architectUserId: "architect-1",
+  name: "Front Desk Agent",
   workflowJson: { nodes: [{ data: { type: "ai.reply" } }] }
 };
 
@@ -137,26 +140,59 @@ describe("GET /manage/:workflowId", () => {
     );
   });
 
-  it("returns page null with an inferred defaultTemplate when the workflow has no listing", async () => {
+  it("bootstraps a DRAFT listing + page when the workflow has no listing yet", async () => {
     workflowFindFirstMock.mockResolvedValue({
       ...workflowRow,
       workflowJson: { nodes: [{ data: { type: "ai.voice_conversation" } }] }
     });
     listingFindFirstMock.mockResolvedValue(null);
+    listingCreateMock.mockResolvedValue({ ...listingRow });
+    pageFindUniqueMock.mockResolvedValue(null);
+    pageCreateMock.mockResolvedValue({ ...pageRow, template: "voice" });
 
     const response = await buildApp().request("/manage/workflow-1");
     expect(response.status).toBe(200);
     const json = (await response.json()) as {
-      data: { page: null; url: null; defaultTemplate: string; blueprint: null };
+      data: { page: { slug: string; template: string }; url: string; defaultTemplate: string };
     };
-    expect(json.data).toEqual({
-      page: null,
-      url: null,
-      defaultTemplate: "voice",
-      blueprint: null,
-      design: DEFAULT_DESIGN
+
+    // Minimal DRAFT listing: free, unpublished, owned by the architect.
+    expect(listingCreateMock).toHaveBeenCalledWith({
+      data: {
+        name: "Front Desk Agent",
+        shortDescription: "Draft — not yet published.",
+        priceCents: 0,
+        pricingModel: "FREE",
+        status: "DRAFT",
+        architectUserId: "architect-1",
+        workflowId: "workflow-1"
+      }
     });
-    expect(pageCreateMock).not.toHaveBeenCalled();
+    expect(pageCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        listingId: "listing-abc123",
+        workflowId: "workflow-1",
+        architectUserId: "architect-1",
+        template: "voice",
+        status: "LIVE"
+      })
+    });
+    expect(json.data.page.slug).toBe("front-desk-agent-abc123");
+    expect(json.data.url).toBe("https://triven.ai/a/front-desk-agent-abc123");
+    expect(json.data.defaultTemplate).toBe("voice");
+  });
+
+  it("tolerates a concurrent listing bootstrap: unique violation re-fetches the winner", async () => {
+    listingFindFirstMock.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...listingRow });
+    listingCreateMock.mockRejectedValue(Object.assign(new Error("duplicate"), { code: "P2002" }));
+
+    const response = await buildApp().request("/manage/workflow-1");
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { data: { page: { slug: string } } };
+
+    expect(listingFindFirstMock).toHaveBeenCalledTimes(2);
+    expect(pageCreateMock).not.toHaveBeenCalled(); // winner's page already exists
+    expect(json.data.page.slug).toBe("front-desk-agent-abc123");
   });
 
   it("returns the full default design when designJson is null", async () => {

@@ -20,7 +20,7 @@ import {
   resolveDesign,
   type DesignConfig
 } from "./design";
-import type { AgentPageTemplate } from "./slug";
+import { ensureDraftAgentListingAndPage, type AgentPageTemplate } from "./slug";
 
 /**
  * Design Brain chat: the architect types natural language, the model answers
@@ -235,10 +235,11 @@ export function registerAgentPageDesignChatRoute(routes: Hono) {
       const authUser = c.get("authUser");
       const workflowId = c.req.param("workflowId");
 
-      // Ownership: same idiom as the other manage routes.
+      // Ownership: same idiom as the other manage routes. name/workflowJson
+      // ride along so a listing-less draft can be bootstrapped below.
       const workflow = await prisma.workflowDefinition.findFirst({
         where: { id: workflowId, architectUserId: authUser.id },
-        select: { id: true }
+        select: { id: true, name: true, architectUserId: true, workflowJson: true }
       });
       if (!workflow) {
         return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
@@ -254,14 +255,17 @@ export function registerAgentPageDesignChatRoute(routes: Hono) {
         throw error;
       }
 
-      const page = await prisma.publishedAgentPage.findFirst({ where: { workflowId } });
+      // Draft workflows are first-class: no page yet means we bootstrap the
+      // DRAFT listing + page on the spot, so the architect can style the page
+      // long before publishing. Only a missing/unowned workflow 404s above.
+      let page = await prisma.publishedAgentPage.findFirst({ where: { workflowId } });
       if (!page) {
-        return errorResponse(
-          c,
-          "This agent doesn't have a public page yet — publish it from the builder first.",
-          404,
-          "AGENT_PAGE_NOT_FOUND"
-        );
+        page = await ensureDraftAgentListingAndPage({
+          id: workflow.id,
+          name: workflow.name,
+          architectUserId: workflow.architectUserId,
+          workflowJson: workflow.workflowJson
+        });
       }
 
       const currentDesign = resolveDesign(page.designJson);

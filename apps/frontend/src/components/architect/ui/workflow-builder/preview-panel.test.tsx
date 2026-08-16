@@ -1,7 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PreviewPanel, type PreviewPanelProps } from "./preview-panel";
+
+// The docked Design Brain talks to the styling endpoint itself — stub the
+// wrapper so no test ever leaves the room.
+const { designChatMock } = vi.hoisted(() => ({ designChatMock: vi.fn() }));
+
+vi.mock("@/components/architect/features/api", () => ({
+  designChat: designChatMock
+}));
 
 function makeProps(overrides?: Partial<PreviewPanelProps>): PreviewPanelProps {
   return {
@@ -28,7 +36,12 @@ function faceSlot(id: "chat" | "media" | "form") {
 beforeEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  designChatMock.mockReset();
 });
+
+// Unmount after every test too — a render left mounted past the file's end
+// keeps scheduled React work alive into the worker's next test file.
+afterEach(() => cleanup());
 
 describe("PreviewPanel", () => {
   it("shows the caption and the real chat Face with the agent's name", () => {
@@ -221,5 +234,91 @@ describe("PreviewPanel", () => {
 
     expect(await screen.findByTestId("agent-page-voice-notice")).toBeTruthy();
     expect(screen.queryByTestId("preview-panel-error")).toBeNull();
+  });
+});
+
+describe("PreviewPanel Design Brain dock", () => {
+  it("renders the docked chat beside the frame: header, quiet line, input, send", () => {
+    render(<PreviewPanel {...makeProps()} />);
+
+    const dock = screen.getByTestId("design-dock");
+    expect(dock).toBeTruthy();
+    expect(within(dock).getByTestId("design-dock-title").textContent).toBe("Design Brain");
+    expect(within(dock).getByTestId("design-dock-intro").textContent).toBe(
+      "Type how it should look — watch it change."
+    );
+    expect(within(dock).getByTestId("design-dock-input")).toBeTruthy();
+    expect(within(dock).getByTestId("design-dock-send")).toBeTruthy();
+    // The frame and the dock live side by side in the same panel.
+    expect(screen.getByTestId("preview-panel-frame")).toBeTruthy();
+  });
+
+  it("a docked send goes through the styling endpoint and refreshes the frame", async () => {
+    const onDesignApplied = vi.fn();
+    designChatMock.mockResolvedValue({
+      success: true,
+      data: { reply: "Dark and moody now.", patch: { theme: "dark" }, design: null, page: null }
+    });
+    const user = userEvent.setup();
+    render(<PreviewPanel {...makeProps({ onDesignApplied })} />);
+
+    await user.type(screen.getByTestId("design-dock-input"), "dark theme");
+    await user.click(screen.getByTestId("design-dock-send"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("design-dock-message-assistant").textContent).toBe(
+        "Dark and moody now."
+      );
+    });
+    expect(designChatMock).toHaveBeenCalledTimes(1);
+    expect(designChatMock).toHaveBeenCalledWith("wf-1", { instruction: "dark theme" });
+    expect(onDesignApplied).toHaveBeenCalledTimes(1);
+    // Beside a live frame there is no "check the Test tab" note to show.
+    expect(screen.queryByTestId("design-dock-applied-note")).toBeNull();
+  });
+
+  it("a reply that changed nothing never refreshes the frame", async () => {
+    const onDesignApplied = vi.fn();
+    designChatMock.mockResolvedValue({
+      success: true,
+      data: { reply: "I can change colors, layout, or wording — not that one.", patch: {}, design: null, page: null }
+    });
+    const user = userEvent.setup();
+    render(<PreviewPanel {...makeProps({ onDesignApplied })} />);
+
+    await user.type(screen.getByTestId("design-dock-input"), "add a 3D globe");
+    await user.click(screen.getByTestId("design-dock-send"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("design-dock-message-assistant")).toBeTruthy()
+    );
+    expect(onDesignApplied).not.toHaveBeenCalled();
+  });
+
+  it("small screens: the Style pill opens the chat as a sheet and closes it again", async () => {
+    const user = userEvent.setup();
+    render(<PreviewPanel {...makeProps()} />);
+
+    // Closed by default: the sheet is tucked away and there is no scrim.
+    const dock = screen.getByTestId("design-dock");
+    expect(dock.getAttribute("data-open")).toBe("false");
+    expect(dock.className).toContain("translate-x-full");
+    expect(screen.queryByTestId("design-dock-backdrop")).toBeNull();
+
+    // The pill slides the same chat in and raises the scrim.
+    await user.click(screen.getByTestId("design-dock-toggle"));
+    expect(dock.getAttribute("data-open")).toBe("true");
+    expect(dock.className).toContain("translate-x-0");
+    expect(screen.getByTestId("design-dock-backdrop")).toBeTruthy();
+
+    // The close button tucks it away again.
+    await user.click(screen.getByTestId("design-dock-close"));
+    expect(dock.getAttribute("data-open")).toBe("false");
+    expect(screen.queryByTestId("design-dock-backdrop")).toBeNull();
+
+    // Tapping the scrim closes too.
+    await user.click(screen.getByTestId("design-dock-toggle"));
+    await user.click(screen.getByTestId("design-dock-backdrop"));
+    expect(dock.getAttribute("data-open")).toBe("false");
   });
 });

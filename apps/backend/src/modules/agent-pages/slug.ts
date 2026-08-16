@@ -61,6 +61,71 @@ function isUniqueConstraintError(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === "P2002";
 }
 
+/** Fallback listing name when a workflow was saved without one. */
+export const DRAFT_LISTING_FALLBACK_NAME = "Untitled Agent";
+
+/** Short description stamped on auto-created DRAFT listings. */
+export const DRAFT_LISTING_SHORT_DESCRIPTION = "Draft — not yet published.";
+
+export type DraftAgentPageWorkflow = {
+  id: string;
+  name: string | null;
+  architectUserId: string;
+  workflowJson: unknown;
+};
+
+/**
+ * Get (or lazily create) the listing AND page for a workflow — the universal
+ * bootstrap behind Design Brain chat and the builder's Test preview. A draft
+ * workflow with no AgentListing gets a minimal DRAFT one (free, unpublished);
+ * the page row is then ensured the usual way. The DRAFT listing never shows
+ * publicly: the public page route requires listing status APPROVED.
+ * Safe under concurrent calls — a unique-constraint loss re-fetches the
+ * winner's listing, and ensurePublishedAgentPage already tolerates page races.
+ */
+export async function ensureDraftAgentListingAndPage(
+  workflow: DraftAgentPageWorkflow
+): Promise<PublishedAgentPage> {
+  let listing = await prisma.agentListing.findFirst({ where: { workflowId: workflow.id } });
+
+  if (!listing) {
+    try {
+      listing = await prisma.agentListing.create({
+        data: {
+          name: workflow.name || DRAFT_LISTING_FALLBACK_NAME,
+          shortDescription: DRAFT_LISTING_SHORT_DESCRIPTION,
+          priceCents: 0,
+          pricingModel: "FREE",
+          status: "DRAFT",
+          architectUserId: workflow.architectUserId,
+          workflowId: workflow.id
+        }
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      // A concurrent request created the listing first — use the winner's row.
+      listing = await prisma.agentListing.findFirst({ where: { workflowId: workflow.id } });
+      if (!listing) throw error;
+    }
+  }
+
+  const page = await ensurePublishedAgentPage({
+    listing: {
+      id: listing.id,
+      name: listing.name,
+      architectUserId: listing.architectUserId,
+      // The listing was found or created by workflowId, so it is always set.
+      workflowId: workflow.id,
+      workflow: { workflowJson: workflow.workflowJson }
+    }
+  });
+  if (!page) {
+    // Unreachable: ensurePublishedAgentPage only returns null without a workflowId.
+    throw new Error(`Could not ensure an agent page for workflow ${workflow.id}`);
+  }
+  return page;
+}
+
 export type EnsureAgentPageListing = {
   id: string;
   name: string;

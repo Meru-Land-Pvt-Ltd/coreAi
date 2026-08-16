@@ -57,8 +57,7 @@ export function BuilderHeader({
   onAgentNameChange,
   onTabChange,
   onRunTest,
-  onSave,
-  onPreview
+  onSave
 }: {
   agentName: string;
   message: string;
@@ -77,7 +76,6 @@ export function BuilderHeader({
   onTabChange: (tab: BuilderTab) => void;
   onRunTest: () => void;
   onSave: () => void;
-  onPreview?: () => void;
 }) {
   void message;
   void hasGmailFlow;
@@ -175,16 +173,6 @@ export function BuilderHeader({
               </svg>
             </button>
           </div>
-          <button
-            type="button"
-            onClick={onPreview}
-            disabled={running || saving}
-            data-testid="builder-preview"
-            className="hidden items-center gap-2 rounded-xl border border-gray-200 px-3.5 py-2 text-sm text-slate-600 transition hover:border-amber-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:flex"
-          >
-            <BuilderIcon name="eye" className="h-4 w-4" />
-            <span className="hidden lg:inline">Preview</span>
-          </button>
           <button
             type="button"
             onClick={onRunTest}

@@ -22,7 +22,6 @@ import {
   BROWSER_CALL_START_MESSAGE,
   GOOGLE_CALENDAR_DISCLOSURE,
   GOOGLE_DISCLOSURE_ACTION_AGREED,
-  VOICE_NODE_TYPES,
   normalizeTimeZone,
   validateConfigureForSubmit
 } from "@coreai/shared";
@@ -91,7 +90,6 @@ import { MobileSheet } from "./workflow-builder/mobile-sheet";
 import { NodeInspector } from "./workflow-builder/node-inspector";
 import { defaultAgentDescription, defaultAgentName, defaultNodeData } from "./workflow-builder/node-defaults";
 import { parseEdges, parseNodes } from "./workflow-builder/parsers";
-import { PreviewModal } from "./workflow-builder/preview-modal";
 import {
   PreviewPanel,
   type PreviewChatResult,
@@ -186,7 +184,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     issue: string | null;
     kind: "graph" | "configure";
   } | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [libraryWidth, setLibraryWidth] = useState(LIBRARY_WIDTH_DEFAULT);
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_WIDTH_DEFAULT);
@@ -2152,68 +2149,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
   }
 
-  const nodeTypeOf = (node: BuilderNode): string => {
-    const data = node.data as Record<string, unknown>;
-    return String(data.type ?? data.kind ?? "");
-  };
-  const previewDisplayName = businessName.trim() || agentName.trim() || "Your business";
-  const previewVoiceData = (
-    nodes.find((node) => nodeTypeOf(node) === VOICE_NODE_TYPES.voiceConversation)?.data ?? {}
-  ) as Record<string, unknown>;
-  const previewAssistantName =
-    typeof previewVoiceData.assistantName === "string" ? previewVoiceData.assistantName.trim() : "";
-  const previewGreetingRaw =
-    typeof previewVoiceData.firstMessage === "string" ? previewVoiceData.firstMessage : "";
-  const previewGreeting = previewGreetingRaw
-    .replace(/\{\{\s*assistantName\s*\}\}/gi, previewAssistantName || "our assistant")
-    .replace(/\{\{\s*business[_]?name\s*\}\}/gi, previewDisplayName)
-    .replace(/\{\{\s*business\.name\s*\}\}/gi, previewDisplayName)
-    .replace(/\{\{[^}]*\}\}/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const previewCanBook = nodes.some((node) => {
-    const type = nodeTypeOf(node);
-    return type === VOICE_NODE_TYPES.bookAppointment || type.includes("book_appointment");
-  });
-  const previewCanText = nodes.some((node) => {
-    const type = nodeTypeOf(node);
-    return (
-      type === VOICE_NODE_TYPES.sendSms ||
-      type === "action.send_sms" ||
-      type === "trigger.twilio_inbound_sms" ||
-      type === "trigger.twilio_missed_call" ||
-      type.includes("send_sms")
-    );
-  });
-  const previewSmsData = (
-    nodes.find((node) => {
-      const type = nodeTypeOf(node);
-      return type === VOICE_NODE_TYPES.sendSms || type === "action.send_sms" || type.includes("send_sms");
-    })?.data ?? {}
-  ) as Record<string, unknown>;
-  const previewSmsBodyRaw =
-    typeof previewSmsData.smsBody === "string"
-      ? previewSmsData.smsBody
-      : typeof previewSmsData.message === "string"
-        ? previewSmsData.message
-        : "";
-  const previewSmsBody = previewSmsBodyRaw
-    .replace(/\{\{\s*assistantName\s*\}\}/gi, previewAssistantName || "our assistant")
-    .replace(/\{\{\s*business[_]?name\s*\}\}/gi, previewDisplayName)
-    .replace(/\{\{\s*business\.name\s*\}\}/gi, previewDisplayName)
-    .replace(/\{\{\s*contact\.name\s*\}\}/gi, "there")
-    .replace(/\{\{[^}]*\}\}/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const previewBookingSlots = (() => {
-    const availability = runContext.calendarAvailability as { slots?: unknown } | undefined;
-    if (!availability || !Array.isArray(availability.slots)) return [];
-    return availability.slots
-      .map((slot) => (typeof slot === "string" ? slot.trim() : ""))
-      .filter(Boolean)
-      .slice(0, 2);
-  })();
-
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
@@ -2299,7 +2234,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onTabChange={requestTabChange}
         onRunTest={() => requestTabChange("test")}
         onSave={() => void saveAgent()}
-        onPreview={() => setPreviewOpen(true)}
       />
 
       {isLive && !isUnderReview ? (
@@ -2587,6 +2521,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onStartVoice={startPreviewVoice}
             onRunOnce={runPreviewOnce}
             onOpenAdvanced={() => setTestView("advanced")}
+            onDesignApplied={refreshAgentPageConfig}
           />
         ) : null}
 
@@ -2820,20 +2755,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         nodesCount={nodes.length}
         edgesCount={edges.length}
         editedLabel={message === "Unsaved changes" ? "unsaved changes" : "last edited just now"}
-      />
-
-      <PreviewModal
-        open={previewOpen}
-        onClose={() => setPreviewOpen(false)}
-        workflowId={currentWorkflowId}
-        businessName={previewDisplayName}
-        assistantName={previewAssistantName}
-        greeting={previewGreeting}
-        smsBody={previewSmsBody}
-        agentPurpose={tagline.trim()}
-        canBook={previewCanBook}
-        canText={previewCanText}
-        bookingSlots={previewBookingSlots}
       />
 
       {typeof document !== "undefined" && publishSuccessName
