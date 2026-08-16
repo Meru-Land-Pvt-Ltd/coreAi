@@ -1,7 +1,17 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
-import { ClipboardList, MessageCircle, Phone, Sparkles, Wand2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ClipboardList,
+  MessageCircle,
+  Monitor,
+  Phone,
+  Smartphone,
+  Sparkles,
+  Tablet,
+  Wand2,
+  X
+} from "lucide-react";
 import { DesignBrainChat } from "./design-brain-chat";
 import { AgentPageShell } from "@/components/agent-page/agent-page-shell";
 import { ChatTemplate } from "@/components/agent-page/chat-template";
@@ -21,13 +31,15 @@ import type {
  * PreviewPanel — the builder's default Test view.
  *
  * Renders THE REAL customer Face (the same chat/voice/media/form templates
- * that ship on the public /a/<slug> pages) inside a device frame, powered by
- * a preview AgentPageRuntime built from three engine callbacks the container
- * provides. When the graph carries product blocks (`blueprint`), the frame
- * shows the block-assembled page (FaceRenderer) instead — exactly like the
- * live page. The engines arrive as props; the one exception is the Design
- * Brain dock beside the frame, whose chat talks to the styling endpoint
- * itself and reports back through onDesignApplied so the frame refetches.
+ * that ship on the public /a/<slug> pages) exactly like the live landing
+ * page: full-bleed across the whole tab by default, with a floating device
+ * switcher (desktop / tablet / phone) that wraps the very same page in a
+ * centered device frame instead. When the graph carries product blocks
+ * (`blueprint`), the page is block-assembled (FaceRenderer) — exactly like
+ * the live page. The engines arrive as props; the one exception is the
+ * floating Design Brain panel (bottom-right launcher), whose chat talks to
+ * the styling endpoint itself and reports back through onDesignApplied so
+ * the page refetches and restyles in place.
  */
 
 type ChatHistoryTurn = { role: "user" | "assistant"; content: string };
@@ -62,7 +74,7 @@ export type PreviewPanelProps = {
   /**
    * The saved Design Brain config (GET /agent-pages/manage/:id `design`).
    * Passed straight into the page data so the shell + templates render every
-   * dial exactly like the live page; a change here live-updates the frame.
+   * dial exactly like the live page; a change here live-updates the preview.
    * Null/undefined falls back to the design defaults.
    */
   design?: DesignConfig | null;
@@ -79,8 +91,8 @@ export type PreviewPanelProps = {
   onRunOnce: (prompt: string, sessionId?: string) => Promise<PreviewRunResult>;
   onOpenAdvanced: () => void;
   /**
-   * Called after the docked Design Brain lands a styling change so the
-   * container refetches the saved page + design and the frame restyles
+   * Called after the floating Design Brain lands a styling change so the
+   * container refetches the saved page + design and the preview restyles
    * in front of the architect.
    */
   onDesignApplied?: () => void;
@@ -112,12 +124,45 @@ const FACES: {
   { id: "form", label: "Form", icon: ClipboardList }
 ];
 
-/** The builder canvas dot grid (builder-styles.tsx .canvas-grid), inlined so
- *  this panel stays self-contained. */
-const DOT_GRID_STYLE: CSSProperties = {
-  backgroundColor: "#f7f8fa",
-  backgroundImage: "radial-gradient(rgba(100, 116, 139, 0.3) 1px, transparent 1px)",
-  backgroundSize: "22px 22px"
+/** The three ways an architect can look at their page — like a customer would. */
+type PreviewDevice = "desktop" | "tablet" | "phone";
+
+const DEVICES: {
+  id: PreviewDevice;
+  label: string;
+  icon: typeof Monitor;
+}[] = [
+  { id: "desktop", label: "Desktop", icon: Monitor },
+  { id: "tablet", label: "Tablet", icon: Tablet },
+  { id: "phone", label: "Phone", icon: Smartphone }
+];
+
+/**
+ * The stage each device sits on. Desktop is the page itself — edge to edge,
+ * nothing behind it. Tablet and phone center a device frame on a quiet
+ * neutral stage, with room reserved under the floating toolbar.
+ */
+const STAGE_CLASSES: Record<PreviewDevice, string> = {
+  desktop: "absolute inset-0",
+  tablet:
+    "absolute inset-0 flex justify-center overflow-y-auto px-4 pb-6 pt-[4.25rem] sm:px-6",
+  phone:
+    "absolute inset-0 flex justify-center overflow-y-auto px-4 pb-6 pt-[4.25rem] sm:px-6"
+};
+
+/**
+ * The frame itself — one element across all three devices so the Face inside
+ * never remounts (a device switch must never wipe a transcript). `isolate`
+ * keeps the shell's sticky header z-index inside the frame. Desktop has no
+ * chrome at all: the product's own background is the page. The phone frame
+ * carries a slim dark bezel for an honest handset feel.
+ */
+const FRAME_CLASSES: Record<PreviewDevice, string> = {
+  desktop: "relative isolate h-full w-full overflow-hidden",
+  tablet:
+    "relative isolate my-auto h-full max-h-[1024px] min-h-[440px] w-full max-w-[820px] flex-none overflow-hidden rounded-2xl bg-white shadow-2xl shadow-slate-900/20 ring-1 ring-slate-900/10",
+  phone:
+    "relative isolate my-auto h-full max-h-[844px] min-h-[440px] w-full max-w-[390px] flex-none overflow-hidden rounded-[2.5rem] border-[6px] border-slate-900 bg-white shadow-2xl shadow-slate-900/25"
 };
 
 const PILL_FOCUS_CLASSES =
@@ -140,10 +185,20 @@ export function PreviewPanel({
   onOpenAdvanced,
   onDesignApplied
 }: PreviewPanelProps) {
-  // Below xl the Design Brain lives behind the floating "Style" pill; this
-  // opens it as a slide-over sheet. On xl+ the dock is always visible and
-  // this flag is ignored (pill and sheet chrome are hidden by CSS).
-  const [dockOpen, setDockOpen] = useState(false);
+  // Which device the architect is previewing as. Desktop is the default —
+  // the full-bleed page, exactly like visiting the live link.
+  const [device, setDevice] = useState<PreviewDevice>("desktop");
+  // The floating Design Brain panel behind the bottom-right launcher.
+  const [designOpen, setDesignOpen] = useState(false);
+  const designPanelRef = useRef<HTMLElement | null>(null);
+  const designLauncherRef = useRef<HTMLButtonElement | null>(null);
+
+  // Closing hands focus back to the launcher — the panel goes inert the same
+  // moment, and focus must never be left stranded inside an inert subtree.
+  const closeDesign = () => {
+    setDesignOpen(false);
+    designLauncherRef.current?.focus();
+  };
   // Face priority: a manual pill pick wins; then the architect's saved page
   // template; then the backend's inferred default; last, the local node
   // heuristic for drafts we know nothing about. (Voice outranks media.)
@@ -154,6 +209,15 @@ export function PreviewPanel({
   // True after an engine failure (thrown or returned); cleared by the next
   // success so the snag card never lingers over a working agent.
   const [engineSnag, setEngineSnag] = useState(false);
+
+  // Opening the panel hands focus to its composer, so the architect can type
+  // how the page should look without an extra click.
+  useEffect(() => {
+    if (!designOpen) return;
+    designPanelRef.current
+      ?.querySelector<HTMLInputElement>("[data-testid='design-dock-input']")
+      ?.focus();
+  }, [designOpen]);
 
   const runtime = useMemo<AgentPageRuntime>(
     () => ({
@@ -237,59 +301,15 @@ export function PreviewPanel({
 
   return (
     <div
-      className="relative flex h-full min-h-0 w-full overflow-hidden"
-      style={DOT_GRID_STYLE}
+      className="relative h-full min-h-0 w-full overflow-hidden bg-slate-100"
       data-testid="preview-panel"
     >
-      {/* Center: the device frame keeps its own centered, scrollable column —
-          on xl+ the Design Brain dock sits beside it as a flex sibling, so
-          the frame centers in the remaining space with no horizontal scroll. */}
-      <div className="relative h-full min-h-0 min-w-0 flex-1">
-        <div className="h-full min-h-0 w-full overflow-y-auto">
-          <div className="mx-auto flex h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6 sm:py-8">
-        <p
-          className="text-center text-[13px] font-medium tracking-wide text-slate-500"
-          data-testid="preview-panel-caption"
-        >
-          This is exactly what your customer will see.
-        </p>
-
-        {underReview ? (
-          <div
-            role="status"
-            data-testid="preview-panel-review-lock"
-            className="mx-auto mt-3 w-full max-w-2xl rounded-2xl border border-gray-200 bg-white px-4 py-2.5 text-center text-sm leading-relaxed text-slate-600 shadow-sm"
-          >
-            Testing is paused while your agent is under review.
-          </div>
-        ) : engineSnag ? (
-          <div
-            role="status"
-            data-testid="preview-panel-error"
-            className="mx-auto mt-3 flex w-full max-w-2xl flex-wrap items-center justify-center gap-x-1.5 gap-y-1 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-sm leading-relaxed text-amber-900"
-          >
-            <span>Your agent hit a snag answering. Try again or check</span>
-            <button
-              type="button"
-              onClick={onOpenAdvanced}
-              data-testid="preview-panel-error-advanced"
-              className={
-                "rounded font-semibold underline underline-offset-2 transition hover:text-amber-950" +
-                PILL_FOCUS_CLASSES
-              }
-            >
-              Advanced testing
-            </button>
-            <span>.</span>
-          </div>
-        ) : null}
-
-        {/* The device frame — the real product, behind glass. `isolate` keeps
-            the shell's sticky header z-index inside the frame. */}
-        <div
-          className="relative isolate mx-auto mt-4 min-h-[440px] w-full max-w-2xl flex-1 overflow-hidden rounded-3xl bg-white shadow-xl shadow-slate-900/10 ring-1 ring-slate-900/10 lg:max-h-[860px]"
-          data-testid="preview-panel-frame"
-        >
+      {/* The page, exactly as a customer meets it. One frame element for all
+          three devices so switching widths never remounts (or wipes) the Face
+          inside — desktop is the page full-bleed, tablet and phone wrap the
+          same page in a centered device frame. */}
+      <div className={STAGE_CLASSES[device]}>
+        <div className={FRAME_CLASSES[device]} data-device={device} data-testid="preview-panel-frame">
           <AgentPageShell data={data} runtime={runtime}>
             {blueprint ? (
               // The architect placed product blocks on their canvas — the
@@ -333,95 +353,186 @@ export function PreviewPanel({
               </>
             )}
           </AgentPageShell>
+
+          {/* A slim handset notch hint, floating over the page top like the
+              real thing — decorative only, never interactive. */}
+          {device === "phone" ? (
+            <div
+              aria-hidden="true"
+              data-testid="preview-panel-phone-notch"
+              className="pointer-events-none absolute left-1/2 top-2 z-[60] h-[17px] w-24 -translate-x-1/2 rounded-full bg-slate-900"
+            />
+          ) : null}
         </div>
+      </div>
 
-        <div className="mx-auto mt-4 flex w-full max-w-2xl flex-none flex-wrap items-center gap-x-3 gap-y-2 pb-1">
-          {/* With product blocks on the canvas, the graph decides the product —
-              the look pills would contradict it, so they step aside. */}
-          {blueprint ? null : (
-          <div
-            role="group"
-            className="flex flex-wrap items-center gap-1 rounded-full border border-gray-200 bg-white/85 p-1 shadow-sm backdrop-blur"
-            aria-label="Choose a look"
-            data-testid="preview-panel-face-switcher"
-          >
-            {FACES.map(({ id, label, icon: Icon }) => {
-              const active = face === id;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => setPickedFace(id)}
-                  data-testid={`preview-panel-face-${id}`}
-                  className={
-                    (active
-                      ? "inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition"
-                      : "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900") +
-                    PILL_FOCUS_CLASSES
-                  }
-                >
-                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          )}
-
+      {/* While the agent is under review (or after an engine snag) a quiet
+          card floats just under the toolbar — the page stays visible. */}
+      {underReview ? (
+        <div
+          role="status"
+          data-testid="preview-panel-review-lock"
+          className="absolute left-1/2 top-[3.75rem] z-30 w-[min(90%,32rem)] -translate-x-1/2 rounded-2xl border border-gray-200 bg-white/95 px-4 py-2.5 text-center text-sm leading-relaxed text-slate-600 shadow-lg backdrop-blur"
+        >
+          Testing is paused while your agent is under review.
+        </div>
+      ) : engineSnag ? (
+        <div
+          role="status"
+          data-testid="preview-panel-error"
+          className="absolute left-1/2 top-[3.75rem] z-30 flex w-[min(90%,32rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-1.5 gap-y-1 rounded-2xl border border-amber-200 bg-amber-50/95 px-4 py-2.5 text-center text-sm leading-relaxed text-amber-900 shadow-lg backdrop-blur"
+        >
+          <span>Your agent hit a snag answering. Try again or check</span>
           <button
             type="button"
             onClick={onOpenAdvanced}
-            data-testid="preview-panel-advanced-toggle"
+            data-testid="preview-panel-error-advanced"
             className={
-              "ml-auto rounded text-xs font-medium text-slate-400 underline-offset-4 transition hover:text-slate-600 hover:underline" +
+              "rounded font-semibold underline underline-offset-2 transition hover:text-amber-950" +
               PILL_FOCUS_CLASSES
             }
           >
             Advanced testing
           </button>
+          <span>.</span>
         </div>
-          </div>
-        </div>
+      ) : null}
 
-        {/* Below xl the dock hides behind this floating pill. */}
+      {/* The floating device toolbar — top-center, over the page, like a
+          designer's preview chrome. Desktop / tablet / phone, the promise
+          line, and the quiet door to Advanced testing. */}
+      <div
+        data-testid="preview-device-switcher"
+        className="absolute left-1/2 top-3 z-40 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200/70 bg-white/95 py-1 pl-1 pr-2.5 shadow-lg shadow-slate-900/10 backdrop-blur"
+      >
+        {DEVICES.map(({ id, label, icon: Icon }) => {
+          const active = device === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setDevice(id)}
+              data-testid={`preview-device-${id}`}
+              className={
+                (active
+                  ? "inline-flex flex-none items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition"
+                  : "inline-flex flex-none items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900") +
+                PILL_FOCUS_CLASSES
+              }
+            >
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="hidden sm:inline">{label}</span>
+            </button>
+          );
+        })}
+
+        <span className="mx-1 hidden h-4 w-px flex-none bg-slate-200 md:block" aria-hidden="true" />
+        <p
+          className="hidden min-w-0 max-w-[260px] truncate text-[11px] font-medium text-slate-400 md:block"
+          data-testid="preview-panel-caption"
+        >
+          This is exactly what your customer will see.
+        </p>
+        <span className="mx-1 h-4 w-px flex-none bg-slate-200" aria-hidden="true" />
         <button
           type="button"
-          onClick={() => setDockOpen(true)}
-          data-testid="design-dock-toggle"
+          onClick={onOpenAdvanced}
+          data-testid="preview-panel-advanced-toggle"
           className={
-            "absolute bottom-5 right-4 z-30 inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-600/30 transition hover:bg-rose-700 xl:hidden" +
+            "flex-none rounded-full px-1.5 py-1 text-[11px] font-medium text-slate-400 underline-offset-4 transition hover:text-slate-600 hover:underline" +
             PILL_FOCUS_CLASSES
           }
         >
-          <Wand2 className="h-4 w-4" aria-hidden="true" />
-          Style
+          Advanced testing
         </button>
       </div>
 
-      {/* Small-screen scrim behind the slide-over — tap anywhere to close. */}
-      {dockOpen ? (
+      {/* With product blocks on the canvas, the graph decides the product —
+          the look pills would contradict it, so they step aside. Otherwise
+          they float quietly at the bottom, matching the toolbar. */}
+      {blueprint ? null : (
+        <div
+          role="group"
+          className="absolute bottom-[4.25rem] left-1/2 z-30 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200/70 bg-white/95 p-1 shadow-lg shadow-slate-900/10 backdrop-blur sm:bottom-4"
+          aria-label="Choose a look"
+          data-testid="preview-panel-face-switcher"
+        >
+          {FACES.map(({ id, label, icon: Icon }) => {
+            const active = face === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setPickedFace(id)}
+                data-testid={`preview-panel-face-${id}`}
+                className={
+                  (active
+                    ? "inline-flex flex-none items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition"
+                    : "inline-flex flex-none items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900") +
+                  PILL_FOCUS_CLASSES
+                }
+              >
+                <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* The Design Brain launcher — bottom-right, always one tap away. It
+          fades out while the panel is up (the panel owns that corner). */}
+      <button
+        type="button"
+        ref={designLauncherRef}
+        onClick={() => setDesignOpen(true)}
+        aria-expanded={designOpen}
+        aria-haspopup="dialog"
+        tabIndex={designOpen ? -1 : undefined}
+        data-testid="design-float-toggle"
+        className={
+          "absolute bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-rose-500 to-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-600/30 transition hover:from-rose-600 hover:to-rose-700 motion-reduce:transition-none" +
+          (designOpen ? " pointer-events-none opacity-0" : " opacity-100") +
+          PILL_FOCUS_CLASSES
+        }
+      >
+        <Wand2 className="h-4 w-4" aria-hidden="true" />
+        Design
+      </button>
+
+      {/* Phone-size scrim behind the bottom sheet — tap anywhere to close. */}
+      {designOpen ? (
         <button
           type="button"
           aria-label="Close styling"
-          onClick={() => setDockOpen(false)}
+          onClick={closeDesign}
           data-testid="design-dock-backdrop"
-          className="absolute inset-0 z-30 bg-slate-900/30 xl:hidden"
+          className="absolute inset-0 z-40 bg-slate-900/30 sm:hidden"
         />
       ) : null}
 
-      {/* The Design Brain dock: a fixed-width column beside the frame on xl+,
-          a right slide-over sheet behind the "Style" pill below that. */}
-      <aside
+      {/* The floating Design Brain panel. Stays mounted so open and close both
+          animate (translate + fade); `inert` keeps its controls out of reach
+          while hidden. On phones it becomes a near-full-width bottom sheet. */}
+      <section
+        ref={designPanelRef}
+        role="dialog"
+        aria-label="Design Brain"
+        inert={!designOpen}
         data-testid="design-dock"
-        data-open={dockOpen ? "true" : "false"}
+        data-open={designOpen ? "true" : "false"}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") closeDesign();
+        }}
         className={
-          "absolute inset-y-0 right-0 z-40 flex w-[340px] max-w-[88vw] shrink-0 flex-col border-l border-gray-200 bg-white transition-transform duration-200 xl:static xl:z-auto xl:translate-x-0 xl:shadow-none " +
-          (dockOpen ? "translate-x-0 shadow-2xl" : "translate-x-full shadow-none")
+          "absolute bottom-4 right-4 z-50 flex h-[min(65vh,560px)] max-h-[calc(100%-4.75rem)] w-[380px] max-w-[calc(100%-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/25 transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none max-sm:inset-x-3 max-sm:bottom-3 max-sm:h-[70vh] max-sm:w-auto max-sm:max-w-none " +
+          (designOpen ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")
         }
       >
-        <div className="flex items-start justify-between gap-2 border-b border-gray-100 px-4 pb-3 pt-4">
-          <div>
+        <div className="flex flex-none items-start justify-between gap-2 border-b border-gray-100 px-4 pb-3 pt-4">
+          <div className="min-w-0">
             <h3
               className="text-xs font-bold uppercase tracking-wider text-slate-400"
               data-testid="design-dock-title"
@@ -434,16 +545,16 @@ export function PreviewPanel({
           </div>
           <button
             type="button"
-            onClick={() => setDockOpen(false)}
+            onClick={closeDesign}
             aria-label="Close"
             data-testid="design-dock-close"
-            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600 xl:hidden"
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
         <DesignBrainChat variant="docked" workflowId={workflowId} onApplied={onDesignApplied} />
-      </aside>
+      </section>
     </div>
   );
 }

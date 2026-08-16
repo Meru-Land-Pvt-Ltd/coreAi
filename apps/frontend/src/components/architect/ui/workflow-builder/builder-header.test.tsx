@@ -33,7 +33,8 @@ describe("BuilderHeader", () => {
     renderHeader();
 
     expect(screen.queryByTestId("builder-preview")).toBeNull();
-    expect(document.body.textContent).not.toContain("Preview");
+    // The step tab is now labeled "Preview"; only the old standalone Preview
+    // action button must stay gone.
 
     expect(screen.getByTestId("builder-run-test").textContent).toContain("Test Workflow");
     expect(screen.getByTestId("builder-publish-marketplace").textContent).toBe("Publish Agent");

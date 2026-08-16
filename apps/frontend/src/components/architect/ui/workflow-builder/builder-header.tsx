@@ -7,7 +7,7 @@ import type { BuilderTab } from "./types";
 
 const BUILDER_STEPS: Array<{ id: BuilderTab; label: string; step: number }> = [
   { id: "build", label: "Build", step: 1 },
-  { id: "test", label: "Test", step: 2 },
+  { id: "test", label: "Preview", step: 2 },
   { id: "configure", label: "Configure", step: 3 },
   { id: "publish", label: "Publish", step: 4 }
 ];

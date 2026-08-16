@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { PreviewPanel, type PreviewPanelProps } from "./preview-panel";
 
-// The docked Design Brain talks to the styling endpoint itself — stub the
+// The floating Design Brain talks to the styling endpoint itself — stub the
 // wrapper so no test ever leaves the room.
 const { designChatMock } = vi.hoisted(() => ({ designChatMock: vi.fn() }));
 
@@ -31,6 +31,10 @@ function makeProps(overrides?: Partial<PreviewPanelProps>): PreviewPanelProps {
 
 function faceSlot(id: "chat" | "media" | "form") {
   return screen.getByTestId(`preview-panel-face-slot-${id}`);
+}
+
+function frame() {
+  return screen.getByTestId("preview-panel-frame");
 }
 
 beforeEach(() => {
@@ -154,12 +158,14 @@ describe("PreviewPanel", () => {
     expect(screen.queryByTestId("preview-panel-error")).toBeNull();
   });
 
-  it("opens Advanced testing from the quiet toggle", async () => {
+  it("opens Advanced testing from the quiet toolbar link", async () => {
     const props = makeProps();
     const user = userEvent.setup();
     render(<PreviewPanel {...props} />);
 
-    await user.click(screen.getByTestId("preview-panel-advanced-toggle"));
+    // The link lives inside the floating device toolbar now.
+    const toolbar = screen.getByTestId("preview-device-switcher");
+    await user.click(within(toolbar).getByTestId("preview-panel-advanced-toggle"));
     expect(props.onOpenAdvanced).toHaveBeenCalledTimes(1);
   });
 
@@ -237,23 +243,116 @@ describe("PreviewPanel", () => {
   });
 });
 
-describe("PreviewPanel Design Brain dock", () => {
-  it("renders the docked chat beside the frame: header, quiet line, input, send", () => {
+describe("PreviewPanel device switcher", () => {
+  it("defaults to desktop: the page runs full-bleed with no frame chrome", () => {
     render(<PreviewPanel {...makeProps()} />);
 
-    const dock = screen.getByTestId("design-dock");
-    expect(dock).toBeTruthy();
-    expect(within(dock).getByTestId("design-dock-title").textContent).toBe("Design Brain");
-    expect(within(dock).getByTestId("design-dock-intro").textContent).toBe(
-      "Type how it should look — watch it change."
-    );
-    expect(within(dock).getByTestId("design-dock-input")).toBeTruthy();
-    expect(within(dock).getByTestId("design-dock-send")).toBeTruthy();
-    // The frame and the dock live side by side in the same panel.
-    expect(screen.getByTestId("preview-panel-frame")).toBeTruthy();
+    const surface = frame();
+    expect(surface.getAttribute("data-device")).toBe("desktop");
+    // Full-bleed: the surface fills the tab — no width cap, no card chrome.
+    expect(surface.className).toContain("h-full w-full");
+    expect(surface.className).not.toContain("max-w-");
+    expect(surface.className).not.toContain("rounded");
+    expect(surface.className).not.toContain("ring-");
+    expect(
+      screen.getByTestId("preview-device-desktop").getAttribute("aria-pressed")
+    ).toBe("true");
   });
 
-  it("a docked send goes through the styling endpoint and refreshes the frame", async () => {
+  it("tablet wraps the same page in a centered 820px frame", async () => {
+    const user = userEvent.setup();
+    render(<PreviewPanel {...makeProps()} />);
+
+    await user.click(screen.getByTestId("preview-device-tablet"));
+
+    const surface = frame();
+    expect(surface.getAttribute("data-device")).toBe("tablet");
+    expect(surface.className).toContain("max-w-[820px]");
+    expect(
+      screen.getByTestId("preview-device-tablet").getAttribute("aria-pressed")
+    ).toBe("true");
+  });
+
+  it("phone wraps the page in a 390px handset frame with a bezel and notch", async () => {
+    const user = userEvent.setup();
+    render(<PreviewPanel {...makeProps()} />);
+
+    await user.click(screen.getByTestId("preview-device-phone"));
+
+    const surface = frame();
+    expect(surface.getAttribute("data-device")).toBe("phone");
+    expect(surface.className).toContain("max-w-[390px]");
+    expect(surface.className).toContain("rounded-[2.5rem]");
+    expect(screen.getByTestId("preview-panel-phone-notch")).toBeTruthy();
+
+    // Back to desktop: full-bleed again, notch gone.
+    await user.click(screen.getByTestId("preview-device-desktop"));
+    expect(frame().getAttribute("data-device")).toBe("desktop");
+    expect(screen.queryByTestId("preview-panel-phone-notch")).toBeNull();
+  });
+
+  it("keeps the chat transcript when switching devices — the Face never remounts", async () => {
+    const user = userEvent.setup();
+    render(<PreviewPanel {...makeProps()} />);
+
+    await user.type(screen.getByTestId("agent-page-composer"), "Hello there{Enter}");
+    await screen.findByTestId("agent-page-assistant-message");
+
+    await user.click(screen.getByTestId("preview-device-phone"));
+    await user.click(screen.getByTestId("preview-device-desktop"));
+
+    expect(screen.getByTestId("agent-page-assistant-message").textContent).toBe(
+      "Happy to help!"
+    );
+  });
+});
+
+describe("PreviewPanel floating Design Brain", () => {
+  it("starts closed: only the launcher shows, the panel is tucked away", () => {
+    render(<PreviewPanel {...makeProps()} />);
+
+    expect(screen.getByTestId("design-float-toggle")).toBeTruthy();
+    const panel = screen.getByTestId("design-dock");
+    expect(panel.getAttribute("data-open")).toBe("false");
+    expect(panel.className).toContain("opacity-0");
+    expect(screen.queryByTestId("design-dock-backdrop")).toBeNull();
+  });
+
+  it("the launcher opens the panel: header, quiet line, chat, close all present", async () => {
+    const user = userEvent.setup();
+    render(<PreviewPanel {...makeProps()} />);
+
+    await user.click(screen.getByTestId("design-float-toggle"));
+
+    const panel = screen.getByTestId("design-dock");
+    expect(panel.getAttribute("data-open")).toBe("true");
+    expect(panel.className).toContain("opacity-100");
+    expect(within(panel).getByTestId("design-dock-title").textContent).toBe("Design Brain");
+    expect(within(panel).getByTestId("design-dock-intro").textContent).toBe(
+      "Type how it should look — watch it change."
+    );
+    expect(within(panel).getByTestId("design-dock-input")).toBeTruthy();
+    expect(within(panel).getByTestId("design-dock-send")).toBeTruthy();
+
+    // The close button tucks it away again.
+    await user.click(within(panel).getByTestId("design-dock-close"));
+    expect(panel.getAttribute("data-open")).toBe("false");
+  });
+
+  it("on phones the scrim raises behind the sheet and closes it on tap", async () => {
+    const user = userEvent.setup();
+    render(<PreviewPanel {...makeProps()} />);
+
+    await user.click(screen.getByTestId("design-float-toggle"));
+    const backdrop = screen.getByTestId("design-dock-backdrop");
+    expect(backdrop).toBeTruthy();
+
+    await user.click(backdrop);
+    expect(screen.getByTestId("design-dock").getAttribute("data-open")).toBe("false");
+    expect(screen.queryByTestId("design-dock-backdrop")).toBeNull();
+  });
+
+  it("a send goes through the styling endpoint and refreshes the page", async () => {
     const onDesignApplied = vi.fn();
     designChatMock.mockResolvedValue({
       success: true,
@@ -262,6 +361,7 @@ describe("PreviewPanel Design Brain dock", () => {
     const user = userEvent.setup();
     render(<PreviewPanel {...makeProps({ onDesignApplied })} />);
 
+    await user.click(screen.getByTestId("design-float-toggle"));
     await user.type(screen.getByTestId("design-dock-input"), "dark theme");
     await user.click(screen.getByTestId("design-dock-send"));
 
@@ -273,11 +373,11 @@ describe("PreviewPanel Design Brain dock", () => {
     expect(designChatMock).toHaveBeenCalledTimes(1);
     expect(designChatMock).toHaveBeenCalledWith("wf-1", { instruction: "dark theme" });
     expect(onDesignApplied).toHaveBeenCalledTimes(1);
-    // Beside a live frame there is no "check the Test tab" note to show.
+    // Beside a live page there is no "check the Test tab" note to show.
     expect(screen.queryByTestId("design-dock-applied-note")).toBeNull();
   });
 
-  it("a reply that changed nothing never refreshes the frame", async () => {
+  it("a reply that changed nothing never refreshes the page", async () => {
     const onDesignApplied = vi.fn();
     designChatMock.mockResolvedValue({
       success: true,
@@ -286,6 +386,7 @@ describe("PreviewPanel Design Brain dock", () => {
     const user = userEvent.setup();
     render(<PreviewPanel {...makeProps({ onDesignApplied })} />);
 
+    await user.click(screen.getByTestId("design-float-toggle"));
     await user.type(screen.getByTestId("design-dock-input"), "add a 3D globe");
     await user.click(screen.getByTestId("design-dock-send"));
 
@@ -295,30 +396,14 @@ describe("PreviewPanel Design Brain dock", () => {
     expect(onDesignApplied).not.toHaveBeenCalled();
   });
 
-  it("small screens: the Style pill opens the chat as a sheet and closes it again", async () => {
+  it("Escape inside the panel closes it", async () => {
     const user = userEvent.setup();
     render(<PreviewPanel {...makeProps()} />);
 
-    // Closed by default: the sheet is tucked away and there is no scrim.
-    const dock = screen.getByTestId("design-dock");
-    expect(dock.getAttribute("data-open")).toBe("false");
-    expect(dock.className).toContain("translate-x-full");
-    expect(screen.queryByTestId("design-dock-backdrop")).toBeNull();
+    await user.click(screen.getByTestId("design-float-toggle"));
+    expect(screen.getByTestId("design-dock").getAttribute("data-open")).toBe("true");
 
-    // The pill slides the same chat in and raises the scrim.
-    await user.click(screen.getByTestId("design-dock-toggle"));
-    expect(dock.getAttribute("data-open")).toBe("true");
-    expect(dock.className).toContain("translate-x-0");
-    expect(screen.getByTestId("design-dock-backdrop")).toBeTruthy();
-
-    // The close button tucks it away again.
-    await user.click(screen.getByTestId("design-dock-close"));
-    expect(dock.getAttribute("data-open")).toBe("false");
-    expect(screen.queryByTestId("design-dock-backdrop")).toBeNull();
-
-    // Tapping the scrim closes too.
-    await user.click(screen.getByTestId("design-dock-toggle"));
-    await user.click(screen.getByTestId("design-dock-backdrop"));
-    expect(dock.getAttribute("data-open")).toBe("false");
+    await user.keyboard("{Escape}");
+    expect(screen.getByTestId("design-dock").getAttribute("data-open")).toBe("false");
   });
 });
