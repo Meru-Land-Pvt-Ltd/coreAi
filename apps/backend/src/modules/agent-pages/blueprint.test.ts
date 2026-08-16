@@ -221,4 +221,28 @@ describe("deriveFaceBlueprint", () => {
     expect(label.length).toBeLessThanOrEqual(120);
     expect(label.startsWith("Keep going")).toBe(true);
   });
+
+  it("excludes Design Brain nodes — they style the page, they are never a section", () => {
+    // Alone on the canvas: no blueprint at all (default Face is kept).
+    expect(
+      deriveFaceBlueprint({ nodes: [canvasNode("design.brain", { x: 0, y: 0 })] })
+    ).toBeNull();
+
+    // Mixed with real blocks: the Design Brain never appears in the block list,
+    // whether its slug sits on data.type (builder graphs) or on the top-level
+    // node.type (hand-written graphs).
+    const blueprint = deriveFaceBlueprint({
+      nodes: [
+        canvasNode("design.brain", { x: 0, y: 0 }),
+        canvasNode("block.prompt_composer", { x: 0, y: 100 }),
+        { id: "d2", type: "design.brain", position: { x: 0, y: 200 }, data: {} },
+        canvasNode("block.output_stage", { x: 0, y: 300 })
+      ]
+    });
+
+    expect(blueprint?.blocks.map((block) => block.type)).toEqual([
+      "block.prompt_composer",
+      "block.output_stage"
+    ]);
+  });
 });

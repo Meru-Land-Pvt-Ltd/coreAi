@@ -47,7 +47,8 @@ const CARD_PALETTE_BY_ICON: Record<string, { bg: string; fg: string }> = {
   sliders: { bg: "#FFF1F2", fg: "#BE123C" },
   eye: { bg: "#FFF1F2", fg: "#BE123C" },
   "arrow-right": { bg: "#FFF1F2", fg: "#BE123C" },
-  clock: { bg: "#FFF1F2", fg: "#BE123C" }
+  clock: { bg: "#FFF1F2", fg: "#BE123C" },
+  wand: { bg: "#FFF1F2", fg: "#BE123C" }
 };
 
 const CARD_PALETTE_FALLBACK = { bg: "#F8FAFC", fg: "#475569" };

@@ -1,4 +1,4 @@
-import { BLOCK_NODE_TYPES, isBlockNodeType } from "@coreai/shared";
+import { BLOCK_NODE_TYPES, isBlockNodeType, isDesignBrainNodeType } from "@coreai/shared";
 import { z } from "zod";
 
 /**
@@ -168,6 +168,12 @@ export function deriveFaceBlueprint(workflowJson: unknown): FaceBlueprint | null
     const raw = asRecord(node);
     if (!raw) return;
     const data = asRecord(raw.data) ?? {};
+
+    // Design Brain is never a rendered section — it styles the page through
+    // designJson, so it must not leak onto the customer page even if the
+    // block-slug check below is ever loosened.
+    if (isDesignBrainNodeType(typeof data.type === "string" ? data.type : null)) return;
+    if (isDesignBrainNodeType(typeof raw.type === "string" ? raw.type : null)) return;
 
     // Canonical slug lives on data.type; node.type is the React Flow renderer
     // ("coreNode"). Tolerate a top-level block.* type for hand-written graphs.

@@ -4,6 +4,8 @@ import type {
   AgentPageConfig,
   AgentPageManageData,
   AgentPageUpdateBody,
+  DesignChatBody,
+  DesignChatData,
   ArchitectListing,
   ArchitectProfile,
   ArchitectProject,
@@ -1588,4 +1590,13 @@ export function getAgentPageConfig(workflowId: string) {
 
 export function updateAgentPageConfig(workflowId: string, body: AgentPageUpdateBody) {
   return apiPatch<{ page: AgentPageConfig; url: string }>(`/agent-pages/manage/${workflowId}`, body);
+}
+
+/**
+ * Design Brain chat: one styling instruction in the architect's own words,
+ * with up to the last 10 turns for context. The backend validates the LLM's
+ * patch against the dial schema before anything is saved.
+ */
+export function designChat(workflowId: string, body: DesignChatBody) {
+  return apiPost<DesignChatData>(`/agent-pages/manage/${workflowId}/design-chat`, body);
 }

@@ -183,6 +183,9 @@ model PublishedAgentPage {
   welcomeMessage   String?
   suggestedPrompts String[]
   accentColor      String?
+  /// Design Brain dials (theme, composer position, density, bubble style,
+  /// history sidebar). Null = all defaults; always read through resolveDesign.
+  designJson       Json?
   status           String       @default("LIVE")
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt

@@ -131,6 +131,20 @@ export function isBlockNodeType(type: string | null | undefined): boolean {
   return (type ?? "").startsWith("block.");
 }
 
+/**
+ * Design Brain — the architect talks to it and the customer page restyles
+ * itself (theme, layout, colors, wording). It is a canvas companion, not a
+ * rendered page section and not engine work: the workflow runner skips it and
+ * the Face Blueprint ignores it (its output lives in
+ * PublishedAgentPage.designJson, applied via the design-chat endpoint).
+ */
+export const DESIGN_BRAIN_NODE_TYPE = "design.brain";
+
+/** True only for the Design Brain node slug. */
+export function isDesignBrainNodeType(type: string | null | undefined): boolean {
+  return (type ?? "") === DESIGN_BRAIN_NODE_TYPE;
+}
+
 export type DeepgramNodeMode = "stt" | "tts";
 
 export function resolveDeepgramMode(
@@ -2285,6 +2299,18 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     label: "History Shelf",
     category: "product",
     description: "Everything your customer made this visit, ready to bring back.",
+    requiredConfig: [],
+    backendExecutable: false,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "block" },
+    defaultConfig: {}
+  }),
+  def({
+    type: DESIGN_BRAIN_NODE_TYPE,
+    label: "Design Brain",
+    category: "product",
+    description: "Talk to it to style your product — colors, theme, layout, wording.",
     requiredConfig: [],
     backendExecutable: false,
     launchCritical: false,

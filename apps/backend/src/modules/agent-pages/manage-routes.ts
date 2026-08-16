@@ -6,6 +6,8 @@ import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import { deriveFaceBlueprint } from "./blueprint";
+import { resolveDesign } from "./design";
+import { registerAgentPageDesignChatRoute } from "./design-chat";
 import { inferAgentPageTemplate, ensurePublishedAgentPage, type AgentPageTemplate } from "./slug";
 
 /**
@@ -79,8 +81,15 @@ export function registerAgentPageManageRoutes(routes: Hono) {
 
     const listing = await prisma.agentListing.findFirst({ where: { workflowId } });
     if (!listing) {
-      // No listing yet — nothing to publish a page for.
-      return successResponse(c, { page: null, url: null, defaultTemplate, blueprint });
+      // No listing yet — nothing to publish a page for. The design defaults
+      // still ship so the Test preview renders the real starting look.
+      return successResponse(c, {
+        page: null,
+        url: null,
+        defaultTemplate,
+        blueprint,
+        design: resolveDesign(null)
+      });
     }
 
     const page = await ensurePublishedAgentPage({
@@ -93,14 +102,23 @@ export function registerAgentPageManageRoutes(routes: Hono) {
       }
     });
     if (!page) {
-      return successResponse(c, { page: null, url: null, defaultTemplate, blueprint });
+      return successResponse(c, {
+        page: null,
+        url: null,
+        defaultTemplate,
+        blueprint,
+        design: resolveDesign(null)
+      });
     }
 
     return successResponse(c, {
       page: serializeAgentPage(page),
       url: agentPageUrl(page.slug),
       defaultTemplate,
-      blueprint
+      blueprint,
+      // Full Design Brain config (defaults filled in) — additive field, the
+      // builder's Test preview renders every dial from it.
+      design: resolveDesign(page.designJson)
     });
   });
 
@@ -145,7 +163,13 @@ export function registerAgentPageManageRoutes(routes: Hono) {
 
     return successResponse(c, {
       page: serializeAgentPage(updated),
-      url: agentPageUrl(updated.slug)
+      url: agentPageUrl(updated.slug),
+      // Additive: the design rides along so callers holding the manage
+      // payload never lose the dials after a copy/template save.
+      design: resolveDesign(updated.designJson)
     });
   });
+
+  /** Design Brain chat: natural language in, validated DesignPatch applied. */
+  registerAgentPageDesignChatRoute(routes);
 }

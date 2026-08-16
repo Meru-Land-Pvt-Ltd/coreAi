@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Bot } from "lucide-react";
 import { HOME_PATH, publicAgentPath } from "@/lib/routes";
+import { agentPageThemeTokens } from "./design-tokens";
 import {
   agentPageAccent,
   agentPageAccentForeground,
+  agentPageDesign,
   type AgentPageData,
   type AgentPageRuntime
 } from "./types";
@@ -36,6 +38,10 @@ export function AgentPageShell({
   const accent = agentPageAccent(data);
   // Light accents flip text/icons to dark slate so CTAs stay legible.
   const accentText = agentPageAccentForeground(accent);
+  // Theme tokens applied at this root make every template inherit the right
+  // ground/ink; templates read the same tokens for their own surfaces.
+  const design = agentPageDesign(data);
+  const tokens = agentPageThemeTokens(design.theme);
   const { listing, architect } = data;
 
   const isPreview = runtime.mode === "preview";
@@ -62,19 +68,25 @@ export function AgentPageShell({
       className={
         isPreview
           ? // Preview fills the builder's device frame instead of the viewport.
-            "flex h-full flex-col bg-white text-slate-900 antialiased"
-          : "flex h-[100dvh] flex-col bg-white text-slate-900 antialiased"
+            "flex h-full flex-col antialiased"
+          : "flex h-[100dvh] flex-col antialiased"
       }
+      style={{ backgroundColor: tokens.ground, color: tokens.ink }}
       data-testid="agent-page"
+      data-design-theme={design.theme}
     >
-      <header className="sticky top-0 z-50 flex-none border-b border-gray-100 bg-white/90 backdrop-blur">
+      <header
+        className="sticky top-0 z-50 flex-none border-b backdrop-blur"
+        style={{ borderColor: tokens.border, backgroundColor: tokens.surfaceTranslucent }}
+      >
         <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-4 sm:px-6">
           {listing.iconUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={listing.iconUrl}
               alt=""
-              className="h-9 w-9 flex-none rounded-xl border border-gray-100 object-cover"
+              className="h-9 w-9 flex-none rounded-xl border object-cover"
+              style={{ borderColor: tokens.border }}
               data-testid="agent-page-icon"
             />
           ) : (
@@ -89,14 +101,16 @@ export function AgentPageShell({
 
           <div className="min-w-0 flex-1">
             <p
-              className="truncate text-sm font-semibold text-slate-900"
+              className="truncate text-sm font-semibold"
+              style={{ color: tokens.ink }}
               data-testid="agent-page-name"
             >
               {listing.name}
             </p>
             {listing.tagline ? (
               <p
-                className="truncate text-xs text-slate-500"
+                className="truncate text-xs"
+                style={{ color: tokens.inkSubtle }}
                 data-testid="agent-page-tagline"
               >
                 {listing.tagline}
@@ -130,7 +144,12 @@ export function AgentPageShell({
             note hangs just below the CTA without touching the live layout. */}
         {isPreview && previewCtaNote ? (
           <p
-            className="absolute right-4 top-full mt-2 rounded-xl border border-gray-200 bg-white px-3.5 py-2 text-xs font-medium text-slate-600 shadow-md sm:right-6"
+            className="absolute right-4 top-full mt-2 rounded-xl border px-3.5 py-2 text-xs font-medium shadow-md sm:right-6"
+            style={{
+              borderColor: tokens.borderStrong,
+              backgroundColor: tokens.card,
+              color: tokens.inkMuted
+            }}
             role="status"
             data-testid="agent-page-preview-cta-note"
           >
@@ -141,15 +160,19 @@ export function AgentPageShell({
 
       <main className="flex min-h-0 flex-1 flex-col">{children}</main>
 
-      <footer className="flex-none border-t border-gray-100 bg-white pb-[env(safe-area-inset-bottom)]">
+      <footer
+        className="flex-none border-t pb-[env(safe-area-inset-bottom)]"
+        style={{ borderColor: tokens.border, backgroundColor: tokens.ground }}
+      >
         <p
-          className="py-2.5 text-center text-xs text-slate-400"
+          className="py-2.5 text-center text-xs"
+          style={{ color: tokens.inkFaint }}
           data-testid="agent-page-footer"
         >
           Built by {architect?.displayName ?? "a Triven architect"} ·{" "}
           <Link
             href={HOME_PATH}
-            className="transition hover:text-slate-600"
+            className="transition hover:opacity-75"
             data-testid="agent-page-footer-link"
           >
             Powered by Triven

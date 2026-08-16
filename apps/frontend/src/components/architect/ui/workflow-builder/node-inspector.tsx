@@ -5,6 +5,7 @@ import {
   CALENDLY_TRIGGER_EVENTS,
   calendlyActionPaidPlanNote,
   DEEPGRAM_NODE_TYPES,
+  DESIGN_BRAIN_NODE_TYPE,
   EMAIL_TEMPLATE_VARIABLES,
   LLM_PROVIDERS,
   TELEGRAM_NODE_TYPES,
@@ -31,6 +32,7 @@ import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/W
 import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment, BlockPreset, BlockModelOption } from "./types";
+import { DesignBrainPanel } from "./design-brain-panel";
 import { LlmNodeInspector } from "./llm-node-inspector";
 import { DeepgramNodeInspector } from "./deepgram-node-inspector";
 import { DeepgramTtsNodeInspector } from "./deepgram-tts-node-inspector";
@@ -106,7 +108,10 @@ export function NodeInspector({
   calendarEmail = null,
   connectingCalendar = false,
   onConnectCalendar,
-  variableNodePrefixes
+  variableNodePrefixes,
+  workflowId = null,
+  previewVisible = false,
+  onDesignApplied
 }: {
   selectedNode: BuilderNode | null;
   onClearSelection: () => void;
@@ -120,6 +125,12 @@ export function NodeInspector({
   onConnectCalendar?: () => void;
   /** Node ids/labels from the graph — whitelists {{node.prop}}-style tokens in warnings. */
   variableNodePrefixes?: string[];
+  /** Saved workflow id — lets the Design Brain chat talk to the backend. */
+  workflowId?: string | null;
+  /** True while the Test preview is on screen (Design Brain skips its "check the Test tab" note). */
+  previewVisible?: boolean;
+  /** Design Brain applied a patch — the builder refetches the Test preview data. */
+  onDesignApplied?: () => void;
 }) {
   if (!selectedNode) return <EmptyProperties />;
 
@@ -137,11 +148,23 @@ export function NodeInspector({
   // — an architect fills in words and choices here, nothing more technical.
   const isProductBlock =
     isBlockNodeType(type) || String(selectedNode.data.nodeKind ?? "") === "block";
+  // The Design Brain is a chat, not a form — it gets the block-style frame
+  // (no jargon, no variable drawer) but its own header and no step overview.
+  const isDesignBrain = type === DESIGN_BRAIN_NODE_TYPE;
   const base: NodePropsPanel = { selectedNode, onUpdateNodeData, variableNodePrefixes };
 
   let panel: ReactNode;
 
-  if (type === "ai.image_generation") panel = <ImageGenNodeProps {...base} />;
+  if (isDesignBrain) {
+    panel = (
+      <DesignBrainPanel
+        workflowId={workflowId}
+        previewVisible={previewVisible}
+        onDesignApplied={onDesignApplied}
+      />
+    );
+  }
+  else if (type === "ai.image_generation") panel = <ImageGenNodeProps {...base} />;
   else if (type === DEEPGRAM_NODE_TYPES.stt || (type === DEEPGRAM_NODE_TYPES.speech && String(selectedNode.data.mode ?? "stt") !== "tts")) {
     panel = <DeepgramNodeInspector {...base} />;
   } else if (type === DEEPGRAM_NODE_TYPES.tts || (type === DEEPGRAM_NODE_TYPES.speech && String(selectedNode.data.mode ?? "") === "tts")) {
@@ -196,7 +219,7 @@ export function NodeInspector({
             className="font-bold text-slate-900"
             data-testid="architect-ui-workflow-builder-node-inspector-node-properties-text"
           >
-            {isProductBlock ? "Product section" : "Node properties"}
+            {isDesignBrain ? "Design Brain" : isProductBlock ? "Product section" : "Node properties"}
           </span>
         </div>
 
@@ -213,7 +236,8 @@ export function NodeInspector({
 
       {panel}
 
-      <NodeOverviewPanel node={selectedNode} />
+      {/* The Design Brain explains itself in chat — no step overview card. */}
+      {isDesignBrain ? null : <NodeOverviewPanel node={selectedNode} />}
 
       {/* The variable-mapping drawer is engine territory — never for blocks. */}
       {isProductBlock ? null : <NodeAdvancedSettingsPanel node={selectedNode} />}

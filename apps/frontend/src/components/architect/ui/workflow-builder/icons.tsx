@@ -1,4 +1,4 @@
-import { FileText, Image as ImageIcon, MapPin, Pencil, Trash2 } from "lucide-react";
+import { FileText, Image as ImageIcon, MapPin, Pencil, Trash2, Wand2 } from "lucide-react";
 
 export function BuilderIcon({
   name,
@@ -19,6 +19,7 @@ export function BuilderIcon({
   if (name === "map-pin") return <MapPin className={className} aria-hidden="true" />;
   if (name === "edit") return <Pencil className={className} aria-hidden="true" />;
   if (name === "trash") return <Trash2 className={className} aria-hidden="true" />;
+  if (name === "wand") return <Wand2 className={className} aria-hidden="true" />;
 
   if (name === "phone" || name === "phone-outgoing") {
     return (

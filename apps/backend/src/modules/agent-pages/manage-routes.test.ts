@@ -78,9 +78,19 @@ const pageRow = {
   welcomeMessage: null,
   suggestedPrompts: [],
   accentColor: null,
+  designJson: null as unknown,
   status: "LIVE",
   createdAt: new Date("2026-08-15T00:00:00.000Z"),
   updatedAt: new Date("2026-08-15T00:00:00.000Z")
+};
+
+/** The contract's default DesignConfig — what a null designJson resolves to. */
+const DEFAULT_DESIGN = {
+  theme: "light",
+  composerPosition: "center",
+  density: "cozy",
+  bubbleStyle: "bubbles",
+  showHistorySidebar: false
 };
 
 function buildApp() {
@@ -139,8 +149,37 @@ describe("GET /manage/:workflowId", () => {
     const json = (await response.json()) as {
       data: { page: null; url: null; defaultTemplate: string; blueprint: null };
     };
-    expect(json.data).toEqual({ page: null, url: null, defaultTemplate: "voice", blueprint: null });
+    expect(json.data).toEqual({
+      page: null,
+      url: null,
+      defaultTemplate: "voice",
+      blueprint: null,
+      design: DEFAULT_DESIGN
+    });
     expect(pageCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("returns the full default design when designJson is null", async () => {
+    const response = await buildApp().request("/manage/workflow-1");
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { data: { design: unknown } };
+    expect(json.data.design).toEqual(DEFAULT_DESIGN);
+  });
+
+  it("resolves stored designJson over the defaults", async () => {
+    pageFindUniqueMock.mockResolvedValue({
+      ...pageRow,
+      designJson: { theme: "warm", showHistorySidebar: true }
+    });
+
+    const response = await buildApp().request("/manage/workflow-1");
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { data: { design: unknown } };
+    expect(json.data.design).toEqual({
+      ...DEFAULT_DESIGN,
+      theme: "warm",
+      showHistorySidebar: true
+    });
   });
 
   it("returns blueprint null when the graph has no product blocks", async () => {
@@ -301,11 +340,17 @@ describe("PATCH /manage/:workflowId", () => {
       }
     });
     const json = (await response.json()) as {
-      data: { page: { template: string; headline: string; accentColor: string }; url: string };
+      data: {
+        page: { template: string; headline: string; accentColor: string };
+        url: string;
+        design: unknown;
+      };
     };
     expect(json.data.page.template).toBe("form");
     expect(json.data.page.headline).toBe("Book faster");
     expect(json.data.page.accentColor).toBe("#F59E0B");
     expect(json.data.url).toBe("https://triven.ai/a/front-desk-agent-abc123");
+    // The design rides along on PATCH so callers never lose the dials.
+    expect(json.data.design).toEqual(DEFAULT_DESIGN);
   });
 });

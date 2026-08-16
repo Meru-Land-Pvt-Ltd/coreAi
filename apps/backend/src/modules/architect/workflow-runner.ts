@@ -4,6 +4,7 @@ import {
   CORE_CONNECTOR_ACTIONS,
   DEEPGRAM_NODE_TYPES,
   isBlockNodeType,
+  isDesignBrainNodeType,
   resolveDeepgramMode,
   MAX_WORKFLOW_CHAIN_DEPTH,
   TELEGRAM_NODE_TYPES,
@@ -4682,6 +4683,17 @@ async function executeSingleNodeInRunner(params: {
   const nodeKind = asString(node.data?.nodeKind);
 
   try {
+    // Design Brain styles the customer page (via the design-chat endpoint) —
+    // never engine work. Its own skip line keeps the run log friendly even on
+    // hand-written graphs that lack nodeKind (the "block." prefix check below
+    // would miss "design.brain").
+    if (isDesignBrainNodeType(asString(node.data?.type))) {
+      nodeLogs.push(
+        createLog(node, "success", "Design Brain — it styles your page, nothing to run")
+      );
+      return { logs: nodeLogs, runFailed: false };
+    }
+
     // Product blocks (block.*) are sections of the customer-facing page, not
     // engine work — skip them cleanly so a graph that mixes product sections
     // with AI nodes still runs its AI nodes without erroring.

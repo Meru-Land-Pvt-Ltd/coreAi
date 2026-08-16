@@ -1,4 +1,4 @@
-import type { FaceBlueprint } from "@/components/agent-page/types";
+import type { DesignConfig, FaceBlueprint } from "@/components/agent-page/types";
 
 export type ArchitectProfile = {
   id: string;
@@ -282,6 +282,12 @@ export type AgentPageManageData = {
    * fixtures without the field keep compiling; absent reads as null.
    */
   blueprint?: FaceBlueprint | null;
+  /**
+   * The saved Design Brain config, resolved to a full DesignConfig by the
+   * backend. Optional so older fixtures keep compiling; absent reads as the
+   * design defaults.
+   */
+  design?: DesignConfig | null;
 };
 
 export type AgentPageUpdateBody = {
@@ -291,4 +297,28 @@ export type AgentPageUpdateBody = {
   suggestedPrompts?: string[];
   /** null clears the accent back to the default; omitting leaves it unchanged. */
   accentColor?: string | null;
+};
+
+/** One turn of the Design Brain conversation, oldest first. */
+export type DesignChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type DesignChatBody = {
+  instruction: string;
+  /** Up to the last 10 turns, for follow-ups like "a bit darker". */
+  history?: DesignChatMessage[];
+};
+
+/**
+ * POST /agent-pages/manage/:workflowId/design-chat result. `patch` is the
+ * validated set of dials the Design Brain just turned — empty when the ask
+ * was impossible; `design` is the full post-patch DesignConfig.
+ */
+export type DesignChatData = {
+  reply: string;
+  patch: Record<string, unknown>;
+  design: DesignConfig;
+  page: Partial<AgentPageConfig> | null;
 };

@@ -25,6 +25,39 @@ export type FaceBlueprint = {
   blocks: FaceBlueprintBlock[];
 };
 
+/**
+ * Design Brain dials — mirrors the backend contract exactly (see
+ * apps/backend/src/modules/agent-pages/design.ts). The API always sends the
+ * full resolved config; `agentPageDesign` fills defaults for older fixtures
+ * and preview data that omit it.
+ */
+export type DesignConfig = {
+  theme: "light" | "dark" | "warm";
+  /**
+   * "center" = empty-state composer sits centered with the hero and docks to
+   * the bottom after the first message (ChatGPT feel); "bottom" = always
+   * docked (Claude feel).
+   */
+  composerPosition: "center" | "bottom";
+  density: "cozy" | "compact";
+  bubbleStyle: "bubbles" | "flat";
+  /** This-session conversation list on lg+ screens; never on mobile. */
+  showHistorySidebar: boolean;
+};
+
+export const AGENT_PAGE_DESIGN_DEFAULTS: DesignConfig = {
+  theme: "light",
+  composerPosition: "center",
+  density: "cozy",
+  bubbleStyle: "bubbles",
+  showHistorySidebar: false
+};
+
+/** Full design config for a page, defaults filled in for absent/partial data. */
+export function agentPageDesign(data: AgentPageData): DesignConfig {
+  return { ...AGENT_PAGE_DESIGN_DEFAULTS, ...(data.design ?? {}) };
+}
+
 export type AgentPageData = {
   page: {
     slug: string;
@@ -56,6 +89,12 @@ export type AgentPageData = {
    * fixtures omit it; absent/null keeps today's behavior untouched.
    */
   blueprint?: FaceBlueprint | null;
+  /**
+   * Design Brain dials, resolved to a full config by the backend. Optional so
+   * preview-built data and older fixtures keep compiling — read it through
+   * `agentPageDesign(data)`, never directly, so absent always means defaults.
+   */
+  design?: DesignConfig | null;
 };
 
 export type AgentPageTemplateProps = {

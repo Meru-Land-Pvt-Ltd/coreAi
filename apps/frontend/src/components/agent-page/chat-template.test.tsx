@@ -3,9 +3,11 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChatTemplate } from "./chat-template";
 import {
+  AGENT_PAGE_DESIGN_DEFAULTS,
   createPublicAgentPageRuntime,
   type AgentPageData,
-  type AgentPageRuntime
+  type AgentPageRuntime,
+  type DesignConfig
 } from "./types";
 
 const mocks = vi.hoisted(() => ({
@@ -14,8 +16,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({ apiPost: mocks.apiPost }));
 
-function pageData(overrides?: Partial<AgentPageData["limits"]>): AgentPageData {
+function pageData(
+  overrides?: Partial<AgentPageData["limits"]>,
+  design?: Partial<DesignConfig>
+): AgentPageData {
   return {
+    ...(design ? { design: { ...AGENT_PAGE_DESIGN_DEFAULTS, ...design } } : {}),
     page: {
       slug: "helpful-agent-abc123",
       template: "chat",
@@ -218,5 +224,148 @@ describe("ChatTemplate", () => {
     await screen.findByTestId("agent-page-error");
 
     expect(screen.queryByTestId("agent-page-limit-card")).toBeNull();
+  });
+
+  it("default design centers the composer with the hero, then docks it after the first message", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatTemplate data={pageData()} slug="helpful-agent-abc123" runtime={liveRuntime()} />
+    );
+
+    // ChatGPT feel: the composer starts inside the centered empty state.
+    const centered = screen.getByTestId("agent-page-composer-centered");
+    expect(centered.contains(screen.getByTestId("agent-page-composer"))).toBe(true);
+
+    await user.type(screen.getByTestId("agent-page-composer"), "Hello{Enter}");
+    await screen.findByTestId("agent-page-assistant-message");
+
+    // After the first message it docks to the bottom bar.
+    expect(screen.queryByTestId("agent-page-composer-centered")).toBeNull();
+    expect(screen.getByTestId("agent-page-composer")).toBeTruthy();
+  });
+
+  it('composerPosition "bottom" always docks the composer (Claude feel)', () => {
+    render(
+      <ChatTemplate
+        data={pageData(undefined, { composerPosition: "bottom" })}
+        slug="helpful-agent-abc123"
+        runtime={liveRuntime()}
+      />
+    );
+
+    expect(screen.queryByTestId("agent-page-composer-centered")).toBeNull();
+    expect(screen.getByTestId("agent-page-empty-state")).toBeTruthy();
+    expect(screen.getByTestId("agent-page-composer")).toBeTruthy();
+  });
+
+  it('bubbleStyle "flat" renders an editorial thread with left rules instead of bubbles', async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatTemplate
+        data={pageData(undefined, { bubbleStyle: "flat" })}
+        slug="helpful-agent-abc123"
+        runtime={liveRuntime()}
+      />
+    );
+
+    await user.type(screen.getByTestId("agent-page-composer"), "Hello there{Enter}");
+    await screen.findByTestId("agent-page-assistant-message");
+
+    expect(document.querySelector('[data-bubble-style="flat"]')).toBeTruthy();
+    const userRow = screen.getByTestId("agent-page-user-message")
+      .firstElementChild as HTMLElement;
+    const assistantRow = screen.getByTestId("agent-page-assistant-message")
+      .firstElementChild as HTMLElement;
+    expect(userRow.className).toContain("border-l-2");
+    expect(userRow.className).not.toContain("rounded-2xl");
+    // The visitor's rule takes the accent; the agent's stays a hairline.
+    expect(userRow.style.borderLeftColor).not.toBe(assistantRow.style.borderLeftColor);
+    expect(assistantRow.className).toContain("border-l-2");
+  });
+
+  it("dark theme colors the bubbles from the theme tokens", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatTemplate
+        data={pageData(undefined, { theme: "dark" })}
+        slug="helpful-agent-abc123"
+        runtime={liveRuntime()}
+      />
+    );
+
+    await user.type(screen.getByTestId("agent-page-composer"), "Hello{Enter}");
+    await screen.findByTestId("agent-page-assistant-message");
+
+    const userBubble = screen.getByTestId("agent-page-user-message")
+      .firstElementChild as HTMLElement;
+    const assistantBubble = screen.getByTestId("agent-page-assistant-message")
+      .firstElementChild as HTMLElement;
+    // slate-700 visitor bubble on slate-800 agent cards — never amber-on-white.
+    expect(userBubble.style.backgroundColor).toBe("rgb(51, 65, 85)");
+    expect(assistantBubble.style.backgroundColor).toBe("rgb(30, 41, 59)");
+    expect(assistantBubble.style.color).toBe("rgb(241, 245, 249)");
+  });
+
+  it("compact density tightens the transcript spacing", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatTemplate
+        data={pageData(undefined, { density: "compact" })}
+        slug="helpful-agent-abc123"
+        runtime={liveRuntime()}
+      />
+    );
+
+    await user.type(screen.getByTestId("agent-page-composer"), "Hello{Enter}");
+    await screen.findByTestId("agent-page-assistant-message");
+
+    const list = document.querySelector('[data-bubble-style="bubbles"]') as HTMLElement;
+    expect(list.className).toContain("space-y-2.5");
+    const bubble = screen.getByTestId("agent-page-user-message")
+      .firstElementChild as HTMLElement;
+    expect(bubble.className).toContain("text-sm");
+  });
+
+  it("history sidebar lists this session's conversations and switches between them", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatTemplate
+        data={pageData(undefined, { showHistorySidebar: true })}
+        slug="helpful-agent-abc123"
+        runtime={previewRuntime()}
+      />
+    );
+
+    expect(screen.getByTestId("agent-page-history-sidebar")).toBeTruthy();
+    expect(screen.getAllByTestId("agent-page-history-item")).toHaveLength(1);
+
+    await user.type(screen.getByTestId("agent-page-composer"), "Book me a cleaning{Enter}");
+    await screen.findByTestId("agent-page-assistant-message");
+    expect(screen.getAllByTestId("agent-page-history-item")[0].textContent).toBe(
+      "Book me a cleaning"
+    );
+
+    // New chat: fresh empty state, second sidebar entry, active highlight moves.
+    await user.click(screen.getByTestId("agent-page-new-chat"));
+    expect(screen.getByTestId("agent-page-empty-state")).toBeTruthy();
+    const items = screen.getAllByTestId("agent-page-history-item");
+    expect(items).toHaveLength(2);
+    expect(items[1].getAttribute("aria-current")).toBe("true");
+
+    // Switching back restores the first conversation's transcript.
+    await user.click(items[0]);
+    expect(screen.getByTestId("agent-page-user-message").textContent).toBe(
+      "Book me a cleaning"
+    );
+    expect(
+      screen.getAllByTestId("agent-page-history-item")[0].getAttribute("aria-current")
+    ).toBe("true");
+  });
+
+  it("hides the history sidebar when the dial is off", () => {
+    render(
+      <ChatTemplate data={pageData()} slug="helpful-agent-abc123" runtime={liveRuntime()} />
+    );
+    expect(screen.queryByTestId("agent-page-history-sidebar")).toBeNull();
   });
 });

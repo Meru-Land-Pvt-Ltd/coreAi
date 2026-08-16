@@ -3,6 +3,7 @@ import {
   BLOCK_NODE_TYPES,
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
+  DESIGN_BRAIN_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_PRESENTATION,
   VOICE_NODE_TYPES
@@ -104,6 +105,13 @@ export const libraryGroups: LibraryGroup[] = [
   {
     title: "Your Product",
     items: [
+      {
+        /* Design Brain — not a page section: the architect chats with it and
+           the whole customer page restyles itself. Wand icon sets it apart
+           from the section cards around it. */
+        ...paletteItem(DESIGN_BRAIN_NODE_TYPE, { icon: "wand", accent: "rose", kind: "DESIGN" }),
+        badge: "NEW"
+      },
       paletteItem(BLOCK_NODE_TYPES.promptComposer, { icon: "edit", accent: "rose", kind: "PRODUCT" }),
       paletteItem(BLOCK_NODE_TYPES.presetGallery, { icon: "gallery", accent: "rose", kind: "PRODUCT" }),
       paletteItem(BLOCK_NODE_TYPES.modelPicker, { icon: "sliders", accent: "rose", kind: "PRODUCT" }),

@@ -9,6 +9,7 @@ import { runArchitectConversationTest } from "../architect/workflow-conversation
 import { runWorkflowTest } from "../architect/workflow-runner";
 import { MarketplaceDemoError, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
 import { deriveFaceBlueprint } from "./blueprint";
+import { resolveDesign } from "./design";
 import { registerAgentPageManageRoutes } from "./manage-routes";
 import { agentPageRemainingToday, consumeAgentPageLimit, refundAgentPageUse } from "./rate-limit";
 import { extractRunOutput } from "./run-output";
@@ -178,7 +179,10 @@ agentPagesRoutes.get("/:slug", async (c) => {
     },
     architect: toPublicArchitectPayload(listing.architect),
     limits: { remainingToday },
-    blueprint
+    blueprint,
+    // Full Design Brain config (defaults filled in) — additive field, the
+    // page shell renders every dial from it.
+    design: resolveDesign(page.designJson)
   });
 });
 

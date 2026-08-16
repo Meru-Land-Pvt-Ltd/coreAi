@@ -779,6 +779,26 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     };
   }, [activeTab, currentWorkflowId, isUnderReview, saveNow]);
 
+  /**
+   * Lightweight refetch of the saved page + design for the Test preview —
+   * the Design Brain chat calls this right after a patch lands so the
+   * preview iframe restyles without leaving the Build tab. Reads the id
+   * from the ref so the callback stays stable across renders.
+   */
+  const refreshAgentPageConfig = useCallback(() => {
+    const id = currentWorkflowIdRef.current;
+    if (!id) return;
+
+    void (async () => {
+      try {
+        const result = await getAgentPageConfig(id);
+        if (result.success && result.data) setPreviewPageData(result.data);
+      } catch {
+        // Preview keeps its last data; the Test-entry fetch will catch up.
+      }
+    })();
+  }, []);
+
   const onConnect = useCallback(
     (connection: Connection) => {
       if (blockIfUnderReview()) return;
@@ -2234,6 +2254,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       onDeleteNode={deleteSelectedNode}
       connectorOwnership="architect"
       variableNodePrefixes={variableNodePrefixes}
+      workflowId={currentWorkflowId || null}
+      previewVisible={activeTab === "test"}
+      onDesignApplied={refreshAgentPageConfig}
     />
   );
 
@@ -2557,6 +2580,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             page={previewPageData?.page ?? null}
             defaultTemplate={previewPageData?.defaultTemplate}
             blueprint={previewPageData?.blueprint ?? null}
+            design={previewPageData?.design ?? null}
             architectName={architectName}
             underReview={isUnderReview}
             onSendChat={sendPreviewChat}

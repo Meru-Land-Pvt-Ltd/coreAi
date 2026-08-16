@@ -91,6 +91,7 @@ function livePage() {
     welcomeMessage: "Hi! Ask me anything.",
     suggestedPrompts: ["Book a cleaning", "What are your hours?"],
     accentColor: "#f59e0b",
+    designJson: null as unknown,
     status: "LIVE",
     createdAt: new Date("2026-08-01T00:00:00.000Z"),
     updatedAt: new Date("2026-08-01T00:00:00.000Z"),
@@ -212,6 +213,38 @@ describe("GET /agent-pages/:slug", () => {
     expect(response.status).toBe(200);
     const json = (await response.json()) as { data: { blueprint: unknown } };
     expect(json.data.blueprint).toBeNull();
+  });
+
+  it("returns the full default design when designJson is null", async () => {
+    const response = await buildApp().request(`/agent-pages/${SLUG}`);
+
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { data: { design: unknown } };
+    expect(json.data.design).toEqual({
+      theme: "light",
+      composerPosition: "center",
+      density: "cozy",
+      bubbleStyle: "bubbles",
+      showHistorySidebar: false
+    });
+  });
+
+  it("resolves stored designJson over the defaults, dropping invalid values", async () => {
+    const page = livePage();
+    page.designJson = { theme: "dark", bubbleStyle: "flat", density: "hyperdense" };
+    pageFindUniqueMock.mockResolvedValue(page);
+
+    const response = await buildApp().request(`/agent-pages/${SLUG}`);
+
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { data: { design: unknown } };
+    expect(json.data.design).toEqual({
+      theme: "dark",
+      composerPosition: "center",
+      density: "cozy",
+      bubbleStyle: "flat",
+      showHistorySidebar: false
+    });
   });
 
   it("derives the blueprint from block nodes, ordered by canvas position (y then x)", async () => {

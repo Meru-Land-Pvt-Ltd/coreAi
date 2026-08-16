@@ -12,6 +12,7 @@ import type {
   AgentPageData,
   AgentPageRuntime,
   AgentPageTemplate,
+  DesignConfig,
   FaceBlueprint
 } from "@/components/agent-page/types";
 
@@ -56,6 +57,13 @@ export type PreviewPanelProps = {
    * template Faces exactly as before.
    */
   blueprint?: FaceBlueprint | null;
+  /**
+   * The saved Design Brain config (GET /agent-pages/manage/:id `design`).
+   * Passed straight into the page data so the shell + templates render every
+   * dial exactly like the live page; a change here live-updates the frame.
+   * Null/undefined falls back to the design defaults.
+   */
+  design?: DesignConfig | null;
   /** Shown in the page footer, exactly like the published page byline. */
   architectName?: string | null;
   /** While the agent is under review, testing is paused — say so plainly. */
@@ -115,6 +123,7 @@ export function PreviewPanel({
   page = null,
   defaultTemplate,
   blueprint = null,
+  design = null,
   architectName,
   underReview = false,
   onSendChat,
@@ -206,9 +215,11 @@ export function PreviewPanel({
       architect: architectName?.trim()
         ? { displayName: architectName.trim(), photoUrl: null }
         : null,
-      limits: { remainingToday: 1 }
+      limits: { remainingToday: 1 },
+      // The Design Brain dials — absent reads as defaults inside the shell.
+      design: design ?? null
     }),
-    [architectName, face, page, workflowId, workflowName]
+    [architectName, design, face, page, workflowId, workflowName]
   );
 
   return (
