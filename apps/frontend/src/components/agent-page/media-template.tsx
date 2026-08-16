@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Bot, Download, ExternalLink, RefreshCw, Sparkles } from "lucide-react";
 import { publicAgentPath } from "@/lib/routes";
 import { agentPageAccent, agentPageAccentForeground, type AgentPageTemplateProps } from "./types";
+import { RichText } from "./rich-text";
 
 /**
  * Media template — a centered prompt composer that creates images or videos
@@ -346,12 +347,10 @@ export function MediaTemplate({ data, runtime }: AgentPageTemplateProps) {
             ) : null}
 
             {creation.text ? (
-              <p
-                className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-600"
-                data-testid="agent-page-media-caption"
-              >
-                {creation.text}
-              </p>
+              <div className="mt-3 text-sm text-slate-600" data-testid="agent-page-media-caption">
+                {/* AI captions get the same safe markdown as every other answer. */}
+                <RichText text={creation.text} />
+              </div>
             ) : null}
 
             {creation.mediaUrls.length === 0 && !creation.text ? (

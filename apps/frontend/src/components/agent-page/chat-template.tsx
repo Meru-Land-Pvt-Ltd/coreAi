@@ -12,6 +12,7 @@ import Link from "next/link";
 import { Bot, RefreshCw, Send } from "lucide-react";
 import { publicAgentPath } from "@/lib/routes";
 import { agentPageAccent, agentPageAccentForeground, type AgentPageTemplateProps } from "./types";
+import { RichText } from "./rich-text";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -240,10 +241,18 @@ export function ChatTemplate({ data, runtime }: AgentPageTemplateProps) {
                   className={
                     message.role === "user"
                       ? "max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-amber-50 px-4 py-2.5 text-[15px] leading-relaxed text-slate-900"
-                      : "max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-bl-md border border-gray-100 bg-white px-4 py-2.5 text-[15px] leading-relaxed text-slate-900 shadow-sm"
+                      : "max-w-[85%] rounded-2xl rounded-bl-md border border-gray-100 bg-white px-4 py-2.5 text-[15px] leading-relaxed text-slate-900 shadow-sm"
                   }
                 >
-                  {message.content}
+                  {message.role === "assistant" ? (
+                    // AI replies get safe markdown + a word-by-word reveal.
+                    // The full reply mounts at once (opacity-only animation),
+                    // so the aria-live transcript announces it exactly once,
+                    // complete. The customer's own words stay plain text.
+                    <RichText text={message.content} reveal />
+                  ) : (
+                    message.content
+                  )}
                 </div>
               </div>
             ))}

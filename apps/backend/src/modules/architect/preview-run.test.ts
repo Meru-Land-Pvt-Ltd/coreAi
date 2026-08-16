@@ -49,6 +49,7 @@ const WORKFLOW_ID = "workflow-1";
 
 const workflowRow = {
   id: WORKFLOW_ID,
+  name: "Trip Planner",
   architectUserId: "architect-1",
   workflowJson: { nodes: [{ data: { type: "ai.reply" } }], edges: [] }
 };
@@ -108,7 +109,9 @@ describe("POST /architect/workflows/:workflowId/preview-run", () => {
       userId: "architect-1",
       workflowId: WORKFLOW_ID,
       workflowJson: workflowRow.workflowJson,
-      input: { message: "Write a welcome message" },
+      // Dry-runs have no installed business — the workflow's own name stands
+      // in so {{business.name}} resolves to the agent's name, never a token.
+      input: { message: "Write a welcome message", businessName: "Trip Planner" },
       mode: "test"
     });
   });

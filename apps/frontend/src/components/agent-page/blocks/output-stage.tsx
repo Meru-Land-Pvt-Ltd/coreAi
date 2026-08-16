@@ -2,6 +2,7 @@
 
 import { Download, ExternalLink, RefreshCw } from "lucide-react";
 import { isDataUri, isImageLikeUrl, isVideoUrl, mediaDownloadName } from "./media";
+import { RichText } from "../rich-text";
 
 /**
  * Result Viewer block — a shimmer skeleton while a run is in flight, then the
@@ -126,7 +127,8 @@ export function OutputStageBlock({
   runningPrompt,
   result,
   listingName,
-  error
+  error,
+  animateText = false
 }: {
   kind: OutputStageKind;
   /** Non-null while a run is in flight — shows the shimmer skeleton. */
@@ -136,6 +138,11 @@ export function OutputStageBlock({
   listingName: string;
   /** Non-null after a failed run — shows a soft error strip with a retry. */
   error: { onRetry: () => void } | null;
+  /**
+   * Word-by-word reveal for the result text — true only for the run that just
+   * finished, so restoring an earlier result from history never replays it.
+   */
+  animateText?: boolean;
 }) {
   if (runningPrompt !== null) {
     return (
@@ -200,20 +207,21 @@ export function OutputStageBlock({
 
           {text ? (
             showMedia ? (
-              <p
-                className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-600"
-                data-testid="agent-block-output-text"
-              >
-                {text}
-              </p>
+              <div className="mt-3 text-sm text-slate-600" data-testid="agent-block-output-text">
+                {/* Keyed by run so switching results restarts the reveal cleanly. */}
+                <RichText key={result.id} text={text} reveal={animateText} />
+              </div>
             ) : (
               <div
                 className="mt-3 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm"
                 data-testid="agent-block-output-text"
               >
-                <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-slate-700">
-                  {text}
-                </p>
+                <RichText
+                  key={result.id}
+                  text={text}
+                  reveal={animateText}
+                  className="text-[15px] text-slate-700"
+                />
               </div>
             )
           ) : null}

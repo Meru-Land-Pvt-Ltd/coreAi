@@ -238,7 +238,9 @@ agentPagesRoutes.post("/:slug/chat", publicBodyLimit, async (c) => {
     // public visitors can never trigger LIVE side effects, and availability is
     // pinned to test slots so the architect's real calendar is never read for
     // anonymous traffic. UTC keeps the dry-run timezone gate satisfied without
-    // exposing a timezone picker.
+    // exposing a timezone picker. The listing's public name stands in for the
+    // business, so saved text like {{business.name}} resolves to the agent's
+    // name instead of leaking a raw placeholder to the visitor.
     const result = await runArchitectConversationTest({
       userId: page.architectUserId,
       workflowId: page.workflowId,
@@ -248,7 +250,7 @@ agentPagesRoutes.post("/:slug/chat", publicBodyLimit, async (c) => {
       executionMode: "ARCHITECT_DRY_RUN",
       testSessionId: engineSessionId(page.slug, sessionId),
       forceTestAvailability: true,
-      testContext: { timeZone: "UTC" }
+      testContext: { timeZone: "UTC", businessName: page.listing.name }
     });
 
     if (result.configError) {
@@ -334,11 +336,13 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
 
   try {
     // Sandboxed one-shot run under the architect's identity — never LIVE.
+    // The listing's public name stands in for the business so saved text like
+    // {{business.name}} resolves to the agent's name in visitor-facing output.
     const result = await runWorkflowTest({
       userId: page.architectUserId,
       workflowId: page.workflowId,
       workflowJson,
-      input: { message: parsed.data.prompt },
+      input: { message: parsed.data.prompt, businessName: page.listing.name },
       mode: "test"
     });
 

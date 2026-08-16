@@ -224,3 +224,29 @@ button:disabled {
   max-width: 100%;
   height: auto;
 }
+
+/*
+ * Word-by-word reveal for AI answers on agent pages (RichText). The complete
+ * text is in the DOM from the first frame — only opacity animates — so layout
+ * never jumps and aria-live regions announce the reply once, complete.
+ */
+@keyframes agent-word-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.agent-reveal-word {
+  animation: agent-word-reveal 0.35s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-reveal-word {
+    /* The global 0.001ms rule leaves animation-delay intact — kill the
+       animation entirely so every word is visible instantly. */
+    animation: none;
+  }
+}

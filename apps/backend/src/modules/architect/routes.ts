@@ -2411,7 +2411,13 @@ architectRoutes.post("/workflows/:workflowId/conversation-test", async (c) => {
       workflowJson: workflow.workflowJson,
       message: input.message,
       history: input.history,
-      testContext: input.testContext,
+      // The test form's business name wins; without one, the workflow's own
+      // name stands in so {{business.name}} never resolves to a raw
+      // placeholder (there is no installed business in a dry-run).
+      testContext: {
+        ...input.testContext,
+        businessName: input.testContext.businessName?.trim() || workflow.name
+      },
       executionMode: "ARCHITECT_DRY_RUN",
       ...(input.simulateBusinessHoursState === "open" || input.simulateBusinessHoursState === "closed"
         ? { simulateBusinessHoursState: input.simulateBusinessHoursState }
@@ -2482,11 +2488,14 @@ architectRoutes.post("/workflows/:workflowId/preview-run", async (c) => {
       return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
     }
 
+    // Dry-runs have no installed business, so the workflow's own name stands
+    // in — saved text like {{business.name}} resolves to the agent's name
+    // instead of leaking a raw placeholder into the preview.
     const result = await runWorkflowTest({
       userId: authUser.id,
       workflowId,
       workflowJson: workflow.workflowJson,
-      input: { message: input.prompt },
+      input: { message: input.prompt, businessName: workflow.name },
       mode: "test"
     });
 

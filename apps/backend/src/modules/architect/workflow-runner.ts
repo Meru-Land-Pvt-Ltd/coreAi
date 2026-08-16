@@ -1064,6 +1064,12 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
     ? existingLlmContext
     : [existingLlmContext, businessContextSummary].filter(Boolean).join("\n\n");
 
+  // The customer's own words this run (one-shot Face runs, Telegram, SMS…).
+  // Carried separately so the provider mapping can present them as the
+  // authoritative user turn instead of leaving them buried — or dropped —
+  // inside the workflow author's prompt template.
+  const customerMessage = asString(context.latestMessage);
+
   const data = isLlmCall
     ? {
         ...node.data,
@@ -1077,6 +1083,7 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
         llmPrompt: renderTemplate(node.data?.llmPrompt, context),
         llmRequirements: renderTemplate(node.data?.llmRequirements, context) || telegramDefaultTask,
         llmContext: combinedLlmContext,
+        llmCustomerMessage: customerMessage,
         temperature: node.data?.llmTemperature ?? node.data?.temperature,
         maxTokens: finalMaxTokens,
         outputFormat: node.data?.llmOutputFormat ?? node.data?.outputFormat,
@@ -1084,6 +1091,7 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
     : {
         ...node.data,
         prompt: renderTemplate(node.data?.prompt, context),
+        llmCustomerMessage: customerMessage,
         maxTokens: finalMaxTokens,
       };
 
@@ -1354,6 +1362,12 @@ function seedMissedCallContext(
   if (optionalString(input?.installedAgentId)) context.installedAgentId = optionalString(input?.installedAgentId);
   if (optionalString(input?.listingId)) context.listingId = optionalString(input?.listingId);
   if (optionalString(input?.latestMessage)) context.latestMessage = optionalString(input?.latestMessage);
+  // One-shot Face runs (/agent-pages/:slug/run and the builder's preview-run)
+  // send the customer's words as `message`. Thread it into the slot templates
+  // and AI nodes already read, so provided input is never silently dropped.
+  if (!asString(context.latestMessage) && optionalString(input?.message)) {
+    context.latestMessage = optionalString(input?.message);
+  }
   if (optionalString(input?.testEmail)) context.testEmail = optionalString(input?.testEmail);
   if (input?.useTestCalendar === true) context.useTestCalendar = true;
   if (optionalString(input?.testSessionId)) context.testSessionId = optionalString(input?.testSessionId);

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Check, Copy, Paperclip, RefreshCw } from "lucide-react";
 import { publicAgentPath } from "@/lib/routes";
 import { agentPageAccent, agentPageAccentForeground, type AgentPageTemplateProps } from "./types";
+import { RichText } from "./rich-text";
 
 /**
  * Form template — one clean "What do you need?" card that submits via
@@ -104,11 +105,6 @@ export function FormTemplate({ data, runtime }: AgentPageTemplateProps) {
       // clipboard unavailable — the text stays selectable on the page
     }
   }
-
-  const paragraphs = (result?.text ?? "")
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto" data-testid="agent-page-form">
@@ -247,15 +243,9 @@ export function FormTemplate({ data, runtime }: AgentPageTemplateProps) {
                     {copied ? "Copied" : "Copy"}
                   </button>
                 </div>
-                <div className="mt-4 max-w-prose space-y-4">
-                  {paragraphs.map((paragraph, index) => (
-                    <p
-                      key={index}
-                      className="whitespace-pre-line text-[15px] leading-relaxed text-slate-900"
-                    >
-                      {paragraph}
-                    </p>
-                  ))}
+                <div className="mt-4">
+                  {/* AI output gets safe markdown; copy still copies the raw text. */}
+                  <RichText text={result.text} className="text-[15px] text-slate-900" />
                 </div>
               </>
             ) : (

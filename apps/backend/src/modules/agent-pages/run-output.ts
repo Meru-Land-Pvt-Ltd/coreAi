@@ -5,6 +5,8 @@
  * extraction rule here so they can never drift.
  */
 
+import { sanitizeCustomerText } from "./output-hygiene";
+
 /** Structural view of a runWorkflowTest result — only what extraction reads. */
 export type RunEngineResult = { context?: unknown; logs?: unknown[] };
 
@@ -63,10 +65,15 @@ export function extractRunMediaUrls(result: RunEngineResult): string[] {
   return [...found].slice(0, MAX_MEDIA_URLS);
 }
 
-/** The final AI reply text of a one-shot run, or null when the run produced none. */
+/**
+ * The final AI reply text of a one-shot run, or null when the run produced
+ * none. This is the LAST exit before the text reaches a visitor (public
+ * agent-page /run and the builder's preview-run both extract here), so leaked
+ * template artifacts are stripped exactly once at this point.
+ */
 export function extractRunText(result: RunEngineResult): string | null {
   const aiOutput = (result.context as { ai?: { output?: unknown } } | undefined)?.ai?.output;
-  return typeof aiOutput === "string" ? aiOutput : null;
+  return typeof aiOutput === "string" ? sanitizeCustomerText(aiOutput) : null;
 }
 
 /** The full visitor-facing payload of a one-shot run. */

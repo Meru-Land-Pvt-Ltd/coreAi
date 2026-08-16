@@ -113,16 +113,70 @@ function kindFrom(config: Record<string, unknown>): OutputStageKind {
 
 /**
  * One run, with the engine prompt kept strictly apart from what the page may
- * show. `prompt` carries the hidden style instructions and model context and
- * only ever travels to the engine; `displayPrompt` is the customer's own
- * words (or the Continue button's label) and is the only prompt rendered;
- * `basePrompt` seeds Continue chains so scaffolding never nests.
+ * show. `prompt` carries the hidden instruction block (button press, chosen
+ * style, picked option, typed words) and only ever travels to the engine;
+ * `displayPrompt` is the customer's own words (or the Continue button's
+ * label) and is the only prompt rendered; `basePrompt` seeds Continue chains
+ * so scaffolding never nests.
  */
 type RunRequest = {
   prompt: string;
   displayPrompt: string;
   basePrompt: string;
 };
+
+/** Closing line of every instruction block — the brain must act, not re-ask. */
+const ENGINE_ANSWER_NOW_LINE =
+  "Answer now using ALL of the information above. Do not ask again for anything the customer already provided.";
+
+const WRITTEN_LINE_PREFIX = "The customer wrote: ";
+
+/**
+ * The engine prompt is an explicit instruction block, not bare prefixes:
+ * every piece of input the customer provided becomes one plain sentence the
+ * brain can act on, closed by a line that forbids re-asking for anything
+ * already given. None of it ever reaches the DOM — displayPrompt stays the
+ * customer's own words.
+ *
+ * The block always fits MAX_PROMPT_LENGTH by trimming the tail of the
+ * written text, never the instruction lines — a near-cap draft must not cost
+ * the closing "answer now" order (the call-site slice would otherwise cut
+ * the block from the bottom).
+ */
+export function composeEngineInstructions(parts: {
+  buttonLabel?: string;
+  style?: FacePreset | null;
+  optionLabel?: string | null;
+  written?: string;
+}): string {
+  const lines: string[] = [];
+
+  if (parts.buttonLabel) {
+    lines.push(`The customer pressed the button: '${parts.buttonLabel}'.`);
+  }
+
+  if (parts.style) {
+    const fragment = parts.style.promptFragment.trim();
+    lines.push(
+      fragment
+        ? `The customer selected style: '${parts.style.title}' — ${fragment}${/[.!?]$/.test(fragment) ? "" : "."}`
+        : `The customer selected style: '${parts.style.title}'.`
+    );
+  }
+
+  if (parts.optionLabel) {
+    lines.push(`The customer selected option: '${parts.optionLabel}'.`);
+  }
+
+  if (parts.written) {
+    const overhead = [...lines, WRITTEN_LINE_PREFIX, ENGINE_ANSWER_NOW_LINE].join("\n").length;
+    const written = parts.written.slice(0, Math.max(0, MAX_PROMPT_LENGTH - overhead));
+    if (written) lines.push(`${WRITTEN_LINE_PREFIX}${written}`);
+  }
+
+  lines.push(ENGINE_ANSWER_NOW_LINE);
+  return lines.join("\n");
+}
 
 export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
   const accent = agentPageAccent(data);
@@ -144,6 +198,9 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
   const [results, setResults] = useState<FaceRunResult[]>([]);
   const [activeResultId, setActiveResultId] = useState<number | null>(null);
   const [failedRun, setFailedRun] = useState<RunRequest | null>(null);
+  // The run that just finished — only its text gets the word-by-word reveal;
+  // results restored from the History Shelf render instantly.
+  const [freshResultId, setFreshResultId] = useState<number | null>(null);
   const [limitReached, setLimitReached] = useState(
     !isPreview && data.limits.remainingToday <= 0
   );
@@ -153,13 +210,14 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
 
   const resultIdRef = useRef(0);
 
-  // The hidden style instructions across every Styles Gallery on the page.
-  const presetFragmentById = useMemo(() => {
-    const map = new Map<string, string>();
+  // Every style across every Styles Gallery on the page — the title and the
+  // hidden instructions both travel to the engine as one instruction line.
+  const presetById = useMemo(() => {
+    const map = new Map<string, FacePreset>();
     for (const block of blueprint.blocks) {
       if (block.type !== BLOCK_NODE_TYPES.presetGallery) continue;
       for (const preset of presetsFrom(block.config)) {
-        map.set(preset.id, preset.promptFragment);
+        map.set(preset.id, preset);
       }
     }
     return map;
@@ -235,6 +293,7 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
       // Keep only the newest results — media is often multi-MB data: URIs.
       setResults((prev) => [...prev, entry].slice(-MAX_RETAINED_RESULTS));
       setActiveResultId(entry.id);
+      setFreshResultId(entry.id);
       if (!isPreview && typeof result.remainingToday === "number" && result.remainingToday <= 0)
         setLimitReached(true);
       return;
@@ -258,18 +317,22 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
     return modelLabelById.get(selectedModelId) ?? null;
   }
 
-  /** A Prompt Box submit — augment with style + model context, then run. */
+  /**
+   * A Prompt Box submit. Bare typed text travels as-is; the moment a style or
+   * option rides along, the engine prompt becomes an explicit instruction
+   * block so the brain uses everything instead of re-asking. Only `base`
+   * (the customer's own words) is ever shown back to them.
+   */
   function requestGenerate(rawPrompt: string) {
     const base = rawPrompt.trim();
     if (!base || running || limitReached) return;
 
-    let prompt = base;
-    const fragment = selectedPresetId ? presetFragmentById.get(selectedPresetId) : undefined;
-    // The selected style's hidden instructions ride along invisibly — only
-    // `base` (the customer's own words) is ever shown back to them.
-    if (fragment && fragment.trim().length > 0) prompt = `${prompt}\n${fragment.trim()}`;
+    const preset = selectedPresetId ? presetById.get(selectedPresetId) ?? null : null;
     const modelLabel = selectedModelContext();
-    if (modelLabel) prompt = `[model: ${modelLabel}]\n${prompt}`;
+    const prompt =
+      preset || modelLabel
+        ? composeEngineInstructions({ style: preset, optionLabel: modelLabel, written: base })
+        : base;
 
     void performRun({
       prompt: prompt.slice(0, MAX_PROMPT_LENGTH),
@@ -279,23 +342,23 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
   }
 
   /**
-   * A Button press — a doorway into the graph. Runs with whatever the
-   * customer already put in (composer text, style, model choice) plus the
-   * hidden `[button: …]` engine prefix; an empty composer is fine, so
-   * button-only products work. The customer only ever sees their own words —
-   * or, when they typed nothing, the button's label.
+   * A Button press — a doorway into the graph. The engine prompt is an
+   * instruction block naming the pressed button plus whatever the customer
+   * already put in (composer text, style, model choice); an empty composer is
+   * fine, so button-only products work. The customer only ever sees their own
+   * words — or, when they typed nothing, the button's label.
    */
   function requestButtonRun(label: string) {
     if (running || limitReached) return;
     const base = composerDraft.trim();
 
-    let prompt = base;
-    const fragment = selectedPresetId ? presetFragmentById.get(selectedPresetId) : undefined;
-    if (fragment && fragment.trim().length > 0)
-      prompt = prompt ? `${prompt}\n${fragment.trim()}` : fragment.trim();
-    const modelLabel = selectedModelContext();
-    if (modelLabel) prompt = prompt ? `[model: ${modelLabel}]\n${prompt}` : `[model: ${modelLabel}]`;
-    prompt = `[button: ${label}]\n${prompt}`;
+    const preset = selectedPresetId ? presetById.get(selectedPresetId) ?? null : null;
+    const prompt = composeEngineInstructions({
+      buttonLabel: label,
+      style: preset,
+      optionLabel: selectedModelContext(),
+      written: base || undefined
+    });
 
     void performRun({
       prompt: prompt.slice(0, MAX_PROMPT_LENGTH),
@@ -313,7 +376,7 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
     const basis = activeResult.text?.trim() || activeResult.basePrompt;
     let prompt = `Continue from the previous result:\n${basis}`;
     const modelLabel = selectedModelContext();
-    if (modelLabel) prompt = `[model: ${modelLabel}]\n${prompt}`;
+    if (modelLabel) prompt = `The customer selected option: '${modelLabel}'.\n${prompt}`;
 
     void performRun({
       prompt: prompt.slice(0, MAX_PROMPT_LENGTH),
@@ -429,6 +492,7 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
             result={activeResult}
             listingName={listing.name}
             error={errorState}
+            animateText={activeResult !== null && activeResult.id === freshResultId}
           />
         );
 
@@ -454,7 +518,11 @@ export function FaceRenderer({ data, runtime, blueprint }: FaceRendererProps) {
             key={key}
             results={results}
             activeId={activeResult?.id ?? null}
-            onRestore={setActiveResultId}
+            onRestore={(id) => {
+              // Restored results render instantly — no replayed reveal.
+              setFreshResultId(null);
+              setActiveResultId(id);
+            }}
           />
         );
 

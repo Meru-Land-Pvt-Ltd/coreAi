@@ -18,6 +18,7 @@ import {
   type CalendarBookingEventDetails
 } from "../agent-runtime/provider-adapters";
 import type { AgentMessage } from "../agent-runtime/runtime-context";
+import { sanitizeCustomerText } from "../agent-pages/output-hygiene";
 import { calendarError, publicCalendarError } from "./calendar-errors";
 
 
@@ -395,23 +396,28 @@ export async function runArchitectConversationTest({
         }
       : null;
 
+  // Final exit for every conversation channel (builder conversation-test AND
+  // the public agent-page /chat both return this reply verbatim): strip leaked
+  // template artifacts exactly once, here, so no route needs its own pass.
+  const reply = sanitizeCustomerText(result.reply);
+
   const now = new Date().toISOString();
   const transcript: ArchitectConversationMessage[] = isCallStart
-    ? [...transcriptHistory, { role: "assistant", content: result.reply, createdAt: now }]
+    ? [...transcriptHistory, { role: "assistant", content: reply, createdAt: now }]
     : [
         ...transcriptHistory,
         { role: "user", content: cleanMessage, createdAt: now },
-        { role: "assistant", content: result.reply, createdAt: new Date().toISOString() }
+        { role: "assistant", content: reply, createdAt: new Date().toISOString() }
       ];
 
   return {
-    reply: result.reply,
+    reply,
     transcript,
     executedNodes: result.executedNodes,
     toolCalls: result.toolCalls,
     finalOutput: {
       workflowId,
-      reply: result.reply,
+      reply,
       businessName: business.name,
       assistantName: business.assistantName,
       capabilities: result.capabilities,

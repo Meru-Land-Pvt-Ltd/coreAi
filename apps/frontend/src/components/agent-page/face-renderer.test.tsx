@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { FaceRenderer } from "./face-renderer";
+import { composeEngineInstructions, FaceRenderer } from "./face-renderer";
 import type { AgentPageData, AgentPageRuntime, FaceBlueprint } from "./types";
 
 vi.mock("@/lib/api", () => ({ apiPost: vi.fn() }));
@@ -90,6 +90,10 @@ function precedes(first: HTMLElement, second: HTMLElement): boolean {
   return (first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 }
 
+/** The instruction block's closing line — every composed engine prompt ends with it. */
+const ANSWER_NOW =
+  "Answer now using ALL of the information above. Do not ask again for anything the customer already provided.";
+
 beforeEach(() => {
   cleanup();
 });
@@ -125,7 +129,7 @@ describe("FaceRenderer", () => {
     expect(screen.queryByTestId("agent-block-history-shelf")).toBeNull();
   });
 
-  it("appends the selected style's hidden instructions to the prompt on run", async () => {
+  it("threads the selected style into the engine prompt as an instruction block", async () => {
     const runtime = previewRuntime();
     const user = userEvent.setup();
     renderFace(runtime);
@@ -135,14 +139,18 @@ describe("FaceRenderer", () => {
     await user.click(screen.getByTestId("agent-block-generate"));
 
     expect(runOnceMock(runtime).mock.calls[0][0].prompt).toBe(
-      "A cat on a rooftop\nin a vibrant anime style"
+      [
+        "The customer selected style: 'Anime' — in a vibrant anime style.",
+        "The customer wrote: A cat on a rooftop",
+        ANSWER_NOW
+      ].join("\n")
     );
     expect((await screen.findByTestId("agent-block-output-text")).textContent).toContain(
       "Here you go"
     );
   });
 
-  it("prefixes the picked model's human label as prompt context; untouched picker adds nothing", async () => {
+  it("threads the picked model's human label as an instruction line; untouched picker stays bare", async () => {
     const runtime = previewRuntime();
     const user = userEvent.setup();
     renderFace(runtime);
@@ -156,10 +164,17 @@ describe("FaceRenderer", () => {
     await user.click(screen.getByTestId("agent-block-generate"));
 
     const calls = runOnceMock(runtime).mock.calls;
+    // Plain typed text with nothing else selected travels as-is — no scaffold.
     expect(calls[0][0].prompt).toBe("First idea");
     // The label ("Best"), never the generated id ("best") — an id the
     // architect can't see means nothing to the AI.
-    expect(calls[1][0].prompt).toBe("[model: Best]\nSecond idea");
+    expect(calls[1][0].prompt).toBe(
+      [
+        "The customer selected option: 'Best'.",
+        "The customer wrote: Second idea",
+        ANSWER_NOW
+      ].join("\n")
+    );
   });
 
   it("tapping the selected model pill again clears the choice", async () => {
@@ -193,16 +208,22 @@ describe("FaceRenderer", () => {
     await user.click(screen.getByTestId("agent-block-generate"));
     await screen.findByTestId("agent-block-output-tile");
 
-    // The engine got the full augmented prompt…
+    // The engine got the full instruction block…
     expect(runOnceMock(runtime).mock.calls[0][0].prompt).toBe(
-      "[model: Fast]\nA fox\nin a vibrant anime style"
+      [
+        "The customer selected style: 'Anime' — in a vibrant anime style.",
+        "The customer selected option: 'Fast'.",
+        "The customer wrote: A fox",
+        ANSWER_NOW
+      ].join("\n")
     );
-    // …but the page shows only what the customer typed: no hidden style
-    // instructions, no [model:] context — anywhere, including image alts.
+    // …but the page shows only what the customer typed: no instruction lines,
+    // no hidden style instructions — anywhere, including image alts.
     const page = document.body.textContent ?? "";
     expect(page).toContain("A fox");
-    expect(page).not.toContain("[model:");
+    expect(page).not.toContain("The customer");
     expect(page).not.toContain("anime style");
+    expect(page).not.toContain("Answer now using");
     expect(screen.getByTestId("agent-block-output-tile").querySelector("img")?.alt).toBe("A fox");
   });
 
@@ -308,7 +329,7 @@ describe("FaceRenderer", () => {
 
   // ----------------------------- Button block -----------------------------
 
-  it("a Button press runs with the hidden [button:] prefix that never reaches the DOM", async () => {
+  it("a Button press sends an instruction block that never reaches the DOM", async () => {
     const runtime = previewRuntime();
     const user = userEvent.setup();
     renderFace(runtime, {
@@ -324,14 +345,17 @@ describe("FaceRenderer", () => {
     await screen.findByTestId("agent-block-output-text");
 
     const calls = runOnceMock(runtime).mock.calls;
-    expect(calls[0][0].prompt).toContain("[button: Plan my yatra]");
-    // The customer sees the button's words as their prompt — never the prefix.
+    expect(calls[0][0].prompt).toBe(
+      ["The customer pressed the button: 'Plan my yatra'.", ANSWER_NOW].join("\n")
+    );
+    // The customer sees the button's words as their prompt — never the scaffold.
     const page = document.body.textContent ?? "";
-    expect(page).not.toContain("[button:");
+    expect(page).not.toContain("The customer pressed");
+    expect(page).not.toContain("Answer now using");
     expect(page).toContain("Plan my yatra");
   });
 
-  it("a Button press includes composer text, style, and model context in the engine prompt", async () => {
+  it("a Button press threads composer text, style, and model into the instruction block", async () => {
     const runtime = previewRuntime();
     const user = userEvent.setup();
     renderFace(runtime, {
@@ -359,13 +383,67 @@ describe("FaceRenderer", () => {
     await screen.findByTestId("agent-block-output-text");
 
     expect(runOnceMock(runtime).mock.calls[0][0].prompt).toBe(
-      "[button: Make it]\n[model: Best]\nA red fort at dawn\nin anime style"
+      [
+        "The customer pressed the button: 'Make it'.",
+        "The customer selected style: 'Anime' — in anime style.",
+        "The customer selected option: 'Best'.",
+        "The customer wrote: A red fort at dawn",
+        ANSWER_NOW
+      ].join("\n")
     );
     // Their own words are the shown prompt, not the button label.
     const page = document.body.textContent ?? "";
     expect(page).toContain("A red fort at dawn");
-    expect(page).not.toContain("[button:");
-    expect(page).not.toContain("[model:");
+    expect(page).not.toContain("The customer pressed");
+    expect(page).not.toContain("The customer selected");
+    expect(page).not.toContain("Answer now using");
+  });
+
+  it("a maximum-length draft never costs the closing answer-now instruction", () => {
+    // The engine prompt is capped at 4000 chars. The block must fit by
+    // trimming the tail of the WRITTEN text — a blunt slice at the call site
+    // would cut the block from the bottom and lose the answer-now order.
+    const prompt = composeEngineInstructions({
+      buttonLabel: "Plan my yatra",
+      written: "x".repeat(4000)
+    });
+
+    expect(prompt.length).toBeLessThanOrEqual(4000);
+    expect(prompt.startsWith("The customer pressed the button: 'Plan my yatra'.")).toBe(true);
+    expect(prompt).toContain("The customer wrote: xxx");
+    expect(prompt.endsWith(ANSWER_NOW)).toBe(true);
+  });
+
+  it("typed details plus a Button press reach the engine together (never re-ask)", async () => {
+    // The founder's live repro: the customer typed "7 days with my family",
+    // pressed 'Plan my yatra', and the brain asked "How many days?" — the
+    // engine prompt must carry the typed words with the pressed button.
+    const runtime = previewRuntime();
+    const user = userEvent.setup();
+    renderFace(runtime, {
+      blocks: [
+        { type: "block.prompt_composer", config: {} },
+        { type: "block.action_button", config: { label: "Plan my yatra" } },
+        { type: "block.output_stage", config: { kind: "auto" } }
+      ]
+    });
+
+    await user.type(screen.getByTestId("agent-block-prompt-input"), "7 days with my family");
+    await user.click(screen.getByTestId("agent-block-button-0"));
+    await screen.findByTestId("agent-block-output-text");
+
+    expect(runOnceMock(runtime).mock.calls[0][0].prompt).toBe(
+      [
+        "The customer pressed the button: 'Plan my yatra'.",
+        "The customer wrote: 7 days with my family",
+        ANSWER_NOW
+      ].join("\n")
+    );
+    // The page shows the customer their own words, never the scaffold.
+    const page = document.body.textContent ?? "";
+    expect(page).toContain("7 days with my family");
+    expect(page).not.toContain("The customer wrote");
+    expect(page).not.toContain("Answer now using");
   });
 
   it("multiple Buttons render as one row and run independently", async () => {
@@ -388,8 +466,8 @@ describe("FaceRenderer", () => {
 
     const calls = runOnceMock(runtime).mock.calls;
     expect(calls).toHaveLength(2);
-    expect(calls[0][0].prompt).toContain("[button: Plan my trip]");
-    expect(calls[1][0].prompt).toContain("[button: Surprise me]");
+    expect(calls[0][0].prompt).toContain("The customer pressed the button: 'Plan my trip'.");
+    expect(calls[1][0].prompt).toContain("The customer pressed the button: 'Surprise me'.");
     // Same page session, like every other block.
     expect(calls[1][0].sessionId).toBe(calls[0][0].sessionId);
   });

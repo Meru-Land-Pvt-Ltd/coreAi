@@ -2,10 +2,11 @@
 
 /**
  * Model Picker block — a row of pills. The selection is stored locally by the
- * renderer and travels as part of the prompt context ("[model: <label>]"
- * prefix using the human label the architect wrote, V1 — engine variables
- * come later). Nothing is preselected: an untouched picker adds nothing to
- * the prompt, and tapping the selected pill again clears the choice.
+ * renderer and travels to the engine as an instruction line ("The customer
+ * selected option: '<label>'." using the human label the architect wrote,
+ * V1 — engine variables come later). Nothing is preselected: an untouched
+ * picker adds nothing to the prompt, and tapping the selected pill again
+ * clears the choice.
  */
 
 export type FaceModelOption = {

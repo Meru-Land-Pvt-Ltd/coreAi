@@ -402,7 +402,10 @@ describe("POST /agent-pages/:slug/chat", () => {
         // architect's own builder test sessions.
         testSessionId: `page:${SLUG}:${json.data.sessionId}`,
         // Anonymous traffic must never read the architect's real calendar.
-        forceTestAvailability: true
+        forceTestAvailability: true,
+        // The listing's public name stands in for the business in dry-runs so
+        // {{business.name}} resolves to the agent's name, never a raw token.
+        testContext: { timeZone: "UTC", businessName: "Smile Agent" }
       })
     );
   });
@@ -567,7 +570,9 @@ describe("POST /agent-pages/:slug/run", () => {
       expect.objectContaining({
         userId: "architect-1",
         workflowId: "workflow-1",
-        input: { message: "Draw me a cat" },
+        // The listing's public name stands in for the business in dry-runs so
+        // {{business.name}} resolves to the agent's name, never a raw token.
+        input: { message: "Draw me a cat", businessName: "Smile Agent" },
         mode: "test"
       })
     );
