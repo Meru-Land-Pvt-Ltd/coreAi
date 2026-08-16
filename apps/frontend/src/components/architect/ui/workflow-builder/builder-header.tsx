@@ -186,7 +186,7 @@ export function BuilderHeader({
                       data-testid={`preview-device-${id}`}
                       className={cn(
                         "grid h-7 w-8 place-items-center rounded-full transition",
-                        active ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"
+                        active ? "bg-amber-500 text-white" : "text-slate-500 hover:bg-amber-50 hover:text-amber-700"
                       )}
                     >
                       <Icon className="h-3.5 w-3.5" aria-hidden="true" />

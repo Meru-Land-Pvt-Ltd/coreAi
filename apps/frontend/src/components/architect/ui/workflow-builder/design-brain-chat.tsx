@@ -148,7 +148,7 @@ export function DesignBrainChat({
                 onClick={() => void send(suggestion)}
                 disabled={!ready}
                 data-testid={`${t}-chip-${index}`}
-                className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+                className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
               >
                 {suggestion}
               </button>
@@ -170,7 +170,7 @@ export function DesignBrainChat({
               <div key={message.id} className="flex justify-end">
                 <p
                   data-testid={`${t}-message-user`}
-                  className="max-w-[85%] rounded-2xl rounded-br-md bg-rose-600 px-3 py-2 text-xs leading-5 text-white"
+                  className="max-w-[85%] rounded-2xl rounded-br-md bg-amber-500 px-3 py-2 text-xs leading-5 text-white"
                 >
                   {message.content}
                 </p>
@@ -222,14 +222,14 @@ export function DesignBrainChat({
           disabled={!workflowId}
           spellCheck={false}
           data-testid={`${t}-input`}
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-none outline-none ring-0 transition-colors placeholder:text-slate-400 focus:border-rose-400 focus:outline-none focus:ring-0 disabled:bg-slate-50"
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-none outline-none ring-0 transition-colors placeholder:text-slate-400 focus:border-amber-400 focus:outline-none focus:ring-0 disabled:bg-slate-50"
         />
         <button
           type="submit"
           disabled={!ready || !draft.trim()}
           data-testid={`${t}-send`}
           aria-label="Send"
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-rose-600 text-white transition hover:bg-rose-700 disabled:opacity-40"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-amber-500 text-white transition hover:bg-amber-600 disabled:opacity-40"
         >
           <BuilderIcon name="arrow-right" className="h-4 w-4" />
         </button>
