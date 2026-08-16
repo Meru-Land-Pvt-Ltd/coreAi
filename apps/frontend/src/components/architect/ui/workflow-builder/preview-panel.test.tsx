@@ -17,6 +17,7 @@ function makeProps(overrides?: Partial<PreviewPanelProps>): PreviewPanelProps {
     workflowName: "Dental Receptionist",
     hasVoiceNode: false,
     hasMediaNode: false,
+    device: "desktop",
     onSendChat: vi
       .fn()
       .mockResolvedValue({ reply: "Happy to help!", sessionId: "session-1" }),
@@ -48,12 +49,13 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("PreviewPanel", () => {
-  it("shows the caption and the real chat Face with the agent's name", () => {
+  it("shows the real chat Face with the agent's name — no toolbar chrome above it", () => {
     render(<PreviewPanel {...makeProps()} />);
 
-    expect(screen.getByTestId("preview-panel-caption").textContent).toBe(
-      "This is exactly what your customer will see."
-    );
+    // The device switcher lives in the main builder header now — the stage
+    // itself is full-bleed with no strip of its own.
+    expect(screen.queryByTestId("preview-device-switcher")).toBeNull();
+    expect(screen.queryByTestId("preview-panel-caption")).toBeNull();
     const chat = screen.getByTestId("agent-page-chat");
     expect(chat).toBeTruthy();
     expect(screen.getByTestId("agent-page-name").textContent).toBe("Dental Receptionist");
@@ -158,17 +160,6 @@ describe("PreviewPanel", () => {
     expect(screen.queryByTestId("preview-panel-error")).toBeNull();
   });
 
-  it("opens Advanced testing from the quiet toolbar link", async () => {
-    const props = makeProps();
-    const user = userEvent.setup();
-    render(<PreviewPanel {...props} />);
-
-    // The link lives inside the floating device toolbar now.
-    const toolbar = screen.getByTestId("preview-device-switcher");
-    await user.click(within(toolbar).getByTestId("preview-panel-advanced-toggle"));
-    expect(props.onOpenAdvanced).toHaveBeenCalledTimes(1);
-  });
-
   it("turns an engine crash into a friendly snag card — never a raw error", async () => {
     const props = makeProps({
       onSendChat: vi.fn().mockRejectedValue(new Error("ECONNREFUSED 10.0.0.4:5432"))
@@ -224,11 +215,6 @@ describe("PreviewPanel", () => {
     expect(screen.queryByTestId("preview-panel-face-slot-chat")).toBeNull();
     // The graph decides the product now — no look pills.
     expect(screen.queryByTestId("preview-panel-face-switcher")).toBeNull();
-    // The caption and the advanced door stay exactly as before.
-    expect(screen.getByTestId("preview-panel-caption").textContent).toBe(
-      "This is exactly what your customer will see."
-    );
-    expect(screen.getByTestId("preview-panel-advanced-toggle")).toBeTruthy();
   });
 
   it("never raises the snag card for a failed voice start — the Face explains it", async () => {
@@ -243,9 +229,12 @@ describe("PreviewPanel", () => {
   });
 });
 
-describe("PreviewPanel device switcher", () => {
-  it("defaults to desktop: the page runs full-bleed with no frame chrome", () => {
-    render(<PreviewPanel {...makeProps()} />);
+describe("PreviewPanel device frames", () => {
+  // The switcher itself lives in the main builder header (builder-header
+  // tests cover it) — the panel just renders whichever device it is handed.
+
+  it("desktop runs the page full-bleed with no frame chrome", () => {
+    render(<PreviewPanel {...makeProps({ device: "desktop" })} />);
 
     const surface = frame();
     expect(surface.getAttribute("data-device")).toBe("desktop");
@@ -254,30 +243,19 @@ describe("PreviewPanel device switcher", () => {
     expect(surface.className).not.toContain("max-w-");
     expect(surface.className).not.toContain("rounded");
     expect(surface.className).not.toContain("ring-");
-    expect(
-      screen.getByTestId("preview-device-desktop").getAttribute("aria-pressed")
-    ).toBe("true");
   });
 
-  it("tablet wraps the same page in a centered 820px frame", async () => {
-    const user = userEvent.setup();
-    render(<PreviewPanel {...makeProps()} />);
-
-    await user.click(screen.getByTestId("preview-device-tablet"));
+  it("tablet wraps the same page in a centered 820px frame", () => {
+    render(<PreviewPanel {...makeProps({ device: "tablet" })} />);
 
     const surface = frame();
     expect(surface.getAttribute("data-device")).toBe("tablet");
     expect(surface.className).toContain("max-w-[820px]");
-    expect(
-      screen.getByTestId("preview-device-tablet").getAttribute("aria-pressed")
-    ).toBe("true");
   });
 
-  it("phone wraps the page in a 390px handset frame with a bezel and notch", async () => {
-    const user = userEvent.setup();
-    render(<PreviewPanel {...makeProps()} />);
-
-    await user.click(screen.getByTestId("preview-device-phone"));
+  it("phone wraps the page in a 390px handset frame with a bezel and notch", () => {
+    const props = makeProps();
+    const { rerender } = render(<PreviewPanel {...props} device="phone" />);
 
     const surface = frame();
     expect(surface.getAttribute("data-device")).toBe("phone");
@@ -286,20 +264,21 @@ describe("PreviewPanel device switcher", () => {
     expect(screen.getByTestId("preview-panel-phone-notch")).toBeTruthy();
 
     // Back to desktop: full-bleed again, notch gone.
-    await user.click(screen.getByTestId("preview-device-desktop"));
+    rerender(<PreviewPanel {...props} device="desktop" />);
     expect(frame().getAttribute("data-device")).toBe("desktop");
     expect(screen.queryByTestId("preview-panel-phone-notch")).toBeNull();
   });
 
-  it("keeps the chat transcript when switching devices — the Face never remounts", async () => {
+  it("keeps the chat transcript when the device prop changes — the Face never remounts", async () => {
+    const props = makeProps();
     const user = userEvent.setup();
-    render(<PreviewPanel {...makeProps()} />);
+    const { rerender } = render(<PreviewPanel {...props} device="desktop" />);
 
     await user.type(screen.getByTestId("agent-page-composer"), "Hello there{Enter}");
     await screen.findByTestId("agent-page-assistant-message");
 
-    await user.click(screen.getByTestId("preview-device-phone"));
-    await user.click(screen.getByTestId("preview-device-desktop"));
+    rerender(<PreviewPanel {...props} device="phone" />);
+    rerender(<PreviewPanel {...props} device="desktop" />);
 
     expect(screen.getByTestId("agent-page-assistant-message").textContent).toBe(
       "Happy to help!"

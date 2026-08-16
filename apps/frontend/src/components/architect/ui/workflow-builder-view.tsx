@@ -95,6 +95,7 @@ import { parseEdges, parseNodes } from "./workflow-builder/parsers";
 import {
   PreviewPanel,
   type PreviewChatResult,
+  type PreviewDevice,
   type PreviewRunResult,
   type PreviewVoiceResult
 } from "./workflow-builder/preview-panel";
@@ -304,6 +305,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   // Test tab view: the customer-facing preview by default; "advanced" reveals
   // the full developer test console. Reset on every Test tab entry.
   const [testView, setTestView] = useState<"preview" | "advanced">("preview");
+  // Which device the Test preview shows. Lives here — not in the panel — so
+  // the compact switcher in the main header drives the preview stage.
+  const [previewDevice, setPreviewDevice] = useState<PreviewDevice>("desktop");
   // Saved customer-page design for the Test preview (null until fetched or
   // when the workflow has never been configured/published).
   const [previewPageData, setPreviewPageData] = useState<AgentPageManageData | null>(null);
@@ -2444,6 +2448,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         publishLocked={isPublishLocked}
         canUndo={canUndo}
         canRedo={canRedo}
+        previewDevice={previewDevice}
+        onPreviewDeviceChange={setPreviewDevice}
+        showPreviewControls={activeTab === "test"}
+        onOpenAdvanced={() => setTestView("advanced")}
         onUndo={undo}
         onRedo={redo}
         onAgentNameChange={setAgentName}
@@ -2755,6 +2763,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             workflowName={agentName}
             hasVoiceNode={hasVoiceNode}
             hasMediaNode={hasMediaNode}
+            device={previewDevice}
             page={previewPageData?.page ?? null}
             defaultTemplate={previewPageData?.defaultTemplate}
             blueprint={previewPageData?.blueprint ?? null}

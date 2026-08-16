@@ -1,8 +1,10 @@
 import type { Route } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { Monitor, Smartphone, Tablet } from "lucide-react";
 import { cn } from "@/components/architect/ui/architect-ui";
 import { BuilderIcon } from "./icons";
+import type { PreviewDevice } from "./preview-panel";
 import type { BuilderTab } from "./types";
 
 const BUILDER_STEPS: Array<{ id: BuilderTab; label: string; step: number }> = [
@@ -10,6 +12,13 @@ const BUILDER_STEPS: Array<{ id: BuilderTab; label: string; step: number }> = [
   { id: "test", label: "Preview", step: 2 },
   { id: "configure", label: "Configure", step: 3 },
   { id: "publish", label: "Publish", step: 4 }
+];
+
+/** The three ways to look at the customer page — shown on the Preview step. */
+const PREVIEW_DEVICES: Array<{ id: PreviewDevice; label: string; icon: typeof Monitor }> = [
+  { id: "desktop", label: "Desktop", icon: Monitor },
+  { id: "tablet", label: "Tablet", icon: Tablet },
+  { id: "phone", label: "Phone", icon: Smartphone }
 ];
 
 function HeaderButton({
@@ -52,6 +61,10 @@ export function BuilderHeader({
   publishLocked = false,
   canUndo = false,
   canRedo = false,
+  previewDevice = "desktop",
+  onPreviewDeviceChange,
+  showPreviewControls = false,
+  onOpenAdvanced,
   onUndo,
   onRedo,
   onAgentNameChange,
@@ -70,6 +83,13 @@ export function BuilderHeader({
   publishLocked?: boolean;
   canUndo?: boolean;
   canRedo?: boolean;
+  /** Device the Test preview shows; only read while showPreviewControls. */
+  previewDevice?: PreviewDevice;
+  onPreviewDeviceChange?: (device: PreviewDevice) => void;
+  /** True only on the Preview step — renders the compact device switcher. */
+  showPreviewControls?: boolean;
+  /** Opens the full testing console (the quiet "Advanced testing" link). */
+  onOpenAdvanced?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
   onAgentNameChange: (value: string) => void;
@@ -143,6 +163,47 @@ export function BuilderHeader({
         </div>
 
         <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] sm:gap-2 [&::-webkit-scrollbar]:hidden">
+          {showPreviewControls ? (
+            <>
+              {/* Compact device switcher — same height family as the header
+                  buttons, zero extra chrome. The tooltip carries the promise
+                  the old caption used to spell out. */}
+              <div
+                data-testid="preview-device-switcher"
+                title="This is exactly what your customer will see."
+                className="flex h-8 flex-none items-center rounded-full border border-slate-200 bg-white p-0.5"
+              >
+                {PREVIEW_DEVICES.map(({ id, label, icon: Icon }) => {
+                  const active = previewDevice === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => onPreviewDeviceChange?.(id)}
+                      aria-label={label}
+                      title={label}
+                      aria-pressed={active}
+                      data-testid={`preview-device-${id}`}
+                      className={cn(
+                        "grid h-7 w-8 place-items-center rounded-full transition",
+                        active ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100"
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={onOpenAdvanced}
+                data-testid="preview-panel-advanced-toggle"
+                className="hidden flex-none text-[11px] font-medium text-slate-400 underline-offset-4 transition hover:text-slate-600 hover:underline sm:block"
+              >
+                Advanced testing
+              </button>
+            </>
+          ) : null}
           <div className="hidden items-center gap-1 md:flex">
             <button
               type="button"
@@ -181,8 +242,8 @@ export function BuilderHeader({
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 sm:gap-2 sm:rounded-xl sm:px-3.5 sm:py-2 sm:text-sm"
           >
             <BuilderIcon name="play" className="h-3.5 w-3.5 shrink-0" />
-            <span className="sm:hidden">{running ? "…" : "Test"}</span>
-            <span className="hidden sm:inline">{running ? "Running..." : "Test Workflow"}</span>
+            <span className="sm:hidden">{running ? "…" : "Run"}</span>
+            <span className="hidden sm:inline">{running ? "Running..." : "Run"}</span>
           </button>
           <button
             type="button"

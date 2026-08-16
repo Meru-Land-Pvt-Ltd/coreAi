@@ -4,11 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ClipboardList,
   MessageCircle,
-  Monitor,
   Phone,
-  Smartphone,
   Sparkles,
-  Tablet,
   Wand2,
   X
 } from "lucide-react";
@@ -32,8 +29,9 @@ import type {
  *
  * Renders THE REAL customer Face (the same chat/voice/media/form templates
  * that ship on the public /a/<slug> pages) exactly like the live landing
- * page: full-bleed across the whole tab by default, with a floating device
- * switcher (desktop / tablet / phone) that wraps the very same page in a
+ * page: full-bleed across the whole tab by default. The device on show
+ * (desktop / tablet / phone) arrives as a prop — the switcher lives in the
+ * main builder header — and tablet/phone wrap the very same page in a
  * centered device frame instead. When the graph carries product blocks
  * (`blueprint`), the page is block-assembled (FaceRenderer) — exactly like
  * the live page. The engines arrive as props; the one exception is the
@@ -54,6 +52,11 @@ export type PreviewPanelProps = {
   workflowName: string;
   hasVoiceNode: boolean;
   hasMediaNode: boolean;
+  /**
+   * Which device frame the stage shows. Owned by the view and switched from
+   * the main builder header — the panel only renders what it is told.
+   */
+  device: PreviewDevice;
   /**
    * The agent's saved customer-page design (GET /agent-pages/manage/:id).
    * When present, the preview shows it verbatim — accent, headline, welcome,
@@ -125,23 +128,16 @@ const FACES: {
   { id: "form", label: "Form", icon: ClipboardList }
 ];
 
-/** The three ways an architect can look at their page — like a customer would. */
-type PreviewDevice = "desktop" | "tablet" | "phone";
-
-const DEVICES: {
-  id: PreviewDevice;
-  label: string;
-  icon: typeof Monitor;
-}[] = [
-  { id: "desktop", label: "Desktop", icon: Monitor },
-  { id: "tablet", label: "Tablet", icon: Tablet },
-  { id: "phone", label: "Phone", icon: Smartphone }
-];
+/**
+ * The three ways an architect can look at their page — like a customer
+ * would. Exported so the header switcher and the view share one vocabulary.
+ */
+export type PreviewDevice = "desktop" | "tablet" | "phone";
 
 /**
  * The stage each device sits on. Desktop is the page itself — edge to edge,
  * nothing behind it. Tablet and phone center a device frame on a quiet
- * neutral stage, with room reserved under the floating toolbar.
+ * neutral stage.
  */
 const STAGE_CLASSES: Record<PreviewDevice, string> = {
   desktop: "absolute inset-0",
@@ -174,6 +170,7 @@ export function PreviewPanel({
   workflowName,
   hasVoiceNode,
   hasMediaNode,
+  device,
   page = null,
   defaultTemplate,
   blueprint = null,
@@ -186,9 +183,6 @@ export function PreviewPanel({
   onOpenAdvanced,
   onDesignApplied
 }: PreviewPanelProps) {
-  // Which device the architect is previewing as. Desktop is the default —
-  // the full-bleed page, exactly like visiting the live link.
-  const [device, setDevice] = useState<PreviewDevice>("desktop");
   // The floating Design Brain panel behind the bottom-right launcher.
   const [designOpen, setDesignOpen] = useState(false);
   const designPanelRef = useRef<HTMLElement | null>(null);
@@ -262,7 +256,7 @@ export function PreviewPanel({
   );
 
   // The page config the Face renders. With a saved design we show it verbatim
-  // (the caption promises "exactly what your customer will see"); otherwise a
+  // (the preview promises "exactly what your customer will see"); otherwise a
   // minimal, real-looking default. Limits are a published-page concept;
   // preview templates ignore them entirely.
   const data = useMemo<AgentPageData>(
@@ -302,63 +296,14 @@ export function PreviewPanel({
 
   return (
     <div
-      className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-100"
+      className="relative h-full min-h-0 w-full overflow-hidden bg-slate-100"
       data-testid="preview-panel"
     >
-      {/* Enterprise preview chrome: the device switcher lives in its own slim
-          top bar — like Figma or Webflow — so it can never cover the page. */}
-      <div
-        data-testid="preview-device-switcher"
-        className="flex h-12 flex-none items-center justify-center gap-1 border-b border-slate-200 bg-white px-3"
-      >
-        {DEVICES.map(({ id, label, icon: Icon }) => {
-          const active = device === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={active}
-              onClick={() => setDevice(id)}
-              data-testid={`preview-device-${id}`}
-              className={
-                (active
-                  ? "inline-flex flex-none items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition"
-                  : "inline-flex flex-none items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900") +
-                PILL_FOCUS_CLASSES
-              }
-            >
-              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden sm:inline">{label}</span>
-            </button>
-          );
-        })}
-
-        <span className="mx-1 hidden h-4 w-px flex-none bg-slate-200 md:block" aria-hidden="true" />
-        <p
-          className="hidden min-w-0 max-w-[260px] truncate text-[11px] font-medium text-slate-400 md:block"
-          data-testid="preview-panel-caption"
-        >
-          This is exactly what your customer will see.
-        </p>
-        <span className="mx-1 h-4 w-px flex-none bg-slate-200" aria-hidden="true" />
-        <button
-          type="button"
-          onClick={onOpenAdvanced}
-          data-testid="preview-panel-advanced-toggle"
-          className={
-            "flex-none rounded-full px-1.5 py-1 text-[11px] font-medium text-slate-400 underline-offset-4 transition hover:text-slate-600 hover:underline" +
-            PILL_FOCUS_CLASSES
-          }
-        >
-          Advanced testing
-        </button>
-      </div>
-
-      <div className="relative min-h-0 flex-1">
       {/* The page, exactly as a customer meets it. One frame element for all
           three devices so switching widths never remounts (or wipes) the Face
           inside — desktop is the page full-bleed, tablet and phone wrap the
-          same page in a centered device frame. */}
+          same page in a centered device frame. The device switcher lives in
+          the main builder header, so nothing here ever covers the page. */}
       <div className={STAGE_CLASSES[device]}>
         <div className={FRAME_CLASSES[device]} data-device={device} data-testid="preview-panel-frame">
           <AgentPageShell data={data} runtime={runtime}>
@@ -418,7 +363,7 @@ export function PreviewPanel({
       </div>
 
       {/* While the agent is under review (or after an engine snag) a quiet
-          card floats just under the toolbar — the page stays visible. */}
+          card floats near the top — the page stays visible. */}
       {underReview ? (
         <div
           role="status"
@@ -451,7 +396,7 @@ export function PreviewPanel({
 
       {/* With product blocks on the canvas, the graph decides the product —
           the look pills would contradict it, so they step aside. Otherwise
-          they float quietly at the bottom, matching the toolbar. */}
+          they float quietly at the bottom. */}
       {blueprint ? null : (
         <div
           role="group"
@@ -556,7 +501,6 @@ export function PreviewPanel({
         </div>
         <DesignBrainChat variant="docked" workflowId={workflowId} onApplied={onDesignApplied} />
       </section>
-      </div>
     </div>
   );
 }
