@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { deriveFaceBlueprint } from "./blueprint";
-import { applyGraphOps, blockCatalogForPrompt, currentBlocksForPrompt } from "./graph-patch";
+import {
+  apiCallCatalogForPrompt,
+  applyGraphOps,
+  blockCatalogForPrompt,
+  currentApiCallsForPrompt,
+  currentBlocksForPrompt,
+  visualResultsGuidanceForPrompt
+} from "./graph-patch";
 
 /**
  * Foundation graph mutation service: adds blocks in the builder's exact canvas
@@ -522,6 +529,307 @@ describe("currentBlocksForPrompt", () => {
     expect(currentBlocksForPrompt(null)).toBe("");
     expect(currentBlocksForPrompt("broken")).toBe("");
     expect(currentBlocksForPrompt({ nodes: [aiNode("ai-1")], edges: [] })).toBe("");
+  });
+});
+
+/** An API Call data step in the builder's connector shape, for update/remove tests. */
+function apiCallNode(
+  id: string,
+  config: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    id,
+    type: "coreNode",
+    position: { x: 780, y: 380 },
+    data: {
+      type: "action.api_call",
+      nodeKind: "connector",
+      connector: "API Call",
+      connectorAction: "http_request",
+      label: "Connect to a service",
+      title: "Connect to a service",
+      apiMethod: "GET",
+      apiUrl: "",
+      apiKeySource: "none",
+      apiKeyInjection: "query",
+      apiOutputKey: "api.response",
+      ...config
+    }
+  };
+}
+
+describe("applyGraphOps addBlock action.api_call", () => {
+  it("adds the API Call data step in connector shape, off the block column, wired to the single brain", () => {
+    const result = applyGraphOps({
+      workflowJson: baseGraph(),
+      ops: [
+        {
+          op: "addBlock",
+          blockType: "action.api_call",
+          config: {
+            apiKeySource: "platform_youtube",
+            apiUrl: "https://www.googleapis.com/youtube/v3/channels?part=statistics&forHandle=@MrBeast",
+            apiKeyParam: "key"
+          }
+        }
+      ],
+      idSeed: "t"
+    });
+
+    expect(result.changed).toBe(true);
+    const graph = graphOf(result);
+    const added = nodeById(graph, "blk-api-t1");
+    expect(added).toBeDefined();
+    const data = added?.data as Record<string, unknown>;
+    // Runner-facing dispatch fields + validated config.
+    expect(data.type).toBe("action.api_call");
+    expect(data.nodeKind).toBe("connector");
+    expect(data.connector).toBe("API Call");
+    expect(data.apiKeySource).toBe("platform_youtube");
+    expect(data.apiKeyParam).toBe("key");
+    expect(data.apiUrl).toContain("googleapis.com/youtube/v3/channels");
+    // Sits with the brain (x=780), never in the Face block column (x=0).
+    expect((added?.position as Record<string, unknown>).x).toBe(780);
+
+    // Wired api_call -> brain so it runs before the brain and feeds context.
+    expect(
+      graph.edges.some((edge) => edge.source === "blk-api-t1" && edge.target === "ai-brain")
+    ).toBe(true);
+
+    // The Face blueprint is untouched — a data step is not a page section.
+    const blueprint = deriveFaceBlueprint(result.workflowJson);
+    expect(blueprint?.blocks.map((block) => block.type)).toEqual([
+      "block.prompt_composer",
+      "block.output_stage"
+    ]);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("normalizes method case, rejects out-of-enum key source and unknown keys with notes", () => {
+    const result = applyGraphOps({
+      workflowJson: baseGraph(),
+      ops: [
+        {
+          op: "addBlock",
+          blockType: "action.api_call",
+          config: {
+            apiMethod: "post",
+            apiKeySource: "root_shell",
+            apiKeyPrefix: "Bearer ",
+            hackedField: "nope"
+          }
+        }
+      ],
+      idSeed: "t"
+    });
+
+    const data = nodeById(graphOf(result), "blk-api-t1")?.data as Record<string, unknown>;
+    expect(data.apiMethod).toBe("POST");
+    // Bad enum falls back to the registry default.
+    expect(data.apiKeySource).toBe("none");
+    // A header prefix keeps its meaningful trailing space (never trimmed).
+    expect(data.apiKeyPrefix).toBe("Bearer ");
+    expect(data.hackedField).toBeUndefined();
+    expect(result.notes.some((note) => note.includes("apiKeySource"))).toBe(true);
+    expect(result.notes.some((note) => note.includes("hackedField"))).toBe(true);
+  });
+
+  it("refuses internal/reserved and non-http URL literals, keeping the empty default (belt-and-braces)", () => {
+    for (const badUrl of [
+      "http://localhost:3000/admin",
+      "http://127.0.0.1/x",
+      "http://169.254.169.254/latest/meta-data/",
+      "http://10.0.0.5/internal",
+      "http://192.168.1.1/x",
+      "http://172.16.0.9/x",
+      "https://db.internal/query",
+      "file:///etc/passwd",
+      "http://[::1]/x"
+    ]) {
+      const result = applyGraphOps({
+        workflowJson: baseGraph(),
+        ops: [{ op: "addBlock", blockType: "action.api_call", config: { apiUrl: badUrl } }],
+        idSeed: "t"
+      });
+      const data = nodeById(graphOf(result), "blk-api-t1")?.data as Record<string, unknown>;
+      expect(data.apiUrl, badUrl).toBe("");
+      expect(result.notes.some((note) => note.includes("apiUrl")), badUrl).toBe(true);
+    }
+  });
+
+  it("accepts public and templated URLs", () => {
+    for (const goodUrl of [
+      "https://api.github.com/repos/openai/whisper",
+      "https://www.googleapis.com/youtube/v3/channels?part=statistics",
+      "https://{{apiHost}}/v1/data"
+    ]) {
+      const result = applyGraphOps({
+        workflowJson: baseGraph(),
+        ops: [{ op: "addBlock", blockType: "action.api_call", config: { apiUrl: goodUrl } }],
+        idSeed: "t"
+      });
+      const data = nodeById(graphOf(result), "blk-api-t1")?.data as Record<string, unknown>;
+      expect(data.apiUrl, goodUrl).toBe(goodUrl);
+    }
+  });
+
+  it("rejects a prototype-pollution output key but keeps a normal dotted one", () => {
+    const bad = applyGraphOps({
+      workflowJson: baseGraph(),
+      ops: [{ op: "addBlock", blockType: "action.api_call", config: { apiOutputKey: "__proto__.polluted" } }],
+      idSeed: "t"
+    });
+    const badData = nodeById(graphOf(bad), "blk-api-t1")?.data as Record<string, unknown>;
+    expect(badData.apiOutputKey).toBe("api.response"); // default kept
+
+    const ok = applyGraphOps({
+      workflowJson: baseGraph(),
+      ops: [{ op: "addBlock", blockType: "action.api_call", config: { apiOutputKey: "weather.today" } }],
+      idSeed: "t"
+    });
+    const okData = nodeById(graphOf(ok), "blk-api-t1")?.data as Record<string, unknown>;
+    expect(okData.apiOutputKey).toBe("weather.today");
+  });
+
+  it("adds unwired and asks which brain when there is not exactly one brain", () => {
+    const graph = baseGraph();
+    graph.nodes.push(aiNode("ai-brain-2"));
+    const result = applyGraphOps({
+      workflowJson: graph,
+      ops: [{ op: "addBlock", blockType: "action.api_call" }],
+      idSeed: "t"
+    });
+    expect(result.changed).toBe(true);
+    expect(graphOf(result).edges.some((edge) => edge.source === "blk-api-t1")).toBe(false);
+    expect(result.notes).toContain("Tell me which brain to connect it to");
+  });
+});
+
+describe("applyGraphOps updateBlockConfig / removeBlock on action.api_call", () => {
+  it("reconfigures an existing API Call by nodeId with the same validation", () => {
+    const graph = baseGraph();
+    graph.nodes.push(apiCallNode("blk-api-1", { apiUrl: "https://old.example.com" }));
+
+    const result = applyGraphOps({
+      workflowJson: graph,
+      ops: [
+        {
+          op: "updateBlockConfig",
+          nodeId: "blk-api-1",
+          config: {
+            apiUrl: "https://api.weather.gov/points/40,-105",
+            apiMethod: "post",
+            apiUrl_evil: "http://169.254.169.254"
+          }
+        }
+      ]
+    });
+
+    expect(result.changed).toBe(true);
+    const data = nodeById(graphOf(result), "blk-api-1")?.data as Record<string, unknown>;
+    expect(data.apiUrl).toBe("https://api.weather.gov/points/40,-105");
+    expect(data.apiMethod).toBe("POST");
+    expect(result.notes.some((note) => note.includes("apiUrl_evil"))).toBe(true);
+  });
+
+  it("refuses to point an existing API Call at an internal host, keeping the old URL", () => {
+    const graph = baseGraph();
+    graph.nodes.push(apiCallNode("blk-api-1", { apiUrl: "https://api.example.com" }));
+    const result = applyGraphOps({
+      workflowJson: graph,
+      ops: [{ op: "updateBlockConfig", nodeId: "blk-api-1", config: { apiUrl: "http://10.1.2.3/x" } }]
+    });
+    expect(result.changed).toBe(false);
+    const data = nodeById(graphOf(result), "blk-api-1")?.data as Record<string, unknown>;
+    expect(data.apiUrl).toBe("https://api.example.com");
+    expect(result.notes).toHaveLength(1);
+  });
+
+  it("removes an API Call data step and every edge attached to it", () => {
+    const graph = baseGraph();
+    graph.nodes.push(apiCallNode("blk-api-1"));
+    graph.edges.push({
+      id: "edge-blk-api-1-ai-brain",
+      source: "blk-api-1",
+      target: "ai-brain",
+      animated: true,
+      style: { stroke: "#f59e0b", strokeWidth: 2.6 }
+    });
+
+    const result = applyGraphOps({
+      workflowJson: graph,
+      ops: [{ op: "removeBlock", nodeId: "blk-api-1" }]
+    });
+    expect(result.changed).toBe(true);
+    const next = graphOf(result);
+    expect(nodeById(next, "blk-api-1")).toBeUndefined();
+    expect(next.edges.some((edge) => edge.source === "blk-api-1")).toBe(false);
+    // The brain survives.
+    expect(nodeById(next, "ai-brain")).toBeDefined();
+  });
+});
+
+describe("currentApiCallsForPrompt", () => {
+  it("lists API Call steps with real nodeIds and non-empty config, and skips empty defaults", () => {
+    const graph = baseGraph();
+    graph.nodes.push(
+      apiCallNode("blk-api-1", {
+        apiUrl: "https://www.googleapis.com/youtube/v3/channels",
+        apiKeySource: "platform_youtube",
+        apiKeyParam: "key"
+      })
+    );
+    const listing = currentApiCallsForPrompt(graph);
+    expect(listing).toContain("blk-api-1");
+    expect(listing).toContain("action.api_call");
+    expect(listing).toContain("apiKeySource");
+    expect(listing).toContain("platform_youtube");
+    // Empty-string config (apiKeyName default "") is skipped for readability.
+    expect(listing).not.toContain('apiKeyName');
+  });
+
+  it("returns an empty string when there are no API Call steps", () => {
+    expect(currentApiCallsForPrompt(baseGraph())).toBe("");
+    expect(currentApiCallsForPrompt(null)).toBe("");
+  });
+});
+
+describe("apiCallCatalogForPrompt & visualResultsGuidanceForPrompt", () => {
+  it("teaches the API Call node, its config keys, allowed values, and the YouTube preset", () => {
+    const catalog = apiCallCatalogForPrompt();
+    expect(catalog).toContain("action.api_call");
+    for (const key of [
+      "apiMethod",
+      "apiUrl",
+      "apiHeaders",
+      "apiBody",
+      "apiKeySource",
+      "apiKeyName",
+      "apiKeyInjection",
+      "apiKeyParam",
+      "apiKeyPrefix",
+      "apiOutputKey"
+    ]) {
+      expect(catalog, key).toContain(key);
+    }
+    expect(catalog).toContain("GET, POST");
+    expect(catalog).toContain("platform_youtube");
+    // The zero-setup YouTube preset with a real endpoint.
+    expect(catalog).toContain("googleapis.com/youtube/v3/channels");
+    // Never reaches internal addresses.
+    expect(catalog.toLowerCase()).toContain("public service");
+  });
+
+  it("teaches the visual-results JSON contract for stat cards, charts, and tables", () => {
+    const guidance = visualResultsGuidanceForPrompt();
+    expect(guidance).toContain("stats");
+    expect(guidance).toContain("chart");
+    expect(guidance).toContain("table");
+    expect(guidance).toContain('"bar"|"line"|"pie"');
+    expect(guidance).toContain("deltaDir");
+    expect(guidance).toContain("Result Viewer");
+    // Honest: the Design Brain can't edit the brain itself.
+    expect(guidance).toContain("cannot edit the AI brain");
   });
 });
 

@@ -22,9 +22,12 @@ import {
   type DesignConfig
 } from "./design";
 import {
+  apiCallCatalogForPrompt,
   applyGraphOps,
   blockCatalogForPrompt,
-  currentBlocksForPrompt
+  currentApiCallsForPrompt,
+  currentBlocksForPrompt,
+  visualResultsGuidanceForPrompt
 } from "./graph-patch";
 import { ensureDraftAgentListingAndPage, type AgentPageTemplate } from "./slug";
 
@@ -161,6 +164,7 @@ export function buildDesignChatSystemPrompt(
 ): string {
   const rules = houseRules.trim();
   const currentBlocks = currentBlocksForPrompt(workflowJson);
+  const currentApiCalls = currentApiCallsForPrompt(workflowJson);
   // The Arrange editor's layout is not a dial the model may set, so it never
   // enters the prompt — a large arrangement would only bloat it and tempt the
   // model into echoing keys the gate strips anyway.
@@ -190,15 +194,24 @@ export function buildDesignChatSystemPrompt(
     "PAGE SECTIONS (every kind of section the page can have, with its editable properties):",
     blockCatalogForPrompt(),
     "",
+    "DATA STEPS (connect the agent to any live service on the internet — added and configured through graphOps, just like a section):",
+    apiCallCatalogForPrompt(),
+    "",
+    visualResultsGuidanceForPrompt(),
+    "",
     "SECTIONS CURRENTLY ON THE PAGE, top to bottom (use these EXACT nodeIds in ops):",
     currentBlocks || "(none yet — the page has no sections)",
     "",
+    ...(currentApiCalls
+      ? ["DATA STEPS CURRENTLY ON THE PAGE (use these EXACT nodeIds in ops):", currentApiCalls, ""]
+      : []),
     'SECTION CHANGES: the patch may also carry "graphOps", an array of these four operations and nothing else:',
     '- { "op": "addBlock", "blockType": "block.…", "config": { … }, "position": "start" | "end" | { "after": "<nodeId>" } }',
     '- { "op": "removeBlock", "nodeId": "<nodeId>" }',
     '- { "op": "reorderBlock", "nodeId": "<nodeId>", "to": "start" | "end" | { "after": "<nodeId>" } }',
     '- { "op": "updateBlockConfig", "nodeId": "<nodeId>", "config": { … } }',
-    "Use only nodeIds from the sections list and only each section's editable properties. Sections only: brains, inputs, connectors, and the Design Brain can never be touched through graphOps.",
+    'To add a data step, use "addBlock" with blockType "action.api_call" and the DATA STEPS config keys; configure or remove an existing one with its nodeId from the DATA STEPS listing.',
+    "Use only nodeIds from the listings above and only the editable properties shown. Sections and the API Call data step are the only things you can change: brains, triggers, other connectors, and the Design Brain can never be touched through graphOps.",
     "",
     "EXAMPLES:",
     'Architect: "add a button called Book now"',
@@ -213,6 +226,8 @@ export function buildDesignChatSystemPrompt(
     // When the registry gains such a key, turn this into a worked
     // updateBlockConfig example.
     'You: {"reply":"There is no character limit setting for the prompt box yet — I can change its hint text, or add, move, and remove sections.","patch":{}}',
+    'Architect: "connect this to YouTube channel stats using the platform key and show subscribers, views and videos as stat cards"',
+    'You: {"reply":"Done — I added a data step that pulls live YouTube channel stats with the platform key. Tell your AI brain to reply with subscribers, views and videos as stat cards and the Result Viewer will show them as cards.","patch":{"graphOps":[{"op":"addBlock","blockType":"action.api_call","config":{"apiKeySource":"platform_youtube","apiUrl":"https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&forHandle=@MrBeast","apiKeyInjection":"query","apiKeyParam":"key","apiOutputKey":"api.response"}}]}}',
     "",
     "OUTPUT RULES:",
     '- Output ONLY a single JSON object matching exactly: { "reply": string, "patch": { ...allowed keys only... } }. No markdown, no code fences, no commentary before or after.',

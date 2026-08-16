@@ -1,4 +1,7 @@
 import {
+  API_CALL_DEFAULT_OUTPUT_KEY,
+  API_CALL_MAX_PER_RUN,
+  API_CALL_NODE_TYPE,
   CALENDLY_LEGACY_TRIGGER_TYPES,
   CALENDLY_NODE_TYPES,
   CORE_CONNECTOR_ACTIONS,
@@ -13,6 +16,8 @@ import {
   normalizeTimeZone,
   zonedWallClockToUtc
 } from "@coreai/shared";
+import { safeFetch, SafeFetchError, type SafeFetchErrorCode } from "../../lib/safe-fetch";
+import { getArchitectSecretValue, getPlatformYouTubeKey } from "./architect-secrets";
 import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
 import { transcribeWithDeepgram, speakWithDeepgram } from "../ai-provider-engine/deepgram-stt";
 import { createTestCalendarEvent } from "./test-calendar-events";
@@ -232,6 +237,17 @@ type RunnerNodeData = {
   imageSize?: unknown;
   connector?: unknown;
   connectorAction?: unknown;
+  // API Call node config
+  apiMethod?: unknown;
+  apiUrl?: unknown;
+  apiHeaders?: unknown;
+  apiBody?: unknown;
+  apiKeySource?: unknown;
+  apiKeyName?: unknown;
+  apiKeyInjection?: unknown;
+  apiKeyParam?: unknown;
+  apiKeyPrefix?: unknown;
+  apiOutputKey?: unknown;
   gmailQuery?: unknown;
   gmailTo?: unknown;
   gmailSubject?: unknown;
@@ -4013,7 +4029,272 @@ async function runConnectorNode({
     return;
   }
 
+  // API Call — the universal "connect to a service" action. One node reaches
+  // any service on the internet through the SSRF-hardened safeFetch. Matched by
+  // type too, so a hand-written/Design-Brain graph that omits `connector` still
+  // routes here instead of falling through to SMS.
+  if (
+    nodeType === API_CALL_NODE_TYPE ||
+    connector === "api call" ||
+    connector === "http" ||
+    connector === "api"
+  ) {
+    await executeApiCallNode({ userId, node, context, logs });
+    return;
+  }
+
   logs.push(createLog(node, "error", `Unsupported connector: ${connector}`));
+}
+
+/* ------------------------------------------------------------------------ */
+/* API Call node runtime                                                     */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Per-run counter of API Call executions, keyed by the run's context object.
+ * A WeakMap (not a context key) so workflow-controlled template writes can
+ * never reset the counter to dodge the per-run cap.
+ */
+const apiCallCountByContext = new WeakMap<object, number>();
+
+/** Turn a multi-line "Name: Value" block into a header map, rendering templates. */
+function parseApiHeaderLines(raw: string, context: RunnerContext): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const idx = trimmed.indexOf(":");
+    if (idx <= 0) continue;
+    const name = trimmed.slice(0, idx).trim();
+    if (!name) continue;
+    headers[name] = renderTemplate(trimmed.slice(idx + 1).trim(), context);
+  }
+  return headers;
+}
+
+/**
+ * Path segments that could reach an object's prototype chain. The API Call
+ * output key is architect-controlled (typed free-form in the Build inspector),
+ * so a value like "__proto__.polluted" must never be walked — it would let a
+ * single published page pollute a prototype shared by every tenant's run.
+ */
+const UNSAFE_CONTEXT_SEGMENTS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
+ * Write `value` at a possibly-dotted context path, creating intermediate
+ * objects. "api.response" -> context.api.response = value. Never clobbers a
+ * sibling branch. Refuses the entire write when any segment could reach the
+ * prototype chain (prototype-pollution guard).
+ */
+function setNestedContextValue(context: RunnerContext, path: string, value: unknown) {
+  const parts = path.split(".").filter(Boolean);
+  if (parts.length === 0) return;
+  if (parts.some((seg) => UNSAFE_CONTEXT_SEGMENTS.has(seg))) return;
+  if (parts.length === 1) {
+    (context as Record<string, unknown>)[parts[0]] = value;
+    return;
+  }
+  let cursor: Record<string, unknown> = context as Record<string, unknown>;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const seg = parts[i];
+    const next = cursor[seg];
+    if (typeof next !== "object" || next === null) cursor[seg] = {};
+    cursor = cursor[seg] as Record<string, unknown>;
+  }
+  cursor[parts[parts.length - 1]] = value;
+}
+
+/** Jargon-free message for each safeFetch block/failure. Never leaks the key. */
+function friendlyApiCallError(code: SafeFetchErrorCode, label: string): string {
+  switch (code) {
+    case "BLOCKED_HOST":
+    case "BLOCKED_SCHEME":
+    case "BLOCKED_PORT":
+    case "REDIRECT_INVALID":
+      return `That web address isn't allowed for safety reasons (${label}).`;
+    case "DNS_ERROR":
+      return `Couldn't find that web address (${label}).`;
+    case "TIMEOUT":
+      return `The service took too long to respond (${label}).`;
+    case "TOO_LARGE":
+      return "The service's reply was too large to handle.";
+    case "TOO_MANY_REDIRECTS":
+      return `That web address redirected too many times (${label}).`;
+    case "INVALID_URL":
+      return "That doesn't look like a valid web address.";
+    case "NETWORK_ERROR":
+    default:
+      return `Couldn't connect to the service (${label}).`;
+  }
+}
+
+/**
+ * Execute an API Call node: resolve templated url/headers/body, inject the
+ * referenced key (an architect secret by name, or the platform YouTube key),
+ * call safeFetch, parse the reply, and store it at the output key so a
+ * downstream AI Brain can read it. Never throws — every failure is recorded
+ * as a run log plus `<outputKey>_error` in context, keeping the run alive.
+ */
+export async function executeApiCallNode({
+  userId,
+  node,
+  context,
+  logs
+}: {
+  userId: string;
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+}): Promise<void> {
+  const outputKey =
+    firstNonEmptyString(asString(node.data?.apiOutputKey)) || API_CALL_DEFAULT_OUTPUT_KEY;
+  const errorKey = `${outputKey}_error`;
+
+  const fail = (message: string) => {
+    (context as Record<string, unknown>)[errorKey] = message;
+    logs.push(createLog(node, "error", message));
+  };
+
+  // Per-run cap: count every execution, block once over the ceiling.
+  const count = (apiCallCountByContext.get(context as object) ?? 0) + 1;
+  apiCallCountByContext.set(context as object, count);
+  if (count > API_CALL_MAX_PER_RUN) {
+    fail(
+      `This run already made ${API_CALL_MAX_PER_RUN} live data requests — skipping this one to keep the run safe.`
+    );
+    return;
+  }
+
+  const method = asString(node.data?.apiMethod, "GET").toUpperCase() === "POST" ? "POST" : "GET";
+  const rawUrl = renderTemplate(node.data?.apiUrl, context).trim();
+  if (!rawUrl) {
+    fail("Add the web address (URL) this step should call.");
+    return;
+  }
+
+  const headers = parseApiHeaderLines(asString(node.data?.apiHeaders), context);
+  const keySource = asString(node.data?.apiKeySource, "none");
+  const keyInjection = asString(node.data?.apiKeyInjection, "query") === "header" ? "header" : "query";
+  const keyParam = asString(node.data?.apiKeyParam).trim();
+  const keyPrefix = asString(node.data?.apiKeyPrefix);
+
+  // Resolve the key value at call time — decrypt here, never log or persist it.
+  let keyValue: string | null = null;
+  if (keySource === "my_key") {
+    const keyName = asString(node.data?.apiKeyName).trim();
+    if (!keyName) {
+      fail("Choose which of your saved keys this step should use.");
+      return;
+    }
+    try {
+      keyValue = await getArchitectSecretValue(userId, keyName);
+    } catch {
+      keyValue = null;
+    }
+    if (!keyValue) {
+      fail(`Couldn't find a saved key named "${keyName}" in My Keys.`);
+      return;
+    }
+  } else if (keySource === "platform_youtube") {
+    keyValue = getPlatformYouTubeKey();
+    if (!keyValue) {
+      fail("The platform YouTube key isn't set up yet — add your own key in My Keys instead.");
+      return;
+    }
+  }
+
+  // Build the request URL, injecting a query-param key when asked.
+  let urlString = rawUrl;
+  if (keyValue && keyInjection === "query") {
+    try {
+      const built = new URL(rawUrl);
+      built.searchParams.set(keyParam || "key", keyValue);
+      urlString = built.toString();
+    } catch {
+      // Invalid URL — leave as-is so safeFetch reports INVALID_URL cleanly.
+      urlString = rawUrl;
+    }
+  }
+  if (keyValue && keyInjection === "header") {
+    const headerName = keyParam || "Authorization";
+    headers[headerName] = keyPrefix ? `${keyPrefix}${keyValue}` : keyValue;
+  }
+
+  // Log/label only the origin + path — never the query (a key may live there)
+  // and never the headers.
+  let safeLabel = rawUrl;
+  try {
+    const parsedUrl = new URL(rawUrl);
+    safeLabel = `${parsedUrl.origin}${parsedUrl.pathname}`;
+  } catch {
+    /* keep rawUrl for the label */
+  }
+
+  const body = method === "POST" ? renderTemplate(node.data?.apiBody, context) : undefined;
+  const requestHeaders: Record<string, string> = { ...headers };
+  if (body && !Object.keys(requestHeaders).some((h) => h.toLowerCase() === "content-type")) {
+    requestHeaders["Content-Type"] = "application/json";
+  }
+
+  // If the key rides in a header, name it sensitive so safeFetch drops it when
+  // a redirect crosses to a different origin — the referenced key must never be
+  // forwarded to a host the architect didn't point at.
+  const sensitiveHeaders =
+    keyValue && keyInjection === "header" ? [keyParam || "Authorization"] : undefined;
+
+  let result;
+  try {
+    result = await safeFetch(urlString, { method, headers: requestHeaders, body, sensitiveHeaders });
+  } catch (err) {
+    if (err instanceof SafeFetchError) {
+      fail(friendlyApiCallError(err.code, safeLabel));
+    } else {
+      fail(`Couldn't reach ${safeLabel}. Please try again.`);
+    }
+    return;
+  }
+
+  // Parse JSON when the reply looks like JSON; otherwise keep it as text.
+  let parsed: unknown = result.bodyText;
+  const contentType = (result.headers["content-type"] || "").toLowerCase();
+  const looksJson = contentType.includes("json") || /^\s*[[{]/.test(result.bodyText);
+  if (looksJson) {
+    try {
+      parsed = JSON.parse(result.bodyText);
+    } catch {
+      parsed = result.bodyText;
+    }
+  }
+
+  // Store two views: the structured value (nested, for deep field refs and the
+  // Result Viewer) and a string mirror at the literal dotted key so a plain
+  // {{api.response}} reference in an AI Brain reads back usable text.
+  setNestedContextValue(context, outputKey, parsed);
+  (context as Record<string, unknown>)[outputKey] =
+    typeof parsed === "string" ? parsed : JSON.stringify(parsed);
+
+  if (!result.ok) {
+    (context as Record<string, unknown>)[errorKey] =
+      `The service replied with ${result.status} ${result.statusText}.`.trim();
+    logs.push(
+      createLog(
+        node,
+        "error",
+        `${safeLabel} replied ${result.status} ${result.statusText}. Saved the reply as ${outputKey}.`,
+        { status: result.status, ok: result.ok, outputKey, bytes: result.bytesRead }
+      )
+    );
+    return;
+  }
+
+  logs.push(
+    createLog(
+      node,
+      "success",
+      `Fetched live data from ${safeLabel} (${result.status}). Saved as ${outputKey}.`,
+      { status: result.status, ok: result.ok, outputKey, bytes: result.bytesRead, data: parsed }
+    )
+  );
 }
 
 async function runWhatsAppConnectorNode({

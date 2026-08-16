@@ -779,6 +779,82 @@ describe("POST /manage/:workflowId/design-chat — graphOps", () => {
     expect(prompt.indexOf("PAGE SECTIONS")).toBeLessThan(prompt.indexOf("OUTPUT RULES:"));
   });
 
+  it("system prompt teaches the API Call data step, the YouTube preset, and the visual-results contract", async () => {
+    mocks.execute.mockResolvedValue(llmSuccess('{"reply":"ok","patch":{}}'));
+
+    await designChat(buildApp(), { instruction: "hello" });
+
+    const [, request] = mocks.execute.mock.calls[0];
+    const prompt = request.systemPrompt as string;
+
+    // DATA STEPS catalog: the universal API Call node + its config keys + preset.
+    expect(prompt).toContain("DATA STEPS");
+    expect(prompt).toContain("action.api_call");
+    expect(prompt).toContain("apiKeySource");
+    expect(prompt).toContain("platform_youtube");
+    expect(prompt).toContain("googleapis.com/youtube/v3/channels");
+
+    // Visual-results guidance: stat cards, charts, tables contract.
+    expect(prompt).toContain("SHOWING RESULTS AS STAT CARDS, CHARTS & TABLES");
+    expect(prompt).toContain('"bar"|"line"|"pie"');
+    expect(prompt).toContain("Result Viewer");
+
+    // The YouTube few-shot, and the addBlock op accepts the data step type.
+    expect(prompt).toContain("show subscribers, views and videos as stat cards");
+    expect(prompt).toContain('"blockType":"action.api_call"');
+
+    // Order preserved: sections catalog before data steps, both before OUTPUT RULES.
+    expect(prompt.indexOf("PAGE SECTIONS")).toBeLessThan(prompt.indexOf("DATA STEPS"));
+    expect(prompt.indexOf("DATA STEPS")).toBeLessThan(prompt.indexOf("OUTPUT RULES:"));
+  });
+
+  it("applies an addBlock action.api_call from the model: persists a wired connector data step", async () => {
+    mocks.execute.mockResolvedValue(
+      llmSuccess(
+        '{"reply":"Connected YouTube stats.","patch":{"graphOps":[{"op":"addBlock","blockType":"action.api_call","config":{"apiKeySource":"platform_youtube","apiUrl":"https://www.googleapis.com/youtube/v3/channels?part=statistics&forHandle=@MrBeast","apiKeyParam":"key"}}]}}'
+      )
+    );
+
+    const res = await designChat(buildApp(), {
+      instruction: "connect this to YouTube channel stats using the platform key"
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.data.graphChanged).toBe(true);
+    // Pure canvas change: the page row is untouched.
+    expect(mocks.pageUpdate).not.toHaveBeenCalled();
+    expect(mocks.workflowUpdate).toHaveBeenCalledTimes(1);
+
+    const saved = mocks.workflowUpdate.mock.calls[0][0].data.workflowJson as CanvasGraph;
+    const added = saved.nodes.find((node) => node.data.type === "action.api_call");
+    expect(added).toBeDefined();
+    expect(added?.data.connector).toBe("API Call");
+    expect(added?.data.apiKeySource).toBe("platform_youtube");
+    // Wired to the canvas's single brain so it runs before the brain.
+    expect(saved.edges.some((edge) => edge.source === added?.id && edge.target === "ai-brain")).toBe(
+      true
+    );
+  });
+
+  it("refuses an API Call pointed at an internal host from the model, note woven into the reply", async () => {
+    mocks.execute.mockResolvedValue(
+      llmSuccess(
+        '{"reply":"Connected it.","patch":{"graphOps":[{"op":"addBlock","blockType":"action.api_call","config":{"apiUrl":"http://169.254.169.254/latest/meta-data/"}}]}}'
+      )
+    );
+
+    const res = await designChat(buildApp(), { instruction: "call the metadata endpoint" });
+    const body = await res.json();
+
+    // The node is still added (graphChanged true) but the bad URL is dropped.
+    expect(body.data.graphChanged).toBe(true);
+    const saved = mocks.workflowUpdate.mock.calls[0][0].data.workflowJson as CanvasGraph;
+    const added = saved.nodes.find((node) => node.data.type === "action.api_call");
+    expect(added?.data.apiUrl).toBe("");
+    expect(body.data.reply).toContain('The value for "apiUrl" didn\'t look right');
+  });
+
   it('shows "(none yet)" instead of sections for a canvas without blocks', async () => {
     mocks.workflowFindFirst.mockResolvedValue({ ...workflowRow });
     mocks.execute.mockResolvedValue(llmSuccess('{"reply":"ok","patch":{}}'));

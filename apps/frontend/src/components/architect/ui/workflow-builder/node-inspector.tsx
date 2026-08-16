@@ -1,4 +1,7 @@
 import {
+  API_CALL_NODE_TYPE,
+  API_CALL_DEFAULT_OUTPUT_KEY,
+  API_CALL_YOUTUBE_PRESET,
   BLOCK_NODE_TYPES,
   CALENDLY_ACTION_OPTIONS,
   CALENDLY_NODE_TYPES,
@@ -25,6 +28,7 @@ import {
   disconnectCalendlyConnector,
   getCalendlyConnectorStatus,
   getCalendlyOAuthUrl,
+  listArchitectSecrets,
   listWhatsAppConnections,
   type WhatsAppConnection
 } from "@/components/architect/features/api";
@@ -197,7 +201,8 @@ export function NodeInspector({
   }
   else if (type === "action.send_whatsapp" || type === "communication.send_whatsapp") {
     panel = <WhatsAppSendProps {...base} />;
-  } else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
+  } else if (type === API_CALL_NODE_TYPE) panel = <ApiCallProps {...base} />;
+  else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.promptComposer) panel = <PromptBoxBlockProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.presetGallery) panel = <StylesGalleryBlockProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.modelPicker) panel = <ModelPickerBlockProps {...base} />;
@@ -2021,6 +2026,235 @@ function SendSmsProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
 
         <p className="mt-2 text-[11px] leading-5 text-slate-400">
           Buyer team phone number is configured during install.
+        </p>
+      </Section>
+    </>
+  );
+}
+
+/**
+ * Fetch the architect's saved key NAMES for the "My key" picker. Best-effort:
+ * an empty list (locker route missing, offline, no keys) is fine — the
+ * inspector falls back to a plain name field so the node stays usable.
+ */
+function useArchitectSecretNames(): string[] {
+  const [names, setNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listArchitectSecrets()
+      .then((res) => {
+        if (cancelled) return;
+        const secrets = res.success && res.data ? res.data.secrets : [];
+        setNames(secrets.map((secret) => secret.name).filter(Boolean));
+      })
+      .catch(() => {
+        if (!cancelled) setNames([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return names;
+}
+
+/**
+ * API Call node — the universal "connect to a service" action. Plain fields the
+ * architect can always open and read: method, URL, optional headers/body, which
+ * stored key to use and how it rides on the request, and where the reply lands.
+ */
+function ApiCallProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const secretNames = useArchitectSecretNames();
+
+  const method = str("apiMethod", "GET").toUpperCase() === "POST" ? "POST" : "GET";
+  const keySource = str("apiKeySource", "none");
+  const keyInjection = str("apiKeyInjection", "query") === "header" ? "header" : "query";
+  const outputKey = str("apiOutputKey", API_CALL_DEFAULT_OUTPUT_KEY);
+
+  const applyYouTubePreset = () => {
+    for (const [key, value] of Object.entries(API_CALL_YOUTUBE_PRESET)) {
+      onUpdateNodeData(key as keyof BuilderNodeData, value);
+    }
+  };
+
+  return (
+    <>
+      <Section title="Quick start">
+        <p className="mb-3 text-[11px] leading-5 text-slate-500">
+          One step that fetches live data from any service on the internet — a channel’s
+          stats, today’s weather, a stock price. Fill the fields below, or start from a
+          working example.
+        </p>
+        <button
+          type="button"
+          onClick={applyYouTubePreset}
+          data-testid="node-inspector-api-youtube-preset"
+          className="w-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+        >
+          Use “YouTube channel stats” example
+        </button>
+      </Section>
+
+      <Section title="The request">
+        <Label>Method</Label>
+        <SelectBox
+          value={method}
+          onChange={set("apiMethod")}
+          options={[
+            { value: "GET", label: "GET — read data" },
+            { value: "POST", label: "POST — send data" }
+          ]}
+          testId="node-inspector-api-method"
+        />
+
+        <div className="mt-4">
+          <Label>Web address (URL)</Label>
+          <TextInput
+            value={str("apiUrl")}
+            onChange={set("apiUrl")}
+            mono
+            placeholder="https://api.example.com/data"
+            testId="node-inspector-api-url"
+          />
+          <p className="mt-2 text-[11px] leading-5 text-slate-400">
+            Insert values from earlier steps with double braces, e.g.{" "}
+            <span className="font-mono text-slate-500">{"{{latestMessage}}"}</span> or{" "}
+            <span className="font-mono text-slate-500">{"{{business.name}}"}</span>.
+          </p>
+        </div>
+
+        <div className="mt-4">
+          <Label>Headers (optional)</Label>
+          <TextArea
+            height="h-16"
+            mono
+            value={str("apiHeaders")}
+            onChange={set("apiHeaders")}
+            placeholder={"One per line, e.g.\nAccept: application/json"}
+            testId="node-inspector-api-headers"
+          />
+        </div>
+
+        {method === "POST" ? (
+          <div className="mt-4">
+            <Label>Body (JSON, optional)</Label>
+            <TextArea
+              height="h-20"
+              mono
+              value={str("apiBody")}
+              onChange={set("apiBody")}
+              placeholder={'{\n  "query": "{{latestMessage}}"\n}'}
+              testId="node-inspector-api-body"
+            />
+          </div>
+        ) : null}
+      </Section>
+
+      <Section title="Your key">
+        <Label>Which key to use</Label>
+        <SelectBox
+          value={keySource}
+          onChange={set("apiKeySource")}
+          options={[
+            { value: "none", label: "No key needed" },
+            { value: "my_key", label: "One of my saved keys" },
+            { value: "platform_youtube", label: "Platform YouTube key (no setup)" }
+          ]}
+          testId="node-inspector-api-key-source"
+        />
+
+        {keySource === "my_key" ? (
+          <div className="mt-4">
+            <Label>Key name</Label>
+            {secretNames.length > 0 ? (
+              <SelectBox
+                value={str("apiKeyName")}
+                onChange={set("apiKeyName")}
+                options={[
+                  { value: "", label: "Choose a saved key…" },
+                  ...secretNames.map((name) => ({ value: name, label: name }))
+                ]}
+                testId="node-inspector-api-key-name"
+              />
+            ) : (
+              <TextInput
+                value={str("apiKeyName")}
+                onChange={set("apiKeyName")}
+                placeholder="The name you gave it in My Keys"
+                testId="node-inspector-api-key-name"
+              />
+            )}
+            <p className="mt-2 text-[11px] leading-5 text-slate-400">
+              Add and manage keys in My Keys. Your key is used only for this request and
+              is never shown to your customer.
+            </p>
+          </div>
+        ) : null}
+
+        {keySource === "platform_youtube" ? (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">
+            Uses Triven’s shared YouTube key so the example works right away — no key
+            setup needed.
+          </p>
+        ) : null}
+
+        {keySource !== "none" ? (
+          <>
+            <div className="mt-4">
+              <Label>Where the key goes</Label>
+              <SelectBox
+                value={keyInjection}
+                onChange={set("apiKeyInjection")}
+                options={[
+                  { value: "query", label: "In the web address (query parameter)" },
+                  { value: "header", label: "In a header" }
+                ]}
+                testId="node-inspector-api-key-injection"
+              />
+            </div>
+
+            <div className="mt-4">
+              <Label>{keyInjection === "header" ? "Header name" : "Parameter name"}</Label>
+              <TextInput
+                value={str("apiKeyParam")}
+                onChange={set("apiKeyParam")}
+                mono
+                placeholder={keyInjection === "header" ? "Authorization" : "key"}
+                testId="node-inspector-api-key-param"
+              />
+            </div>
+
+            {keyInjection === "header" ? (
+              <div className="mt-4">
+                <Label>Value prefix (optional)</Label>
+                <TextInput
+                  value={str("apiKeyPrefix")}
+                  onChange={set("apiKeyPrefix")}
+                  mono
+                  placeholder="Bearer "
+                  testId="node-inspector-api-key-prefix"
+                />
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </Section>
+
+      <Section title="The reply" last>
+        <Label>Save the reply as</Label>
+        <TextInput
+          value={outputKey}
+          onChange={set("apiOutputKey")}
+          mono
+          placeholder={API_CALL_DEFAULT_OUTPUT_KEY}
+          testId="node-inspector-api-output-key"
+        />
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          A later AI Brain step can read it with{" "}
+          <span className="font-mono text-slate-500">{`{{${outputKey || API_CALL_DEFAULT_OUTPUT_KEY}}}`}</span>.
+          Up to 5 service calls run per session.
         </p>
       </Section>
     </>

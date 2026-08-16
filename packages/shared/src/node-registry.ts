@@ -145,6 +145,88 @@ export function isDesignBrainNodeType(type: string | null | undefined): boolean 
   return (type ?? "") === DESIGN_BRAIN_NODE_TYPE;
 }
 
+/* ------------------------------------------------------------------------ */
+/* API Call node — one universal action that connects an agent to any        */
+/* service on the internet (YouTube, weather, stocks…) with zero code. The   */
+/* runner injects a stored key, calls the service through the SSRF-hardened   */
+/* safeFetch, and saves the reply into the run so a downstream AI Brain can   */
+/* read it.                                                                   */
+/* ------------------------------------------------------------------------ */
+
+/** Stable registry slug for the API Call action node. */
+export const API_CALL_NODE_TYPE = "action.api_call";
+
+/** Registry connector name the runner dispatches on (case/separator-insensitive). */
+export const API_CALL_CONNECTOR = "API Call";
+
+/** Registry connectorAction for the API Call node. */
+export const API_CALL_CONNECTOR_ACTION = "http_request";
+
+/** Where the parsed reply is stored in the run context by default. */
+export const API_CALL_DEFAULT_OUTPUT_KEY = "api.response";
+
+/** Hard ceiling on outbound API Call executions per single run (SSRF/abuse guard). */
+export const API_CALL_MAX_PER_RUN = 5;
+
+/** How a stored key is supplied to the request. */
+export const API_CALL_KEY_SOURCES = ["none", "my_key", "platform_youtube"] as const;
+export type ApiCallKeySource = (typeof API_CALL_KEY_SOURCES)[number];
+
+/** Where the key rides on the request. */
+export const API_CALL_KEY_INJECTIONS = ["query", "header"] as const;
+export type ApiCallKeyInjection = (typeof API_CALL_KEY_INJECTIONS)[number];
+
+/** HTTP methods the API Call node offers (kept small on purpose). */
+export const API_CALL_METHODS = ["GET", "POST"] as const;
+export type ApiCallMethod = (typeof API_CALL_METHODS)[number];
+
+/** Every config field the API Call node reads — shared by inspector, runtime, defaults. */
+export const API_CALL_CONFIG_KEYS = [
+  "apiMethod",
+  "apiUrl",
+  "apiHeaders",
+  "apiBody",
+  "apiKeySource",
+  "apiKeyName",
+  "apiKeyInjection",
+  "apiKeyParam",
+  "apiKeyPrefix",
+  "apiOutputKey"
+] as const;
+export type ApiCallConfigKey = (typeof API_CALL_CONFIG_KEYS)[number];
+
+/** Fresh-node defaults for the API Call node (also its registry defaultConfig). */
+export const API_CALL_DEFAULT_CONFIG: Record<ApiCallConfigKey, string> = {
+  apiMethod: "GET",
+  apiUrl: "",
+  apiHeaders: "",
+  apiBody: "",
+  apiKeySource: "none",
+  apiKeyName: "",
+  apiKeyInjection: "query",
+  apiKeyParam: "",
+  apiKeyPrefix: "",
+  apiOutputKey: API_CALL_DEFAULT_OUTPUT_KEY
+};
+
+/**
+ * One-click "YouTube channel stats" preset — a working config using the
+ * platform YouTube key pool, so a demo runs out of the box with no key setup.
+ * The architect can swap the @handle for any channel.
+ */
+export const API_CALL_YOUTUBE_PRESET: Record<ApiCallConfigKey, string> = {
+  apiMethod: "GET",
+  apiUrl: "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&forHandle=@MrBeast",
+  apiHeaders: "",
+  apiBody: "",
+  apiKeySource: "platform_youtube",
+  apiKeyName: "",
+  apiKeyInjection: "query",
+  apiKeyParam: "key",
+  apiKeyPrefix: "",
+  apiOutputKey: API_CALL_DEFAULT_OUTPUT_KEY
+};
+
 export type DeepgramNodeMode = "stt" | "tts";
 
 export function resolveDeepgramMode(
@@ -1701,6 +1783,23 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     launchCritical: true,
     comingSoon: false,
     runtime: { nodeKind: "connector", connector: "SMS", connectorAction: "send_sms" }
+  }),
+  def({
+    type: API_CALL_NODE_TYPE,
+    label: "Connect to a service",
+    category: "action",
+    description: "Fetch live data from any service on the internet — using your key.",
+    requiredConfig: ["apiUrl"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: {
+      nodeKind: "connector",
+      connector: API_CALL_CONNECTOR,
+      connectorAction: API_CALL_CONNECTOR_ACTION
+    },
+    defaultConfig: { ...API_CALL_DEFAULT_CONFIG },
+    producedVariables: [API_CALL_DEFAULT_OUTPUT_KEY, `${API_CALL_DEFAULT_OUTPUT_KEY}_error`]
   }),
   def({
     type: "action.send_whatsapp",

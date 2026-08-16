@@ -41,6 +41,7 @@ model User {
   whatsappConnections  WhatsAppConnection[]
   platformApiSettings  PlatformApiSetting[]
   teamMemberships      BusinessTeamMember[]
+  architectSecrets     ArchitectSecret[]
 
   @@unique([email, role])
   @@index([role])
@@ -2250,6 +2251,30 @@ model WhatsAppWebhookLog {
 /// Manage API instead of .env, so a key can be rotated without a redeploy.
 /// A key absent here falls back to the matching environment variable, which
 /// keeps every existing deployment working until an admin fills the form in.
+/// Per-architect encrypted secret ("My Keys" locker). Each row is one named
+/// key an architect stores once and references by name from an API Call node.
+/// The value is AES-256-GCM encrypted with ENCRYPTION_KEY using the shared
+/// crypto helper — iv, auth tag and ciphertext are bundled into the single
+/// `valueEncrypted` string (same encoding as PlatformApiSetting and the
+/// Telegram/Calendly token columns). Plaintext is NEVER stored or returned to
+/// the browser; the API only ever exposes a mask.
+model ArchitectSecret {
+  id              String   @id @default(cuid())
+  architectUserId String
+  /// Human label the architect chose, e.g. "My Weather API key". Referenced by
+  /// name from the API Call node. Unique per architect.
+  name            String
+  /// AES-256-GCM(iv.authTag.ciphertext) — never returned in plaintext.
+  valueEncrypted  String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  architect User @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+
+  @@unique([architectUserId, name])
+  @@index([architectUserId])
+}
+
 model PlatformApiSetting {
   id              String   @id @default(cuid())
   /// Environment-variable name, e.g. "OPENAI_API_KEY". Unique.

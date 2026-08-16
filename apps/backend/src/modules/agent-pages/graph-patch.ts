@@ -1,4 +1,13 @@
 import {
+  API_CALL_CONFIG_KEYS,
+  API_CALL_CONNECTOR,
+  API_CALL_CONNECTOR_ACTION,
+  API_CALL_DEFAULT_CONFIG,
+  API_CALL_KEY_INJECTIONS,
+  API_CALL_KEY_SOURCES,
+  API_CALL_METHODS,
+  API_CALL_NODE_TYPE,
+  API_CALL_YOUTUBE_PRESET,
   BLOCK_NODE_TYPES,
   NODE_DEFINITIONS,
   getNodeDefinition,
@@ -114,7 +123,9 @@ const BLOCK_ID_SLUGS: Record<string, string> = {
   [BLOCK_NODE_TYPES.outputStage]: "output",
   [BLOCK_NODE_TYPES.continueChain]: "continue",
   [BLOCK_NODE_TYPES.historyShelf]: "history",
-  "block.file_upload": "file"
+  "block.file_upload": "file",
+  // The API Call data step is not a block, but reuses the same id factory.
+  [API_CALL_NODE_TYPE]: "api"
 };
 
 /** Blocks that feed the brain (customer input) — wired block -> brain. */
@@ -250,6 +261,140 @@ function editableConfigKeys(blockType: string): string[] {
 }
 
 /* ------------------------------------------------------------------ */
+/* API Call data-step config validation                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The API Call node (`action.api_call`) is the ONE non-block node the Design
+ * Brain may add and configure — a universal "connect to a service" data step
+ * that feeds a brain. Its config has different shapes (enums, a long URL) than
+ * a Face block, so it gets its own whitelist + sanitizer here. The real SSRF
+ * defense lives at RUNTIME in safeFetch; the internal-host check below is
+ * belt-and-braces so an obviously-internal literal is refused at config time
+ * too, with a friendly note.
+ */
+const API_CALL_URL_MAX = 2048;
+
+/** Per-key length caps for the API Call node's text fields. */
+const API_CALL_TEXT_CAPS: Record<string, number> = {
+  apiUrl: API_CALL_URL_MAX,
+  apiHeaders: 2048,
+  apiBody: 8192,
+  apiKeyName: 64,
+  apiKeyParam: 128,
+  apiKeyPrefix: 128,
+  apiOutputKey: 64
+};
+
+const API_CALL_KEY_SET: ReadonlySet<string> = new Set(API_CALL_CONFIG_KEYS as readonly string[]);
+const API_CALL_METHOD_SET: ReadonlySet<string> = new Set(API_CALL_METHODS as readonly string[]);
+const API_CALL_KEY_SOURCE_SET: ReadonlySet<string> = new Set(API_CALL_KEY_SOURCES as readonly string[]);
+const API_CALL_INJECTION_SET: ReadonlySet<string> = new Set(
+  API_CALL_KEY_INJECTIONS as readonly string[]
+);
+
+/** Output-key path segments we never let the model write (prototype-pollution guard). */
+const UNSAFE_OUTPUT_SEGMENTS = new Set(["__proto__", "constructor", "prototype"]);
+
+const INTERNAL_HOST_EXACT = new Set([
+  "localhost",
+  "0.0.0.0",
+  "::1",
+  "metadata",
+  "metadata.google.internal"
+]);
+
+/** Does a bare hostname sit in a private/reserved range we must never call? */
+function hostLooksInternal(rawHost: string): boolean {
+  let host = rawHost.trim().toLowerCase().replace(/\.$/, "");
+  const bracket = host.match(/^\[(.+)\]$/);
+  if (bracket) host = bracket[1];
+  else host = host.replace(/:\d+$/, "");
+  if (!host) return false;
+  if (INTERNAL_HOST_EXACT.has(host)) return true;
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host.endsWith(".internal")) return true;
+  // IPv4 loopback / private / link-local (incl. 169.254.169.254 metadata) / 0.0.0.0/8.
+  if (/^127\./.test(host)) return true;
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2[0-9]|3[01])\./.test(host)) return true;
+  if (/^0\./.test(host)) return true;
+  // IPv6 loopback (::1) and unique-local fc00::/7 (fc.. / fd..).
+  if (host === "::1") return true;
+  if (host.includes(":") && /^f[cd][0-9a-f]*:/.test(host)) return true;
+  return false;
+}
+
+/**
+ * Belt-and-braces reject of an obviously-internal or non-http(s) URL literal.
+ * Template refs ({{input}}) neutralize to a placeholder host we can't judge —
+ * those pass here and are re-checked for real by safeFetch at run time.
+ */
+function looksInternalUrl(rawUrl: string): boolean {
+  const probe = rawUrl.trim().replace(/\{\{[^}]*\}\}/g, "x");
+  let scheme = "";
+  let host = "";
+  try {
+    const parsed = new URL(probe);
+    scheme = parsed.protocol.replace(/:$/, "").toLowerCase();
+    host = parsed.hostname;
+  } catch {
+    const m = probe.match(/^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)/i);
+    if (!m) return false; // no scheme+host to judge — let the runtime guard decide
+    scheme = m[1].toLowerCase();
+    host = m[2].replace(/^[^@]*@/, "");
+  }
+  if (scheme && scheme !== "http" && scheme !== "https") return true;
+  return hostLooksInternal(host);
+}
+
+function sanitizeApiOutputKey(value: string): string | undefined {
+  const key = value.trim().slice(0, API_CALL_TEXT_CAPS.apiOutputKey);
+  if (key === "") return ""; // empty -> runtime falls back to the default output key
+  if (key.split(".").some((segment) => UNSAFE_OUTPUT_SEGMENTS.has(segment))) return undefined;
+  return key;
+}
+
+/**
+ * Validate one API Call config value. Returns undefined when the value must be
+ * rejected (the caller keeps the default and adds a note). Enum keys are
+ * matched case-tolerantly for method; the URL is length-capped and screened
+ * for internal-host literals; apiKeyPrefix keeps its meaningful trailing space.
+ */
+function sanitizeApiCallConfigValue(key: string, value: unknown): unknown {
+  if (typeof value !== "string") return undefined;
+  switch (key) {
+    case "apiMethod": {
+      const upper = value.trim().toUpperCase();
+      return API_CALL_METHOD_SET.has(upper) ? upper : undefined;
+    }
+    case "apiKeySource": {
+      const trimmed = value.trim();
+      return API_CALL_KEY_SOURCE_SET.has(trimmed) ? trimmed : undefined;
+    }
+    case "apiKeyInjection": {
+      const trimmed = value.trim();
+      return API_CALL_INJECTION_SET.has(trimmed) ? trimmed : undefined;
+    }
+    case "apiUrl": {
+      const url = value.trim().slice(0, API_CALL_URL_MAX);
+      if (url === "") return "";
+      return looksInternalUrl(url) ? undefined : url;
+    }
+    case "apiKeyPrefix":
+      // Never trim: a header prefix like "Bearer " needs its trailing space.
+      return value.slice(0, API_CALL_TEXT_CAPS.apiKeyPrefix);
+    case "apiOutputKey":
+      return sanitizeApiOutputKey(value);
+    default:
+      // apiHeaders, apiBody, apiKeyName, apiKeyParam — plain trimmed + capped text.
+      return value.trim().slice(0, API_CALL_TEXT_CAPS[key] ?? 512);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Graph helpers                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -290,6 +435,11 @@ function nodeId(node: GraphNode): string {
 function isBlockNode(node: GraphNode): boolean {
   const slug = nodeSlug(node);
   return isBlockNodeType(slug) && !isDesignBrainNodeType(slug);
+}
+
+/** The universal API Call data step (the one non-block node the Brain manages). */
+function isApiCallNode(node: GraphNode): boolean {
+  return nodeSlug(node) === API_CALL_NODE_TYPE;
 }
 
 /** A brain: nodeKind "ai" on data, or an ai-kind slug in the registry. */
@@ -436,6 +586,13 @@ function findBlockNode(graph: Graph, id: string): GraphNode | null {
   return node;
 }
 
+/** A node the Brain may edit or remove: a Face block OR the API Call data step. */
+function findEditableNode(graph: Graph, id: string): GraphNode | null {
+  const node = graph.nodes.find((candidate) => nodeId(candidate) === id);
+  if (!node) return null;
+  return isBlockNode(node) || isApiCallNode(node) ? node : null;
+}
+
 /** Insert `node` into the ordered block list per the position arg, then reflow. */
 function placeInColumn(
   ctx: OpContext,
@@ -461,6 +618,10 @@ function placeInColumn(
 
 function applyAddBlock(ctx: OpContext, op: Extract<GraphOp, { op: "addBlock" }>): boolean {
   const blockType = op.blockType;
+  // The API Call data step is the one non-block node the Brain may add.
+  if (blockType === API_CALL_NODE_TYPE) {
+    return applyAddApiCall(ctx, op);
+  }
   if (!isBlockNodeType(blockType) || isDesignBrainNodeType(blockType)) {
     ctx.notes.push(NOTE_UNKNOWN_OP);
     return false;
@@ -547,8 +708,95 @@ function applyAddBlock(ctx: OpContext, op: Extract<GraphOp, { op: "addBlock" }>)
   return true;
 }
 
+/**
+ * Add an API Call data step: a `action.api_call` connector node in the exact
+ * shape the builder writes (node-defaults.ts "API Call" branch), placed OUTSIDE
+ * the Face block column so the page layout is untouched, and wired
+ * `api_call -> brain` so it runs before the brain and drops its reply into the
+ * run context. Config is validated against the API Call whitelist; the URL is
+ * screened for internal-host literals (safeFetch re-checks at run time).
+ */
+function applyAddApiCall(ctx: OpContext, op: Extract<GraphOp, { op: "addBlock" }>): boolean {
+  const def = getNodeDefinition(API_CALL_NODE_TYPE);
+  if (!def) {
+    ctx.notes.push(NOTE_UNKNOWN_OP);
+    return false;
+  }
+
+  const defaults = deepClone(def.defaultConfig ?? { ...API_CALL_DEFAULT_CONFIG });
+  const overrides: Record<string, unknown> = {};
+  if (op.config) {
+    for (const [key, value] of Object.entries(op.config)) {
+      if (!API_CALL_KEY_SET.has(key)) {
+        ctx.notes.push(`"${key}" isn't something I can set on that data step, so I left it out.`);
+        continue;
+      }
+      const sanitized = sanitizeApiCallConfigValue(key, value);
+      if (sanitized === undefined) {
+        ctx.notes.push(`The value for "${key}" didn't look right, so I kept the default.`);
+        continue;
+      }
+      overrides[key] = sanitized;
+    }
+  }
+
+  // Position clear of the Face block column (x=0). Sits with the single brain
+  // (a Hands feeder), else stacks below everything. Purely cosmetic for the run.
+  const brains = ctx.graph.nodes.filter((candidate) => isAiNode(candidate));
+  const brain = brains.length === 1 ? brains[0] : null;
+  let x = 400;
+  let y = 0;
+  if (brain) {
+    const bp = asRecord(brain.position);
+    x = finiteNumber(bp?.x) ?? 400;
+    y = (finiteNumber(bp?.y) ?? 0) + BLOCK_COLUMN_SPACING;
+  } else {
+    let maxY: number | null = null;
+    for (const candidate of ctx.graph.nodes) {
+      const ny = finiteNumber(asRecord(candidate.position)?.y);
+      if (ny !== null) maxY = maxY === null ? ny : Math.max(maxY, ny);
+    }
+    y = maxY === null ? 0 : maxY + BLOCK_COLUMN_SPACING;
+  }
+
+  const id = ctx.makeId(API_CALL_NODE_TYPE);
+  const node: GraphNode = {
+    id,
+    type: "coreNode",
+    position: { x, y },
+    data: {
+      // Presentation + dispatch fields, mirroring node-defaults.ts exactly so
+      // the runner resolves the connector and the builder renders it normally.
+      label: def.label,
+      title: def.label,
+      nodeKind: "connector",
+      kind: "API CALL",
+      accent: "amber",
+      icon: "globe",
+      subtitle: def.description,
+      connector: API_CALL_CONNECTOR,
+      connectorAction: API_CALL_CONNECTOR_ACTION,
+      type: API_CALL_NODE_TYPE,
+      ...defaults,
+      ...overrides
+    }
+  };
+  ctx.graph.nodes.push(node);
+
+  // Feed the single brain so the data step runs first and its reply is in
+  // context. Zero or many brains: leave it unwired and ask which brain.
+  if (brain) {
+    const brainId = nodeId(brain);
+    const edge = brainId ? makeEdge(id, brainId, ctx.graph.edges) : null;
+    if (edge) ctx.graph.edges.push(edge);
+  } else {
+    ctx.notes.push(NOTE_PICK_BRAIN);
+  }
+  return true;
+}
+
 function applyRemoveBlock(ctx: OpContext, op: Extract<GraphOp, { op: "removeBlock" }>): boolean {
-  const node = findBlockNode(ctx.graph, op.nodeId);
+  const node = findEditableNode(ctx.graph, op.nodeId);
   if (!node) {
     ctx.notes.push("I couldn't find that section to remove, so nothing changed.");
     return false;
@@ -578,15 +826,16 @@ function applyUpdateBlockConfig(
   ctx: OpContext,
   op: Extract<GraphOp, { op: "updateBlockConfig" }>
 ): boolean {
-  const node = findBlockNode(ctx.graph, op.nodeId);
+  const node = findEditableNode(ctx.graph, op.nodeId);
   if (!node) {
     ctx.notes.push("I couldn't find that section to update, so nothing changed.");
     return false;
   }
   const blockType = nodeSlug(node);
+  const isApiCall = isApiCallNode(node);
   const def = getNodeDefinition(blockType);
   const defaults = def?.defaultConfig ?? {};
-  const keys = new Set(editableConfigKeys(blockType));
+  const keys = new Set(isApiCall ? (API_CALL_CONFIG_KEYS as readonly string[]) : editableConfigKeys(blockType));
   const data = nodeData(node);
   let changed = false;
   for (const [key, value] of Object.entries(op.config)) {
@@ -594,7 +843,9 @@ function applyUpdateBlockConfig(
       ctx.notes.push(`"${key}" isn't something I can change on that section.`);
       continue;
     }
-    const sanitized = sanitizeConfigValue(blockType, key, defaults[key], value);
+    const sanitized = isApiCall
+      ? sanitizeApiCallConfigValue(key, value)
+      : sanitizeConfigValue(blockType, key, defaults[key], value);
     if (sanitized === undefined) {
       ctx.notes.push(`The value for "${key}" didn't look right, so I left it as it was.`);
       continue;
@@ -704,6 +955,53 @@ export function blockCatalogForPrompt(): string {
   return lines.join("\n");
 }
 
+/**
+ * Design-Brain catalog for the API Call data step (`action.api_call`) — the one
+ * non-block node the Brain can add and configure through graphOps. Teaches every
+ * editable config key with its allowed values and the zero-setup YouTube preset,
+ * so the model can wire an agent to any service on the internet in one addBlock.
+ */
+export function apiCallCatalogForPrompt(): string {
+  const def = getNodeDefinition(API_CALL_NODE_TYPE);
+  const label = def?.label ?? "Connect to a service";
+  const description = def?.description ?? "Fetch live data from any service on the internet.";
+  return [
+    `- ${API_CALL_NODE_TYPE} ("${label}"): ${description} It runs during the agent's reply and drops the service's answer into the run so the AI brain can read it. Add it with op "addBlock" (blockType "${API_CALL_NODE_TYPE}") and set it up with these config keys:`,
+    `  - apiMethod (one of: ${API_CALL_METHODS.join(", ")})`,
+    "  - apiUrl (the web address to call; may use {{...}} references to earlier steps like other fields)",
+    '  - apiHeaders (optional extra headers, one "Name: value" per line)',
+    "  - apiBody (optional JSON body, used with POST)",
+    `  - apiKeySource (one of: ${API_CALL_KEY_SOURCES.join(", ")} — "platform_youtube" uses the shared YouTube key so no setup is needed; "my_key" uses one of the architect's saved keys)`,
+    '  - apiKeyName (the exact name of a saved key in My Keys; only for apiKeySource "my_key")',
+    `  - apiKeyInjection (one of: ${API_CALL_KEY_INJECTIONS.join(", ")} — where the key rides: a query parameter or a header)`,
+    '  - apiKeyParam (the query parameter name, e.g. "key", or the header name, e.g. "Authorization")',
+    '  - apiKeyPrefix (optional text before the key in a header, e.g. "Bearer ")',
+    `  - apiOutputKey (where to store the reply; default "${API_CALL_YOUTUBE_PRESET.apiOutputKey}")`,
+    `  YouTube channel stats preset (works out of the box): { "apiKeySource": "platform_youtube", "apiUrl": ${JSON.stringify(
+      API_CALL_YOUTUBE_PRESET.apiUrl
+    )}, "apiKeyInjection": "query", "apiKeyParam": "key", "apiOutputKey": ${JSON.stringify(
+      API_CALL_YOUTUBE_PRESET.apiOutputKey
+    )} } — swap the @handle in the address for any channel.`,
+    "  I can never reach a private or internal address with this step; the address must be a public service on the internet."
+  ].join("\n");
+}
+
+/**
+ * The visual-results contract the AI brain can output so the Result Viewer
+ * renders stat cards, charts, and tables instead of plain text. The Design Brain
+ * cannot edit the brain itself, so this teaches it to set up the pieces it CAN
+ * (a Result Viewer section) and to tell the architect what to make the brain say.
+ */
+export function visualResultsGuidanceForPrompt(): string {
+  return [
+    "SHOWING RESULTS AS STAT CARDS, CHARTS & TABLES:",
+    "The Result Viewer section automatically shows rich visuals whenever the AI brain's reply is a visual JSON payload shaped like this (every part optional):",
+    '{ "text"?: string, "stats"?: [{ "label": string, "value": string|number, "delta"?: string|number, "deltaDir"?: "up"|"down" }], "chart"?: { "type": "bar"|"line"|"pie", "title"?: string, "series": [{ "label": string, "value": number }] }, "table"?: { "columns": string[], "rows": string[][] } }',
+    'stats → stat cards (big numbers with an optional up/down delta), chart → a bar, line, or pie chart, table → a data table. Plain text still shows normally when the brain returns no visual payload.',
+    "You cannot edit the AI brain yourself. So when the architect asks to show results as stat cards, a chart, or a table: make sure a Result Viewer section is on the page (add one with blockType \"block.output_stage\" if there isn't one), and in your reply tell them to set their AI brain to reply with that visual JSON (they do this in the brain's settings in Build)."
+  ].join("\n");
+}
+
 /** One compact "key: value" fragment for the current-sections listing. */
 function describeCurrentValue(key: string, value: unknown): string | null {
   if (value === undefined || value === null) return null;
@@ -750,6 +1048,34 @@ export function currentBlocksForPrompt(workflowJson: unknown): string {
       .filter((part): part is string => part !== null);
     const label = def?.label ?? slug;
     return `- ${nodeId(node)} — ${slug} ("${label}")${parts.length > 0 ? `: ${parts.join(", ")}` : ""}`;
+  });
+  return lines.join("\n");
+}
+
+/**
+ * The API Call data steps already on the canvas, with their REAL nodeIds and
+ * current config — injected into design-chat's prompt so the model references
+ * exact nodeIds when it reconfigures or removes one. Empty string when there
+ * are none. (Kept separate from the block listing: an API Call is a Hands data
+ * step, not a Face section, and must never enter the block-column ordering.)
+ */
+export function currentApiCallsForPrompt(workflowJson: unknown): string {
+  const graph = readGraph(workflowJson);
+  if (!graph) return "";
+  const nodes = graph.nodes.filter((node) => isApiCallNode(node));
+  if (nodes.length === 0) return "";
+  const label = getNodeDefinition(API_CALL_NODE_TYPE)?.label ?? "Connect to a service";
+  const lines = nodes.map((node) => {
+    const data = nodeData(node);
+    const parts: string[] = [];
+    for (const key of API_CALL_CONFIG_KEYS) {
+      const value = data[key] ?? API_CALL_DEFAULT_CONFIG[key];
+      // Skip empty defaults so the listing stays readable.
+      if (typeof value === "string" && value.trim() === "") continue;
+      const part = describeCurrentValue(key, value);
+      if (part) parts.push(part);
+    }
+    return `- ${nodeId(node)} — ${API_CALL_NODE_TYPE} ("${label}")${parts.length > 0 ? `: ${parts.join(", ")}` : ""}`;
   });
   return lines.join("\n");
 }

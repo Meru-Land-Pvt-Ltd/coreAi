@@ -6,6 +6,7 @@
  * same `AgentPageTemplateProps` — keep this file the single source of truth.
  */
 
+import type { VisualResultsPayload } from "@coreai/shared";
 import { apiPost } from "@/lib/api";
 
 export type AgentPageTemplate = "chat" | "voice" | "media" | "form";
@@ -164,7 +165,19 @@ export type AgentPageRuntime = {
     prompt: string;
     sessionId?: string;
   }): Promise<
-    | { output: { text: string | null; mediaUrls: string[] }; remainingToday?: number }
+    | {
+        output: {
+          text: string | null;
+          mediaUrls: string[];
+          /**
+           * A Visual Results payload when the AI Brain replied with visual JSON
+           * (stat cards / chart / table). Optional so older backends, fixtures,
+           * and every non-visual reply keep working — absent means plain output.
+           */
+          structured?: VisualResultsPayload | null;
+        };
+        remainingToday?: number;
+      }
     | { error: string; code?: string }
   >;
 };
@@ -251,7 +264,11 @@ export function createPublicAgentPageRuntime(slug: string): AgentPageRuntime {
       // The public run endpoint has no session concept — sessionId is a
       // preview-runtime affordance and is intentionally not sent here.
       const response = await apiPost<{
-        output: { text: string | null; mediaUrls: string[] };
+        output: {
+          text: string | null;
+          mediaUrls: string[];
+          structured?: VisualResultsPayload | null;
+        };
         remainingToday: number;
       }>(`/agent-pages/${slug}/run`, { prompt });
 

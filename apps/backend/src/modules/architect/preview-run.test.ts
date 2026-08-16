@@ -6,8 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * one-shot engine. Architect-authed with ownership (404 WORKFLOW_NOT_FOUND for
  * non-owned workflows, same idiom as conversation-test), zod 422s before any
  * engine run, happy path runs the sandboxed runner with mode "test" and
- * returns the SAME { text, mediaUrls } extraction as the public agent-page
- * /run endpoint, and engine failures surface a human 500 PREVIEW_RUN_FAILED
+ * returns the SAME { text, mediaUrls, structured } extraction as the public
+ * agent-page /run endpoint, and engine failures surface a human 500 PREVIEW_RUN_FAILED
  * with no stack detail. Prisma, auth, and the runner are mocked — pure
  * route-contract tests, same style as agent-pages/manage-routes.test.ts.
  */
@@ -100,9 +100,14 @@ describe("POST /architect/workflows/:workflowId/preview-run", () => {
 
     expect(response.status).toBe(200);
     const json = (await response.json()) as {
-      data: { output: { text: string | null; mediaUrls: string[] } };
+      data: { output: { text: string | null; mediaUrls: string[]; structured: unknown } };
     };
-    expect(json.data.output).toEqual({ text: "Here is your draft reply.", mediaUrls: [] });
+    // A plain reply carries no visual payload — structured is null, same as /run.
+    expect(json.data.output).toEqual({
+      text: "Here is your draft reply.",
+      mediaUrls: [],
+      structured: null
+    });
 
     expect(runWorkflowTestMock).toHaveBeenCalledTimes(1);
     expect(runWorkflowTestMock).toHaveBeenCalledWith({
@@ -135,7 +140,7 @@ describe("POST /architect/workflows/:workflowId/preview-run", () => {
 
     expect(response.status).toBe(200);
     const json = (await response.json()) as {
-      data: { output: { text: string | null; mediaUrls: string[] } };
+      data: { output: { text: string | null; mediaUrls: string[]; structured: unknown } };
     };
     expect(json.data.output.text).toBe("Generated your image!");
     expect(json.data.output.mediaUrls).toEqual([

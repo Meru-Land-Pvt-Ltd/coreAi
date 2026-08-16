@@ -426,7 +426,8 @@ export function FaceRenderer({
         displayPrompt: request.displayPrompt,
         basePrompt: request.basePrompt,
         text: result.output.text,
-        mediaUrls: result.output.mediaUrls
+        mediaUrls: result.output.mediaUrls,
+        structured: result.output.structured ?? null
       };
       // Keep only the newest results — media is often multi-MB data: URIs.
       setResults((prev) => [...prev, entry].slice(-MAX_RETAINED_RESULTS));
@@ -851,6 +852,7 @@ export function FaceRenderer({
             listingName={listing.name}
             error={errorState}
             animateText={activeResult !== null && activeResult.id === freshResultId}
+            accent={accent}
           />
         );
 

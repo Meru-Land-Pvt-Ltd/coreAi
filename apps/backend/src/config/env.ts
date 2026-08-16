@@ -209,6 +209,15 @@ const envSchema = z.object({
    */
   META_WHATSAPP_VERIFY_TOKEN: z.string().optional(),
 
+  /**
+   * Platform YouTube Data API key pool. A JSON array of API keys, e.g.
+   * '["AIza...one","AIza...two"]'. The API Call node's "use platform YouTube
+   * key" option rotates over these so a YouTube demo works out of the box
+   * without the architect adding their own key. Optional and empty-safe: when
+   * unset or not a JSON array, getPlatformYouTubeKey() returns null.
+   */
+  YOUTUBE_API_KEY_POOL: z.string().optional(),
+
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),

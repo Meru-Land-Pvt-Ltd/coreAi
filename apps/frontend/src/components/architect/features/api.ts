@@ -1,5 +1,5 @@
 import { apiClient, apiDelete, apiGet, apiPatch, apiPost, apiPut } from "@/lib/api";
-import type { AgentConfigureData, AgentMarketplacePreview } from "@coreai/shared";
+import type { AgentConfigureData, AgentMarketplacePreview, VisualResultsPayload } from "@coreai/shared";
 import type {
   AgentPageConfig,
   AgentPageManageData,
@@ -417,6 +417,30 @@ export function deleteArchitectListing(listingId: string, reason?: string) {
     `/architect/listings/${listingId}`,
     reason ? { reason } : undefined
   );
+}
+
+/**
+ * "My Keys" locker — a stored API key as it is safe to show an architect. The
+ * real value is NEVER returned; `maskedValue` is always a fixed mask.
+ */
+export type ArchitectSecret = {
+  id: string;
+  name: string;
+  maskedValue: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function getArchitectSecrets() {
+  return apiGet<{ secrets: ArchitectSecret[] }>("/architect/secrets");
+}
+
+export function addArchitectSecret(body: { name: string; value: string }) {
+  return apiPost<{ secret: ArchitectSecret }>("/architect/secrets", body);
+}
+
+export function deleteArchitectSecret(id: string) {
+  return apiDelete<{ deleted: boolean }>(`/architect/secrets/${id}`);
 }
 
 export type ArchitectPayoutMethod = {
@@ -914,10 +938,13 @@ export function previewRunArchitectWorkflow(
   workflowId: string,
   body: { prompt: string; sessionId?: string }
 ) {
-  return apiPost<{ output: { text: string | null; mediaUrls: string[] } }>(
-    `/architect/workflows/${workflowId}/preview-run`,
-    body
-  );
+  return apiPost<{
+    output: {
+      text: string | null;
+      mediaUrls: string[];
+      structured?: VisualResultsPayload | null;
+    };
+  }>(`/architect/workflows/${workflowId}/preview-run`, body);
 }
 
 export function runArchitectWorkflowLive(
@@ -1523,6 +1550,25 @@ export type ConnectWhatsAppBody = {
 
 export function listWhatsAppConnections() {
   return apiGet<{ connections: WhatsAppConnection[] }>("/architect/whatsapp/connections");
+}
+
+/** One saved key in the architect's "My Keys" locker — the value is always masked. */
+export type ArchitectSecretSummary = {
+  id: string;
+  name: string;
+  maskedValue: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * List the architect's saved key NAMES for the API Call node's "My key"
+ * picker. Values are never returned by the backend — only masked. Degrades
+ * gracefully (empty list) when the locker endpoint is unavailable so the
+ * inspector still lets the architect type a name.
+ */
+export function listArchitectSecrets() {
+  return apiGet<{ secrets: ArchitectSecretSummary[] }>("/architect/secrets");
 }
 
 export function listWhatsAppConnectionsOwnerView() {

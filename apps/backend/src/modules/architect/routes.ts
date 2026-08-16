@@ -111,6 +111,7 @@ import { runArchitectConversationTest } from "./workflow-conversation-test";
 import { deleteTestCalendarEvent } from "./test-calendar-events";
 import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-routes";
 import { architectSettingsRoutes } from "./settings-routes";
+import { architectSecretsRoutes } from "./secrets-routes";
 import { getProviderRegistry } from "../ai-provider-engine/provider-engine";
 import { transcribeWithDeepgram, speakWithDeepgram } from "../ai-provider-engine/deepgram-stt";
 import {
@@ -766,6 +767,7 @@ architectRoutes.post("/media/upload", async (c) => {
 
 architectRoutes.route("/payouts", architectPayoutRoutes);
 architectRoutes.route("/settings", architectSettingsRoutes);
+architectRoutes.route("/secrets", architectSecretsRoutes);
 architectRoutes.route("/whatsapp", whatsappRoutes);
 
 architectRoutes.get("/dashboard/activity", async (c) => {

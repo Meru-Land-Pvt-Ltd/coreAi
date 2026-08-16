@@ -13,3 +13,4 @@ export * from "./spoken-date";
 export * from "./timezone";
 export * from "./setup-visibility";
 export * from "./setup-field-rules";
+export * from "./visual-results";

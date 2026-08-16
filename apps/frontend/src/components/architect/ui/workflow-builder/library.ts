@@ -1,5 +1,6 @@
 import {
   getNodeDefinition,
+  API_CALL_NODE_TYPE,
   BLOCK_NODE_TYPES,
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
@@ -138,6 +139,11 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(VOICE_NODE_TYPES.sendSms, { icon: "message", accent: "green" }),
       paletteItem("action.send_whatsapp", { icon: "whatsapp", accent: "green" }),
       paletteItem(TELEGRAM_NODE_TYPES.sendMessage, { icon: "telegram", accent: "blue" }),
+      {
+        // The universal action: one node reaches every service on the internet.
+        ...paletteItem(API_CALL_NODE_TYPE, { icon: "globe", accent: "amber", kind: "API CALL" }),
+        badge: "NEW"
+      },
       paletteItem(VOICE_NODE_TYPES.endFlow, { icon: "capture", accent: "slate" })
     ]
   },

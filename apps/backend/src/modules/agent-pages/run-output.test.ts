@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractRunOutput, extractRunText } from "./run-output";
+import { extractRunOutput, extractRunStructured, extractRunText } from "./run-output";
 
 /**
  * extractRunText is the LAST exit for one-shot run text (public agent-page
@@ -42,7 +42,80 @@ describe("extractRunText hygiene", () => {
     };
     expect(extractRunOutput(result)).toEqual({
       text: "Your poster is ready!",
-      mediaUrls: ["https://cdn.example.com/poster.png"]
+      mediaUrls: ["https://cdn.example.com/poster.png"],
+      structured: null
     });
+  });
+});
+
+/**
+ * When the AI Brain replies with the Visual Results JSON contract, the run
+ * output carries a validated `structured` payload and the raw JSON never leaks
+ * as visitor-facing text. Plain replies (and non-visual JSON) keep the old
+ * behavior — structured is null.
+ */
+describe("extractRunStructured", () => {
+  it("detects stat cards, a chart, and a table from a JSON Brain reply", () => {
+    const payload = JSON.stringify({
+      text: "Channel is growing.",
+      stats: [{ label: "Subscribers", value: "312M", delta: "+1.2M", deltaDir: "up" }],
+      chart: { type: "bar", title: "Views", series: [{ label: "Jan", value: 1200 }] },
+      table: { columns: ["Video", "Views"], rows: [["Intro", "1,200"]] }
+    });
+    const structured = extractRunStructured({ context: { ai: { output: payload } }, logs: [] });
+    expect(structured).not.toBeNull();
+    expect(structured?.stats?.[0]).toEqual({
+      label: "Subscribers",
+      value: "312M",
+      delta: "+1.2M",
+      deltaDir: "up"
+    });
+    expect(structured?.chart?.type).toBe("bar");
+    expect(structured?.chart?.series).toEqual([{ label: "Jan", value: 1200 }]);
+    expect(structured?.table?.columns).toEqual(["Video", "Views"]);
+  });
+
+  it("returns null for plain text (backward compatible)", () => {
+    expect(
+      extractRunStructured({ context: { ai: { output: "Just a normal answer." } }, logs: [] })
+    ).toBeNull();
+  });
+
+  it("returns null for non-visual JSON so it renders as text", () => {
+    const output = JSON.stringify({ foo: "bar", count: 3 });
+    expect(extractRunStructured({ context: { ai: { output } }, logs: [] })).toBeNull();
+  });
+
+  it("hygiene runs inside stat labels, values, and table cells", () => {
+    const payload = JSON.stringify({
+      stats: [{ label: "By {{business.name}}", value: "10 {{leak}}" }],
+      table: { columns: ["Name {{x}}"], rows: [["Row {{y}}"]] }
+    });
+    const structured = extractRunStructured({ context: { ai: { output: payload } }, logs: [] });
+    expect(structured?.stats?.[0].label).toBe("By");
+    expect(structured?.stats?.[0].value).toBe("10");
+    expect(structured?.table?.columns).toEqual(["Name"]);
+    expect(structured?.table?.rows).toEqual([["Row"]]);
+  });
+});
+
+describe("extractRunOutput with a visual payload", () => {
+  it("surfaces structured visuals and never leaks the raw JSON as text", () => {
+    const payload = JSON.stringify({
+      text: "Here are the numbers.",
+      stats: [{ label: "Views", value: 1000 }]
+    });
+    const output = extractRunOutput({ context: { ai: { output: payload } }, logs: [] });
+    // text is the payload's own prose, not the raw JSON string.
+    expect(output.text).toBe("Here are the numbers.");
+    expect(output.structured?.stats?.[0]).toEqual({ label: "Views", value: "1000" });
+    expect(output.mediaUrls).toEqual([]);
+  });
+
+  it("leaves text null when a visual payload carries no prose", () => {
+    const payload = JSON.stringify({ chart: { type: "pie", series: [{ label: "A", value: 5 }] } });
+    const output = extractRunOutput({ context: { ai: { output: payload } }, logs: [] });
+    expect(output.text).toBeNull();
+    expect(output.structured?.chart?.type).toBe("pie");
   });
 });

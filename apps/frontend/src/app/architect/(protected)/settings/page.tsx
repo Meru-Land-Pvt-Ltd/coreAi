@@ -5,8 +5,11 @@ import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { BusinessPageHeader } from "@/components/business/business-page-header";
 import {
+  addArchitectSecret,
   deleteArchitectAccount,
+  deleteArchitectSecret,
   downloadArchitectDataExport,
+  getArchitectSecrets,
   getCountryCallingCodes,
   getArchitectSettings,
   makeArchitectBackupPayoutMethodPrimary,
@@ -27,6 +30,7 @@ import {
   type ArchitectLoginHistoryEntry,
   type ArchitectPayoutSchedule,
   type ArchitectRefundAgent,
+  type ArchitectSecret,
   type ArchitectSettingsPayload,
   type ArchitectSettingsSession
 } from "@/components/architect/features/api";
@@ -46,6 +50,7 @@ type SettingsTab =
   | "profile"
   | "storefront"
   | "security"
+  | "keys"
   | "notifications"
   | "payouts"
   | "data"
@@ -55,6 +60,7 @@ const TABS: Array<{ id: SettingsTab; label: string; danger?: boolean }> = [
   { id: "profile", label: "Profile" },
   { id: "storefront", label: "Public Storefront" },
   { id: "security", label: "Security" },
+  { id: "keys", label: "My Keys" },
   { id: "notifications", label: "Notifications" },
   { id: "payouts", label: "Payouts" },
   { id: "data", label: "Data & Privacy" },
@@ -423,6 +429,14 @@ export default function ArchitectSettingsPage() {
   const [payoutMethodModal, setPayoutMethodModal] = useState<"primary" | "backup" | null>(null);
   const [makingPayoutPrimary, setMakingPayoutPrimary] = useState(false);
 
+  // "My Keys" locker — stored API keys, values are always masked by the server.
+  const [secrets, setSecrets] = useState<ArchitectSecret[]>([]);
+  const [secretsLoading, setSecretsLoading] = useState(true);
+  const [newSecretName, setNewSecretName] = useState("");
+  const [newSecretValue, setNewSecretValue] = useState("");
+  const [savingSecret, setSavingSecret] = useState(false);
+  const [deletingSecretId, setDeletingSecretId] = useState<string | null>(null);
+
   const showToast = useCallback((message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 3000);
@@ -504,6 +518,53 @@ export default function ArchitectSettingsPage() {
       active = false;
     };
   }, [loadSettings]);
+
+  const loadSecrets = useCallback(async () => {
+    setSecretsLoading(true);
+    const result = await getArchitectSecrets();
+    if (result.success && result.data) {
+      setSecrets(result.data.secrets);
+    }
+    setSecretsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void loadSecrets();
+  }, [loadSecrets]);
+
+  async function handleAddSecret(event: FormEvent) {
+    event.preventDefault();
+    const name = newSecretName.trim();
+    const value = newSecretValue.trim();
+    if (!name || !value || savingSecret) return;
+
+    setSavingSecret(true);
+    const result = await addArchitectSecret({ name, value });
+    setSavingSecret(false);
+
+    if (result.success) {
+      setNewSecretName("");
+      setNewSecretValue("");
+      await loadSecrets();
+      showToast("Key saved ✓");
+    } else {
+      showToast(result.error ?? "Could not save that key");
+    }
+  }
+
+  async function handleDeleteSecret(id: string) {
+    if (deletingSecretId) return;
+    setDeletingSecretId(id);
+    const result = await deleteArchitectSecret(id);
+    setDeletingSecretId(null);
+
+    if (result.success) {
+      setSecrets((current) => current.filter((secret) => secret.id !== id));
+      showToast("Key removed");
+    } else {
+      showToast(result.error ?? "Could not remove that key");
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -1278,6 +1339,95 @@ export default function ArchitectSettingsPage() {
                       </tbody>
                     </table>
                   </div>
+                </div>
+            </SettingsSection>
+
+            <SettingsSection
+              tabId="keys"
+              activeTab={activeTab}
+              expandedMobile={expandedMobile}
+              label="My Keys"
+              testId="architect-settings-panel-keys"
+              onMobileToggle={handleMobileToggle}
+            >
+                <h2 className="text-lg font-bold text-slate-900">My Keys</h2>
+                <p className="mt-1 text-sm text-slate-500">Store an API key once — your products use it without ever showing it.</p>
+
+                <form onSubmit={handleAddSecret} className="mt-6 rounded-2xl border border-gray-100 bg-gray-50/60 p-4 sm:p-5" data-testid="architect-secrets-add-form">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="architect-secret-name" className="block text-sm font-medium text-slate-800">Key name</label>
+                      <input
+                        id="architect-secret-name"
+                        type="text"
+                        value={newSecretName}
+                        onChange={(e) => setNewSecretName(e.target.value)}
+                        placeholder="e.g. Weather API key"
+                        maxLength={64}
+                        autoComplete="off"
+                        data-testid="architect-secret-name-input"
+                        className="mt-1.5 w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                      />
+                      <p className="mt-1 text-xs text-slate-400">A label you&apos;ll pick from when connecting a product.</p>
+                    </div>
+                    <div>
+                      <label htmlFor="architect-secret-value" className="block text-sm font-medium text-slate-800">Key value</label>
+                      <input
+                        id="architect-secret-value"
+                        type="password"
+                        value={newSecretValue}
+                        onChange={(e) => setNewSecretValue(e.target.value)}
+                        placeholder="Paste the secret value"
+                        autoComplete="new-password"
+                        data-testid="architect-secret-value-input"
+                        className="mt-1.5 w-full rounded-xl border border-gray-200 px-3.5 py-2.5 font-mono text-sm text-slate-900 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                      />
+                      <p className="mt-1 text-xs text-slate-400">Saved encrypted. It&apos;s never shown again after you save.</p>
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={savingSecret || !newSecretName.trim() || !newSecretValue.trim()}
+                    data-testid="architect-secret-save-button"
+                    className="mt-4 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+                  >
+                    {savingSecret ? "Saving…" : "Save key"}
+                  </button>
+                </form>
+
+                <div className="mt-6">
+                  {secretsLoading ? (
+                    <div className="rounded-2xl border border-gray-100 p-5 text-sm text-slate-400" data-testid="architect-secrets-loading">Loading your keys…</div>
+                  ) : secrets.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-6 text-center" data-testid="architect-secrets-empty">
+                      <p className="text-sm font-semibold text-slate-800">No keys yet</p>
+                      <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">Store an API key once — your products use it without ever showing it. Add your first key above.</p>
+                    </div>
+                  ) : (
+                    <ul className="space-y-3" data-testid="architect-secrets-list">
+                      {secrets.map((secret) => (
+                        <li
+                          key={secret.id}
+                          className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 px-4 py-3"
+                          data-testid={`architect-secret-row-${secret.id}`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-slate-800" data-testid="architect-secret-name">{secret.name}</p>
+                            <p className="font-mono text-xs text-slate-400" data-testid="architect-secret-masked">{secret.maskedValue}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteSecret(secret.id)}
+                            disabled={deletingSecretId === secret.id}
+                            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-50"
+                            data-testid={`architect-secret-delete-${secret.id}`}
+                          >
+                            {deletingSecretId === secret.id ? "Removing…" : "Delete"}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
             </SettingsSection>
 

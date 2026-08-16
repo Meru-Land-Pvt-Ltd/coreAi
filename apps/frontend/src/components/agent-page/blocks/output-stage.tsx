@@ -1,7 +1,9 @@
 "use client";
 
 import { Download, ExternalLink, RefreshCw } from "lucide-react";
+import type { VisualResultsPayload } from "@coreai/shared";
 import { isDataUri, isImageLikeUrl, isVideoUrl, mediaDownloadName } from "./media";
+import { VisualResults } from "./visual-results";
 import { RichText } from "../rich-text";
 
 /**
@@ -30,6 +32,11 @@ export type FaceRunResult = {
   basePrompt: string;
   text: string | null;
   mediaUrls: string[];
+  /**
+   * A Visual Results payload when the AI Brain replied with visual JSON —
+   * stat cards, a chart, and/or a table. Null for plain text/media runs.
+   */
+  structured?: VisualResultsPayload | null;
 };
 
 const SKELETON_TILE_COUNT = 3;
@@ -128,7 +135,8 @@ export function OutputStageBlock({
   result,
   listingName,
   error,
-  animateText = false
+  animateText = false,
+  accent = "#f59e0b"
 }: {
   kind: OutputStageKind;
   /** Non-null while a run is in flight — shows the shimmer skeleton. */
@@ -143,6 +151,8 @@ export function OutputStageBlock({
    * finished, so restoring an earlier result from history never replays it.
    */
   animateText?: boolean;
+  /** Page accent — the primary color for chart bars/lines (Triven amber default). */
+  accent?: string;
 }) {
   if (runningPrompt !== null) {
     return (
@@ -177,6 +187,10 @@ export function OutputStageBlock({
 
   const hasMedia = (result?.mediaUrls.length ?? 0) > 0;
   const text = result?.text ?? null;
+  const structured = result?.structured ?? null;
+  const hasStructured = Boolean(
+    structured && (structured.stats || structured.chart || structured.table)
+  );
   // "text" hides media only when there is text to show — output is never lost.
   const showMedia = result !== null && hasMedia && (kind !== "text" || !text);
 
@@ -226,7 +240,11 @@ export function OutputStageBlock({
             )
           ) : null}
 
-          {!hasMedia && !text ? (
+          {hasStructured && structured ? (
+            <VisualResults payload={structured} accent={accent} />
+          ) : null}
+
+          {!hasMedia && !text && !hasStructured ? (
             <p className="mt-3 text-sm leading-relaxed text-slate-500">
               Nothing came back for that one. Try describing it a little differently.
             </p>
