@@ -1,5 +1,14 @@
 # Frontend Builder — Canonical Roadmap (triple-verified 2026-08-16)
 
+**THE AI-OPERATED BUILDER RULING (founder law, supersedes feature-list reading):**
+The feature inventory below is the DESIGN BRAIN's toolbox, not the human's. The human keeps ~9
+touches only (select, drag, delete, duplicate, undo/redo, inline text edit, device preview,
+open-in-Build, publish) plus the chat. Every other capability ships as a VALIDATED OPERATION the
+Design Brain invokes from natural language — never as human-facing menus/panels. Options held by
+the AI are power; options shown to the human are clutter. This is the anti-Wix guarantee and the
+2030 product: "The architect describes; the Design Brain designs, arranges, brands, and prepares
+to sell; the human approves and earns."
+
 **The Packaging Rule (founder law):** The page is the packaging; the AI's work is the product.
 Build exactly enough page for a stranger to TRUST, USE, and BUY the AI's work — not one feature more.
 Litmus for every feature: helps a customer use/buy the AI's work → build. Just prettier websites → refuse.
