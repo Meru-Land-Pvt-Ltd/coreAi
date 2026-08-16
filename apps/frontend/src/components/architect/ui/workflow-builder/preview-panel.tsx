@@ -144,11 +144,11 @@ const DEVICES: {
  * neutral stage, with room reserved under the floating toolbar.
  */
 const STAGE_CLASSES: Record<PreviewDevice, string> = {
-  desktop: "absolute inset-0 pt-[3.5rem]",
+  desktop: "absolute inset-0",
   tablet:
-    "absolute inset-0 flex justify-center overflow-y-auto px-4 pb-6 pt-[4.25rem] sm:px-6",
+    "absolute inset-0 flex justify-center overflow-y-auto px-4 pb-6 pt-6 sm:px-6",
   phone:
-    "absolute inset-0 flex justify-center overflow-y-auto px-4 pb-6 pt-[4.25rem] sm:px-6"
+    "absolute inset-0 flex justify-center overflow-y-auto px-4 pb-6 pt-6 sm:px-6"
 };
 
 /**
@@ -423,7 +423,7 @@ export function PreviewPanel({
         <div
           role="status"
           data-testid="preview-panel-review-lock"
-          className="absolute left-1/2 top-[3.75rem] z-30 w-[min(90%,32rem)] -translate-x-1/2 rounded-2xl border border-gray-200 bg-white/95 px-4 py-2.5 text-center text-sm leading-relaxed text-slate-600 shadow-lg backdrop-blur"
+          className="absolute left-1/2 top-4 z-30 w-[min(90%,32rem)] -translate-x-1/2 rounded-2xl border border-gray-200 bg-white/95 px-4 py-2.5 text-center text-sm leading-relaxed text-slate-600 shadow-lg backdrop-blur"
         >
           Testing is paused while your agent is under review.
         </div>
@@ -431,7 +431,7 @@ export function PreviewPanel({
         <div
           role="status"
           data-testid="preview-panel-error"
-          className="absolute left-1/2 top-[3.75rem] z-30 flex w-[min(90%,32rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-1.5 gap-y-1 rounded-2xl border border-amber-200 bg-amber-50/95 px-4 py-2.5 text-center text-sm leading-relaxed text-amber-900 shadow-lg backdrop-blur"
+          className="absolute left-1/2 top-4 z-30 flex w-[min(90%,32rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-1.5 gap-y-1 rounded-2xl border border-amber-200 bg-amber-50/95 px-4 py-2.5 text-center text-sm leading-relaxed text-amber-900 shadow-lg backdrop-blur"
         >
           <span>Your agent hit a snag answering. Try again or check</span>
           <button
@@ -448,56 +448,6 @@ export function PreviewPanel({
           <span>.</span>
         </div>
       ) : null}
-
-      {/* The floating device toolbar — top-center, over the page, like a
-          designer's preview chrome. Desktop / tablet / phone, the promise
-          line, and the quiet door to Advanced testing. */}
-      <div
-        data-testid="preview-device-switcher"
-        className="absolute left-1/2 top-3 z-40 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200/70 bg-white/95 py-1 pl-1 pr-2.5 shadow-lg shadow-slate-900/10 backdrop-blur"
-      >
-        {DEVICES.map(({ id, label, icon: Icon }) => {
-          const active = device === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={active}
-              onClick={() => setDevice(id)}
-              data-testid={`preview-device-${id}`}
-              className={
-                (active
-                  ? "inline-flex flex-none items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition"
-                  : "inline-flex flex-none items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900") +
-                PILL_FOCUS_CLASSES
-              }
-            >
-              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden sm:inline">{label}</span>
-            </button>
-          );
-        })}
-
-        <span className="mx-1 hidden h-4 w-px flex-none bg-slate-200 md:block" aria-hidden="true" />
-        <p
-          className="hidden min-w-0 max-w-[260px] truncate text-[11px] font-medium text-slate-400 md:block"
-          data-testid="preview-panel-caption"
-        >
-          This is exactly what your customer will see.
-        </p>
-        <span className="mx-1 h-4 w-px flex-none bg-slate-200" aria-hidden="true" />
-        <button
-          type="button"
-          onClick={onOpenAdvanced}
-          data-testid="preview-panel-advanced-toggle"
-          className={
-            "flex-none rounded-full px-1.5 py-1 text-[11px] font-medium text-slate-400 underline-offset-4 transition hover:text-slate-600 hover:underline" +
-            PILL_FOCUS_CLASSES
-          }
-        >
-          Advanced testing
-        </button>
-      </div>
 
       {/* With product blocks on the canvas, the graph decides the product —
           the look pills would contradict it, so they step aside. Otherwise
@@ -578,7 +528,7 @@ export function PreviewPanel({
           if (event.key === "Escape") closeDesign();
         }}
         className={
-          "absolute bottom-4 right-4 z-50 flex h-[min(65vh,560px)] max-h-[calc(100%-4.75rem)] w-[380px] max-w-[calc(100%-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/25 transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none max-sm:inset-x-3 max-sm:bottom-3 max-sm:h-[70vh] max-sm:w-auto max-sm:max-w-none " +
+          "absolute bottom-4 right-4 z-50 flex h-[min(65vh,560px)] max-h-[calc(100%-2rem)] w-[380px] max-w-[calc(100%-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/25 transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none max-sm:inset-x-3 max-sm:bottom-3 max-sm:h-[70vh] max-sm:w-auto max-sm:max-w-none " +
           (designOpen ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")
         }
       >
@@ -606,6 +556,7 @@ export function PreviewPanel({
         </div>
         <DesignBrainChat variant="docked" workflowId={workflowId} onApplied={onDesignApplied} />
       </section>
+      </div>
     </div>
   );
 }
