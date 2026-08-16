@@ -144,7 +144,7 @@ const DEVICES: {
  * neutral stage, with room reserved under the floating toolbar.
  */
 const STAGE_CLASSES: Record<PreviewDevice, string> = {
-  desktop: "absolute inset-0",
+  desktop: "absolute inset-0 pt-[3.5rem]",
   tablet:
     "absolute inset-0 flex justify-center overflow-y-auto px-4 pb-6 pt-[4.25rem] sm:px-6",
   phone:
@@ -302,9 +302,59 @@ export function PreviewPanel({
 
   return (
     <div
-      className="relative h-full min-h-0 w-full overflow-hidden bg-slate-100"
+      className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-100"
       data-testid="preview-panel"
     >
+      {/* Enterprise preview chrome: the device switcher lives in its own slim
+          top bar — like Figma or Webflow — so it can never cover the page. */}
+      <div
+        data-testid="preview-device-switcher"
+        className="flex h-12 flex-none items-center justify-center gap-1 border-b border-slate-200 bg-white px-3"
+      >
+        {DEVICES.map(({ id, label, icon: Icon }) => {
+          const active = device === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setDevice(id)}
+              data-testid={`preview-device-${id}`}
+              className={
+                (active
+                  ? "inline-flex flex-none items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition"
+                  : "inline-flex flex-none items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900") +
+                PILL_FOCUS_CLASSES
+              }
+            >
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="hidden sm:inline">{label}</span>
+            </button>
+          );
+        })}
+
+        <span className="mx-1 hidden h-4 w-px flex-none bg-slate-200 md:block" aria-hidden="true" />
+        <p
+          className="hidden min-w-0 max-w-[260px] truncate text-[11px] font-medium text-slate-400 md:block"
+          data-testid="preview-panel-caption"
+        >
+          This is exactly what your customer will see.
+        </p>
+        <span className="mx-1 h-4 w-px flex-none bg-slate-200" aria-hidden="true" />
+        <button
+          type="button"
+          onClick={onOpenAdvanced}
+          data-testid="preview-panel-advanced-toggle"
+          className={
+            "flex-none rounded-full px-1.5 py-1 text-[11px] font-medium text-slate-400 underline-offset-4 transition hover:text-slate-600 hover:underline" +
+            PILL_FOCUS_CLASSES
+          }
+        >
+          Advanced testing
+        </button>
+      </div>
+
+      <div className="relative min-h-0 flex-1">
       {/* The page, exactly as a customer meets it. One frame element for all
           three devices so switching widths never remounts (or wipes) the Face
           inside — desktop is the page full-bleed, tablet and phone wrap the
