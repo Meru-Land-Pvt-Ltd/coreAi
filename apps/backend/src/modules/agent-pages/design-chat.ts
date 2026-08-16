@@ -14,6 +14,7 @@ import {
 } from "../ai-provider-engine/llm-health";
 import { getProviderEngine } from "../ai-provider-engine/provider-engine";
 import type { AIExecuteRequest, AIMessage } from "../ai-provider-engine/types";
+import { getDesignBrainRules } from "../admin/design-brain-rules";
 import {
   DESIGN_DEFAULTS,
   designConfigSchema,
@@ -128,8 +129,16 @@ type PageContent = {
   suggestedPrompts: string[];
 };
 
-export function buildDesignChatSystemPrompt(design: DesignConfig, content: PageContent): string {
+export function buildDesignChatSystemPrompt(
+  design: DesignConfig,
+  content: PageContent,
+  houseRules = ""
+): string {
+  const rules = houseRules.trim();
   return [
+    // The admin-editable constitution (Admin → Design Brain rules) leads the
+    // prompt so it outranks everything else. Empty rules add nothing.
+    ...(rules ? [`HOUSE RULES you must always obey:\n${rules}`, ""] : []),
     "You are the Design Brain for a published AI agent page. An architect chats with you in plain language; you adjust the page's look by outputting a JSON patch. You can ONLY turn the dials listed below — you never write code, CSS, or invent new options.",
     "",
     "DIALS (the only design keys you may set, with every allowed value):",
@@ -275,12 +284,20 @@ export function registerAgentPageDesignChatRoute(routes: Hono) {
         return errorResponse(c, MISSING_LLM_CREDENTIALS_MESSAGE, 503, "LLM_NOT_CONFIGURED");
       }
 
-      const systemPrompt = buildDesignChatSystemPrompt(currentDesign, {
-        accentColor: page.accentColor,
-        headline: page.headline,
-        welcomeMessage: page.welcomeMessage,
-        suggestedPrompts: page.suggestedPrompts
-      });
+      // Cached ~60s and never throws — an unreachable database means no extra
+      // rules, never a failed styling reply.
+      const houseRules = await getDesignBrainRules();
+
+      const systemPrompt = buildDesignChatSystemPrompt(
+        currentDesign,
+        {
+          accentColor: page.accentColor,
+          headline: page.headline,
+          welcomeMessage: page.welcomeMessage,
+          suggestedPrompts: page.suggestedPrompts
+        },
+        houseRules
+      );
 
       const conversationHistory: AIMessage[] = (input.history ?? []).map((turn) => ({
         role: turn.role,

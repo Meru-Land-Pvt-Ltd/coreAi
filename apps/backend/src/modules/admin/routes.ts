@@ -18,6 +18,12 @@ import {
   listPlatformApiSettings,
   savePlatformApiSettings
 } from "./platform-api-settings";
+import {
+  DEFAULT_DESIGN_BRAIN_RULES,
+  DESIGN_BRAIN_RULES_MAX_LENGTH,
+  getDesignBrainRulesSetting,
+  saveDesignBrainRules
+} from "./design-brain-rules";
 
 export const adminRoutes = new Hono();
 
@@ -77,6 +83,43 @@ adminRoutes.put("/api-settings", async (c) => {
   }).catch(() => undefined);
 
   return successResponse(c, { groups: await listPlatformApiSettings(), ...result }, "API settings saved");
+});
+
+/* ------------------ Design Brain rules (platform constitution) ------------------ */
+
+adminRoutes.get("/design-rules", async (c) => {
+  const rules = await getDesignBrainRulesSetting();
+  return successResponse(c, { rules: { ...rules, defaultValue: DEFAULT_DESIGN_BRAIN_RULES } });
+});
+
+const designRulesUpdateSchema = z.object({
+  // Blank restores the platform default rather than storing an empty constitution.
+  value: z.string().max(DESIGN_BRAIN_RULES_MAX_LENGTH)
+});
+
+adminRoutes.patch("/design-rules", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = designRulesUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid rules payload", 422, "VALIDATION_ERROR");
+  }
+
+  const result = await saveDesignBrainRules(parsed.data.value, authUser.id);
+
+  // The rules text itself is not logged — only that it changed, and how.
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "DESIGN_BRAIN_RULES_UPDATED",
+    targetType: "PlatformApiSetting",
+    meta: { restoredDefault: result.restoredDefault, length: parsed.data.value.trim().length }
+  }).catch(() => undefined);
+
+  const rules = await getDesignBrainRulesSetting();
+  return successResponse(
+    c,
+    { rules: { ...rules, defaultValue: DEFAULT_DESIGN_BRAIN_RULES }, ...result },
+    result.restoredDefault ? "Default rules restored" : "Design Brain rules saved"
+  );
 });
 
 function parsePagination(c: { req: { query: (k: string) => string | undefined } }) {

@@ -16,7 +16,8 @@ const mocks = vi.hoisted(() => ({
   pageCreate: vi.fn(),
   pageUpdate: vi.fn(),
   execute: vi.fn(),
-  resolveProvider: vi.fn()
+  resolveProvider: vi.fn(),
+  getDesignBrainRules: vi.fn()
 }));
 
 vi.mock("../../lib/prisma", () => ({
@@ -52,6 +53,13 @@ vi.mock("../ai-provider-engine/llm-credentials", () => ({
 
 vi.mock("../ai-provider-engine/provider-engine", () => ({
   getProviderEngine: () => ({ executeWithProvider: mocks.execute })
+}));
+
+// The admin-editable constitution accessor: mocked so these tests control the
+// rules text directly (its cache + fallback have their own suite in
+// ../admin/design-brain-rules.test.ts).
+vi.mock("../admin/design-brain-rules", () => ({
+  getDesignBrainRules: mocks.getDesignBrainRules
 }));
 
 import {
@@ -138,6 +146,7 @@ beforeEach(() => {
   mocks.workflowFindFirst.mockResolvedValue(workflowRow);
   mocks.pageFindFirst.mockResolvedValue({ ...pageRow });
   mocks.resolveProvider.mockReturnValue({ providerId: "gemini" });
+  mocks.getDesignBrainRules.mockResolvedValue("");
   // The updated row mirrors whatever the route persists.
   mocks.pageUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     ...pageRow,
@@ -190,6 +199,33 @@ describe("POST /manage/:workflowId/design-chat", () => {
     expect(request.systemPrompt).toContain('"light" | "dark" | "warm"');
     expect(request.systemPrompt).toContain(JSON.stringify(DEFAULT_DESIGN));
     expect(request.systemPrompt).toContain("same language");
+  });
+
+  it("prepends the admin house rules to the system prompt when rules exist", async () => {
+    const rules = "1. Mobile first, always.\n2. Refuse anything hard to read.";
+    mocks.getDesignBrainRules.mockResolvedValue(rules);
+    mocks.execute.mockResolvedValue(llmSuccess('{"reply":"ok","patch":{}}'));
+
+    await designChat(buildApp(), { instruction: "hello" });
+
+    expect(mocks.getDesignBrainRules).toHaveBeenCalledTimes(1);
+    const [, request] = mocks.execute.mock.calls[0];
+    // The constitution leads the prompt so it outranks everything after it.
+    expect(request.systemPrompt.startsWith(`HOUSE RULES you must always obey:\n${rules}`)).toBe(true);
+    // And the dial contract still follows in full.
+    expect(request.systemPrompt).toContain('"light" | "dark" | "warm"');
+    expect(request.systemPrompt).toContain("OUTPUT RULES:");
+  });
+
+  it("omits the house-rules block entirely when the accessor returns empty", async () => {
+    mocks.getDesignBrainRules.mockResolvedValue("");
+    mocks.execute.mockResolvedValue(llmSuccess('{"reply":"ok","patch":{}}'));
+
+    await designChat(buildApp(), { instruction: "hello" });
+
+    const [, request] = mocks.execute.mock.calls[0];
+    expect(request.systemPrompt).not.toContain("HOUSE RULES");
+    expect(request.systemPrompt.startsWith("You are the Design Brain")).toBe(true);
   });
 
   it("merges dials into an existing designJson without discarding other stored dials", async () => {
