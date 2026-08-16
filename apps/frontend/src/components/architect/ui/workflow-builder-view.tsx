@@ -228,7 +228,10 @@ export function EmptyCanvasFacePicker({
   /** Same insert path as the sidebar template cards (onUseTemplate). */
   onPick: (slug: string) => void;
 }) {
-  if (nodeCount > 0) return null;
+  // "Custom" celebrates the blank canvas: dismiss the picker and let the
+  // architect build anything their way from the left panel.
+  const [dismissed, setDismissed] = useState(false);
+  if (nodeCount > 0 || dismissed) return null;
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-4">
@@ -262,6 +265,24 @@ export function EmptyCanvasFacePicker({
             </button>
           ))}
         </div>
+
+        <button
+          type="button"
+          data-testid="canvas-picker-custom"
+          onClick={() => setDismissed(true)}
+          disabled={importingSlug !== null}
+          className="group mt-3 flex w-full items-start gap-3 rounded-2xl border border-dashed border-rose-300 bg-rose-50/40 p-4 text-left transition hover:border-rose-400 hover:bg-rose-50 hover:shadow-md disabled:cursor-wait disabled:opacity-60"
+        >
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-rose-100 text-rose-600 transition group-hover:bg-rose-200">
+            <BuilderIcon name="edit" className="h-5 w-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-bold text-slate-900">Custom — build anything</span>
+            <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+              A blank canvas and every piece in the left panel. Your idea, your way — unlimited.
+            </span>
+          </span>
+        </button>
 
         <p
           className="mt-5 text-center text-xs font-medium text-slate-400"
