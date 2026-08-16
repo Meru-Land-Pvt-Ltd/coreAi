@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys, TRIVEN_AGENT_TAXONOMY, workflowJsonForTemplate } from "@coreai/shared";
+import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, presentationDoorEnabled, requiredConnectorKeys, TRIVEN_AGENT_TAXONOMY, workflowJsonForTemplate } from "@coreai/shared";
 import { llmCredentialStatus } from "../ai-provider-engine/llm-credentials";
 import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
 import { llmProviderAvailability } from "../ai-provider-engine/llm-probe";
@@ -8,7 +8,7 @@ import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { apiErrorStatus } from "../../lib/error-utils";
 import { prisma } from "../../lib/prisma";
-import { extractRunOutput } from "../agent-pages/run-output";
+import { resolveRunOutput } from "../agent-pages/run-output";
 import { MarketplaceDemoError, normalizeDemoCallCustomInfo, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import {
@@ -2501,7 +2501,15 @@ architectRoutes.post("/workflows/:workflowId/preview-run", async (c) => {
       mode: "test"
     });
 
-    return successResponse(c, { output: extractRunOutput(result) }, "Preview run completed");
+    // Same Face-out door as the public page, so the builder's Test tab shows
+    // the architect exactly what a visitor will see.
+    const output = await resolveRunOutput(result, {
+      userMessage: input.prompt,
+      businessName: workflow.name,
+      doorsEnabled: presentationDoorEnabled(workflow.workflowJson)
+    });
+
+    return successResponse(c, { output }, "Preview run completed");
   } catch (error) {
     if (error instanceof z.ZodError) {
       return errorResponse(

@@ -13,6 +13,36 @@ to sell; the human approves and earns."
 Build exactly enough page for a stranger to TRUST, USE, and BUY the AI's work — not one feature more.
 Litmus for every feature: helps a customer use/buy the AI's work → build. Just prettier websites → refuse.
 
+## Built-in doors (founder law)
+
+Every node has an AI entry door and an AI exit door **where translation is needed**. The doors are
+ours; the model behind them is a battery we swap forever (one admin setting, platform-wide, no
+per-node model choice anywhere). Each door is born knowing its job, so it works even when the
+architect knows nothing.
+
+Doors live **inside** the node. They are never canvas nodes, never in the palette, and never a
+separate step in the customer-facing preview — at most a sub-line under their own node in the
+advanced run log ("Understood the request", "Cleaned the response"). They are on by default; the
+only control is one quiet toggle in a node's Advanced settings, "Smart input & output".
+
+Who carries what:
+
+| Family | Doors | Why |
+| --- | --- | --- |
+| **Hands** — API Call, Send Email, Send SMS, Send WhatsApp, Telegram Message, Check Availability, Book Appointment, Calendly | entry **and** exit | They take a request out to the world and bring a reply back. The entry door fills in the address, the params and the message; the exit door cleans the reply down to what later steps actually need. |
+| **Face-out** — Result Viewer | entry only | The last step turns whatever the run produced into what the customer sees: plain words, plus stat cards, a chart or a table when the result really holds numbers or rows. |
+| **Face-in** — Prompt Box, Button, Choice, Upload | none | The customer's own words *are* the input. Nothing to translate. |
+| **Brains** — AI Brain, voice conversation, image maker | none | They already are doors. |
+
+A door never breaks a node: if it fails, times out, runs past the run's door budget, or returns
+something unusable, the step runs exactly as it would have without it. Doors are an enhancement,
+never a dependency. They also never read or write a key, token, connection or credential field.
+
+**Consequence for templates and kits:** a shipped template holds only real steps — Face blocks,
+Hands, and at most ONE thinking Brain where genuine reasoning is wanted. Hand-placing a brain to
+fill in the next step's request or tidy the last step's reply is now forbidden: that is a door, and
+doors are not canvas nodes. Image Studio lost its prompt-writing brain this way (7 nodes → 6).
+
 ## Shipped
 Design Brain (create/restyle/remove components by typing, admin rulebook/HOUSE RULES, validated patches) ·
 Product Blocks + Faces (4 live templates, empty-canvas picker + Custom) · full-page Preview with

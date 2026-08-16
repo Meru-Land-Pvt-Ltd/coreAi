@@ -25,6 +25,49 @@ export type ConnectorRequirement = {
   note: string;
 };
 
+/**
+ * One AI door built into a node, and the standing instruction it is born
+ * knowing. The job text IS the door's brain: it is handed to the door model on
+ * every run, so it must describe this node's real work precisely — not doors in
+ * general.
+ */
+export type NodeDoorJob = {
+  /** Plain-language instruction the door follows every single time it runs. */
+  job: string;
+  /**
+   * THE WHITELIST. Exactly which of this node's settings an entry door may fill
+   * in — nothing else it hands back is ever applied.
+   *
+   * This list is the security boundary, not a hint. A door is fed the run so
+   * far, and the run carries whatever a stranger typed into a published page,
+   * so its reply must be treated as untrusted: without an explicit list, a
+   * visitor's words could steer a setting that decides WHO is paid, WHICH
+   * account is used or WHERE a request is sent.
+   *
+   * The rule for adding a name here: it must be part of the REQUEST this step
+   * makes — an address, a parameter, a body, a message, a time. Never a
+   * credential, a connection, an account, a media source, a button URL or an
+   * output location. Exit doors never write config, so they never carry one.
+   */
+  fields?: readonly string[];
+};
+
+/**
+ * The doors built INSIDE a node type. Absent means this node has no doors and
+ * nothing about it changes.
+ *
+ *  - `entry` runs just before the node acts: it turns the customer's words and
+ *    the run so far into the exact request this step needs.
+ *  - `exit` runs just after: it cleans the raw reply into the smallest useful
+ *    thing later steps can read.
+ *
+ * Doors are never canvas nodes and never appear in the palette.
+ */
+export type NodeDoorSpec = {
+  entry?: NodeDoorJob;
+  exit?: NodeDoorJob;
+};
+
 export type NodeDefinition = {
   /** Stable type slug, e.g. "action.send_sms". */
   type: string;
@@ -44,6 +87,11 @@ export type NodeDefinition = {
    * from `REQUIRED_CONNECTORS_BY_TYPE`. Empty for platform-only/no-connector nodes.
    */
   requiredConnectors?: ConnectorRequirement[];
+  /**
+   * The AI doors built into this node, supplied by `getNodeDefinition` from
+   * `NODE_DOORS_BY_TYPE`. Undefined for node types that have no doors.
+   */
+  doors?: NodeDoorSpec;
   /** Default builder config applied when the node is dropped on the canvas. */
   defaultConfig?: Record<string, unknown>;
   /** Agent-runtime capability slug, e.g. "calendar.check_availability". */
@@ -2615,9 +2663,289 @@ export function requiredConnectorsForType(type: string): ConnectorRequirement[] 
   return REQUIRED_CONNECTORS_BY_TYPE[type] ?? [];
 }
 
+/* ------------------------------------------------------------------------ */
+/* THE TWO DOORS                                                             */
+/*                                                                           */
+/* Every node that talks to the outside world has an AI entry door and an AI  */
+/* exit door built inside it — where translation is needed. The doors belong  */
+/* to Triven; the model behind them is a battery the platform can swap        */
+/* forever (Admin → door model), and each door is born knowing its job from   */
+/* the text below.                                                            */
+/*                                                                           */
+/* Who gets doors:                                                            */
+/*   HANDS      both doors — they take a request out and bring a reply back.  */
+/*   FACE-OUT   entry door only — the last step turns the run into what the   */
+/*              customer sees.                                                */
+/*   FACE-IN    none — the customer's own words ARE the input.                */
+/*   BRAINS     none — they already are doors.                                */
+/*                                                                           */
+/* A node type missing from this map simply has no doors and behaves exactly  */
+/* as it always has.                                                          */
+/* ------------------------------------------------------------------------ */
+
+export const NODE_DOORS_BY_TYPE: Record<string, NodeDoorSpec> = {
+  /* ---- HANDS: both doors ---- */
+
+  [API_CALL_NODE_TYPE]: {
+    entry: {
+      // Headers, the saved key and the output location are deliberately absent:
+      // a door builds the request, it never chooses the credential that signs
+      // it or the place the reply is parked.
+      fields: ["apiUrl", "apiMethod", "apiBody"],
+      job:
+        "Turn the customer's words and the run so far into the exact request this step needs: " +
+        "build the complete web address, fill in every search term, id, count, date and body field it takes, " +
+        "and leave every other setting exactly as the architect saved it."
+    },
+    exit: {
+      job:
+        "Clean the service's raw reply into the smallest useful object for later steps — " +
+        "keep the names, numbers, ids, dates and links that answer what was asked, " +
+        "drop wrappers, repeated boilerplate and anything nobody will read."
+    }
+  },
+
+  [VOICE_NODE_TYPES.sendEmail]: {
+    entry: {
+      // Subject and body only. Who an email goes to is buyer-owned — the live
+      // send reads To/CC/BCC off the installed agent and ignores these node
+      // fields entirely — so letting a door touch them could only ever move a
+      // dry-run preview, while handing a stranger's words a way to aim mail.
+      fields: ["subjectTemplate", "bodyTemplate"],
+      job:
+        "Compose the exact subject and body this step needs from the run so far. " +
+        "Use the real names, times and details, write in the customer's own language, " +
+        "and never leave a blank or a leftover placeholder in what gets sent."
+    },
+    exit: {
+      job:
+        "Clean the send result into a short plain record — whether the email went out, who it went to, " +
+        "and the subject line — and drop the mail provider's internal noise."
+    }
+  },
+
+  [VOICE_NODE_TYPES.sendSms]: {
+    entry: {
+      // The number and the words. Not `sendAt` — a door writes messages, it
+      // does not decide when the platform sends them.
+      fields: ["smsTo", "smsBody", "customerTemplate", "teamTemplate"],
+      job:
+        "Work out the exact phone number to text and the message to send from the run so far. " +
+        "One short complete text with the real names, times and details filled in — " +
+        "no placeholders, no cut-off sentences, nothing the person did not agree to."
+    },
+    exit: {
+      job:
+        "Clean the send result down to what matters — whether the text went out, the number it went to, " +
+        "and the message body — and nothing else."
+    }
+  },
+
+  "action.send_whatsapp": {
+    entry: {
+      // The number and the words. `connectionId` picks the WhatsApp account
+      // that pays, and `mediaLink`/`mediaId` make Meta fetch a URL — neither is
+      // ever a door's to choose.
+      fields: ["recipient", "message", "caption"],
+      job:
+        "Work out the exact WhatsApp number to write to and the message to send from the run so far, " +
+        "filling in the real names, times and details, and keeping it short enough to read on a phone."
+    },
+    exit: {
+      job:
+        "Clean the send result into a small plain record — whether it was delivered, the message id, " +
+        "and the number it went to."
+    }
+  },
+
+  [TELEGRAM_NODE_TYPES.sendMessage]: {
+    entry: {
+      // The chat and the words. Not `telegramButtonsJson` or
+      // `telegramCallbackUrl` (both put a clickable link in front of a person)
+      // and not the photo/document/voice sources (each makes Telegram fetch a
+      // URL a door chose).
+      fields: ["telegramChatIdExpression", "telegramMessageText", "telegramCaption"],
+      job:
+        "Work out which chat this message belongs to and write the message to send from the run so far — " +
+        "real details filled in, short enough to read in a chat window, in the customer's own language."
+    },
+    exit: {
+      job:
+        "Clean the send result into a small plain record — whether it was sent, the chat it went to, " +
+        "and the message id."
+    }
+  },
+
+  [VOICE_NODE_TYPES.calendarAvailability]: {
+    entry: {
+      // When to look and how long for. Never `calendarId` — which calendar the
+      // business runs on is the business's decision, not a translator's.
+      fields: ["date", "slotsToOffer", "bufferMinutes", "maxAdvanceDays"],
+      job:
+        "Work out the exact day or range of days to check from whatever the customer said — " +
+        "\"tomorrow\", \"next Tuesday afternoon\", a date they typed — plus how long the visit needs, " +
+        "always in the business's own timezone."
+    },
+    exit: {
+      job:
+        "Clean the calendar reply into a short ordered list of open times a person could actually be offered — " +
+        "real dates and times only, nothing else."
+    }
+  },
+
+  [VOICE_NODE_TYPES.bookAppointment]: {
+    entry: {
+      // The booking itself. Never `calendarId`, and never the notify-the-team
+      // switches or the team phone number.
+      fields: [
+        "appointmentStartAt",
+        "appointmentEndAt",
+        "appointmentService",
+        "eventTitleFormat",
+        "eventDescription",
+        "confirmationMessage"
+      ],
+      job:
+        "Work out the exact date, time, length and title for this booking from whatever the customer said, " +
+        "plus the name and contact details to put on it. " +
+        "Never invent a time the customer did not agree to — leave it out instead."
+    },
+    exit: {
+      job:
+        "Clean the booking reply into the few facts that matter — whether it was booked, the confirmation id, " +
+        "the date and the time — so the next step can tell the customer plainly."
+    }
+  },
+
+  [CALENDLY_NODE_TYPES.action]: {
+    entry: {
+      // The details of the thing being asked about. Never `connectorAction`
+      // (that IS the step — a door must not turn a lookup into a cancellation)
+      // and never the connection.
+      fields: [
+        "calendlyEventTypeUri",
+        "calendlyEventUuid",
+        "calendlyInviteeUuid",
+        "calendlyStartTime",
+        "calendlyEndTime",
+        "calendlyTimezone",
+        "calendlyStatus",
+        "calendlyCancelReason",
+        "calendlyContactUuid",
+        "calendlyContactEmail",
+        "calendlyContactFirstName",
+        "calendlyContactLastName",
+        "calendlyContactName",
+        "calendlyInviteeName",
+        "calendlyInviteeEmail",
+        "calendlyMeetingName",
+        "calendlyDurationMinutes",
+        "calendlyOneOffStartDate",
+        "calendlyOneOffEndDate",
+        "calendlyMeetingRecapUuid",
+        "calendlyLocationKind",
+        "calendlyLocation",
+        "calendlyUserSearch",
+        "calendlyUserUuid"
+      ],
+      job:
+        "Fill in exactly what this Calendly step needs from the run so far — the event, the person, " +
+        "the dates or the link being asked about — whatever form the customer's request arrived in."
+    },
+    exit: {
+      job:
+        "Clean Calendly's reply into the small set of facts that matter here — names, times, links and ids — " +
+        "and drop the rest."
+    }
+  },
+
+  /* ---- FACE-OUT: entry door only ---- */
+
+  [BLOCK_NODE_TYPES.outputStage]: {
+    entry: {
+      // The presentation door writes no settings at all — it builds the picture
+      // the customer sees. An empty list says so out loud.
+      fields: [],
+      job:
+        "Turn whatever this run produced into what the customer should see: a short line of plain words, " +
+        "plus stat cards, a chart or a table when the result really does contain numbers or rows. " +
+        "Use only real values from the run, never invent one, and leave out anything that would not help " +
+        "the person reading it."
+    }
+  }
+};
+
+/**
+ * Every node type that carries doors, in registry order. Used by tests, the
+ * inspector's Advanced toggle and the run log — never by the palette, because
+ * doors are never their own node.
+ */
+export const DOOR_BEARING_NODE_TYPES: string[] = Object.keys(NODE_DOORS_BY_TYPE);
+
+/**
+ * Node data key that turns a node's doors off. Stored as the string "true" so
+ * it round-trips through the canvas JSON like every other node flag. One
+ * constant so the builder toggle and the runtime can never disagree.
+ */
+export const NODE_DOORS_DISABLED_KEY = "doorsDisabled";
+
+/** The doors built into a node type, or undefined when it has none. */
+export function getNodeDoors(type: string | null | undefined): NodeDoorSpec | undefined {
+  const key = (type ?? "").trim();
+  if (!key) return undefined;
+
+  const direct = NODE_DOORS_BY_TYPE[key];
+  if (direct) return direct;
+
+  // Legacy Calendly slugs from older canvases (action.calendly_get_event_details…)
+  // run the same Calendly action, so they inherit the same doors.
+  if (key.startsWith("action.calendly_")) return NODE_DOORS_BY_TYPE[CALENDLY_NODE_TYPES.action];
+
+  return undefined;
+}
+
+/** True when this node type has any door at all. */
+export function hasNodeDoors(type: string | null | undefined): boolean {
+  return getNodeDoors(type) !== undefined;
+}
+
+/**
+ * Every setting an entry door on this node type may fill in — the whitelist,
+ * and the ONLY answer to "may a door write this field?".
+ *
+ * Empty for a node with no entry door, and empty for an entry door that
+ * declares no list. That default is deliberate: an entry door added to the
+ * registry without a field list writes nothing at all, so forgetting the list
+ * ships a door that does nothing rather than a door that can write anything.
+ */
+export function entryDoorSettableFields(type: string | null | undefined): readonly string[] {
+  return getNodeDoors(type)?.entry?.fields ?? [];
+}
+
+/**
+ * Doors are ON by default. They only stop when the architect flipped the quiet
+ * "Smart input & output" toggle off in the node's Advanced settings.
+ */
+export function nodeDoorsEnabled(nodeData: unknown): boolean {
+  if (typeof nodeData !== "object" || nodeData === null) return true;
+  const flag = (nodeData as Record<string, unknown>)[NODE_DOORS_DISABLED_KEY];
+  if (typeof flag === "boolean") return !flag;
+  return String(flag ?? "").trim().toLowerCase() !== "true";
+}
+
+/** Attach the lookup-table extras (connectors, doors) onto a base definition. */
+function withRegistryExtras(base: NodeDefinition, type: string): NodeDefinition {
+  const doors = getNodeDoors(type);
+  return {
+    ...base,
+    requiredConnectors: requiredConnectorsForType(type),
+    ...(doors ? { doors } : {})
+  };
+}
+
 export function getNodeDefinition(type: string): NodeDefinition | undefined {
   const base = NODE_DEFINITIONS.find((node) => node.type === type);
-  if (base) return { ...base, requiredConnectors: requiredConnectorsForType(type) };
+  if (base) return withRegistryExtras(base, type);
 
   // Legacy Calendly node types from older canvases (e.g. action.calendly_get_event_details)
   // share the same runtime behavior and output/input variable contracts as the base
@@ -2625,12 +2953,12 @@ export function getNodeDefinition(type: string): NodeDefinition | undefined {
   // the builder can still show Input/Output mapping variables.
   if (type.startsWith("action.calendly_")) {
     const fallback = NODE_DEFINITIONS.find((node) => node.type === CALENDLY_NODE_TYPES.action);
-    if (fallback) return { ...fallback, requiredConnectors: requiredConnectorsForType(type) };
+    if (fallback) return withRegistryExtras(fallback, type);
   }
 
   if (type.startsWith("trigger.calendly_")) {
     const fallback = NODE_DEFINITIONS.find((node) => node.type === CALENDLY_NODE_TYPES.trigger);
-    if (fallback) return { ...fallback, requiredConnectors: requiredConnectorsForType(type) };
+    if (fallback) return withRegistryExtras(fallback, type);
   }
 
   return undefined;

@@ -11,6 +11,7 @@ import {
   DESIGN_BRAIN_NODE_TYPE,
   EMAIL_TEMPLATE_VARIABLES,
   LLM_PROVIDERS,
+  NODE_DOORS_DISABLED_KEY,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_TYPES,
   isBlockNodeType,
@@ -20,6 +21,8 @@ import {
   getCalendlyVariableGuide,
   getLlmModelsForProvider,
   getNodeDefinition,
+  hasNodeDoors,
+  nodeDoorsEnabled,
   resolveLlmSelection
 } from "@coreai/shared";
 import { useState, useEffect, type ReactNode } from "react";
@@ -248,8 +251,15 @@ export function NodeInspector({
       {/* The Design Brain explains itself in chat — no step overview card. */}
       {isDesignBrain ? null : <NodeOverviewPanel node={selectedNode} />}
 
-      {/* The variable-mapping drawer is engine territory — never for blocks. */}
-      {isProductBlock ? null : <NodeAdvancedSettingsPanel node={selectedNode} />}
+      {/* The variable-mapping drawer is engine territory — never for blocks. A
+          product section that carries doors still gets the one quiet switch. */}
+      {isProductBlock ? (
+        hasNodeDoors(type) ? (
+          <NodeAdvancedSettingsPanel node={selectedNode} onUpdateNodeData={onUpdateNodeData} doorsOnly />
+        ) : null
+      ) : (
+        <NodeAdvancedSettingsPanel node={selectedNode} onUpdateNodeData={onUpdateNodeData} />
+      )}
 
       <div className="border-t border-gray-100 p-5">
         <button
@@ -1150,7 +1160,64 @@ function FriendlyVariableGroup({
   );
 }
 
-function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
+/**
+ * The quiet switch for the doors built inside a step.
+ *
+ * Steps that carry doors read what arrives and tidy what they return without
+ * anyone placing an AI node for it. That is on from the start and stays out of
+ * sight — this switch exists only so an architect who wants the raw, literal
+ * behaviour can have it. Off stores `doorsDisabled: "true"`, the one key the
+ * runtime looks at.
+ */
+function NodeDoorsToggle({
+  node,
+  onUpdateNodeData
+}: {
+  node: BuilderNode;
+  onUpdateNodeData: NodePropsPanel["onUpdateNodeData"];
+}) {
+  const enabled = nodeDoorsEnabled(node.data);
+
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="text-[12px] font-semibold text-slate-700">Smart input &amp; output</p>
+        <p className="mt-0.5 text-[11px] leading-4 text-slate-400">
+          Lets this step understand what arrives and tidy what it returns.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label="Smart input & output"
+        data-testid="node-doors-toggle"
+        onClick={() => onUpdateNodeData(NODE_DOORS_DISABLED_KEY, enabled ? "true" : "false")}
+        className={`mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${
+          enabled ? "bg-amber-500" : "bg-gray-300"
+        }`}
+      >
+        <span
+          className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${
+            enabled ? "translate-x-[18px]" : "translate-x-[2px]"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
+function NodeAdvancedSettingsPanel({
+  node,
+  onUpdateNodeData,
+  doorsOnly = false
+}: {
+  node: BuilderNode;
+  onUpdateNodeData: NodePropsPanel["onUpdateNodeData"];
+  /** Product sections get the switch alone — never the variable-mapping drawer. */
+  doorsOnly?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -1217,7 +1284,11 @@ function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
 
       {open ? (
         <div className="mt-3 space-y-4" data-testid="node-advanced-settings">
-          {isCalendlyAction ? (
+          {hasNodeDoors(type) ? (
+            <NodeDoorsToggle node={node} onUpdateNodeData={onUpdateNodeData} />
+          ) : null}
+
+          {doorsOnly ? null : isCalendlyAction ? (
             <>
               <FriendlyVariableGroup
                 title="Input mapping"
@@ -1262,27 +1333,31 @@ function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
             </>
           )}
 
-          <AdvancedVariableGroup
-            title="Variables"
-            testId="node-advanced-variables"
-            emptyText="No variables are used in this step yet."
-            helper="Variables referenced by this step's fields. Click one to copy it, then paste it into any text field."
-            keys={usedKeys}
-            copiedKey={copiedKey}
-            onCopy={handleCopy}
-          />
+          {doorsOnly ? null : (
+            <AdvancedVariableGroup
+              title="Variables"
+              testId="node-advanced-variables"
+              emptyText="No variables are used in this step yet."
+              helper="Variables referenced by this step's fields. Click one to copy it, then paste it into any text field."
+              keys={usedKeys}
+              copiedKey={copiedKey}
+              onCopy={handleCopy}
+            />
+          )}
 
-          <div data-testid="node-advanced-developer">
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Developer options</p>
-            <div className="space-y-1 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-[11px] leading-5 text-slate-500">
-              <p>id: {node.id}</p>
-              <p>type: {type || "—"}</p>
-              <p>kind: {String(node.data.nodeKind ?? "—")}</p>
-              {connector ? <p>connector: {connector}</p> : null}
-              {connectorAction ? <p>action: {connectorAction}</p> : null}
-              {definition?.capability ? <p>capability: {definition.capability}</p> : null}
+          {doorsOnly ? null : (
+            <div data-testid="node-advanced-developer">
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Developer options</p>
+              <div className="space-y-1 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-[11px] leading-5 text-slate-500">
+                <p>id: {node.id}</p>
+                <p>type: {type || "—"}</p>
+                <p>kind: {String(node.data.nodeKind ?? "—")}</p>
+                {connector ? <p>connector: {connector}</p> : null}
+                {connectorAction ? <p>action: {connectorAction}</p> : null}
+                {definition?.capability ? <p>capability: {definition.capability}</p> : null}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       ) : null}
     </div>

@@ -193,6 +193,21 @@ const envSchema = z.object({
   MEMORY_CHUNK_TARGET_CHARS: z.coerce.number().int().positive().default(2000),
   MEMORY_CHUNK_MAX_CHARS: z.coerce.number().int().positive().default(2500),
 
+  /**
+   * Ceiling on AI door calls (entry + exit + presentation combined) inside a
+   * single run. Doors are an enhancement, never a dependency — past this the
+   * run continues with no doors and no extra cost.
+   */
+  DOOR_BRAIN_MAX_PER_RUN: z.coerce.number().int().min(0).default(8),
+
+  /**
+   * Total wall-clock milliseconds one run may spend waiting on doors, shared by
+   * every door in it. The per-call timeout alone would let a full allowance of
+   * slow doors add 8 × 12s to a customer's page load; this collapses that to a
+   * single shared ceiling, after which the run finishes with no doors at all.
+   */
+  DOOR_BRAIN_MAX_MS_PER_RUN: z.coerce.number().int().min(0).default(25_000),
+
   /** Meta WhatsApp Cloud API (optional — connections store their own tokens). */
   META_WHATSAPP_APP_ID: z.string().optional(),
   META_WHATSAPP_APP_SECRET: z.string().optional(),

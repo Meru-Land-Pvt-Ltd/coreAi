@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
+import { presentationDoorEnabled } from "@coreai/shared";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { runArchitectConversationTest } from "../architect/workflow-conversation-test";
@@ -12,7 +13,7 @@ import { deriveFaceBlueprint } from "./blueprint";
 import { resolveDesign } from "./design";
 import { registerAgentPageManageRoutes } from "./manage-routes";
 import { agentPageRemainingToday, consumeAgentPageLimit, refundAgentPageUse } from "./rate-limit";
-import { extractRunOutput } from "./run-output";
+import { resolveRunOutput } from "./run-output";
 import type { AgentPageTemplate } from "./slug";
 
 /**
@@ -351,7 +352,13 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
     });
 
     return successResponse(c, {
-      output: extractRunOutput(result),
+      // The Face-out door turns whatever the run produced into cards, a chart
+      // or a table. When it can't, this is the same plain text as before.
+      output: await resolveRunOutput(result, {
+        userMessage: parsed.data.prompt,
+        businessName: page.listing.name,
+        doorsEnabled: presentationDoorEnabled(workflowJson)
+      }),
       remainingToday: decision.remainingToday
     });
   } catch (error) {

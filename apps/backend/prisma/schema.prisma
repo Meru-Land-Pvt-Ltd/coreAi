@@ -187,6 +187,11 @@ model PublishedAgentPage {
   /// Design Brain dials (theme, composer position, density, bubble style,
   /// history sidebar). Null = all defaults; always read through resolveDesign.
   designJson       Json?
+  /// Product Spec (packages/shared/src/product-spec.ts): the multi-page site
+  /// the AI architect designed, wires included. Null = no spec yet; the page
+  /// still renders from a spec synthesized off the Face Blueprint. Always read
+  /// through getProductSpec / resolveProductForPublic, never raw.
+  productJson      Json?
   status           String       @default("LIVE")
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt

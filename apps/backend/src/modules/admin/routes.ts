@@ -24,6 +24,16 @@ import {
   getDesignBrainRulesSetting,
   saveDesignBrainRules
 } from "./design-brain-rules";
+import {
+  DEFAULT_DOOR_BRAIN_PROVIDER,
+  DOOR_BRAIN_MODEL_MAX_LENGTH,
+  doorBrainModelMismatch,
+  doorBrainModelOptions,
+  doorBrainProviderOptions,
+  getDoorBrainSetting,
+  isSupportedDoorBrainProvider,
+  saveDoorBrainConfig
+} from "./door-brain-settings";
 
 export const adminRoutes = new Hono();
 
@@ -119,6 +129,91 @@ adminRoutes.patch("/design-rules", async (c) => {
     c,
     { rules: { ...rules, defaultValue: DEFAULT_DESIGN_BRAIN_RULES }, ...result },
     result.restoredDefault ? "Default rules restored" : "Design Brain rules saved"
+  );
+});
+
+/* ------------------- Door model (the one swappable battery) ------------------ */
+
+/**
+ * The provider/model every AI door inside every node runs on. One setting for
+ * the whole platform on purpose — changing it here changes every door instantly.
+ */
+adminRoutes.get("/door-brain", async (c) => {
+  const setting = await getDoorBrainSetting();
+  return successResponse(c, {
+    doorBrain: {
+      ...setting,
+      defaultProviderId: DEFAULT_DOOR_BRAIN_PROVIDER,
+      providers: doorBrainProviderOptions(),
+      models: doorBrainModelOptions(setting.providerId)
+    }
+  });
+});
+
+const doorBrainUpdateSchema = z
+  .object({
+    // Blank clears the override and restores the platform default.
+    provider: z.string().trim().max(60).optional(),
+    model: z.string().trim().max(DOOR_BRAIN_MODEL_MAX_LENGTH).optional()
+  })
+  .refine((body) => body.provider !== undefined || body.model !== undefined, {
+    message: "Send a provider, a model, or both"
+  });
+
+adminRoutes.patch("/door-brain", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = doorBrainUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(
+      c,
+      parsed.error.issues[0]?.message ?? "Invalid door model payload",
+      422,
+      "VALIDATION_ERROR"
+    );
+  }
+
+  const provider = parsed.data.provider;
+  if (provider && !isSupportedDoorBrainProvider(provider)) {
+    return errorResponse(c, "That AI service is not one we can run doors on.", 422, "UNSUPPORTED_PROVIDER");
+  }
+
+  // A model from a different service would be rejected by every door call.
+  const model = parsed.data.model;
+  const targetProvider = provider || (await getDoorBrainSetting()).providerId;
+  if (model && doorBrainModelMismatch(targetProvider, model)) {
+    return errorResponse(c, "That model belongs to a different AI service.", 422, "PROVIDER_MODEL_MISMATCH");
+  }
+
+  const result = await saveDoorBrainConfig(
+    { ...(provider !== undefined ? { provider } : {}), ...(model !== undefined ? { model } : {}) },
+    authUser.id
+  );
+
+  // Which keys changed is audited; the chosen values are not written to the log.
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "DOOR_BRAIN_MODEL_UPDATED",
+    targetType: "PlatformApiSetting",
+    meta: {
+      providerChanged: provider !== undefined,
+      modelChanged: model !== undefined,
+      restoredDefault: result.restoredDefault
+    }
+  }).catch(() => undefined);
+
+  const setting = await getDoorBrainSetting();
+  return successResponse(
+    c,
+    {
+      doorBrain: {
+        ...setting,
+        defaultProviderId: DEFAULT_DOOR_BRAIN_PROVIDER,
+        providers: doorBrainProviderOptions(),
+        models: doorBrainModelOptions(setting.providerId)
+      },
+      restoredDefault: result.restoredDefault
+    },
+    result.restoredDefault ? "Default door model restored" : "Door model saved"
   );
 });
 

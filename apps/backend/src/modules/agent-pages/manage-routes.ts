@@ -8,6 +8,8 @@ import { requireAuth, requireRole } from "../../middleware/auth";
 import { deriveFaceBlueprint } from "./blueprint";
 import { agentPageLayoutSchema, resolveDesign } from "./design";
 import { registerAgentPageDesignChatRoute } from "./design-chat";
+import { registerAgentPageProductChatRoute } from "./product-chat";
+import { registerAgentPageProductRoutes } from "./product-routes";
 import { ensureDraftAgentListingAndPage, inferAgentPageTemplate, type AgentPageTemplate } from "./slug";
 
 /**
@@ -175,4 +177,8 @@ export function registerAgentPageManageRoutes(routes: Hono) {
 
   /** Design Brain chat: natural language in, validated DesignPatch applied. */
   registerAgentPageDesignChatRoute(routes);
+
+  registerAgentPageProductRoutes(routes);
+
+  registerAgentPageProductChatRoute(routes);
 }

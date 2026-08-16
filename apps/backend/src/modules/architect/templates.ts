@@ -70,6 +70,19 @@ function flow(specs: NodeSpec[]) {
 // One tap in the builder sidebar imports a fully wired, working product. The
 // node data copies the shapes the palette produces (see library.ts paletteItem
 // + node-defaults.ts) so a template import and manual building are identical.
+//
+// DOOR-NATIVE (founder law). Every node carries its own AI entry and exit doors
+// where translation is needed — Hands get both, the Result Viewer gets an entry
+// door, Face-in blocks and brains get none (see NODE_DOORS_BY_TYPE in the shared
+// registry). The doors are invisible, on by default, and born knowing their job,
+// so a template ships ONLY real steps:
+//
+//   Face blocks + Hands + at most ONE thinking Brain, where genuine reasoning
+//   is wanted.
+//
+// No template may hand-place a brain whose job is to fill in the next step's
+// request or tidy the last step's reply — that is a door, and doors are no
+// longer canvas nodes. templates.test.ts locks this in.
 
 type PlacedNodeSpec = NodeSpec & { x: number; y: number };
 
@@ -132,13 +145,15 @@ function aiBrainData(overrides: Record<string, unknown> = {}): Record<string, un
 const CHATBOT_SYSTEM_PROMPT =
   "You are a friendly, helpful assistant for this business. Answer in plain language, keep replies warm and concise, and use the business details you are given. If you are not sure about something, say so honestly.";
 
-const IMAGE_STUDIO_SYSTEM_PROMPT =
-  "You write vivid picture descriptions. Turn the customer's idea — and any style they picked — into one clear description an image maker can follow: subject, setting, mood, colors, and style. Reply with the description only.";
-
 const FORM_TOOL_SYSTEM_PROMPT =
   "You turn a short request into a finished, well-organized report. Structure every reply with a clear title, short headed sections, and a closing summary. Write in plain business language the customer can use right away.";
 
-/** Chatbot Face: Prompt Box → AI Brain → Result Viewer → History Shelf, styled by a Design Brain. */
+/**
+ * Chatbot Face: Prompt Box → AI Brain → Result Viewer → History Shelf, styled
+ * by a Design Brain. One Brain — it answers the customer, which is the whole
+ * product. The Result Viewer's own entry door turns that answer into what the
+ * customer sees, so nothing here is asked to format anything.
+ */
 function buildChatbotFaceWorkflow(): WorkflowTemplate["workflowJson"] {
   return {
     nodes: placedNodes([
@@ -163,7 +178,12 @@ function buildChatbotFaceWorkflow(): WorkflowTemplate["workflowJson"] {
   };
 }
 
-/** Voice Agent Face: the dental voice-booking chain with generic business copy. */
+/**
+ * Voice Agent Face: the dental voice-booking chain with generic business copy.
+ * One Brain (the voice conversation). The two calendar steps are Hands: their
+ * built-in doors work out the day, the length and the booking details from
+ * whatever the caller said, so no translator brain sits between them.
+ */
 function buildVoiceAgentFaceWorkflow(): WorkflowTemplate["workflowJson"] {
   const voice = (type: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
     ...(VOICE_NODE_PRESENTATION[type] ?? {}),
@@ -222,7 +242,16 @@ function buildVoiceAgentFaceWorkflow(): WorkflowTemplate["workflowJson"] {
   };
 }
 
-/** Image Studio Face: Prompt Box + Styles Gallery → AI Brain → Image Generation → Result Viewer → History Shelf. */
+/**
+ * Image Studio Face: Prompt Box + Styles Gallery → Image Generation → Result
+ * Viewer → History Shelf.
+ *
+ * Door-native: the old prompt-writing AI Brain between the Prompt Box and the
+ * image maker is gone. Its whole job — "turn the customer's idea and the style
+ * they picked into the request this step needs" — is the entry-door job, and
+ * the picture maker already reads the customer's request directly. One Brain
+ * (the image maker), six nodes instead of seven.
+ */
 function buildImageStudioFaceWorkflow(): WorkflowTemplate["workflowJson"] {
   return {
     nodes: placedNodes([
@@ -249,35 +278,32 @@ function buildImageStudioFaceWorkflow(): WorkflowTemplate["workflowJson"] {
         })
       },
       {
-        id: "ai-brain",
-        type: "ai.llm_call",
-        x: 400,
-        y: 300,
-        data: aiBrainData({ llmSystemPrompt: IMAGE_STUDIO_SYSTEM_PROMPT })
-      },
-      {
         id: "image-generation",
         type: "ai.image_generation",
-        x: 720,
+        x: 400,
         y: 300,
-        // Empty prompt on purpose: the image step then uses the AI Brain's output.
+        // Empty prompt on purpose: the image step then uses the customer's own
+        // request — what they typed plus the style they picked.
         data: { icon: "image", accent: "violet", kind: "IMAGE GENERATION" }
       },
-      { id: "result-viewer", type: BLOCK_NODE_TYPES.outputStage, x: 1040, y: 300, data: blockData(BLOCK_NODE_TYPES.outputStage) },
-      { id: "history-shelf", type: BLOCK_NODE_TYPES.historyShelf, x: 1040, y: 520, data: blockData(BLOCK_NODE_TYPES.historyShelf) }
+      { id: "result-viewer", type: BLOCK_NODE_TYPES.outputStage, x: 720, y: 300, data: blockData(BLOCK_NODE_TYPES.outputStage) },
+      { id: "history-shelf", type: BLOCK_NODE_TYPES.historyShelf, x: 720, y: 520, data: blockData(BLOCK_NODE_TYPES.historyShelf) }
     ]),
     edges: [
       tedge("e-style", "design-brain", "prompt-box"),
-      tedge("e-ask", "prompt-box", "ai-brain"),
-      tedge("e-styles", "styles-gallery", "ai-brain"),
-      tedge("e-imagine", "ai-brain", "image-generation"),
+      tedge("e-imagine", "prompt-box", "image-generation"),
+      tedge("e-styles", "styles-gallery", "image-generation"),
       tedge("e-show", "image-generation", "result-viewer"),
       tedge("e-history", "result-viewer", "history-shelf")
     ]
   };
 }
 
-/** Form Tool Face: Prompt Box + Button → AI Brain (structured report) → Result Viewer. */
+/**
+ * Form Tool Face: Prompt Box + Button → AI Brain (writes the report) → Result
+ * Viewer. One Brain — writing the report IS the product. The Result Viewer's
+ * entry door does the showing, so the brain is never asked to produce a payload.
+ */
 function buildFormToolFaceWorkflow(): WorkflowTemplate["workflowJson"] {
   return {
     nodes: placedNodes([

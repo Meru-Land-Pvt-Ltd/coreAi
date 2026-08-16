@@ -6,6 +6,7 @@ import {
   getAdminDesignRules,
   updateAdminDesignRules
 } from "@/components/admin/features/design-rules";
+import { DoorBrainCard } from "@/components/admin/ui/door-brain-card";
 
 /**
  * Admin → Design Brain rules.
@@ -13,6 +14,9 @@ import {
  * One plain-text rulebook the Design Brain follows on every styling request.
  * While nothing is saved the platform default applies, so the Brain is never
  * rule-less. "Restore default" saves blank, which brings the default back.
+ *
+ * The Door Brain card sits below it: the single AI every step's smart input and
+ * output runs on. Same idea, same screen — one platform-wide setting each.
  */
 
 export default function DesignRulesPage() {
@@ -185,6 +189,8 @@ export default function DesignRulesPage() {
           ) : null}
         </section>
       )}
+
+      <DoorBrainCard />
     </main>
   );
 }
