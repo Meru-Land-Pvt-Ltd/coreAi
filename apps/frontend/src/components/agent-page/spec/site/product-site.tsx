@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import type { ButtonNode, PageSpec, ProductSpec, SpecNode } from "@coreai/shared";
 import { SpecRenderer, type SpecNodeRenderer } from "../spec-renderer";
+import { specMeasureVars } from "../spec-tokens";
 import {
   SiteFooter,
   SiteHeader,
@@ -22,6 +23,7 @@ import {
   type SectionContext
 } from "../sections";
 import { productHomePage, productPathForPageId } from "./product-links";
+import type { ContentWidth } from "../../types";
 
 /**
  * The published product site: header, one page, footer.
@@ -62,6 +64,11 @@ export type ProductSiteProps = {
    * inside this file.
    */
   renderNode?: SpecNodeRenderer;
+  /**
+   * The architect's width dial — how wide the product runs on large screens.
+   * Absent means the standard measure. Small screens ignore it entirely.
+   */
+  contentWidth?: ContentWidth | null;
   /** Replaces the page body. Used by the in-product 404 card. */
   children?: ReactNode;
 };
@@ -88,7 +95,14 @@ function anchorFrom(event: { target: EventTarget | null }): HTMLAnchorElement | 
   return target.closest("a[href]");
 }
 
-export function ProductSite({ slug, product, page, renderNode, children }: ProductSiteProps) {
+export function ProductSite({
+  slug,
+  product,
+  page,
+  renderNode,
+  contentWidth,
+  children
+}: ProductSiteProps) {
   const router = useRouter();
   const prefetched = useRef<Set<string>>(new Set());
 
@@ -203,17 +217,28 @@ export function ProductSite({ slug, product, page, renderNode, children }: Produ
       data-product-slug={slug}
       onClickCapture={handleClickCapture}
       onPointerOver={handlePointerOver}
+      data-product-width={contentWidth ?? "standard"}
       className="flex min-h-[100dvh] w-full flex-col overflow-x-clip antialiased"
+      // The page's measure sits on the site root, not just on the spec root,
+      // so the header and the footer line up with the bands between them.
       style={{
         backgroundColor: tokens.ground,
         color: surfaceFor(tokens, "plain").ink,
-        fontFamily: tokens.fontFamily
+        fontFamily: tokens.fontFamily,
+        ...specMeasureVars(contentWidth)
       }}
     >
       {showHeader ? <SiteHeader nav={product.nav} ctx={sectionCtx} cta={headerCta} /> : null}
 
       <main data-testid="product-site-main" className="w-full flex-1">
-        {children ?? <SpecRenderer page={page} theme={theme} renderNode={specRenderNode} />}
+        {children ?? (
+          <SpecRenderer
+            page={page}
+            theme={theme}
+            renderNode={specRenderNode}
+            contentWidth={contentWidth}
+          />
+        )}
       </main>
 
       {showFooter ? <SiteFooter nav={product.nav} ctx={sectionCtx} /> : null}

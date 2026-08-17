@@ -11,7 +11,7 @@ import {
 import Link from "next/link";
 import { Bot, Plus, RefreshCw, Send } from "lucide-react";
 import { publicAgentPath } from "@/lib/routes";
-import { agentPageThemeTokens } from "./design-tokens";
+import { agentPageContentColumn, agentPageThemeTokens } from "./design-tokens";
 import {
   agentPageAccent,
   agentPageAccentForeground,
@@ -66,7 +66,7 @@ const DENSITY_STYLES: Record<
   }
 > = {
   cozy: {
-    list: "space-y-4 px-4 py-6 sm:px-6",
+    list: "space-y-4 py-6",
     bubble: "px-4 py-2.5 text-[15px] leading-relaxed",
     flatRow: "py-1 text-[15px] leading-relaxed",
     heroIcon: "h-14 w-14",
@@ -75,7 +75,7 @@ const DENSITY_STYLES: Record<
     welcome: "mt-2 max-w-md text-base leading-relaxed"
   },
   compact: {
-    list: "space-y-2.5 px-4 py-4 sm:px-6",
+    list: "space-y-2.5 py-4",
     bubble: "px-3.5 py-2 text-sm leading-snug",
     flatRow: "py-0.5 text-sm leading-snug",
     heroIcon: "h-11 w-11",
@@ -102,6 +102,10 @@ export function ChatTemplate({ data, runtime }: AgentPageTemplateProps) {
   const design = agentPageDesign(data);
   const tokens = agentPageThemeTokens(design.theme);
   const density = DENSITY_STYLES[design.density];
+  // The one content column the thread, the empty state and the composer all
+  // share, so they line up on the same edges. Caps apply from lg up only —
+  // a phone always uses its whole screen, minus the gutter.
+  const contentColumn = agentPageContentColumn(design.contentWidth);
   const { listing, page } = data;
   const headline = page.headline ?? listing.name;
   const suggestedPrompts = page.suggestedPrompts
@@ -404,7 +408,7 @@ export function ChatTemplate({ data, runtime }: AgentPageTemplateProps) {
         >
           {messages.length === 0 ? (
             <div
-              className="mx-auto flex h-full w-full max-w-3xl flex-col items-center justify-center px-6 py-10 text-center"
+              className={`flex h-full flex-col items-center justify-center py-10 text-center ${contentColumn}`}
               data-testid="agent-page-empty-state"
             >
               {listing.iconUrl ? (
@@ -474,7 +478,7 @@ export function ChatTemplate({ data, runtime }: AgentPageTemplateProps) {
             </div>
           ) : (
             <div
-              className={`mx-auto w-full max-w-3xl ${density.list}`}
+              className={`${contentColumn} ${density.list}`}
               data-bubble-style={design.bubbleStyle}
             >
               {messages.map((message, index) =>
@@ -611,10 +615,10 @@ export function ChatTemplate({ data, runtime }: AgentPageTemplateProps) {
 
         {composerCentered ? null : (
           <div
-            className="flex-none border-t px-4 py-3 sm:px-6"
+            className="flex-none border-t py-3"
             style={{ borderColor: tokens.border, backgroundColor: tokens.ground }}
           >
-            <div className="mx-auto w-full max-w-3xl">
+            <div className={contentColumn}>
               {limitReached ? (
                 <div
                   className="rounded-2xl border p-6 text-center shadow-sm"

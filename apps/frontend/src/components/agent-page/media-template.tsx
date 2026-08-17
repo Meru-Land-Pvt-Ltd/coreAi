@@ -4,7 +4,13 @@ import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { Bot, Download, ExternalLink, RefreshCw, Sparkles } from "lucide-react";
 import { publicAgentPath } from "@/lib/routes";
-import { agentPageAccent, agentPageAccentForeground, type AgentPageTemplateProps } from "./types";
+import {
+  agentPageAccent,
+  agentPageAccentForeground,
+  agentPageDesign,
+  type AgentPageTemplateProps
+} from "./types";
+import { agentPageContentColumn } from "./design-tokens";
 import { RichText } from "./rich-text";
 
 /**
@@ -133,7 +139,7 @@ export function MediaTemplate({ data, runtime }: AgentPageTemplateProps) {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto" data-testid="agent-page-media">
-      <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+      <div className={`${agentPageContentColumn(agentPageDesign(data).contentWidth)} py-8 sm:py-10`}>
         <div className="flex flex-col items-center text-center">
           {listing.iconUrl ? (
             // eslint-disable-next-line @next/next/no-img-element

@@ -59,6 +59,19 @@ export const designConfigSchema = z.object({
   density: z.enum(["cozy", "compact"]),
   /** "bubbles" = classic chat bubbles; "flat" = editorial thread, no bubbles. */
   bubbleStyle: z.enum(["bubbles", "flat"]),
+  /**
+   * How wide the page's content column runs on big screens.
+   *
+   *   compact  — a single reading column (~672px)
+   *   standard — the default working width (~896px)
+   *   wide     — dashboard width, room for cards side by side (~1152px)
+   *   full     — edge to edge, page padding only
+   *
+   * Phones and tablets ignore this entirely: they always use the full width
+   * they have, minus padding. The dial only ever loosens or tightens the
+   * large-screen column, so a page can never be made unreadable on a phone.
+   */
+  contentWidth: z.enum(["compact", "standard", "wide", "full"]),
   /** This-session conversation list on wide screens (never on mobile). */
   showHistorySidebar: z.boolean(),
   /**
@@ -76,9 +89,14 @@ export const DESIGN_DEFAULTS: DesignConfig = {
   composerPosition: "center",
   density: "cozy",
   bubbleStyle: "bubbles",
+  contentWidth: "standard",
   showHistorySidebar: false,
   layout: {}
 };
+
+/** The width dial on its own — the manage PATCH validates against this. */
+export const contentWidthSchema = designConfigSchema.shape.contentWidth;
+export type ContentWidth = z.infer<typeof contentWidthSchema>;
 
 const DESIGN_KEYS = Object.keys(designConfigSchema.shape) as (keyof DesignConfig)[];
 

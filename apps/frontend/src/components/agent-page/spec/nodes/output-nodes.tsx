@@ -304,7 +304,11 @@ export const ResultNodeView = memo(function ResultNodeView({
           ) : null}
 
           {hasStructured && structured ? (
-            <VisualResults payload={structured} accent={run?.accent ?? "#f59e0b"} />
+            <VisualResults
+              payload={structured}
+              accent={run?.accent ?? "#f59e0b"}
+              surface={shell.surface}
+            />
           ) : null}
 
           {showsNothing ? (

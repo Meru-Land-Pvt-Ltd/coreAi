@@ -225,6 +225,7 @@ describe("GET /agent-pages/:slug", () => {
       composerPosition: "center",
       density: "cozy",
       bubbleStyle: "bubbles",
+      contentWidth: "standard",
       showHistorySidebar: false,
       layout: {}
     });
@@ -244,6 +245,7 @@ describe("GET /agent-pages/:slug", () => {
       composerPosition: "center",
       density: "cozy",
       bubbleStyle: "flat",
+      contentWidth: "standard",
       showHistorySidebar: false,
       layout: {}
     });

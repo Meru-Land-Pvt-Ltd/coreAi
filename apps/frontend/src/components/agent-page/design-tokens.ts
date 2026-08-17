@@ -1,4 +1,4 @@
-import type { DesignConfig } from "./types";
+import type { ContentWidth, DesignConfig } from "./types";
 
 /**
  * Theme tokens for published agent pages — the single mapping from the Design
@@ -103,4 +103,40 @@ const THEME_TOKENS: Record<DesignConfig["theme"], AgentPageThemeTokens> = {
 
 export function agentPageThemeTokens(theme: DesignConfig["theme"]): AgentPageThemeTokens {
   return THEME_TOKENS[theme] ?? THEME_TOKENS.light;
+}
+
+// ---------------------------------------------------------------------------
+// Content width — how wide the page runs.
+// ---------------------------------------------------------------------------
+
+/**
+ * The `contentWidth` dial as a max-width class.
+ *
+ * Every entry is `lg:`-prefixed on purpose: below 1024px the page always uses
+ * the full width it has, minus the gutter. A phone is never narrowed by a
+ * choice made for a desktop, and a tablet never leaves half its screen empty.
+ * Above lg the dial decides — one reading column, the standard working width,
+ * dashboard width, or edge to edge.
+ *
+ * Each value is a COMPLETE literal class string: Tailwind's scanner only sees
+ * whole class names in source, so these must never be built by concatenation.
+ */
+export const AGENT_PAGE_CONTENT_WIDTH: Record<ContentWidth, string> = {
+  compact: "lg:max-w-2xl",
+  standard: "lg:max-w-4xl",
+  wide: "lg:max-w-6xl",
+  full: "lg:max-w-none"
+};
+
+/** Page gutter — content never touches the screen edge, at any width. */
+export const AGENT_PAGE_GUTTER = "px-4 sm:px-6 lg:px-8";
+
+/**
+ * The shared content column class for the shell, the Face and the templates.
+ * They all call this so the header, the body and the docked composer line up
+ * to the same edges at every width.
+ */
+export function agentPageContentColumn(width?: ContentWidth | null): string {
+  const cap = AGENT_PAGE_CONTENT_WIDTH[width ?? "standard"] ?? AGENT_PAGE_CONTENT_WIDTH.standard;
+  return `mx-auto w-full ${AGENT_PAGE_GUTTER} ${cap}`;
 }

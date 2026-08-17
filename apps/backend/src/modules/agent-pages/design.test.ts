@@ -16,12 +16,13 @@ describe("resolveDesign", () => {
     expect(resolveDesign(["dark"])).toEqual(DESIGN_DEFAULTS);
   });
 
-  it("has the contract defaults: light / center / cozy / bubbles / no sidebar / no arrangement", () => {
+  it("has the contract defaults: light / center / cozy / bubbles / standard width / no sidebar / no arrangement", () => {
     expect(DESIGN_DEFAULTS).toEqual({
       theme: "light",
       composerPosition: "center",
       density: "cozy",
       bubbleStyle: "bubbles",
+      contentWidth: "standard",
       showHistorySidebar: false,
       layout: {}
     });
@@ -41,6 +42,7 @@ describe("resolveDesign", () => {
       composerPosition: "bottom",
       density: "compact",
       bubbleStyle: "flat",
+      contentWidth: "wide",
       showHistorySidebar: true,
       layout: { "blk-1": { x: 16, y: 24, w: 480 } }
     };
@@ -67,6 +69,31 @@ describe("resolveDesign", () => {
     expect(resolveDesign(null).layout).toEqual({});
     expect(DESIGN_DEFAULTS.theme).toBe("light");
     expect(DESIGN_DEFAULTS.layout).toEqual({});
+  });
+});
+
+describe("resolveDesign — contentWidth (how wide the page runs)", () => {
+  it("defaults to standard", () => {
+    expect(resolveDesign({}).contentWidth).toBe("standard");
+    expect(resolveDesign({ theme: "dark" }).contentWidth).toBe("standard");
+  });
+
+  it("keeps every value the dial allows", () => {
+    for (const contentWidth of ["compact", "standard", "wide", "full"] as const) {
+      expect(resolveDesign({ contentWidth }).contentWidth).toBe(contentWidth);
+    }
+  });
+
+  it("falls back to standard for anything else, keeping the other dials", () => {
+    for (const contentWidth of ["max-w-7xl", "1200px", 1200, null, true, ["wide"]]) {
+      const resolved = resolveDesign({ theme: "dark", contentWidth });
+      expect(resolved.contentWidth).toBe("standard");
+      expect(resolved.theme).toBe("dark");
+    }
+  });
+
+  it("is one of the schema's dials, so the Design Brain can turn it", () => {
+    expect(Object.keys(designConfigSchema.shape)).toContain("contentWidth");
   });
 });
 
@@ -130,6 +157,7 @@ describe("designConfigSchema", () => {
         composerPosition: "bottom",
         density: "compact",
         bubbleStyle: "flat",
+        contentWidth: "wide",
         showHistorySidebar: true
       }).success
     ).toBe(true);
@@ -154,5 +182,7 @@ describe("designConfigSchema", () => {
     expect(designConfigSchema.shape.density.safeParse("dense").success).toBe(false);
     expect(designConfigSchema.shape.bubbleStyle.safeParse("neumorphic").success).toBe(false);
     expect(designConfigSchema.shape.showHistorySidebar.safeParse("true").success).toBe(false);
+    expect(designConfigSchema.shape.contentWidth.safeParse("max-w-7xl").success).toBe(false);
+    expect(designConfigSchema.shape.contentWidth.safeParse("edge-to-edge").success).toBe(false);
   });
 });

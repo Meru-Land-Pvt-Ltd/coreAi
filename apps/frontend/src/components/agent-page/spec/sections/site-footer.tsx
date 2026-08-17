@@ -79,7 +79,7 @@ export function SiteFooter({ nav, ctx }: ChromeProps) {
         fontFamily: tokens.fontFamily
       }}
     >
-      <div className="mx-auto w-full max-w-6xl px-5 py-12 sm:px-6 sm:py-16 lg:px-8">
+      <div className="mx-auto w-full px-5 py-12 sm:px-6 sm:py-16 lg:max-w-[var(--spec-measure,72rem)] lg:px-8">
         <div className="flex flex-col gap-10 md:flex-row md:items-start md:justify-between md:gap-16">
           <div className="flex max-w-sm flex-col gap-3">
             {brandText || brandLogo ? (

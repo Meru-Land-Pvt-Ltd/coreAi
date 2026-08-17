@@ -93,6 +93,7 @@ const DEFAULT_DESIGN = {
   composerPosition: "center",
   density: "cozy",
   bubbleStyle: "bubbles",
+  contentWidth: "standard",
   showHistorySidebar: false,
   layout: {}
 };
@@ -492,6 +493,78 @@ describe("PATCH /manage/:workflowId — design.layout (Arrange mode)", () => {
       where: { id: "page-1" },
       data: expect.objectContaining({ designJson: { layout } })
     });
+  });
+
+  it("saves the width dial without touching any other stored design key", async () => {
+    const response = await patchPage(buildApp(), "workflow-1", {
+      design: { contentWidth: "wide" }
+    });
+
+    expect(response.status).toBe(200);
+    expect(pageUpdateMock).toHaveBeenCalledWith({
+      where: { id: "page-1" },
+      data: expect.objectContaining({
+        // The stored arrangement rides along untouched — a width change is
+        // not a reason to lose where the architect put their blocks.
+        designJson: {
+          theme: "warm",
+          density: "compact",
+          layout: { "blk-old": { x: 8, y: 8 } },
+          contentWidth: "wide"
+        }
+      })
+    });
+
+    const json = (await response.json()) as { data: { design: unknown } };
+    expect(json.data.design).toEqual({
+      ...DEFAULT_DESIGN,
+      theme: "warm",
+      density: "compact",
+      layout: { "blk-old": { x: 8, y: 8 } },
+      contentWidth: "wide"
+    });
+  });
+
+  it("accepts every width the dial allows and rejects anything else", async () => {
+    for (const contentWidth of ["compact", "standard", "wide", "full"]) {
+      pageUpdateMock.mockClear();
+      const ok = await patchPage(buildApp(), "workflow-1", { design: { contentWidth } });
+      expect(ok.status).toBe(200);
+      expect(pageUpdateMock).toHaveBeenCalledWith({
+        where: { id: "page-1" },
+        data: expect.objectContaining({
+          designJson: expect.objectContaining({ contentWidth })
+        })
+      });
+    }
+
+    pageUpdateMock.mockClear();
+    const rejected = await patchPage(buildApp(), "workflow-1", {
+      design: { contentWidth: "max-w-7xl" }
+    });
+    expect(rejected.status).toBe(422);
+    expect(pageUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("saves the width dial and an arrangement together in one update", async () => {
+    const layout = { "blk-1": { x: 0, y: 0 } };
+    await patchPage(buildApp(), "workflow-1", {
+      design: { layout, contentWidth: "full" }
+    });
+
+    expect(pageUpdateMock).toHaveBeenCalledWith({
+      where: { id: "page-1" },
+      data: expect.objectContaining({
+        designJson: { theme: "warm", density: "compact", layout, contentWidth: "full" }
+      })
+    });
+  });
+
+  it("leaves designJson alone when the patch carries no design dial", async () => {
+    await patchPage(buildApp(), "workflow-1", { headline: "Book faster" });
+
+    const call = pageUpdateMock.mock.calls.at(-1)?.[0] as { data: Record<string, unknown> };
+    expect(call.data).not.toHaveProperty("designJson");
   });
 
   it("saves layout and content fields together in one update", async () => {

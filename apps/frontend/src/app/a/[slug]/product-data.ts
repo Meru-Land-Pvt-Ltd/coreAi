@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { sanitizeProductSpec, type ProductSpec } from "@coreai/shared";
+import type { ContentWidth } from "@/components/agent-page/types";
 
 /**
  * Server-side read of a published product (GET /agent-pages/:slug/product).
@@ -46,6 +47,12 @@ export type PublicProduct = {
   page: PublicProductPage;
   listing: PublicProductListing;
   architect: { displayName: string; photoUrl: string | null } | null;
+  /**
+   * How wide the architect wants the product to run on large screens. Only
+   * this one design dial is read here — the rest of the design belongs to the
+   * legacy template pages. An unknown or missing value reads as "standard".
+   */
+  contentWidth: ContentWidth;
 };
 
 type ProductResponse = {
@@ -63,8 +70,16 @@ type ProductResponse = {
       iconUrl?: string | null;
     } | null;
     architect?: { displayName?: string; photoUrl?: string | null } | null;
+    design?: { contentWidth?: unknown } | null;
   };
 };
+
+const CONTENT_WIDTHS: ContentWidth[] = ["compact", "standard", "wide", "full"];
+
+/** The stored width dial, or "standard" for anything unrecognized. */
+function resolveContentWidth(value: unknown): ContentWidth {
+  return CONTENT_WIDTHS.find((width) => width === value) ?? "standard";
+}
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -112,7 +127,8 @@ export const loadPublicProduct = cache(async (slug: string): Promise<PublicProdu
       },
       architect: architectName
         ? { displayName: architectName, photoUrl: text(data.architect?.photoUrl) }
-        : null
+        : null,
+      contentWidth: resolveContentWidth(data.design?.contentWidth)
     };
   } catch {
     // Unreachable API, invalid JSON, aborted request — the caller falls back.

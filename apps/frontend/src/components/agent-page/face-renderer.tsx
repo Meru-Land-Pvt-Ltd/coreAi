@@ -21,6 +21,7 @@ import {
   type FaceLayoutEntry,
   type FaceLayoutMap
 } from "./types";
+import { agentPageContentColumn } from "./design-tokens";
 import { PromptComposerBlock } from "./blocks/prompt-composer";
 import { PresetGalleryBlock, type FacePreset } from "./blocks/preset-gallery";
 import { ModelPickerBlock, type FaceModelOption } from "./blocks/model-picker";
@@ -900,10 +901,14 @@ export function FaceRenderer({
   );
   const dockComposer = pinComposerBottom && composerIndex !== -1;
 
+  // How wide the product runs on big screens. Small screens ignore it — the
+  // column class only caps from lg up — so a phone always fills its screen.
+  const contentColumn = agentPageContentColumn(data.design?.contentWidth);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="agent-page-face">
       <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+      <div className={`${contentColumn} py-8 sm:py-10`} data-testid="agent-page-face-column">
         <div className="flex flex-col items-center text-center">
           {listing.iconUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -1035,7 +1040,7 @@ export function FaceRenderer({
 
       {dockComposer ? (
         <div className="flex-none border-t border-gray-100 bg-white/85 backdrop-blur">
-          <div className="mx-auto w-full max-w-3xl px-4 pb-4 sm:px-6">
+          <div className={`${contentColumn} pb-4`} data-testid="agent-page-face-composer-column">
             {renderBlock(blueprint.blocks[composerIndex], composerIndex)}
           </div>
         </div>

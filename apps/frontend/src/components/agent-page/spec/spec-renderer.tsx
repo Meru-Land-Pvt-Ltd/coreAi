@@ -11,7 +11,8 @@ import {
 import { isContainerNode, type PageSpec, type ProductTheme, type SpecAlign, type SpecNode } from "@coreai/shared";
 import { buildSpecTheme, type SpecSurface, type SpecTheme } from "./spec-theme";
 import { childAlign, childSurface } from "./node-shell";
-import { cx } from "./spec-tokens";
+import { cx, specMeasureVars } from "./spec-tokens";
+import type { ContentWidth } from "../types";
 import {
   GridNodeView,
   ImplicitSection,
@@ -284,6 +285,12 @@ export type SpecRendererProps = {
   theme?: ProductTheme | null;
   /** Paints the wired nodes. Omit and they are skipped. */
   renderNode?: SpecNodeRenderer;
+  /**
+   * The architect's width dial. Sets the page's measure — the cap every
+   * section's content column shares on large screens. Absent means the
+   * standard measure, which is exactly what these pages have always used.
+   */
+  contentWidth?: ContentWidth | null;
   className?: string;
   style?: CSSProperties;
 };
@@ -292,7 +299,14 @@ export type SpecRendererProps = {
  *  not make its footer wait). */
 const MAX_STAGGERED_BANDS = 5;
 
-export function SpecRenderer({ page, theme, renderNode, className, style }: SpecRendererProps) {
+export function SpecRenderer({
+  page,
+  theme,
+  renderNode,
+  contentWidth,
+  className,
+  style
+}: SpecRendererProps) {
   const specTheme: SpecTheme = useMemo(
     () => buildSpecTheme(theme ?? undefined),
     // The theme is three scalars; rebuilding on identity alone would recompute
@@ -312,8 +326,12 @@ export function SpecRenderer({ page, theme, renderNode, className, style }: Spec
         data-spec-root=""
         data-testid="spec-page"
         data-spec-page={page.id}
+        data-spec-width={contentWidth ?? "standard"}
         className={cx("w-full overflow-x-clip antialiased", className)}
-        style={{ ...specTheme.vars, ...style }}
+        // The measure rides down as a CSS variable next to the theme's own
+        // vars: one value on the root, read by every section's content column
+        // (and by the recognized sections' caps) without prop drilling.
+        style={{ ...specTheme.vars, ...specMeasureVars(contentWidth), ...style }}
       >
         <style>{REVEAL_CSS}</style>
         {bands.map((band, index) => {

@@ -52,6 +52,12 @@ export type FaceLayoutMap = Record<string, FaceLayoutEntry>;
  * full resolved config; `agentPageDesign` fills defaults for older fixtures
  * and preview data that omit it.
  */
+/**
+ * The width dial. One value, four meanings, and the same order everywhere:
+ * compact < standard < wide < full.
+ */
+export type ContentWidth = "compact" | "standard" | "wide" | "full";
+
 export type DesignConfig = {
   theme: "light" | "dark" | "warm";
   /**
@@ -62,6 +68,12 @@ export type DesignConfig = {
   composerPosition: "center" | "bottom";
   density: "cozy" | "compact";
   bubbleStyle: "bubbles" | "flat";
+  /**
+   * How wide the content column runs on large screens (lg+). Phones and
+   * tablets always use the full width they have, minus page padding — this
+   * dial can never make a page unreadable on a small screen.
+   */
+  contentWidth: ContentWidth;
   /** This-session conversation list on lg+ screens; never on mobile. */
   showHistorySidebar: boolean;
   /**
@@ -78,6 +90,7 @@ export const AGENT_PAGE_DESIGN_DEFAULTS: DesignConfig = {
   composerPosition: "center",
   density: "cozy",
   bubbleStyle: "bubbles",
+  contentWidth: "standard",
   showHistorySidebar: false
 };
 

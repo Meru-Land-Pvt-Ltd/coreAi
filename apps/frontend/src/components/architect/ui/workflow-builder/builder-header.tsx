@@ -1,8 +1,9 @@
 import type { Route } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Monitor, Move, Smartphone, Tablet } from "lucide-react";
+import { ChevronDown, Monitor, Move, Smartphone, Tablet } from "lucide-react";
 import { cn } from "@/components/architect/ui/architect-ui";
+import type { ContentWidth } from "@/components/agent-page/types";
 import { BuilderIcon } from "./icons";
 import type { PreviewDevice } from "./preview-panel";
 import type { BuilderTab } from "./types";
@@ -20,6 +21,22 @@ const PREVIEW_DEVICES: Array<{ id: PreviewDevice; label: string; icon: typeof Mo
   { id: "tablet", label: "Tablet", icon: Tablet },
   { id: "phone", label: "Phone", icon: Smartphone }
 ];
+
+/**
+ * How wide the architect's product runs on big screens. Plain words, widest
+ * last. The rule this control cannot break — phones and tablets always use
+ * the whole screen — is spelled out in its tooltip, so nobody has to guess
+ * why the phone frame ignores it.
+ */
+const PREVIEW_WIDTHS: Array<{ id: ContentWidth; label: string }> = [
+  { id: "compact", label: "Compact" },
+  { id: "standard", label: "Standard" },
+  { id: "wide", label: "Wide" },
+  { id: "full", label: "Full screen" }
+];
+
+const PREVIEW_WIDTH_HINT =
+  "How wide your product runs on big screens. Phones and tablets always use the whole screen.";
 
 function HeaderButton({
   children,
@@ -63,6 +80,8 @@ export function BuilderHeader({
   canRedo = false,
   previewDevice = "desktop",
   onPreviewDeviceChange,
+  previewWidth = "standard",
+  onPreviewWidthChange,
   showPreviewControls = false,
   arrangeMode = false,
   onArrangeModeChange,
@@ -88,6 +107,13 @@ export function BuilderHeader({
   /** Device the Test preview shows; only read while showPreviewControls. */
   previewDevice?: PreviewDevice;
   onPreviewDeviceChange?: (device: PreviewDevice) => void;
+  /**
+   * The saved `contentWidth` design dial; only read while showPreviewControls.
+   * Changing it saves the design — that is why the control is disabled while
+   * the agent is review-locked, like every other builder write.
+   */
+  previewWidth?: ContentWidth;
+  onPreviewWidthChange?: (width: ContentWidth) => void;
   /** True only on the Preview step — renders the compact device switcher. */
   showPreviewControls?: boolean;
   /** Arrange mode (drag blocks on the preview page); desktop view only. */
@@ -199,6 +225,40 @@ export function BuilderHeader({
                   );
                 })}
               </div>
+              {/* Width: how wide the product runs on big screens. Same pill
+                  family and same 32px height as the device switcher, so the
+                  toolbar never grows a second row. */}
+              <label
+                data-testid="preview-width-control"
+                title={PREVIEW_WIDTH_HINT}
+                className="flex h-8 flex-none items-center gap-1.5 rounded-full border border-slate-200 bg-white pl-3 pr-2"
+              >
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  Width
+                </span>
+                <span className="relative flex items-center">
+                  <select
+                    data-testid="preview-width-select"
+                    value={previewWidth}
+                    disabled={locked}
+                    onChange={(event) =>
+                      onPreviewWidthChange?.(event.target.value as ContentWidth)
+                    }
+                    aria-label="Content width"
+                    className="cursor-pointer appearance-none rounded-full bg-transparent py-0.5 pl-1 pr-5 text-xs font-semibold text-slate-600 transition hover:text-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {PREVIEW_WIDTHS.map(({ id, label }) => (
+                      <option key={id} value={id} data-testid={`preview-width-${id}`}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    className="pointer-events-none absolute right-0 h-3.5 w-3.5 text-slate-400"
+                    aria-hidden="true"
+                  />
+                </span>
+              </label>
               {previewDevice === "desktop" ? (
                 // Arrange: drag the page's sections anywhere (desktop view
                 // only — small screens always keep the clean stacked flow).

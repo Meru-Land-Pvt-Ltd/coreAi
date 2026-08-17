@@ -54,6 +54,7 @@ export default async function PublishedProductSubPage({ params }: PageRouteProps
       product={resolved.product}
       page={page}
       listingName={resolved.listing.name}
+      contentWidth={resolved.contentWidth}
     />
   );
 }

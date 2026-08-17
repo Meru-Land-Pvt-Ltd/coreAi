@@ -127,7 +127,7 @@ export function SiteHeader({ nav, ctx, cta }: ChromeProps) {
         fontFamily: tokens.fontFamily
       }}
     >
-      <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-3 px-5 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-16 w-full items-center justify-between gap-3 px-5 sm:px-6 lg:max-w-[var(--spec-measure,72rem)] lg:px-8">
         {brand}
 
         {links.length > 0 ? (
@@ -176,7 +176,7 @@ export function SiteHeader({ nav, ctx, cta }: ChromeProps) {
           className="md:hidden"
           style={{ borderTop: `1px solid ${surface.border}`, backgroundColor: tokens.ground }}
         >
-          <nav aria-label="Pages" className="mx-auto flex w-full max-w-6xl flex-col gap-1 px-4 py-4 sm:px-6">
+          <nav aria-label="Pages" className="mx-auto flex w-full flex-col gap-1 px-4 py-4 sm:px-6 lg:max-w-[var(--spec-measure,72rem)]">
             {links.map((link) => (
               <HeaderLink
                 key={`m-${link.pageId}-${link.label}`}

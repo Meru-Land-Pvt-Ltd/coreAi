@@ -129,3 +129,48 @@ describe("AgentPageShell", () => {
     expect(root.style.color).toBe("rgb(41, 37, 36)");
   });
 });
+
+/**
+ * The header shares the page's content column, so the agent's name and the
+ * "Get this agent" CTA sit on the same edges as the product below them —
+ * whatever width the architect picked, and full width on a phone.
+ */
+describe("AgentPageShell — how wide the header runs", () => {
+  function renderAtWidth(contentWidth: DesignConfig["contentWidth"]) {
+    cleanup();
+    render(
+      <AgentPageShell data={pageData({ contentWidth })} runtime={runtimeWithMode("live")}>
+        <div />
+      </AgentPageShell>
+    );
+    return screen.getByTestId("agent-page-header-row").className;
+  }
+
+  it("matches the header column to the width dial", () => {
+    for (const [contentWidth, cap] of [
+      ["compact", "lg:max-w-2xl"],
+      ["standard", "lg:max-w-4xl"],
+      ["wide", "lg:max-w-6xl"],
+      ["full", "lg:max-w-none"]
+    ] as const) {
+      expect(renderAtWidth(contentWidth)).toContain(cap);
+    }
+  });
+
+  it("uses the standard column when no design is stored", () => {
+    render(
+      <AgentPageShell data={pageData()} runtime={runtimeWithMode("live")}>
+        <div />
+      </AgentPageShell>
+    );
+
+    expect(screen.getByTestId("agent-page-header-row").className).toContain("lg:max-w-4xl");
+    expect(screen.getByTestId("agent-page").getAttribute("data-design-width")).toBe("standard");
+  });
+
+  it("never narrows the header below lg", () => {
+    const className = renderAtWidth("compact");
+    expect(className).not.toMatch(/(^|\s)max-w-/);
+    expect(className).not.toContain("sm:max-w-");
+  });
+});

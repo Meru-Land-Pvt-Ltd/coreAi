@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Bot } from "lucide-react";
 import { HOME_PATH, publicAgentPath } from "@/lib/routes";
-import { agentPageThemeTokens } from "./design-tokens";
+import { agentPageContentColumn, agentPageThemeTokens } from "./design-tokens";
 import {
   agentPageAccent,
   agentPageAccentForeground,
@@ -74,12 +74,19 @@ export function AgentPageShell({
       style={{ backgroundColor: tokens.ground, color: tokens.ink }}
       data-testid="agent-page"
       data-design-theme={design.theme}
+      data-design-width={design.contentWidth}
     >
       <header
         className="sticky top-0 z-50 flex-none border-b backdrop-blur"
         style={{ borderColor: tokens.border, backgroundColor: tokens.surfaceTranslucent }}
       >
-        <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-4 sm:px-6">
+        {/* The header shares the page's content column, so the agent's name
+            and the CTA sit on the same edges as everything below them at
+            every width setting. */}
+        <div
+          className={`flex h-14 items-center gap-3 ${agentPageContentColumn(design.contentWidth)}`}
+          data-testid="agent-page-header-row"
+        >
           {listing.iconUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img

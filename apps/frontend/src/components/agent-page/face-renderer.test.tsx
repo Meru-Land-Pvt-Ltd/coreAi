@@ -10,6 +10,7 @@ import {
   AGENT_PAGE_DESIGN_DEFAULTS,
   type AgentPageData,
   type AgentPageRuntime,
+  type DesignConfig,
   type FaceBlueprint,
   type FaceLayoutMap
 } from "./types";
@@ -709,5 +710,81 @@ describe("FaceRenderer free-position layout", () => {
     expect(
       screen.getByTestId("agent-block-prompt-input").closest(".pointer-events-none")
     ).toBeNull();
+  });
+});
+
+/**
+ * The width dial (`design.contentWidth`).
+ *
+ * Two promises are worth a test each: the dial reaches the content column,
+ * and it can never narrow a phone or a tablet — every cap is `lg:`-prefixed,
+ * so below 1024px the page always uses the width it has, minus the gutter.
+ */
+describe("FaceRenderer — how wide the product runs", () => {
+  function renderAtWidth(contentWidth: DesignConfig["contentWidth"]) {
+    cleanup();
+    return render(
+      <FaceRenderer
+        data={{ ...pageData(), design: { ...AGENT_PAGE_DESIGN_DEFAULTS, contentWidth } }}
+        slug="dream-studio-abc123"
+        runtime={previewRuntime()}
+        blueprint={fullBlueprint()}
+      />
+    );
+  }
+
+  it("caps the content column at the width the architect picked", () => {
+    for (const [contentWidth, cap] of [
+      ["compact", "lg:max-w-2xl"],
+      ["standard", "lg:max-w-4xl"],
+      ["wide", "lg:max-w-6xl"],
+      ["full", "lg:max-w-none"]
+    ] as const) {
+      renderAtWidth(contentWidth);
+      expect(screen.getByTestId("agent-page-face-column").className).toContain(cap);
+    }
+  });
+
+  it("falls back to the standard width when no dial is stored", () => {
+    cleanup();
+    renderFace(previewRuntime());
+    expect(screen.getByTestId("agent-page-face-column").className).toContain("lg:max-w-4xl");
+  });
+
+  it("never narrows a phone or a tablet: every cap waits for lg", () => {
+    for (const contentWidth of ["compact", "standard", "wide", "full"] as const) {
+      renderAtWidth(contentWidth);
+      const column = screen.getByTestId("agent-page-face-column").className;
+      // No unprefixed or small-screen cap — only the lg: one.
+      expect(column).not.toMatch(/(^|\s)max-w-/);
+      expect(column).not.toContain("sm:max-w-");
+      expect(column).not.toContain("md:max-w-");
+      // ...and the content still keeps its distance from the screen edge.
+      expect(column).toContain("px-4");
+      expect(column).toContain("w-full");
+    }
+  });
+
+  it("lines the docked composer up with the column above it", () => {
+    cleanup();
+    render(
+      <FaceRenderer
+        data={{
+          ...pageData(),
+          design: {
+            ...AGENT_PAGE_DESIGN_DEFAULTS,
+            contentWidth: "wide",
+            composerPosition: "bottom"
+          }
+        }}
+        slug="dream-studio-abc123"
+        runtime={previewRuntime()}
+        blueprint={fullBlueprint()}
+      />
+    );
+
+    expect(screen.getByTestId("agent-page-face-composer-column").className).toContain(
+      "lg:max-w-6xl"
+    );
   });
 });

@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { TrendingDown, TrendingUp } from "lucide-react";
 import type {
   BadgeNode,
   ButtonNode,
@@ -18,6 +19,13 @@ import { SpecIcon } from "./icon";
 import type { SectionSurface, SectionTokens } from "./tokens";
 import { withAlpha } from "./tokens";
 import type { ChromeKind, SectionContext, SectionIntro, SectionKind } from "./types";
+import {
+  deltaDirection,
+  displayValue,
+  EMPTY_GLYPH,
+  STAT_MEASURE,
+  STAT_VALUE_TYPE_WIDE
+} from "../../blocks/visual-format";
 
 /**
  * Shared building blocks for the sections library.
@@ -55,11 +63,22 @@ const PADDING_CLASS: Record<string, string> = {
   xl: "py-20 sm:py-28 lg:py-36"
 };
 
+/**
+ * A section's own width token, resolved against the page's measure
+ * (`--spec-measure`, from the `contentWidth` dial).
+ *
+ * `lg` — the default — simply IS the measure, so turning the dial moves every
+ * ordinary band. A band that asked to be narrow (`sm`/`md`: a CTA, an FAQ)
+ * keeps its comfortable width but can never end up wider than the page it
+ * sits on, hence `min()`. `full` is the opposite: at least its own 80rem, or
+ * the measure when that is wider. Every cap applies from `lg` up only —
+ * phones and tablets always use the full width they have.
+ */
 const WIDTH_CLASS: Record<string, string> = {
-  sm: "max-w-2xl",
-  md: "max-w-4xl",
-  lg: "max-w-6xl",
-  full: "max-w-7xl"
+  sm: "lg:max-w-[min(42rem,var(--spec-measure,72rem))]",
+  md: "lg:max-w-[min(56rem,var(--spec-measure,72rem))]",
+  lg: "lg:max-w-[var(--spec-measure,72rem)]",
+  full: "lg:max-w-[max(80rem,var(--spec-measure,72rem))]"
 };
 
 const ALIGN_CLASS: Record<SpecAlign, string> = {
@@ -377,6 +396,56 @@ export function SpecImageBlock({
   );
 }
 
+/**
+ * The one delta treatment for the whole sections library: a small pill, green
+ * for a rise and red for a fall, never bare coloured text. Direction comes
+ * from the text itself — a leading minus falls, a leading plus or digit rises,
+ * and "same as last week" stays neutral rather than turning green by accident.
+ */
+export function StatDeltaPill({
+  delta,
+  surface,
+  className,
+  testId = "spec-stat-delta"
+}: {
+  delta: string;
+  surface: SectionSurface;
+  className?: string;
+  testId?: string;
+}) {
+  const text = displayValue(delta);
+  if (text === EMPTY_GLYPH) return null;
+  const direction = deltaDirection(delta);
+  const paint =
+    direction === "up"
+      ? surface.isDark
+        ? { fg: "#6ee7b7", bg: "rgba(16, 185, 129, 0.20)", border: "rgba(110, 231, 183, 0.34)" }
+        : { fg: "#047857", bg: "rgba(16, 185, 129, 0.12)", border: "rgba(16, 185, 129, 0.28)" }
+      : direction === "down"
+        ? surface.isDark
+          ? { fg: "#fca5a5", bg: "rgba(239, 68, 68, 0.20)", border: "rgba(252, 165, 165, 0.32)" }
+          : { fg: "#b91c1c", bg: "rgba(239, 68, 68, 0.10)", border: "rgba(239, 68, 68, 0.26)" }
+        : { fg: surface.inkMuted, bg: surface.accentSoft, border: surface.accentSoftBorder };
+  const Glyph = direction === "down" ? TrendingDown : TrendingUp;
+
+  return (
+    <span
+      data-testid={testId}
+      data-delta-dir={direction}
+      className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-[3px] text-xs font-semibold tabular-nums ${className ?? ""}`}
+      style={{ color: paint.fg, background: paint.bg, borderColor: paint.border }}
+    >
+      {direction === "flat" ? null : (
+        <>
+          <Glyph size={13} strokeWidth={2.25} aria-hidden />
+          <span className="sr-only">{direction === "up" ? "Up " : "Down "}</span>
+        </>
+      )}
+      <span className="truncate">{text}</span>
+    </span>
+  );
+}
+
 export function SpecStatBlock({
   node,
   surface,
@@ -388,23 +457,30 @@ export function SpecStatBlock({
   className?: string;
   testId?: string;
 }) {
+  const value = displayValue(node.value);
+  const label = displayValue(node.label);
   return (
-    <div data-testid={testId} className={`flex flex-col gap-1 ${className ?? ""}`}>
+    <div
+      data-testid={testId}
+      className={`flex min-w-0 flex-col items-start gap-1.5 ${STAT_MEASURE} ${className ?? ""}`}
+    >
       <span
-        className="text-3xl font-semibold tracking-tight sm:text-4xl lg:text-[2.75rem]"
+        className={`max-w-full truncate font-semibold leading-tight tracking-tight tabular-nums ${STAT_VALUE_TYPE_WIDE}`}
         style={{ color: surface.ink }}
+        title={value}
         data-testid="spec-stat-value"
       >
-        {node.value}
+        {value}
       </span>
-      <span className="text-sm font-medium" style={{ color: surface.inkMuted }} data-testid="spec-stat-label">
-        {node.label}
+      <span
+        className="max-w-full truncate text-sm font-medium"
+        style={{ color: surface.inkMuted }}
+        title={label}
+        data-testid="spec-stat-label"
+      >
+        {label}
       </span>
-      {node.delta ? (
-        <span className="text-xs font-semibold" style={{ color: surface.accentInk }} data-testid="spec-stat-delta">
-          {node.delta}
-        </span>
-      ) : null}
+      {node.delta ? <StatDeltaPill delta={node.delta} surface={surface} className="mt-0.5" /> : null}
     </div>
   );
 }

@@ -180,6 +180,7 @@ export function buildDesignChatSystemPrompt(
     `- composerPosition: "center" | "bottom" ("center" = message box starts centered like ChatGPT and docks after the first message; "bottom" = always pinned at the bottom like Claude; default "${DESIGN_DEFAULTS.composerPosition}")`,
     `- density: "cozy" | "compact" (spacing scale; default "${DESIGN_DEFAULTS.density}")`,
     `- bubbleStyle: "bubbles" | "flat" (chat bubbles vs a flat editorial thread; default "${DESIGN_DEFAULTS.bubbleStyle}")`,
+    `- contentWidth: "compact" | "standard" | "wide" | "full" (how wide the content runs on big screens — "compact" is one narrow reading column, "standard" is the normal working width, "wide" gives cards and tables room side by side, "full" runs edge to edge; default "${DESIGN_DEFAULTS.contentWidth}"). Use it when the architect says things like "make it wider", "use the full screen", "too much empty space on the sides", "keep it narrow" or "easier to read". Phones and tablets always fill the screen anyway, so this never affects them.`,
     `- showHistorySidebar: true | false (this-session conversation list on wide screens; default ${DESIGN_DEFAULTS.showHistorySidebar})`,
     "",
     "CONTENT KEYS (also allowed in the patch):",

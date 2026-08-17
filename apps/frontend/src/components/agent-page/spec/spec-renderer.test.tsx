@@ -363,7 +363,10 @@ describe("SpecRenderer — mobile first", () => {
     const container = testid("s").firstElementChild as HTMLElement;
     expect(container.className).toContain("px-5");
     expect(container.className).toContain("sm:px-8");
-    expect(container.className).toContain("max-w-6xl");
+    // The cap is the page's measure and only applies from lg up, so a phone
+    // and a tablet always use the full width they have, minus the gutter.
+    expect(container.className).toContain("lg:max-w-[var(--spec-measure,72rem)]");
+    expect(container.className).not.toContain("sm:max-w");
   });
 
   it("never lets the page scroll sideways", () => {
@@ -937,5 +940,79 @@ describe("the wire extension point", () => {
       <SpecRenderer page={pageOf([{ id: "h", type: "heading", level: 1, text: "Built in" }])} renderNode={renderNode} />
     );
     expect(screen.getByText("Built in").tagName).toBe("H1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The width dial — how wide a generated product page runs.
+// ---------------------------------------------------------------------------
+
+/**
+ * One measure, set once on the page root, read by every content column: the
+ * shared band container, the recognized sections, and the site chrome. The
+ * "standard" measure is 72rem — exactly the width these pages have always
+ * used — so a page with no dial saved looks the same as it did before the
+ * dial existed.
+ */
+describe("SpecRenderer — how wide the page runs", () => {
+  function measureOf(): string {
+    return screen.getByTestId("spec-page").style.getPropertyValue("--spec-measure");
+  }
+
+  it("puts the picked measure on the page root", () => {
+    for (const [contentWidth, measure] of [
+      ["compact", "56rem"],
+      ["standard", "72rem"],
+      ["wide", "80rem"],
+      ["full", "100vw"]
+    ] as const) {
+      cleanup();
+      render(<SpecRenderer page={pageOf([{ id: "t", type: "text", text: "x" }])} contentWidth={contentWidth} />);
+      expect(measureOf()).toBe(measure);
+      expect(screen.getByTestId("spec-page").getAttribute("data-spec-width")).toBe(contentWidth);
+    }
+  });
+
+  it("keeps the standard measure when no dial is passed — today's pages are untouched", () => {
+    render(<SpecRenderer page={pageOf([{ id: "t", type: "text", text: "x" }])} />);
+    expect(measureOf()).toBe("72rem");
+  });
+
+  it("caps a band at the measure, and only from lg up", () => {
+    render(
+      <SpecRenderer
+        page={pageOf([
+          { id: "s", type: "section", children: [{ id: "st", type: "text", text: "x" }] }
+        ])}
+        contentWidth="full"
+      />
+    );
+
+    const container = testid("s").firstElementChild as HTMLElement;
+    expect(container.className).toContain("lg:max-w-[var(--spec-measure,72rem)]");
+    // Below lg there is no cap at all — a phone and a tablet always use the
+    // full width they have, minus the gutter.
+    expect(container.className).not.toMatch(/(^|\s)max-w-/);
+    expect(container.className).toContain("px-5");
+  });
+
+  it("gives a loose-node band the same column", () => {
+    render(<SpecRenderer page={pageOf([{ id: "t", type: "text", text: "x" }])} contentWidth="wide" />);
+
+    const band = screen.getByTestId("spec-implicit-section").firstElementChild as HTMLElement;
+    expect(band.className).toContain("lg:max-w-[var(--spec-measure,72rem)]");
+  });
+
+  it("leaves a node's own prose cap alone — paragraphs stay readable at any width", () => {
+    render(
+      <SpecRenderer
+        page={pageOf([{ id: "t", type: "text", text: "narrow", style: { maxWidth: "md" } }])}
+        contentWidth="full"
+      />
+    );
+
+    // The node cap is unprefixed on purpose: a line of prose is capped on
+    // every screen, however wide the page around it runs.
+    expect(testid("t").className).toContain("max-w-2xl");
   });
 });

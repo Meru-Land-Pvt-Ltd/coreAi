@@ -50,6 +50,7 @@ export default async function PublishedProductHomePage({ params }: HomeRouteProp
       product={resolved.product}
       page={page}
       listingName={resolved.listing.name}
+      contentWidth={resolved.contentWidth}
     />
   );
 }

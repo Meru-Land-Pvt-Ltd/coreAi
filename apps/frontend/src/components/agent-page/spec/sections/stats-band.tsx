@@ -1,12 +1,22 @@
-import { SectionIntroBlock, SectionShell } from "./primitives";
+import { SectionIntroBlock, SectionShell, StatDeltaPill } from "./primitives";
 import { sectionTokens, surfaceFor } from "./tokens";
 import type { SectionProps } from "./types";
+import {
+  displayValue,
+  STAT_MEASURE,
+  STAT_VALUE_TYPE_DISPLAY
+} from "../../blocks/visual-format";
 
 /**
  * Stats band — the proof strip. Two to four numbers, big and calm.
  *
  * The value takes the accent so the band carries the brand without a single
  * decorative shape; the label stays muted so the number is what you read.
+ *
+ * Numbers are set in tabular figures so a row of them stacks into a clean
+ * column of digits rather than a ragged one, a missing value shows a quiet
+ * dash instead of the model's "N/A", and a delta is a pill — the same pill the
+ * Result Viewer's stat cards use, so a live answer and a published page agree.
  */
 
 const COLUMN_CLASS: Record<number, string> = {
@@ -30,29 +40,38 @@ export function StatsBandSection({ section, ctx }: SectionProps<"statsBand">) {
         data-testid="spec-stats-grid"
         className={`grid gap-x-6 gap-y-10 ${columns} ${hasIntro ? "mt-10 sm:mt-14" : ""}`}
       >
-        {parts.stats.map((stat) => (
-          <div key={stat.id} data-testid="spec-stat" data-spec-node-id={stat.id} className="flex flex-col items-center gap-1.5 text-center">
-            <span
-              data-testid="spec-stat-value"
-              className="text-[2.25rem] leading-none font-semibold tracking-tight sm:text-5xl"
-              style={{ color: surface.accentInk }}
+        {parts.stats.map((stat) => {
+          const value = displayValue(stat.value);
+          const label = displayValue(stat.label);
+          return (
+            <div
+              key={stat.id}
+              data-testid="spec-stat"
+              data-spec-node-id={stat.id}
+              className={`flex min-w-0 flex-col items-center gap-1.5 text-center ${STAT_MEASURE}`}
             >
-              {stat.value}
-            </span>
-            <span
-              data-testid="spec-stat-label"
-              className="text-sm font-medium sm:text-[0.9375rem]"
-              style={{ color: surface.inkMuted }}
-            >
-              {stat.label}
-            </span>
-            {stat.delta ? (
-              <span data-testid="spec-stat-delta" className="text-xs font-semibold" style={{ color: surface.inkSubtle }}>
-                {stat.delta}
+              <span
+                data-testid="spec-stat-value"
+                className={`max-w-full truncate font-semibold leading-none tracking-tight tabular-nums ${STAT_VALUE_TYPE_DISPLAY}`}
+                style={{ color: surface.accentInk }}
+                title={value}
+              >
+                {value}
               </span>
-            ) : null}
-          </div>
-        ))}
+              <span
+                data-testid="spec-stat-label"
+                className="max-w-full truncate text-sm font-medium sm:text-[0.9375rem]"
+                style={{ color: surface.inkMuted }}
+                title={label}
+              >
+                {label}
+              </span>
+              {stat.delta ? (
+                <StatDeltaPill delta={stat.delta} surface={surface} className="mt-1" />
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </SectionShell>
   );

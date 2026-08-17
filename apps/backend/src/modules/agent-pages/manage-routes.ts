@@ -6,7 +6,7 @@ import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import { deriveFaceBlueprint } from "./blueprint";
-import { agentPageLayoutSchema, resolveDesign } from "./design";
+import { agentPageLayoutSchema, contentWidthSchema, resolveDesign } from "./design";
 import { registerAgentPageDesignChatRoute } from "./design-chat";
 import { registerAgentPageProductChatRoute } from "./product-chat";
 import { registerAgentPageProductRoutes } from "./product-routes";
@@ -46,13 +46,22 @@ const agentPageUpdateSchema = z.object({
     .nullable()
     .optional(),
   /**
-   * Desktop arrangement written by the builder's Arrange mode. `layout` is
-   * the COMPLETE arrangement and replaces the stored one wholesale ({} resets
-   * to the classic stacked flow); every other stored design key is preserved
-   * untouched. Entries are sanitized individually — a corrupt one is dropped
-   * without rejecting the request.
+   * Design dials the builder writes directly (everything else is the Design
+   * Brain's job). Each key present replaces just that key; every other stored
+   * design key — dials from the chat included — rides along untouched.
+   *
+   *   layout       — the COMPLETE arrangement from Arrange mode; it replaces
+   *                  the stored one wholesale ({} resets to the stacked flow).
+   *                  Entries are sanitized individually, so a corrupt one is
+   *                  dropped without rejecting the request.
+   *   contentWidth — the Preview toolbar's width control.
    */
-  design: z.object({ layout: agentPageLayoutSchema.optional() }).optional()
+  design: z
+    .object({
+      layout: agentPageLayoutSchema.optional(),
+      contentWidth: contentWidthSchema.optional()
+    })
+    .optional()
 });
 
 /** Public-contract page shape (same as GET /agent-pages/:slug). */
@@ -140,18 +149,24 @@ export function registerAgentPageManageRoutes(routes: Hono) {
       return errorResponse(c, "Agent page not found", 404, "AGENT_PAGE_NOT_FOUND");
     }
 
-    // Arrange mode sends the complete arrangement: layout replaces the stored
-    // one wholesale ({} = reset) while every other stored design key — dials
-    // from the Design Brain included — rides along untouched. designJson is
-    // only written when a layout patch is actually present.
+    // Design dials merge key by key over what is stored: Arrange mode sends
+    // the complete arrangement (layout replaces the stored one wholesale,
+    // {} = reset), the Preview toolbar sends contentWidth, and every other
+    // stored key — dials from the Design Brain included — rides along
+    // untouched. designJson is only written when a dial is actually present.
     const layoutPatch = input.design?.layout;
+    const contentWidthPatch = input.design?.contentWidth;
     let designJsonPatch: Prisma.InputJsonValue | undefined;
-    if (layoutPatch !== undefined) {
+    if (layoutPatch !== undefined || contentWidthPatch !== undefined) {
       const storedDesign =
         typeof page.designJson === "object" && page.designJson !== null && !Array.isArray(page.designJson)
           ? (page.designJson as Record<string, unknown>)
           : {};
-      designJsonPatch = { ...storedDesign, layout: layoutPatch } as Prisma.InputJsonValue;
+      designJsonPatch = {
+        ...storedDesign,
+        ...(layoutPatch !== undefined ? { layout: layoutPatch } : {}),
+        ...(contentWidthPatch !== undefined ? { contentWidth: contentWidthPatch } : {})
+      } as Prisma.InputJsonValue;
     }
 
     const updated = await prisma.publishedAgentPage.update({

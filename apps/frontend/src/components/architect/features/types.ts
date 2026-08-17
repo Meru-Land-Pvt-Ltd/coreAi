@@ -1,4 +1,4 @@
-import type { DesignConfig, FaceBlueprint, FaceLayoutMap } from "@/components/agent-page/types";
+import type { ContentWidth, DesignConfig, FaceBlueprint, FaceLayoutMap } from "@/components/agent-page/types";
 
 export type ArchitectProfile = {
   id: string;
@@ -299,11 +299,13 @@ export type AgentPageUpdateBody = {
   accentColor?: string | null;
   /**
    * Design dial patches riding the manage PATCH (additive). The Arrange
-   * Editor sends the FULL layout map on every drop ({} clears it); other
-   * saved dials are preserved server-side.
+   * Editor sends the FULL layout map on every drop ({} clears it); the
+   * Preview toolbar sends `contentWidth`; other saved dials are preserved
+   * server-side.
    */
   design?: {
     layout?: FaceLayoutMap;
+    contentWidth?: ContentWidth;
   };
 };
 

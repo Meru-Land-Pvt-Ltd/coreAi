@@ -166,6 +166,7 @@ const DEFAULT_DESIGN = {
   composerPosition: "center",
   density: "cozy",
   bubbleStyle: "bubbles",
+  contentWidth: "standard",
   showHistorySidebar: false,
   layout: {}
 };
@@ -274,6 +275,39 @@ describe("POST /manage/:workflowId/design-chat", () => {
     expect(request.systemPrompt).toContain(JSON.stringify(DEFAULT_DIALS));
     expect(request.systemPrompt).not.toContain('"layout"');
     expect(request.systemPrompt).toContain("same language");
+  });
+
+  it("teaches the width dial in the words an architect actually types", async () => {
+    await designChat(buildApp(), { instruction: "make it wider" });
+
+    const [, request] = mocks.execute.mock.calls[0];
+    expect(request.systemPrompt).toContain(
+      '- contentWidth: "compact" | "standard" | "wide" | "full"'
+    );
+    for (const phrase of ["make it wider", "use the full screen", "keep it narrow"]) {
+      expect(request.systemPrompt).toContain(phrase);
+    }
+    // And the promise the dial cannot break, stated where the model reads it.
+    expect(request.systemPrompt).toContain("Phones and tablets always fill the screen");
+  });
+
+  it("saves a width the model chose, like any other dial", async () => {
+    mocks.execute.mockResolvedValueOnce({
+      text: JSON.stringify({ reply: "Using the full screen now.", patch: { contentWidth: "full" } })
+    });
+
+    const response = await designChat(buildApp(), { instruction: "use the whole screen" });
+
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as { data: { design: { contentWidth: string } } };
+    expect(json.data.design.contentWidth).toBe("full");
+    expect(mocks.pageUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          designJson: expect.objectContaining({ contentWidth: "full" })
+        })
+      })
+    );
   });
 
   it("prepends the admin house rules to the system prompt when rules exist", async () => {

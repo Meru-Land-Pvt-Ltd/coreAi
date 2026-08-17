@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import type { PageSpec, ProductSpec } from "@coreai/shared";
-import { createPublicAgentPageRuntime } from "../types";
+import { createPublicAgentPageRuntime, type ContentWidth } from "../types";
 import { ProductSite } from "./site/product-site";
 import { SpecRunProvider } from "./spec-run";
 import { buildSpecTheme } from "./spec-theme";
@@ -31,9 +31,20 @@ export type LiveProductSiteProps = {
   page: PageSpec;
   /** Listing name — used for generated-media download filenames. */
   listingName?: string;
+  /**
+   * The architect's width dial. Absent means the standard measure; small
+   * screens always use their full width whatever it says.
+   */
+  contentWidth?: ContentWidth | null;
 };
 
-export function LiveProductSite({ slug, product, page, listingName }: LiveProductSiteProps) {
+export function LiveProductSite({
+  slug,
+  product,
+  page,
+  listingName,
+  contentWidth
+}: LiveProductSiteProps) {
   // The same public runtime the block-rendered pages use: POST
   // /agent-pages/<slug>/run, byte-for-byte on the wire.
   const runtime = useMemo(() => createPublicAgentPageRuntime(slug), [slug]);
@@ -52,7 +63,13 @@ export function LiveProductSite({ slug, product, page, listingName }: LiveProduc
       accent={accent}
       listingName={listingName}
     >
-      <ProductSite slug={slug} product={product} page={page} renderNode={renderNode} />
+      <ProductSite
+        slug={slug}
+        product={product}
+        page={page}
+        renderNode={renderNode}
+        contentWidth={contentWidth}
+      />
     </SpecRunProvider>
   );
 }

@@ -55,6 +55,7 @@ import {
   stopArchitectTestDeployment,
   submitWorkflowForReview,
   syncArchitectTelegramTestConnection,
+  updateAgentPageConfig,
   updateArchitectWorkflow,
   useArchitectTemplate as instantiateArchitectTemplate
 } from "@/components/architect/features/api";
@@ -69,6 +70,10 @@ import type {
   ArchitectWorkflow,
   WorkflowRunLog,
 } from "@/components/architect/features/types";
+import {
+  AGENT_PAGE_DESIGN_DEFAULTS,
+  type ContentWidth
+} from "@/components/agent-page/types";
 
 /** The architect's browser IANA zone (canonicalized) — the default test timezone. */
 function browserTimeZone(): string {
@@ -984,6 +989,38 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       refreshAgentPageConfig();
     },
     [refreshAgentPageConfig, reloadWorkflowFromServer]
+  );
+
+  /**
+   * The Preview toolbar's width control: how wide the product runs on big
+   * screens. The preview flips immediately (the architect sees the answer
+   * before the network does), the dial is saved through the same manage PATCH
+   * the Arrange Editor uses, and the refetch afterwards makes the server's
+   * copy the truth — so a failed save honestly snaps back. Review-locked
+   * agents never write, same rule as every other builder surface.
+   */
+  const handlePreviewWidthChange = useCallback(
+    (contentWidth: ContentWidth) => {
+      if (isUnderReview) return;
+      const id = currentWorkflowIdRef.current;
+      if (!id) return;
+
+      setPreviewPageData((current) =>
+        current
+          ? { ...current, design: { ...AGENT_PAGE_DESIGN_DEFAULTS, ...current.design, contentWidth } }
+          : current
+      );
+
+      void (async () => {
+        try {
+          await updateAgentPageConfig(id, { design: { contentWidth } });
+        } catch {
+          // The refetch below restores the saved width.
+        }
+        refreshAgentPageConfig();
+      })();
+    },
+    [isUnderReview, refreshAgentPageConfig]
   );
 
   /* ---- "Clean up" — tidy the canvas into the layered Face→Brain→Hands→Face grid ---- */
@@ -2459,6 +2496,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         canRedo={canRedo}
         previewDevice={previewDevice}
         onPreviewDeviceChange={setPreviewDevice}
+        previewWidth={previewPageData?.design?.contentWidth ?? "standard"}
+        onPreviewWidthChange={handlePreviewWidthChange}
         showPreviewControls={activeTab === "test"}
         arrangeMode={arrangeMode}
         onArrangeModeChange={setArrangeMode}

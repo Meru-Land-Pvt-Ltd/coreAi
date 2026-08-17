@@ -10,6 +10,7 @@ import type {
   SpecStyle
 } from "@coreai/shared";
 import type { CSSProperties } from "react";
+import type { ContentWidth } from "../types";
 import { surfaceInk, type SpecSurface } from "./spec-theme";
 
 /**
@@ -39,8 +40,48 @@ export const SECTION_PADDING: Record<SpecPadding, string> = {
   xl: "py-20 sm:py-28 lg:py-36"
 };
 
-/** The one content column every section shares — keeps edges aligned. */
-export const CONTAINER = "mx-auto w-full max-w-6xl px-5 sm:px-8";
+/**
+ * The one content column every section shares — keeps edges aligned.
+ *
+ * The cap is the page's measure (`--spec-measure`, set once on the spec root
+ * from the architect's `contentWidth` dial) and it only applies from `lg` up:
+ * phones and tablets always use the full width they have, minus the gutter.
+ * The fallback is the standard measure, so a `SpecRenderer` mounted without a
+ * dial paints exactly what it always did.
+ */
+export const CONTAINER = "mx-auto w-full px-5 sm:px-8 lg:max-w-[var(--spec-measure,72rem)]";
+
+/**
+ * The `contentWidth` dial as a concrete measure for a product page.
+ *
+ * A product page's bands sit one step wider than a chat column at the same
+ * setting — a marketing band is a row of cards, not a paragraph — so
+ * "standard" here is 72rem, the width these pages have always used. `full`
+ * is 100vw rather than `none` so the `min()`/`max()` section caps below stay
+ * valid CSS at every setting.
+ */
+export const SPEC_MEASURE: Record<ContentWidth, string> = {
+  compact: "56rem",
+  standard: "72rem",
+  wide: "80rem",
+  full: "100vw"
+};
+
+/** The CSS variable the measure travels in, set on the spec root. */
+export const SPEC_MEASURE_VAR = "--spec-measure";
+
+export function specMeasure(width?: ContentWidth | null): string {
+  return SPEC_MEASURE[width ?? "standard"] ?? SPEC_MEASURE.standard;
+}
+
+/**
+ * The measure as an inline style, ready to spread onto a root element next to
+ * the theme's own variables. Custom properties are not part of React's
+ * CSSProperties, hence the one cast — kept here so no call site needs it.
+ */
+export function specMeasureVars(width?: ContentWidth | null): CSSProperties {
+  return { [SPEC_MEASURE_VAR]: specMeasure(width) } as CSSProperties;
+}
 
 export const STACK_GAP: Record<SpecGap, string> = {
   sm: "gap-3",

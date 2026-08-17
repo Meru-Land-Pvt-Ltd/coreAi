@@ -31,6 +31,12 @@ import {
 } from "../spec-tokens";
 import { nodeShell, resolveNodeAlign } from "../node-shell";
 import { resolveIcon } from "../spec-icon";
+import {
+  displayValue,
+  EMPTY_GLYPH,
+  STAT_MEASURE,
+  STAT_VALUE_TYPE
+} from "../../blocks/visual-format";
 
 /**
  * Content primitives — everything a page says that a customer cannot touch.
@@ -326,6 +332,26 @@ function selfCard(
   return { background: ink.card, borderColor: ink.border, boxShadow: "var(--spec-shadow)" };
 }
 
+/**
+ * The barely-there accent wash that separates a card from a white slab. Under
+ * 8% alpha, laid diagonally across the top-left — the same recipe the Result
+ * Viewer's stat cards use, so a generated page and a live answer match.
+ * Skipped on a `bgTone` card, which already carries its own fill.
+ */
+function washedCard(
+  shellStyle: CSSProperties,
+  isCard: boolean,
+  surface: SpecSurface
+): CSSProperties {
+  const base = selfCard(shellStyle, isCard, surface);
+  if (isCard) return base;
+  return {
+    ...base,
+    backgroundImage:
+      "linear-gradient(158deg, var(--spec-accent-soft) 0%, transparent 58%)"
+  };
+}
+
 export const QuoteNodeView = memo(function QuoteNodeView({
   node,
   surface,
@@ -378,34 +404,53 @@ export const StatNodeView = memo(function StatNodeView({
 }: ContentNodeProps<StatNode>) {
   const shell = nodeShell(node, surface, align);
   const ink = surfaceInk(shell.surface);
-  const delta = node.delta ? deltaTone(node.delta) : null;
+  const label = displayValue(node.label);
+  const value = displayValue(node.value);
+  const deltaText = displayValue(node.delta);
+  const delta = node.delta && deltaText !== EMPTY_GLYPH ? deltaTone(node.delta) : null;
   const DeltaGlyph = delta?.direction === "down" ? TrendingDown : TrendingUp;
 
   return (
     <div
       {...shell.test}
       className={cx(
-        "flex w-full flex-col gap-2 rounded-2xl border p-5 text-left sm:p-6",
+        "flex w-full min-w-0 flex-col gap-2 rounded-2xl border p-5 text-left sm:p-6",
+        // Measures itself so the number sizes to the card, not to the screen.
+        STAT_MEASURE,
         shell.className
       )}
-      style={selfCard(shell.style, shell.isCard, surface)}
+      style={washedCard(shell.style, shell.isCard, surface)}
     >
       <span
-        className="text-xs font-medium uppercase tracking-[0.08em]"
+        className="truncate text-xs font-semibold uppercase leading-4 tracking-[0.09em]"
         style={{ color: ink.subtle }}
+        title={label}
       >
-        {node.label}
+        {label}
       </span>
       <span
-        className="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl"
+        className={cx(
+          "truncate font-semibold leading-tight tracking-tight tabular-nums",
+          STAT_VALUE_TYPE
+        )}
         style={{ color: ink.ink }}
+        title={value}
       >
-        {node.value}
+        {value}
       </span>
-      {node.delta && delta ? (
-        <span className={cx(PILL_SHELL, "w-fit tabular-nums")} style={tonePaint(delta.tone, shell.surface)}>
-          {delta.direction === "flat" ? null : <DeltaGlyph size={13} strokeWidth={2.25} aria-hidden />}
-          {node.delta}
+      {delta ? (
+        <span
+          className={cx(PILL_SHELL, "w-fit tabular-nums")}
+          style={tonePaint(delta.tone, shell.surface)}
+          data-delta-dir={delta.direction}
+        >
+          {delta.direction === "flat" ? null : (
+            <>
+              <DeltaGlyph size={13} strokeWidth={2.25} aria-hidden />
+              <span className="sr-only">{delta.direction === "up" ? "Up " : "Down "}</span>
+            </>
+          )}
+          <span className="truncate">{deltaText}</span>
         </span>
       ) : null}
     </div>
