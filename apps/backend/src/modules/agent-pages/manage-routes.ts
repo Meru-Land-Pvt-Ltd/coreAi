@@ -10,6 +10,7 @@ import { agentPageLayoutSchema, contentWidthSchema, resolveDesign } from "./desi
 import { registerAgentPageDesignChatRoute } from "./design-chat";
 import { registerAgentPageProductChatRoute } from "./product-chat";
 import { registerAgentPageProductRoutes } from "./product-routes";
+import { getProductSpec } from "./product-spec-service";
 import { ensureDraftAgentListingAndPage, inferAgentPageTemplate, type AgentPageTemplate } from "./slug";
 
 /**
@@ -117,7 +118,12 @@ export function registerAgentPageManageRoutes(routes: Hono) {
       blueprint,
       // Full Design Brain config (defaults filled in) — additive field, the
       // builder's Test preview renders every dial from it.
-      design: resolveDesign(page.designJson)
+      design: resolveDesign(page.designJson),
+      // The saved ProductSpec — the whole product the Design Brain's Build
+      // mode wrote. Additive: null until the architect builds one. The
+      // public /a/ pages stay gated on approval; the architect's own preview
+      // must not be, or a draft build is invisible everywhere.
+      product: getProductSpec(page)
     });
   });
 

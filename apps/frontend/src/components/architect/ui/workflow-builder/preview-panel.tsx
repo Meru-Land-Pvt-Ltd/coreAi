@@ -16,6 +16,9 @@ import { VoiceTemplate } from "@/components/agent-page/voice-template";
 import { MediaTemplate } from "@/components/agent-page/media-template";
 import { FormTemplate } from "@/components/agent-page/form-template";
 import { FaceRenderer } from "@/components/agent-page/face-renderer";
+import type { ProductSpec } from "@coreai/shared";
+import { SpecRunProvider, buildSpecTheme, useWiredNodeRenderer } from "@/components/agent-page/spec";
+import { ProductSite, productHomePage, productPathForPageId } from "@/components/agent-page/spec/site";
 import type {
   AgentPageData,
   AgentPageRuntime,
@@ -76,6 +79,13 @@ export type PreviewPanelProps = {
    * template Faces exactly as before.
    */
   blueprint?: FaceBlueprint | null;
+  /**
+   * The saved ProductSpec — the whole product the Design Brain's Build mode
+   * wrote (pages, copy, wires). Non-null means the architect built a product,
+   * and the preview shows THAT — the real multi-page site — over the single
+   * assembled Face. Absent/null keeps every pre-Build behavior untouched.
+   */
+  product?: ProductSpec | null;
   /**
    * The saved Design Brain config (GET /agent-pages/manage/:id `design`).
    * Passed straight into the page data so the shell + templates render every
@@ -184,6 +194,7 @@ export function PreviewPanel({
   page = null,
   defaultTemplate,
   blueprint = null,
+  product = null,
   design = null,
   architectName,
   underReview = false,
@@ -212,6 +223,39 @@ export function PreviewPanel({
   const autoFace: AgentPageTemplate = hasVoiceNode ? "voice" : hasMediaNode ? "media" : "chat";
   const [pickedFace, setPickedFace] = useState<AgentPageTemplate | null>(null);
   const face = pickedFace ?? page?.template ?? defaultTemplate ?? autoFace;
+
+  // A built product (Design Brain "Build") outranks everything: the preview's
+  // promise is "what your customer will meet", and once a product exists,
+  // that is the product. An empty spec reads as none.
+  const productSpec = product && product.pages.length > 0 ? product : null;
+  // Which of the product's pages is on show. Nav clicks switch it in place;
+  // a rebuilt product that dropped the shown page falls back to home.
+  const [productPageId, setProductPageId] = useState<string | null>(null);
+  const productPage = useMemo(() => {
+    if (!productSpec) return null;
+    return (
+      productSpec.pages.find((entry) => entry.id === productPageId) ??
+      productHomePage(productSpec)
+    );
+  }, [productSpec, productPageId]);
+  const productAccent = useMemo(
+    () => (productSpec ? buildSpecTheme(productSpec.theme).accent : undefined),
+    [productSpec]
+  );
+  const renderWiredNode = useWiredNodeRenderer();
+  // The same slug the page config renders under — the spec runtime keys its
+  // session on it, and product hrefs are built from it.
+  const previewSlug = page?.slug ?? `preview-${workflowId}`;
+  const handleProductNavigate = useCallback(
+    (href: string) => {
+      if (!productSpec) return;
+      const target = productSpec.pages.find(
+        (entry) => productPathForPageId(productSpec, previewSlug, entry.id) === href
+      );
+      if (target) setProductPageId(target.id);
+    },
+    [productSpec, previewSlug]
+  );
 
   // True after an engine failure (thrown or returned); cleared by the next
   // success so the snag card never lingers over a working agent.
@@ -272,7 +316,8 @@ export function PreviewPanel({
   // page next visit) holds the saved truth. A failed save still refetches —
   // the block then honestly snaps back to its last saved spot. Review-locked
   // agents never write, same rule as every other builder surface.
-  const arrangeActive = arrangeMode && device === "desktop" && blueprint !== null && !underReview;
+  const arrangeActive =
+    arrangeMode && device === "desktop" && blueprint !== null && productSpec === null && !underReview;
 
   const handleArrangeCommit = useCallback(
     async (layout: FaceLayoutMap) => {
@@ -362,6 +407,32 @@ export function PreviewPanel({
           the main builder header, so nothing here ever covers the page. */}
       <div className={STAGE_CLASSES[device]}>
         <div className={FRAME_CLASSES[device]} data-device={device} data-testid="preview-panel-frame">
+          {productSpec && productPage ? (
+            // The architect BUILT a product — the preview shows the real
+            // multi-page site with its wires live, exactly what /a/<slug>
+            // serves once the agent is approved. The frame clips overflow, so
+            // the site scrolls inside its own column, like a browser page.
+            <div
+              className="h-full w-full overflow-y-auto"
+              data-testid="preview-panel-product-site"
+            >
+              <SpecRunProvider
+                page={productPage}
+                runtime={runtime}
+                accent={productAccent}
+                listingName={data.listing.name}
+              >
+                <ProductSite
+                  slug={previewSlug}
+                  product={productSpec}
+                  page={productPage}
+                  renderNode={renderWiredNode}
+                  contentWidth={design?.contentWidth ?? null}
+                  navigate={handleProductNavigate}
+                />
+              </SpecRunProvider>
+            </div>
+          ) : (
           <AgentPageShell data={data} runtime={runtime}>
             {blueprint ? (
               // The architect placed product blocks on their canvas — the
@@ -410,6 +481,7 @@ export function PreviewPanel({
               </>
             )}
           </AgentPageShell>
+          )}
 
           {/* A slim handset notch hint, floating over the page top like the
               real thing — decorative only, never interactive. */}
@@ -455,10 +527,10 @@ export function PreviewPanel({
         </div>
       ) : null}
 
-      {/* With product blocks on the canvas, the graph decides the product —
-          the look pills would contradict it, so they step aside. Otherwise
-          they float quietly at the bottom. */}
-      {blueprint ? null : (
+      {/* With product blocks on the canvas (or a built product), the graph
+          decides the product — the look pills would contradict it, so they
+          step aside. Otherwise they float quietly at the bottom. */}
+      {blueprint || productSpec ? null : (
         <div
           role="group"
           className="absolute bottom-[4.25rem] left-1/2 z-30 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200/70 bg-white/95 p-1 shadow-lg shadow-slate-900/10 backdrop-blur sm:bottom-4"

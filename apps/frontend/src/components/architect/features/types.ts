@@ -1,3 +1,4 @@
+import type { ProductSpec } from "@coreai/shared";
 import type { ContentWidth, DesignConfig, FaceBlueprint, FaceLayoutMap } from "@/components/agent-page/types";
 
 export type ArchitectProfile = {
@@ -288,6 +289,12 @@ export type AgentPageManageData = {
    * design defaults.
    */
   design?: DesignConfig | null;
+  /**
+   * The saved ProductSpec — the whole product the Design Brain's Build mode
+   * wrote (pages, sections, copy, wires). Optional so older fixtures keep
+   * compiling; absent reads as null (no product built yet).
+   */
+  product?: ProductSpec | null;
 };
 
 export type AgentPageUpdateBody = {

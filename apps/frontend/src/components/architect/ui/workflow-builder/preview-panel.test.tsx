@@ -1,7 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { sanitizeProductSpec } from "@coreai/shared";
 import { PreviewPanel, type PreviewPanelProps } from "./preview-panel";
+
+// The product site's nav falls back to real router navigation when no
+// override is passed — the preview must never take that path, so the spy is
+// shared and asserted against.
+const { routerPushMock } = vi.hoisted(() => ({ routerPushMock: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: routerPushMock, prefetch: vi.fn(), replace: vi.fn() })
+}));
 
 // The floating Design Brain talks to the styling endpoint itself — stub the
 // wrapper so no test ever leaves the room.
@@ -387,5 +397,89 @@ describe("PreviewPanel floating Design Brain", () => {
 
     await user.keyboard("{Escape}");
     expect(screen.getByTestId("design-dock").getAttribute("data-open")).toBe("false");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A BUILT product (Design Brain "Build" mode) must be visible in the preview.
+// This is the regression that shipped once: product-chat saved a whole
+// multi-page product, the chat said "done", and no builder surface rendered
+// it — the architect saw nothing change.
+// ---------------------------------------------------------------------------
+describe("PreviewPanel with a built product", () => {
+  const spec = sanitizeProductSpec({
+    version: 1,
+    theme: { accent: "#f59e0b", mode: "light", font: "sans" },
+    nav: {
+      brand: { text: "Weather Outlook" },
+      links: [
+        { label: "Home", pageId: "home" },
+        { label: "Pricing", pageId: "pricing" }
+      ]
+    },
+    pages: [
+      {
+        id: "home",
+        path: "",
+        title: "Home",
+        blocks: [
+          {
+            id: "hero",
+            type: "section",
+            children: [
+              { id: "h1", type: "heading", text: "Seven-day outlook, instantly", level: 1 }
+            ]
+          }
+        ]
+      },
+      {
+        id: "pricing",
+        path: "pricing",
+        title: "Pricing",
+        blocks: [
+          {
+            id: "p1",
+            type: "section",
+            children: [{ id: "ph", type: "heading", text: "Simple pricing", level: 1 }]
+          }
+        ]
+      }
+    ]
+  });
+
+  beforeEach(() => routerPushMock.mockReset());
+
+  it("sanity: the fixture survives the shared sanitizer", () => {
+    expect(spec).not.toBeNull();
+    expect(spec?.pages.length).toBe(2);
+  });
+
+  it("shows the built product site instead of the single Face", () => {
+    render(<PreviewPanel {...makeProps({ product: spec })} />);
+
+    expect(screen.getByTestId("preview-panel-product-site")).toBeTruthy();
+    expect(screen.getByText("Seven-day outlook, instantly")).toBeTruthy();
+    // The single-widget Face and its look pills step aside.
+    expect(screen.queryByTestId("agent-page-chat")).toBeNull();
+    expect(screen.queryByTestId("preview-panel-face-switcher")).toBeNull();
+  });
+
+  it("nav clicks switch pages in place — the builder never navigates away", async () => {
+    const user = userEvent.setup();
+    render(<PreviewPanel {...makeProps({ product: spec })} />);
+
+    await user.click(screen.getAllByRole("link", { name: "Pricing" })[0]);
+
+    expect(await screen.findByText("Simple pricing")).toBeTruthy();
+    expect(screen.queryByText("Seven-day outlook, instantly")).toBeNull();
+    expect(routerPushMock).not.toHaveBeenCalled();
+  });
+
+  it("a product with no pages changes nothing — the Face stays", () => {
+    const empty = sanitizeProductSpec({ version: 1, nav: { links: [] }, pages: [] });
+    render(<PreviewPanel {...makeProps({ product: empty })} />);
+
+    expect(screen.queryByTestId("preview-panel-product-site")).toBeNull();
+    expect(screen.getByTestId("agent-page-chat")).toBeTruthy();
   });
 });
