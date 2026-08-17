@@ -422,7 +422,9 @@ export const StatNodeView = memo(function StatNodeView({
       style={washedCard(shell.style, shell.isCard, surface)}
     >
       <span
-        className="truncate text-xs font-semibold uppercase leading-4 tracking-[0.09em]"
+        // Wraps to a second line before it gives up — a label is what tells
+        // you WHAT the number is, so "Active subscri…" is the wrong trade.
+        className="line-clamp-2 text-xs font-semibold uppercase leading-4 tracking-[0.09em]"
         style={{ color: ink.subtle }}
         title={label}
       >

@@ -60,7 +60,7 @@ export function StatsBandSection({ section, ctx }: SectionProps<"statsBand">) {
               </span>
               <span
                 data-testid="spec-stat-label"
-                className="max-w-full truncate text-sm font-medium sm:text-[0.9375rem]"
+                className="line-clamp-2 max-w-full text-sm font-medium sm:text-[0.9375rem]"
                 style={{ color: surface.inkMuted }}
                 title={label}
               >

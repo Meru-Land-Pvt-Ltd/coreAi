@@ -151,8 +151,18 @@ function StatCards({ stats, palette }: { stats: VisualStat[]; palette: VisualPal
             style={{ ...cardStyle(palette), animationDelay: `${index * 45}ms` }}
             data-testid="agent-visual-stat"
           >
+            {/* Two lines, then stop. A label is the only thing on the card
+                that says WHAT the number is, so "Active subscri…" is a worse
+                answer than wrapping; the clamp still refuses to let a runaway
+                label push the number off the card.
+
+                `min-h-8` reserves both lines on phones, where the cards sit
+                two abreast and only some labels wrap — without it one card's
+                number sits 16px lower than its neighbour's and the row reads
+                as broken. From `sm` up the labels fit on one line, so the
+                reservation is dropped rather than left as dead space. */}
             <span
-              className="truncate text-[0.6875rem] font-semibold uppercase leading-4 tracking-[0.09em]"
+              className="line-clamp-2 min-h-8 text-[0.6875rem] font-semibold uppercase leading-4 tracking-[0.09em] sm:min-h-0"
               style={{ color: palette.subtle }}
               title={label}
             >
@@ -371,7 +381,11 @@ function BarChart({ chart, palette }: { chart: VisualChart; palette: VisualPalet
                     </span>
                   ) : null}
                   <div
-                    className="agent-visual-bar w-[74%] min-w-[5px] max-w-[64px] rounded-t-[6px]"
+                    // The cap only bites when there are FEW bars; `w-[74%]`
+                    // handles the crowded case. It steps up on a wide screen
+                    // so six bars in a ~980px plot read as a chart rather than
+                    // as six pencils standing in a field.
+                    className="agent-visual-bar w-[74%] min-w-[5px] max-w-[64px] rounded-t-[6px] xl:max-w-[80px]"
                     style={{
                       height: `${Math.max(height, height > 0 ? 1.5 : 0)}%`,
                       background: `linear-gradient(180deg, ${palette.accent} 0%, ${palette.accentLight} 100%)`,

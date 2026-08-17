@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, type CSSProperties, type ReactNode } from "react";
 import type { PageSpec, ProductTheme, SpecNode } from "@coreai/shared";
-import type { AgentPageRuntime } from "../types";
+import type { AgentPageRuntime, ContentWidth } from "../types";
 import { SpecRenderer, type SpecNodeRenderer } from "./spec-renderer";
 import { buildSpecTheme, type SpecSurface } from "./spec-theme";
 import { SpecRunProvider } from "./spec-run";
@@ -106,6 +106,11 @@ export type SpecProductProps = {
   remainingToday?: number;
   /** Listing name — used for media download filenames. */
   listingName?: string;
+  /**
+   * The architect's width dial. Absent means the standard measure — which is
+   * what these pages have always rendered at, so omitting it changes nothing.
+   */
+  contentWidth?: ContentWidth | null;
   className?: string;
   style?: CSSProperties;
 };
@@ -124,6 +129,7 @@ export function SpecProduct({
   runtime,
   remainingToday,
   listingName,
+  contentWidth,
   className,
   style
 }: SpecProductProps) {
@@ -147,6 +153,7 @@ export function SpecProduct({
         page={page}
         theme={theme}
         renderNode={renderNode}
+        contentWidth={contentWidth}
         className={className}
         style={style}
       />
