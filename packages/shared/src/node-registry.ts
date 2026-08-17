@@ -2695,7 +2695,12 @@ export const NODE_DOORS_BY_TYPE: Record<string, NodeDoorSpec> = {
       job:
         "Turn the customer's words and the run so far into the exact request this step needs: " +
         "build the complete web address, fill in every search term, id, count, date and body field it takes, " +
-        "and leave every other setting exactly as the architect saved it."
+        "and leave every other setting exactly as the architect saved it. " +
+        "Two rules decide whether you change anything at all. First, if the saved request already reads " +
+        "correctly for what the customer gave — every placeholder filled with a sensible value — return no " +
+        "changes; the architect's own wording is better than a guess. Second, when an earlier step already " +
+        "found the exact id, code or reference this step needs, use that value verbatim rather than a name, " +
+        "a search or a lookalike: an id that came back from the service is always right, a guessed one is not."
     },
     exit: {
       job:
