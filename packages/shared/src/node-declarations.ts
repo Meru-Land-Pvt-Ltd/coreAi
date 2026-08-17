@@ -24,7 +24,8 @@ import {
   VOICE_NODE_TYPES,
   getNodeDefinition,
   isBlockNodeType,
-  isDesignBrainNodeType
+  isDesignBrainNodeType,
+  nodeDoorsEnabled
 } from "./node-registry";
 import { KNOWN_PROMPT_VARIABLES, canonicalPromptVariableKey, extractPromptVariables } from "./prompt-variables";
 
@@ -79,9 +80,33 @@ export type DeclaredShow = {
   satisfiedByNodeId?: string;
 };
 
+/**
+ * An interactive product block already on the canvas. The composer must place
+ * exactly one control for each — the block IS the interface the architect
+ * chose, and a composed page that drops it loses the product's own input
+ * (an image studio without its prompt box cannot be used at all).
+ */
+export type DeclaredControl = {
+  nodeId: string;
+  role: "input" | "choice" | "action";
+  label: string;
+  choices?: string[];
+};
+
 export type WorkflowDeclarations = {
+  /** What a human must be asked. NEVER includes internal holes — see below. */
   asks: DeclaredAsk[];
+  /**
+   * Holes the RUN fills, not the customer: values produced mid-run
+   * (dependsOnNodeId) and door-derived parameters on door-enabled nodes when
+   * the customer's own words are already collected. Surfacing one of these as
+   * a form field is the "asks for latitude" bug — the composer is told they
+   * exist precisely so it never creates fields for them.
+   */
+  internalAsks: DeclaredAsk[];
   shows: DeclaredShow[];
+  /** Existing interactive blocks the composer must re-place, one control each. */
+  controls: DeclaredControl[];
   /** Overall product shape the composer should start from. */
   shape: ProductShape;
 };
@@ -96,6 +121,8 @@ type GraphNode = {
   /** node.data merged with node.data.config — where config values actually live. */
   config: Record<string, unknown>;
   label: string;
+  /** The raw doors switch off node.data — doors default ON when absent. */
+  doorsDisabled?: unknown;
 };
 
 /** Presentation keys carried on node.data that are never runtime config. */
@@ -142,7 +169,8 @@ function readGraph(workflowJson: unknown): { nodes: GraphNode[]; edges: Array<{ 
       id: String(record.id ?? `node-${index}`),
       type,
       config,
-      label: String(data.label ?? data.title ?? "")
+      label: String(data.label ?? data.title ?? ""),
+      doorsDisabled: data.doorsDisabled
     });
   });
 
@@ -582,7 +610,12 @@ export function deriveDeclarations(workflowJson: unknown): WorkflowDeclarations 
     engineNodes.some((node) => node.type === "ai.image_generation" || isTtsNode(node)) ||
     outputStages.some((stage) => ["image", "video", "media", "audio"].includes(String(stage.config.kind ?? "").toLowerCase())) ||
     blocks.some((block) => block.type === BLOCK_NODE_TYPES.presetGallery);
-  const hasConversation = hasChatTrigger || shows.some((show) => show.kind === "conversation");
+  // A History Shelf on the canvas means the architect built an ongoing
+  // conversation product, whatever the trigger is.
+  const hasConversation =
+    hasChatTrigger ||
+    shows.some((show) => show.kind === "conversation") ||
+    blocks.some((block) => block.type === BLOCK_NODE_TYPES.historyShelf);
   const hasScreenBlocks = blocks.some((block) => block.type === BLOCK_NODE_TYPES.promptComposer);
 
   let shape: ProductShape;
@@ -600,5 +633,63 @@ export function deriveDeclarations(workflowJson: unknown): WorkflowDeclarations 
     shape = "form";
   }
 
-  return { asks: Array.from(asks.values()), shows, shape };
+  // -- Internal vs human asks ----------------------------------------------
+  // The customer's own words are collected when a latestMessage-style ask
+  // exists or a Prompt Box block is on the canvas. Once that is true, template
+  // holes on door-enabled engine nodes are the DOORS' job to fill (that is
+  // what the entry doors are for) — asking a human for "channel id" or
+  // "latitude" next to a working message box is how a product looks broken.
+  const askList = Array.from(asks.values());
+  const customerWordsCollected =
+    askList.some((ask) => PROMPT_LIKE_IDS.has(ask.id)) ||
+    blocks.some((block) => block.type === BLOCK_NODE_TYPES.promptComposer);
+
+  const isInternal = (ask: DeclaredAsk): boolean => {
+    // A step-split ask (dependsOnNodeId) can still be a real human question —
+    // "answer this follow-up" — so it is NOT internal by itself. The doors
+    // rule below is what catches produced-value holes like latitude.
+    if (PROMPT_LIKE_IDS.has(ask.id)) return false;
+    if (!customerWordsCollected) return false;
+    // Every node needing this value has its doors on → the doors derive it
+    // from the customer's words and the run so far.
+    return ask.nodeIds.every((nodeId) => {
+      const node = nodeById.get(nodeId);
+      return node ? nodeDoorsEnabled({ doorsDisabled: node.doorsDisabled }) : false;
+    });
+  };
+
+  const humanAsks: DeclaredAsk[] = [];
+  const internalAsks: DeclaredAsk[] = [];
+  for (const ask of askList) (isInternal(ask) ? internalAsks : humanAsks).push(ask);
+
+  // -- Existing interactive blocks: one control each, always ----------------
+  const controls: DeclaredControl[] = [];
+  for (const block of blocks) {
+    if (block.type === BLOCK_NODE_TYPES.promptComposer) {
+      controls.push({
+        nodeId: block.id,
+        role: "input",
+        label: String(block.config.placeholder ?? block.label ?? "Your message")
+      });
+    } else if (block.type === BLOCK_NODE_TYPES.modelPicker || block.type === BLOCK_NODE_TYPES.presetGallery) {
+      const options = explicitChoices(
+        { options: block.config.options, choices: block.config.choices, presets: block.config.presets },
+        ""
+      );
+      controls.push({
+        nodeId: block.id,
+        role: "choice",
+        label: String(block.label ?? (block.type === BLOCK_NODE_TYPES.presetGallery ? "Style" : "Model")),
+        ...(options ? { choices: options } : {})
+      });
+    } else if (block.type === BLOCK_NODE_TYPES.actionButton) {
+      controls.push({
+        nodeId: block.id,
+        role: "action",
+        label: String(block.config.label ?? block.label ?? "Run")
+      });
+    }
+  }
+
+  return { asks: humanAsks, internalAsks, shows, controls, shape };
 }

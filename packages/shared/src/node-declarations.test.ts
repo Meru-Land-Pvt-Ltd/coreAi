@@ -214,8 +214,8 @@ describe("deriveDeclarations", () => {
   });
 
   it("tolerates garbage input", () => {
-    expect(deriveDeclarations(null)).toEqual({ asks: [], shows: [], shape: "form" });
-    expect(deriveDeclarations({ nodes: "nope", edges: 42 })).toEqual({ asks: [], shows: [], shape: "form" });
-    expect(deriveDeclarations({ nodes: [{}, { data: null }, 7] })).toEqual({ asks: [], shows: [], shape: "form" });
+    expect(deriveDeclarations(null)).toEqual({ asks: [], internalAsks: [], shows: [], controls: [], shape: "form" });
+    expect(deriveDeclarations({ nodes: "nope", edges: 42 })).toEqual({ asks: [], internalAsks: [], shows: [], controls: [], shape: "form" });
+    expect(deriveDeclarations({ nodes: [{}, { data: null }, 7] })).toEqual({ asks: [], internalAsks: [], shows: [], controls: [], shape: "form" });
   });
 });

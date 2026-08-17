@@ -131,6 +131,8 @@ function describeDeclarations(declarations: WorkflowDeclarations): string {
     '- "kind" picks the component: "choice" → a "choice" node with the given options; "file" → an "upload" node; "longtext" → a multiline "input"; "text"/"number"/"date"/"phone"/"email"/"url" → an "input" (set its "kind" to the same value so the right keyboard appears).',
     '- An ask with "satisfiedByNodeId" is already captured by a block on the canvas — wire your one field to THAT node id and never add a second control for it.',
     '- An ask with "dependsOnNodeId" only makes sense after that node ran; keep its field close to the result area rather than first.',
+    '- "internalAsks" are values the RUN fills by itself (doors, earlier steps). NEVER create a field for any of them — a customer asked for "latitude" or a "channel id" is a broken product. They are listed only so you know they exist.',
+    '- Each "controls" entry is an interactive block the architect already put on the canvas. Place EXACTLY ONE matching control for each: role "input" → an "input" wired { "role": "input", "nodeId": its nodeId }; role "choice" → a "choice" node with its options, same wiring; role "action" → the run "button" wired { "role": "action", "nodeId": its nodeId }. These are the product\'s own controls — dropping one breaks the product.',
     '- Each show is a place the agent answers. Give each one a "result" node with variant "auto", wired { "role": "output", "nodeId": "<its nodeId>" } (use "satisfiedByNodeId" as the nodeId when present).',
     '- "shape" is the product\'s nature: "form" wants fields + one run button + results; "conversation" wants a single prompt input and a conversational result; "generation" wants a prompt and a gallery-style result; "voice" happens on the phone — the page may need no fields at all, just what the customer should know and any results; "hybrid" combines them.'
   ].join("\n");
@@ -140,6 +142,8 @@ const COMPOSER_HARD_RULES = [
   "HARD RULES (a validator checks every one of these after you answer; a violation is sent back to you once, then the attempt is discarded):",
   "- ONE field per ask. NEVER two controls for the same ask id, no matter how many nodeIds it lists.",
   "- EVERY ask appears exactly once, wired to one of its nodeIds.",
+  "- NEVER a field for anything in internalAsks — the run fills those itself.",
+  "- EVERY controls entry gets exactly one control wired to its nodeId.",
   '- Every show gets a result area with "variant": "auto".',
   '- Every "nodeId" you write inside a wire must be one of the node ids given in the declarations. Never invent one.',
   "- MINIMUM interface: the working product only. No marketing sections, no fake stats, no testimonials, no pricing, no invented pages. Selling the product is Packaging's job, not yours.",
@@ -433,6 +437,35 @@ export function checkComposition(
     violations.push(
       `Ask "${ask.id}" ("${ask.label}") has no field. Place exactly one ${ask.kind} control with "id": "${ask.id}" wired { "role": "input", "nodeId": "${ask.nodeIds[0]}" }.`
     );
+  }
+
+  // Existing canvas controls: each must be re-placed, wired to its block. A
+  // composed page that drops the architect's own Prompt Box is unusable.
+  const wiredAll = collectWireHits(working);
+  for (const control of declarations.controls ?? []) {
+    const wanted = control.role === "action" ? "action" : "input";
+    const covered = wiredAll.some((hit) => hit.wire.nodeId === control.nodeId && hit.wire.role === wanted);
+    if (!covered) {
+      violations.push(
+        `Existing block "${control.label}" (${control.nodeId}) has no control. Place one ${control.role === "choice" ? "choice" : control.role === "action" ? "button" : "input"} wired { "role": "${wanted}", "nodeId": "${control.nodeId}" }.`
+      );
+    }
+  }
+
+  // Internal asks are the run's job. A field for one is REMOVED, not retried —
+  // the model was told, and a customer must never see "latitude".
+  const internalIds = new Set((declarations.internalAsks ?? []).map((ask) => ask.id));
+  const internalFields = new Set<string>();
+  for (const field of fields) {
+    if (claimed.has(field.specNodeId)) continue;
+    const bare = field.specNodeId.replace(/^field-/, "");
+    if (internalIds.has(bare)) internalFields.add(field.specNodeId);
+  }
+  if (internalFields.size > 0) {
+    working = {
+      ...working,
+      pages: working.pages.map((page) => ({ ...page, blocks: dropSpecNodes(page.blocks, internalFields) }))
+    };
   }
 
   // Unclaimed fields that feed a node an assigned ask already covers are the
