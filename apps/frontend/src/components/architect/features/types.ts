@@ -322,6 +322,26 @@ export type DesignChatBody = {
 };
 
 /**
+ * POST /agent-pages/manage/:workflowId/product-chat — the Product Architect.
+ * Longer instructions than the styling chat allows (800 vs 500) because this
+ * one is given a whole brief, not a single dial to turn.
+ */
+export type ProductChatBody = {
+  instruction: string;
+  history?: DesignChatMessage[];
+};
+
+export type ProductChatData = {
+  reply: string;
+  /** The saved blueprint. Shape is validated server-side before it is stored. */
+  product: unknown;
+  /** Ids of pages this instruction created — empty when it only edited. */
+  pagesCreated: string[];
+  /** Set when legal pages were generated and need the architect's eye. */
+  legalNote: string | null;
+};
+
+/**
  * POST /agent-pages/manage/:workflowId/design-chat result. `patch` is the
  * validated set of dials the Design Brain just turned — empty when the ask
  * was impossible; `design` is the full post-patch DesignConfig.

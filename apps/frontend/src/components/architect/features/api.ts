@@ -6,6 +6,8 @@ import type {
   AgentPageUpdateBody,
   DesignChatBody,
   DesignChatData,
+  ProductChatBody,
+  ProductChatData,
   ArchitectListing,
   ArchitectProfile,
   ArchitectProject,
@@ -1645,4 +1647,14 @@ export function updateAgentPageConfig(workflowId: string, body: AgentPageUpdateB
  */
 export function designChat(workflowId: string, body: DesignChatBody) {
   return apiPost<DesignChatData>(`/agent-pages/manage/${workflowId}/design-chat`, body);
+}
+
+/**
+ * Product Architect: the other half of the Design Brain. Where designChat
+ * restyles the page that exists, this one WRITES the product — pages,
+ * sections, copy and the wires back to the agent — from one sentence.
+ * The backend validates and auto-fixes the whole blueprint before saving.
+ */
+export function productChat(workflowId: string, body: ProductChatBody) {
+  return apiPost<ProductChatData>(`/agent-pages/manage/${workflowId}/product-chat`, body);
 }

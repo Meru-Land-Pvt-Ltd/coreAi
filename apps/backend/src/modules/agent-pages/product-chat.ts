@@ -24,10 +24,9 @@ import {
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
-import {
-  MISSING_LLM_CREDENTIALS_MESSAGE,
-  resolveConfiguredLlmProvider
-} from "../ai-provider-engine/llm-credentials";
+import { MISSING_LLM_CREDENTIALS_MESSAGE } from "../ai-provider-engine/llm-credentials";
+import { resolveBrainSlot } from "../admin/brain-slot-settings";
+import { getDesignBrainConfig } from "../admin/design-brain-settings";
 import {
   recordLlmProviderFailure,
   recordLlmProviderSuccess
@@ -71,8 +70,11 @@ import { ensureDraftAgentListingAndPage, type AgentPageTemplate } from "./slug";
  * resolveConfiguredLlmProvider into getProviderEngine().executeWithProvider.
  */
 
-/** Contract default; resolveConfiguredLlmProvider falls back from here. */
-export const PRODUCT_CHAT_PREFERRED_PROVIDER = "gemini";
+/**
+ * Product generation runs on the Design Brain battery an admin picks — never a
+ * provider hardcoded here. Both design paths share it: building a whole product
+ * and restyling one is the same craft.
+ */
 
 /** Graceful reply when the model never produces a usable product. */
 export const PRODUCT_CHAT_FALLBACK_REPLY =
@@ -1217,7 +1219,10 @@ export function registerAgentPageProductChatRoute(routes: Hono) {
           design
         });
 
-      const resolved = resolveConfiguredLlmProvider(PRODUCT_CHAT_PREFERRED_PROVIDER);
+      // The battery an admin picked for design work, not a provider frozen into
+      // this file. Building a whole product is the job where taste shows, so it
+      // must be swappable the day a better model exists.
+      const resolved = resolveBrainSlot(await getDesignBrainConfig());
       if (!resolved) {
         return errorResponse(c, MISSING_LLM_CREDENTIALS_MESSAGE, 503, "LLM_NOT_CONFIGURED");
       }
@@ -1251,7 +1256,8 @@ export function registerAgentPageProductChatRoute(routes: Hono) {
           temperature: 0.4,
           maxTokens: MAX_OUTPUT_TOKENS,
           outputFormat: "json",
-          task: "agent-page-product-chat"
+          task: "agent-page-product-chat",
+          ...(resolved.model ? { model: resolved.model } : {})
         };
 
         let response;

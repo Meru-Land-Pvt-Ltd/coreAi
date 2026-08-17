@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   pageUpdate: vi.fn(),
   execute: vi.fn(),
   resolveProvider: vi.fn(),
+  getDesignBrainConfig: vi.fn(),
   getDesignBrainRules: vi.fn()
 }));
 
@@ -63,6 +64,13 @@ vi.mock("../ai-provider-engine/llm-credentials", () => ({
 
 vi.mock("../ai-provider-engine/provider-engine", () => ({
   getProviderEngine: () => ({ executeWithProvider: mocks.execute })
+}));
+
+// The design battery an admin picks. Product generation must read it rather
+// than carry a provider of its own — swapping the model on the admin screen
+// has to change what builds every architect's product.
+vi.mock("../admin/design-brain-settings", () => ({
+  getDesignBrainConfig: mocks.getDesignBrainConfig
 }));
 
 // The admin-owned house-rules accessor, reached through a defensive dynamic
@@ -379,7 +387,8 @@ beforeEach(() => {
   mocks.workflowFindFirst.mockResolvedValue(workflowRow);
   mocks.pageFindFirst.mockResolvedValue({ ...pageRow });
   mocks.listingFindUnique.mockResolvedValue({ ...listingRow });
-  mocks.resolveProvider.mockReturnValue({ providerId: "gemini" });
+  mocks.resolveProvider.mockReturnValue({ providerId: "openai" });
+  mocks.getDesignBrainConfig.mockResolvedValue({ providerId: "openai", modelId: "gpt-4.1-mini" });
   mocks.getDesignBrainRules.mockResolvedValue("");
   mocks.pageUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     ...pageRow,
@@ -436,9 +445,11 @@ describe("the system prompt", () => {
   it("calls the provider engine the ai.llm_call way, with room for a whole product", async () => {
     await productChat(buildApp(), { instruction: "build me a proper website" });
 
-    expect(mocks.resolveProvider).toHaveBeenCalledWith("gemini");
+    // The provider comes from the admin design battery, never a constant here.
+    expect(mocks.resolveProvider).toHaveBeenCalledWith("openai");
     const [providerId, request] = mocks.execute.mock.calls[0];
-    expect(providerId).toBe("gemini");
+    expect(providerId).toBe("openai");
+    expect(request.model).toBe("gpt-4.1-mini");
     expect(request.outputFormat).toBe("json");
     expect(request.maxTokens).toBeGreaterThanOrEqual(8000);
     expect(request.task).toBe("agent-page-product-chat");
