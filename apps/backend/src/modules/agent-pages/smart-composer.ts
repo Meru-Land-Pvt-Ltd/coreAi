@@ -25,6 +25,7 @@ import { getProviderEngine } from "../ai-provider-engine/provider-engine";
 import type { AIExecuteRequest, AIMessage } from "../ai-provider-engine/types";
 import { describeProductSpecContract } from "./product-chat";
 import { getProductSpec, saveProductSpec, starterProductSpec } from "./product-spec-service";
+import { verifyDesignChange } from "./designer-eyes";
 import { deriveFaceBlueprint } from "./blueprint";
 import { resolveDesign } from "./design";
 import { ensureDraftAgentListingAndPage, type AgentPageTemplate } from "./slug";
@@ -884,9 +885,58 @@ export function registerSmartDesignerRoutes(routes: Hono) {
         });
       }
 
+      // THE EYES. The designer used to say "done" blind — the founder caught
+      // it claiming a move three times while nothing moved. Now every change
+      // is LOOKED AT: a cold second call compares before/after against the
+      // ask. Wrong -> one corrective pass with the exact problems -> look
+      // again. The reply never claims more than the look confirmed.
+      const before = context.stored ?? context.unchangedProduct();
+      let product = outcome.product;
+      let reply = outcome.reply;
+      let verdict = await verifyDesignChange({
+        brain,
+        instruction: input.instruction,
+        before,
+        after: product,
+        workflowId
+      });
+
+      if (verdict && !verdict.satisfied && verdict.problems.length > 0) {
+        const correction = await runComposerBrain({
+          brain,
+          systemPrompt: buildSmartDesignerSystemPrompt({
+            agent: context.agent,
+            declarations: context.declarations,
+            current: product
+          }),
+          conversationHistory: [
+            ...(input.history ?? []).map((turn) => ({ role: turn.role, content: turn.content })),
+            { role: "user" as const, content: input.instruction },
+            { role: "assistant" as const, content: reply }
+          ],
+          userMessage: `I looked at the page and the change is NOT right yet: ${verdict.problems.join(" ")} Fix exactly this.`,
+          declarations: context.declarations,
+          graphNodeIds: context.graphNodeIds,
+          allowBoundary: false,
+          task: "agent-page-smart-designer",
+          workflowId
+        });
+        if (correction.kind === "composed") {
+          product = correction.product;
+          reply = correction.reply;
+          verdict = await verifyDesignChange({
+            brain,
+            instruction: input.instruction,
+            before,
+            after: product,
+            workflowId
+          });
+        }
+      }
+
       let saved: ProductSpec;
       try {
-        saved = await saveProductSpec(context.page.id, outcome.product);
+        saved = await saveProductSpec(context.page.id, product);
       } catch (error) {
         console.error("[smart-designer] could not save product", {
           workflowId,
@@ -899,7 +949,16 @@ export function registerSmartDesignerRoutes(routes: Hono) {
         });
       }
 
-      return successResponse(c, { reply: outcome.reply, product: saved, boundary: null });
+      // Honesty in one line: checked and right, checked and still wrong (say
+      // what), or the look itself failed (never pretend it happened).
+      const honestReply =
+        verdict === null
+          ? reply
+          : verdict.satisfied
+            ? `${reply} — checked, it's really there.`
+            : `${reply} — but I checked, and it's still not right: ${verdict.problems.join(" ")} Tell me to try again or say it differently.`;
+
+      return successResponse(c, { reply: honestReply, product: saved, boundary: null });
     }
   );
 }
