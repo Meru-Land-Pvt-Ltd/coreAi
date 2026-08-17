@@ -186,6 +186,28 @@ export const ButtonNodeView = memo(function ButtonNodeView({
 // input.
 // ---------------------------------------------------------------------------
 
+/**
+ * Typed asks lean on the browser instead of custom widgets: `type` gives the
+ * native control (date picker, spinners) and `inputMode` forces the right
+ * mobile keyboard even where `type` alone would not (tel/email on Android).
+ */
+function inputKindAttrs(kind: InputNode["kind"]) {
+  switch (kind) {
+    case "number":
+      return { type: "number" as const, inputMode: "decimal" as const };
+    case "date":
+      return { type: "date" as const };
+    case "phone":
+      return { type: "tel" as const, inputMode: "tel" as const, autoComplete: "tel" };
+    case "email":
+      return { type: "email" as const, inputMode: "email" as const, autoComplete: "email" };
+    case "url":
+      return { type: "url" as const, inputMode: "url" as const };
+    default:
+      return { type: "text" as const };
+  }
+}
+
 export const InputNodeView = memo(function InputNodeView({
   node,
   surface,
@@ -230,7 +252,7 @@ export const InputNodeView = memo(function InputNodeView({
       {node.multiline ? (
         <textarea rows={4} {...common} className={cx(FIELD_SHELL, "resize-y")} />
       ) : (
-        <input type="text" {...common} />
+        <input {...common} {...inputKindAttrs(node.kind)} />
       )}
     </div>
   );

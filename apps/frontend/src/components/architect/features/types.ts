@@ -365,3 +365,42 @@ export type DesignChatData = {
    */
   graphChanged?: boolean;
 };
+
+/**
+ * POST /agent-pages/manage/:workflowId/smart-compose — the AI Composer.
+ * Reads every node's declarations and writes the MINIMUM interface out of
+ * our pre-built components. No request body: the workflow graph is the brief.
+ */
+export type SmartComposeData = {
+  reply: string;
+  /** The composed Product Spec. Validated server-side before it is stored. */
+  product: unknown;
+  /** False when the workflow declared nothing worth composing. */
+  composed: boolean;
+  /** How many asks the composer placed on the page. */
+  asksPlaced: number;
+  /** How many duplicate node inputs collapsed into shared fields — merging is the composer's core job. */
+  merged: number;
+};
+
+/**
+ * POST /agent-pages/manage/:workflowId/smart-designer — the feedback loop.
+ * The architect says what the composed interface got wrong ("this box isn't
+ * capturing email separately") and the Smart Designer fixes the spec.
+ */
+export type SmartDesignerBody = {
+  instruction: string;
+  /** Up to the last 10 turns, for follow-ups like "actually make it optional". */
+  history?: DesignChatMessage[];
+};
+
+export type SmartDesignerData = {
+  reply: string;
+  /** The updated Product Spec after this instruction (unchanged on a redirect). */
+  product: unknown;
+  /**
+   * "packaging" when the ask was outside the product interface (privacy page,
+   * landing page, sell page) and was redirected to Packaging — not a failure.
+   */
+  boundary: "packaging" | null;
+};

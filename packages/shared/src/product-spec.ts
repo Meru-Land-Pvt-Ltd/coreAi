@@ -179,6 +179,8 @@ export type InputNode = NodeBase & {
   placeholder?: string;
   label?: string;
   multiline?: boolean;
+  /** What the field collects — drives native mobile keyboards and pickers. */
+  kind?: "text" | "number" | "date" | "phone" | "email" | "url";
   wire?: Wire;
 };
 export type UploadNode = NodeBase & {
@@ -539,6 +541,13 @@ const inputNodeSchema = z.object({
   placeholder: optionalText(TEXT_CAPS.placeholder),
   label: optionalText(TEXT_CAPS.label),
   multiline: optionalBool,
+  /**
+   * What the field collects. Drives the browser's own affordances — the right
+   * mobile keyboard, native date picker, built-in format hints — so a phone
+   * ask never gets a full QWERTY board. Absent means plain text, which is what
+   * every spec written before this field existed already meant.
+   */
+  kind: optionalEnum(["text", "number", "date", "phone", "email", "url"]),
   wire: optionalWire
 });
 const uploadNodeSchema = z.object({

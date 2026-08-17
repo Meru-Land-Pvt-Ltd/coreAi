@@ -22,6 +22,34 @@ import {
   type PricingTable,
 } from "./base-adapter";
 import { getModelsForProvider, getPricingForProvider } from "../model-catalog";
+import { findLlmModel } from "@coreai/shared";
+
+/**
+ * Anthropic rejects `temperature` outright for its thinking-generation models
+ * (live probe: 400 "temperature is deprecated for this model" on
+ * claude-opus-5). The claude-5 family and every Claude model the shared
+ * catalog marks "thinking" therefore get NO temperature; older models keep
+ * their exact behaviour.
+ */
+const CLAUDE_5_FAMILY = /^claude-[a-z]+-5(?:$|[.-])/;
+
+export function modelRejectsTemperature(model: string): boolean {
+  if (CLAUDE_5_FAMILY.test(model)) return true;
+  const meta = findLlmModel(model);
+  return meta?.providerId === "claude" && meta.category === "thinking";
+}
+
+/**
+ * The defensive net for models the list above does not know yet: exactly the
+ * 400 that names temperature as unsupported/deprecated — never a rate limit,
+ * never an auth failure — earns one retry without the parameter.
+ */
+export function isTemperatureRejection(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  const status = (err as { status?: unknown } | null | undefined)?.status;
+  const isBadRequest = status === 400 || /\b400\b/.test(message);
+  return isBadRequest && /temperature/i.test(message) && /deprecat|not supported|unsupported|unexpected|invalid/i.test(message);
+}
 
 class ClaudeAdapter implements AIProviderAdapter {
   readonly providerId = "claude";
@@ -64,15 +92,29 @@ class ClaudeAdapter implements AIProviderAdapter {
     try {
       const { system, messages } = this.buildPayload(request);
 
-      const response = await retryOnTransient(() =>
-        this.client.messages.create({
-          model,
-          max_tokens: request.maxTokens ?? 1024,
-          system,
-          messages,
-          temperature: request.temperature ?? 0.7 as never,
-        })
-      );
+      // maxTokens passes straight through, so callers doing big structured
+      // generations (a composed product spec runs 8k+ tokens) get what they
+      // ask for; 1024 is only the floor for callers that never said.
+      const params = (withTemperature: boolean): Anthropic.MessageCreateParamsNonStreaming => ({
+        model,
+        max_tokens: request.maxTokens ?? 1024,
+        system,
+        messages,
+        ...(withTemperature ? { temperature: request.temperature ?? 0.7 } : {}),
+      });
+
+      let response: Anthropic.Message;
+      try {
+        response = await retryOnTransient(() => this.client.messages.create(params(!modelRejectsTemperature(model))));
+      } catch (err) {
+        // A model newer than our list just told us it rejects temperature —
+        // honor that once instead of failing the caller's whole run.
+        if (!modelRejectsTemperature(model) && isTemperatureRejection(err)) {
+          response = await retryOnTransient(() => this.client.messages.create(params(false)));
+        } else {
+          throw err;
+        }
+      }
 
       const rawText = response.content.find((b) => b.type === "text")?.text ?? "";
       const usage = {

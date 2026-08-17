@@ -29,9 +29,9 @@ const STARTER_SUGGESTIONS = [
  * Product Architect needs before it can write pages worth selling.
  */
 const BUILD_SUGGESTIONS = [
-  "A booking page for my salon",
-  "A landing page with pricing and an FAQ",
-  "Add a contact page"
+  "A sell page with pricing and an FAQ",
+  "Add privacy and terms pages",
+  "A contact page"
 ] as const;
 
 const FALLBACK_REPLY = "That one didn't go through — give it another try in a moment.";
@@ -53,7 +53,7 @@ type ChatMode = "style" | "build";
 
 const MODES: Array<{ id: ChatMode; label: string; hint: string }> = [
   { id: "style", label: "Style", hint: "Change how the page looks" },
-  { id: "build", label: "Build", hint: "Write the whole product from a sentence" }
+  { id: "build", label: "Packaging", hint: "Sell page, pricing, FAQ and legal — the pages that sell your product" }
 ];
 
 type ChatBubble = {
@@ -313,7 +313,7 @@ export function DesignBrainChat({
           onChange={(event) => setDraft(event.target.value)}
           placeholder={
             building
-              ? "e.g. a booking page for my salon with prices"
+              ? "e.g. a sell page with pricing and an FAQ"
               : "e.g. dark theme with a green accent"
           }
           maxLength={maxLength}
@@ -347,7 +347,7 @@ export function DesignBrainChat({
       </h3>
       <p className="mb-4 text-xs leading-5 text-slate-500" data-testid="design-brain-intro">
         {building
-          ? "Describe the product you want — it writes the pages, the words and the buttons."
+          ? "Describe the pages that sell your product — it writes them. Your working interface comes from the Smart Designer."
           : "Tell it how your page should look and feel — it restyles everything for you."}
       </p>
       {conversation}

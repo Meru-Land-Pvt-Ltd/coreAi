@@ -167,12 +167,12 @@ describe("DesignBrainChat build mode", () => {
 
     await user.type(
       screen.getByTestId("design-dock-input"),
-      "a booking page for my salon{enter}"
+      "a sell page with pricing{enter}"
     );
 
     await waitFor(() => expect(productChatMock).toHaveBeenCalledTimes(1));
     expect(productChatMock).toHaveBeenCalledWith("wf-1", {
-      instruction: "a booking page for my salon"
+      instruction: "a sell page with pricing"
     });
     expect(designChatMock).not.toHaveBeenCalled();
   });
@@ -205,12 +205,12 @@ describe("DesignBrainChat build mode", () => {
     expect(onApplied).toHaveBeenCalledWith({});
   });
 
-  it("offers build briefs as the starter chips, not styling dials", async () => {
+  it("offers packaging briefs as the starter chips, not styling dials", async () => {
     renderChat(vi.fn());
     await switchToBuild();
 
     expect(screen.getByTestId("design-dock-chip-0").textContent).toBe(
-      "A booking page for my salon"
+      "A sell page with pricing and an FAQ"
     );
   });
 

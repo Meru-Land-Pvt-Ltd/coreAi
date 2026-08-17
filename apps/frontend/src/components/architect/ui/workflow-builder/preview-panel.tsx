@@ -10,6 +10,7 @@ import {
   X
 } from "lucide-react";
 import { DesignBrainChat } from "./design-brain-chat";
+import { SmartDesignerPanel } from "./smart-designer-panel";
 import { AgentPageShell } from "@/components/agent-page/agent-page-shell";
 import { ChatTemplate } from "@/components/agent-page/chat-template";
 import { VoiceTemplate } from "@/components/agent-page/voice-template";
@@ -217,6 +218,34 @@ export function PreviewPanel({
     setDesignOpen(false);
     designLauncherRef.current?.focus();
   };
+  // The Smart Designer — the composed interface's feedback loop. A separate,
+  // parallel feature beside the Design Brain: same corner, its own panel, so
+  // only one of the two is ever up at once.
+  const [smartOpen, setSmartOpen] = useState(false);
+  const smartPanelRef = useRef<HTMLElement | null>(null);
+  const smartLauncherRef = useRef<HTMLButtonElement | null>(null);
+
+  const closeSmart = () => {
+    setSmartOpen(false);
+    smartLauncherRef.current?.focus();
+  };
+  const openSmart = () => {
+    setDesignOpen(false);
+    setSmartOpen(true);
+  };
+  // The Design Brain opening reclaims the corner — the Smart Designer yields.
+  useEffect(() => {
+    if (designOpen) setSmartOpen(false);
+  }, [designOpen]);
+
+  // Opening hands focus to the composer, same as the Design Brain dock.
+  useEffect(() => {
+    if (!smartOpen) return;
+    smartPanelRef.current
+      ?.querySelector<HTMLInputElement>("[data-testid='smart-designer-input']")
+      ?.focus();
+  }, [smartOpen]);
+
   // Face priority: a manual pill pick wins; then the architect's saved page
   // template; then the backend's inferred default; last, the local node
   // heuristic for drafts we know nothing about. (Voice outranks media.)
@@ -633,6 +662,83 @@ export function PreviewPanel({
           </button>
         </div>
         <DesignBrainChat variant="docked" workflowId={workflowId} onApplied={onDesignApplied} />
+      </section>
+
+      {/* The Smart Designer launcher — stacked above Design, same corner
+          language. Hidden while either panel owns the corner. */}
+      <button
+        type="button"
+        ref={smartLauncherRef}
+        onClick={openSmart}
+        aria-expanded={smartOpen}
+        aria-haspopup="dialog"
+        tabIndex={smartOpen || designOpen ? -1 : undefined}
+        data-testid="smart-designer-toggle"
+        className={
+          "absolute bottom-16 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 shadow-lg shadow-amber-500/20 transition hover:bg-amber-50 motion-reduce:transition-none" +
+          (smartOpen || designOpen ? " pointer-events-none opacity-0" : " opacity-100") +
+          PILL_FOCUS_CLASSES
+        }
+      >
+        <Sparkles className="h-4 w-4" aria-hidden="true" />
+        Smart Designer
+      </button>
+
+      {/* Phone-size scrim behind the Smart Designer sheet — tap to close. */}
+      {smartOpen ? (
+        <button
+          type="button"
+          aria-label="Close Smart Designer"
+          onClick={closeSmart}
+          data-testid="smart-designer-backdrop"
+          className="absolute inset-0 z-40 bg-slate-900/30 sm:hidden"
+        />
+      ) : null}
+
+      {/* The floating Smart Designer panel — a sibling of the Design Brain
+          dock, never a replacement. Same mount-and-fade mechanics. */}
+      <section
+        ref={smartPanelRef}
+        role="dialog"
+        aria-label="Smart Designer"
+        inert={!smartOpen}
+        data-testid="smart-designer-dock"
+        data-open={smartOpen ? "true" : "false"}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") closeSmart();
+        }}
+        className={
+          "absolute bottom-4 right-4 z-50 flex h-[min(65vh,560px)] max-h-[calc(100%-2rem)] w-[380px] max-w-[calc(100%-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/25 transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none max-sm:inset-x-3 max-sm:bottom-3 max-sm:h-[70vh] max-sm:w-auto max-sm:max-w-none " +
+          (smartOpen ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")
+        }
+      >
+        <div className="flex flex-none items-start justify-between gap-2 border-b border-gray-100 px-4 pb-3 pt-4">
+          <div className="min-w-0">
+            <h3
+              className="text-xs font-bold uppercase tracking-wider text-slate-400"
+              data-testid="smart-designer-title"
+            >
+              Smart Designer
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500" data-testid="smart-designer-dock-intro">
+              Generate your product&apos;s interface — then fix it by talking.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={closeSmart}
+            aria-label="Close"
+            data-testid="smart-designer-close"
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+        <SmartDesignerPanel
+          workflowId={workflowId}
+          hasComposedSpec={blueprint !== null}
+          onApplied={onDesignApplied}
+        />
       </section>
     </div>
   );

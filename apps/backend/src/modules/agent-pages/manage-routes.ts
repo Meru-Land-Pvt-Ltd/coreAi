@@ -11,6 +11,7 @@ import { registerAgentPageDesignChatRoute } from "./design-chat";
 import { registerAgentPageProductChatRoute } from "./product-chat";
 import { registerAgentPageProductRoutes } from "./product-routes";
 import { getProductSpec } from "./product-spec-service";
+import { registerSmartDesignerRoutes } from "./smart-composer";
 import { ensureDraftAgentListingAndPage, inferAgentPageTemplate, type AgentPageTemplate } from "./slug";
 
 /**
@@ -202,4 +203,8 @@ export function registerAgentPageManageRoutes(routes: Hono) {
   registerAgentPageProductRoutes(routes);
 
   registerAgentPageProductChatRoute(routes);
+
+  // Smart Designer: the AI Composer + its feedback chat. A separate, parallel
+  // feature — the Design Brain routes above stay exactly as they are.
+  registerSmartDesignerRoutes(routes);
 }
