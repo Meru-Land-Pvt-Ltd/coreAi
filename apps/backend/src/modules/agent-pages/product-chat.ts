@@ -663,6 +663,7 @@ export function buildProductChatSystemPrompt(args: {
     '- { "role": "input" } — whatever the customer types, picks, or uploads here is fed to the agent.',
     '- { "role": "action" } — pressing this runs the agent.',
     '- { "role": "output" } — the agent\'s answer appears here.',
+    'A "result" element must use "variant": "auto" (or no variant at all), so the customer sees EVERYTHING the agent sends back — text, stat cards, charts, tables, images. Never "text" for an agent that returns data or numbers; that setting hides the agent\'s own cards and charts. Pick a single-kind variant ("gallery", "chart", "stats", "table") only when the agent clearly returns just that one kind or the architect asked for exactly that.',
     "Every page where a customer can actually use the product needs all three. The home page ALWAYS needs all three.",
     'A "button" with an "href" is a link (to another page or an #anchor); a "button" with a "wire" runs the agent. Never give one button both.',
     "",
