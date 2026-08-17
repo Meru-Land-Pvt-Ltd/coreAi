@@ -48,6 +48,15 @@ button:disabled {
   outline-offset: 2px;
 }
 
+/*
+ * Text fields that sit inside a card which already lights up on focus: the
+ * card's own border is the focus signal, so a second outline around the field
+ * reads as a stray rectangle. Keyboard users still see the card react.
+ */
+:where(textarea, input):focus-visible {
+  outline: none;
+}
+
 .tnum {
   font-variant-numeric: tabular-nums;
 }
