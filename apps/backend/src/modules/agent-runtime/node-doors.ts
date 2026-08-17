@@ -62,6 +62,11 @@ const PRESENTATION_DOOR_MAX_TOKENS = 1200;
 
 /** Below this a raw reply is already small enough that cleaning is waste. */
 const EXIT_DOOR_MIN_CHARS = 400;
+/**
+ * Above this, cleaning costs more than it returns — the call crawls toward the
+ * timeout and risks dropping a figure a later step needs. Raw is kept instead.
+ */
+const EXIT_DOOR_MAX_CHARS = 8_000;
 
 /** Bounds on what a door may hand back — a model can hallucinate enormity. */
 const MAX_OVERRIDE_FIELDS = 12;
@@ -423,6 +428,17 @@ export function exitDoorShouldRun(rawOutput: unknown): boolean {
 }
 
 /**
+ * The other end of the same judgement: a reply this big is a listing payload,
+ * not a stray envelope. Summarising it is the slowest call in the run and the
+ * one most likely to drop a number a later step needed, so it is left whole.
+ */
+export function exitDoorPayloadTooLarge(rawOutput: unknown): boolean {
+  const serialized =
+    typeof rawOutput === "string" ? rawOutput : safeStringify(rawOutput);
+  return serialized.length > EXIT_DOOR_MAX_CHARS;
+}
+
+/**
  * The presentation door only runs when the final output is not ALREADY a valid
  * visual payload — a Brain that emitted proper stats/chart/table is left alone.
  */
@@ -683,6 +699,15 @@ export async function runExitDoor(input: RunExitDoorInput): Promise<ExitDoorResu
 
     if (!exitDoorShouldRun(rawOutput)) {
       logDoor("exit", "skipped:already-small", { nodeId: node.id, nodeType, budget });
+      return unchanged;
+    }
+
+    // A very large reply (a full listing payload, a page of results) costs more
+    // to summarise than it saves: the call crawls toward the timeout and later
+    // steps read the raw value anyway. Leave it whole and spend the budget on
+    // the doors that actually change an outcome.
+    if (exitDoorPayloadTooLarge(rawOutput)) {
+      logDoor("exit", "skipped:too-large", { nodeId: node.id, nodeType, budget });
       return unchanged;
     }
 
