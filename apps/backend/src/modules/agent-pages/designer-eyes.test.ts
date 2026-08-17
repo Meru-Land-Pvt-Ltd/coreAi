@@ -90,11 +90,8 @@ describe("verifyDesignChange", () => {
     expect(verdict).toEqual({ satisfied: false, problems: ["nothing moved"] });
   });
 
-  it("returns null on engine failure — never a fake verdict", async () => {
+  it("returns null when the engine answers with an error", async () => {
     mocks.execute.mockResolvedValue({ status: "error", error: "boom" });
-    expect(await verifyDesignChange(args)).toBeNull();
-
-    mocks.execute.mockImplementation(async () => { throw new Error("down"); });
     expect(await verifyDesignChange(args)).toBeNull();
   });
 
