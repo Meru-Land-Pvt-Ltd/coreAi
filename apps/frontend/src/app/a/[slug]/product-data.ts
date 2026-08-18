@@ -21,7 +21,28 @@ import type { ContentWidth } from "@/components/agent-page/types";
  */
 
 // Same resolution as src/lib/api.ts.
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+/**
+ * The API base, resolved for a SERVER-side fetch.
+ *
+ * In production NEXT_PUBLIC_API_URL is "/api" — correct in a browser, fatal
+ * here: Node's fetch cannot parse a relative URL, so every call threw, every
+ * product resolved to null, and every published page quietly fell back to the
+ * legacy template. A spec-designed product had never once rendered publicly.
+ * A relative value is therefore made absolute against the site's own origin.
+ */
+function resolveApiBase(): string {
+  const raw = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787").trim();
+  if (/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, "");
+
+  const site = (
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    "https://triven.ai"
+  ).replace(/\/$/, "");
+  return `${site}${raw.startsWith("/") ? raw : `/${raw}`}`.replace(/\/$/, "");
+}
+
+const API_URL = resolveApiBase();
 
 /** Freshness a marketing page can live with; a publish is not a live edit. */
 const REVALIDATE_SECONDS = 60;
