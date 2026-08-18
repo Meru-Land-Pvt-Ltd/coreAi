@@ -1705,7 +1705,7 @@ function seedMissedCallContext(
  * account. Those runs still read the real calendar and save real leads — they
  * simply never reach outward. See modules/agent-pages/embed-live.ts.
  */
-function outboundSendsAllowed(context: RunnerContext, mode: WorkflowRunMode): boolean {
+export function outboundSendsAllowed(context: RunnerContext, mode: WorkflowRunMode): boolean {
   return mode === "live" && context.embedSource !== true;
 }
 
