@@ -100,18 +100,8 @@ describe("Telegram trigger architect setup", () => {
   });
 
   it("exposes the Telegram Send Message action for confirmations", () => {
-<<<<<<< HEAD
-    const handsGroup = libraryGroups.find((group) => group.title === "Hands");
-    expect(handsGroup?.items.map((item) => item.overrides?.type)).toContain("action.telegram_send_message");
-    // Only the common reply action is visible; advanced Telegram actions stay hidden.
-    const telegramActions = handsGroup?.items.filter(
-      (item) => String(item.overrides?.type ?? "").startsWith("action.telegram_")
-    );
-    expect(telegramActions).toHaveLength(1);
-=======
     const telegramGroup = libraryGroups.find((group) => group.title === "Telegram Features");
     expect(telegramGroup?.items.map((item) => item.overrides?.type)).toContain("action.telegram_send_message");
->>>>>>> origin/gaurav
   });
 
   it("uses one mandatory catch-all output connection", () => {

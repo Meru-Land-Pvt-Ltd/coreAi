@@ -621,11 +621,6 @@ select.field {
   }
 }
 `;
-
-// Derive the "What's included" list from the purchased agent's listing so the
-// order summary reflects the real agent rather than static copy. The workflow
-// nodes describe the actual steps; connectors/LLMs and requiredConnectors are
-// used as a fallback when the workflow has no usable step labels.
 function getIncludedItems(listing: CheckoutListing) {
     const fromFeatures = (listing.includedFeatures ?? [])
         .map((feature) => feature.trim())
@@ -905,8 +900,6 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
         zip: isZipValid(countryCode, zip)
     };
 
-    // One-time dedicated number fee for phone-capable agents — charged with
-    // the agent price, shown as its own summary row.
     const phoneFee = usageMode || invoiceMode ? null : listingAccess?.phoneNumberFee ?? null;
     const phoneFeeAmount = (phoneFee?.amountCents ?? 0) / 100;
     const payTotal = basePrice + phoneFeeAmount;

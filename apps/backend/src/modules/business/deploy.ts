@@ -628,13 +628,9 @@ export async function deployInstalledAgentVoiceAssistant(
     data: {
       configJson: {
         ...agentConfig,
-<<<<<<< HEAD
         vapiAssistantId: assistant.id,
-        voicePipeline: assistant.pipeline
-=======
         voicePipeline: assistant.pipeline,
         ...(updatedProviders ? { providers: updatedProviders } : {})
->>>>>>> origin/akhil
       } as object
     }
   });

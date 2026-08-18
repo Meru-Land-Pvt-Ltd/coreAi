@@ -1,10 +1,16 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-<<<<<<< HEAD
-import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, presentationDoorEnabled, requiredConnectorKeys, TRIVEN_AGENT_TAXONOMY, workflowJsonForTemplate } from "@coreai/shared";
-=======
-import { calendarEventTitleForMode, defaultArchitectNodePresentation, defaultHiddenArchitectNodeTypes, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys, TRIVEN_AGENT_TAXONOMY, workflowJsonForTemplate } from "@coreai/shared";
->>>>>>> origin/gaurav
+import {
+  calendarEventTitleForMode,
+  defaultArchitectNodePresentation,
+  defaultHiddenArchitectNodeTypes,
+  getLlmProvider,
+  normalizeAgentConfigure,
+  presentationDoorEnabled,
+  requiredConnectorKeys,
+  TRIVEN_AGENT_TAXONOMY,
+  workflowJsonForTemplate
+} from "@coreai/shared";
 import { llmCredentialStatus } from "../ai-provider-engine/llm-credentials";
 import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
 import { llmProviderAvailability } from "../ai-provider-engine/llm-probe";

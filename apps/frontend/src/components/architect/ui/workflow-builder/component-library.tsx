@@ -1,10 +1,7 @@
-<<<<<<< HEAD
-import { Activity, Clapperboard, FileText, Image as ImageIcon, MessageCircle, Phone } from "lucide-react";
-import { libraryGroups } from "./library";
-=======
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Activity, Clapperboard, FileText, Image as ImageIcon, MessageCircle, Phone } from "lucide-react";
 import {
   ARCHITECT_NODE_GROUP_ORDER,
   defaultArchitectNodePresentation,
@@ -15,14 +12,12 @@ import {
   type ArchitectBuilderNodePresentation
 } from "@/components/architect/features/api";
 import { libraryGroups, libraryItemType } from "./library";
->>>>>>> origin/gaurav
 import { SidebarNodeCard } from "./card/sidebar-node-card";
 import type { BuilderNodeData, LibraryGroup, LibraryItem, NodeKind } from "./types";
 
 /** Re-export for canvas drop handler consumers. */
 export { BUILDER_NODE_DRAG_TYPE } from "./card/sidebar-node-card";
 
-<<<<<<< HEAD
 type FaceTemplateCard = {
   slug: string;
   title: string;
@@ -88,7 +83,7 @@ const FACE_COMING_SOON_CARDS: Array<Pick<FaceTemplateCard, "slug" | "title" | "p
     Icon: Activity
   }
 ];
-=======
+
 function applyAdminPresentation(
   groups: LibraryGroup[],
   nodes: ArchitectBuilderNodePresentation[],
@@ -134,7 +129,6 @@ function applyAdminPresentation(
     .filter((title) => (buckets.get(title)?.length ?? 0) > 0)
     .map((title) => ({ title, items: buckets.get(title) ?? [] }));
 }
->>>>>>> origin/gaurav
 
 export function ComponentLibrary({
   searchTerm,

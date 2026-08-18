@@ -58,8 +58,9 @@ export function BookingActionsModal({
 
   if (!isOpen || !booking || !mounted) return null;
 
+  const activeBooking = booking;
   const isCancel = mode === "cancel";
-  const customerLabel = booking.customerName?.trim() || booking.customerPhone;
+  const customerLabel = activeBooking.customerName?.trim() || activeBooking.customerPhone;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -72,8 +73,8 @@ export function BookingActionsModal({
     setError("");
 
     const response = isCancel
-      ? await cancelAppointment(booking.id, reason.trim())
-      : await requestRescheduleAppointment(booking.id, reason.trim() || undefined);
+      ? await cancelAppointment(activeBooking.id, reason.trim())
+      : await requestRescheduleAppointment(activeBooking.id, reason.trim() || undefined);
 
     setIsSubmitting(false);
 

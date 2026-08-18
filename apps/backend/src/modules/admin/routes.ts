@@ -20,7 +20,6 @@ import {
   savePlatformApiSettings
 } from "./platform-api-settings";
 import {
-<<<<<<< HEAD
   DEFAULT_DESIGN_BRAIN_RULES,
   DESIGN_BRAIN_RULES_MAX_LENGTH,
   getDesignBrainRulesSetting,
@@ -47,14 +46,13 @@ import {
   isSupportedSmartDesignerBrainProvider,
   saveSmartDesignerBrainConfig
 } from "./smart-designer-brain-settings";
-=======
+import {
   listArchitectNodeGroups,
   listArchitectNodeVisibility,
   createArchitectNodeGroup,
   deleteArchitectNodeGroup,
   saveArchitectNodeVisibility
 } from "./node-visibility";
->>>>>>> origin/gaurav
 
 export const adminRoutes = new Hono();
 
@@ -116,7 +114,6 @@ adminRoutes.put("/api-settings", async (c) => {
   return successResponse(c, { groups: await listPlatformApiSettings(), ...result }, "API settings saved");
 });
 
-<<<<<<< HEAD
 /* ------------------ Design Brain rules (platform constitution) ------------------ */
 
 adminRoutes.get("/design-rules", async (c) => {
@@ -325,7 +322,8 @@ adminRoutes.patch("/smart-designer-brain", async (c) => {
     },
     result.restoredDefault ? "Default Smart Designer model restored" : "Smart Designer model saved"
   );
-=======
+});
+
 /* ---------------- Architect builder node visibility ---------------------- */
 
 adminRoutes.get("/builder-nodes", async (c) => {
@@ -435,7 +433,6 @@ adminRoutes.delete("/builder-nodes/groups", async (c) => {
     groups: result.groups,
     moved: result.moved
   }, "Group deleted");
->>>>>>> origin/gaurav
 });
 
 function parsePagination(c: { req: { query: (k: string) => string | undefined } }) {
