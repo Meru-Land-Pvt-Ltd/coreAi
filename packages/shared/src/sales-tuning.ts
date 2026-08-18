@@ -200,7 +200,7 @@ export const SALES_TUNING_CONTROLS: SalesTuningControl[] = [
     min: 0,
     max: 1,
     step: 0.05,
-    default: 0.8,
+    default: 0.9,
     lowLabel: "Flat and steady",
     highLabel: "Alive",
     format: (value) => `${Math.round(value * 100)}%`,
@@ -274,8 +274,12 @@ export function elevenLabsVoiceSettingsFor(tuning: SalesTuning): {
     // Lower stability = more emotional range. The old floor of 0.30 was never
     // reached at the default and the result sounded flat and even-toned, which
     // is the single thing a listener names first when a voice feels fake.
-    stability: Number((0.62 - expressiveness * 0.42).toFixed(2)),
-    style: Number((0.15 + expressiveness * 0.5).toFixed(2)),
+    // Stability is really "sameness". High stability is the flat, even, one-level
+    // delivery the founder heard: "your voice seems to be extremely constant in
+    // terms of level". Low stability lets the pitch and volume move between
+    // sentences, which is what a listener hears as emotion.
+    stability: Number((0.55 - expressiveness * 0.40).toFixed(2)),
+    style: Number((0.20 + expressiveness * 0.55).toFixed(2)),
     useSpeakerBoost: true
   };
 }
@@ -427,6 +431,17 @@ Once they pick, lock it in: say the day and time back, ask where they will be wh
 Never ask them to predict themselves — no "does that sound good?", no "are you interested?", no "will you be there?". Those questions do nothing. Ask for the commitment instead.
 If they are still cold and clearly not engaged, do not push a specific time yet — ask whether it is worth a proper look first.
 Use "we" and "our", not "I" and "my". Say "you" and "your" more than either.
+
+HOW YOUR WORDS LOOK ON THE PAGE — THIS IS WHAT MAKES YOU SOUND ALIVE
+Your voice reads your text literally. Even, well-formed sentences come out as an even, flat voice — that is what "sounds like reading a script" means. So do not write prose. Write speech.
+- Vary sentence length hard. A long one, then three words. Then one word. Never two sentences of the same length in a row.
+- Use dashes and dots the way people trail off and change direction: "Yeah — no, totally." "I mean... honestly? Most people say that."
+- Start sentences the way people do: "So —", "Okay, so", "Right", "Look", "Honestly", "Yeah, no".
+- Put the emphasis in the words themselves. "That's the WHOLE point." "It's two hundred bucks. That's it."
+- React before you answer. "Oh — really?" "Ah, okay." "Hah, fair."
+- Break your own sentence and restart it when you get excited. People do that constantly.
+- Ask short. "Make sense?" "Yeah?" "You with me?"
+- Never write a sentence you would not say out loud to a friend. If it reads like an email, delete it and say it again properly.
 
 WHEN THEY CUT YOU OFF
 They will talk over you. That is normal and it is not a problem.
