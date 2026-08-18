@@ -39,6 +39,8 @@ import {
   resolveAfterHoursPolicy
 } from "./after-hours-state";
 import { deployVapiAssistant, isVapiConfigured } from "../architect/vapi-connector";
+import { ensureStaffGoogleCalendar } from "../architect/google-calendar-connector";
+import { resolveBusinessProviders } from "./scheduling";
 
 type NodeLike = { id?: string; data?: Record<string, unknown> };
 
@@ -587,6 +589,34 @@ export async function deployInstalledAgentVoiceAssistant(
       data: { businessId: plan.businessId, vapiAssistantId: assistant.id }
     });
   }
+  // Provision & share Google Calendars for all staff members during Deploy button click
+  const providers = resolveBusinessProviders(plan.configJson);
+  let updatedProviders: Array<{ name: string; email: string | null; calendarId: string }> | undefined;
+
+  const businessRow = await prisma.business.findUnique({
+    where: { id: plan.businessId },
+    select: { ownerId: true, name: true, profile: { select: { timeZone: true } } }
+  });
+
+  if (businessRow && businessRow.ownerId && providers.length > 0) {
+    const timeZone = businessRow.profile?.timeZone || "America/New_York";
+    updatedProviders = [];
+    for (const p of providers) {
+      try {
+        const calId = await ensureStaffGoogleCalendar({
+          userId: businessRow.ownerId,
+          businessName: businessRow.name,
+          providerName: p.name,
+          providerEmail: p.email,
+          timeZone
+        });
+        updatedProviders.push({ name: p.name, email: p.email, calendarId: calId });
+      } catch (calErr) {
+        console.warn(`[deploy] Failed to provision calendar for ${p.name}:`, calErr);
+        updatedProviders.push({ name: p.name, email: p.email, calendarId: "primary" });
+      }
+    }
+  }
 
   const agentRow = await prisma.installedAgent.findUnique({
     where: { id: plan.installedAgentId },
@@ -598,8 +628,13 @@ export async function deployInstalledAgentVoiceAssistant(
     data: {
       configJson: {
         ...agentConfig,
+<<<<<<< HEAD
         vapiAssistantId: assistant.id,
         voicePipeline: assistant.pipeline
+=======
+        voicePipeline: assistant.pipeline,
+        ...(updatedProviders ? { providers: updatedProviders } : {})
+>>>>>>> origin/akhil
       } as object
     }
   });

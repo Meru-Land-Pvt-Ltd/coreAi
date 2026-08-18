@@ -1454,3 +1454,18 @@ export function getBusinessLoginHistory(page = 1, perPage = 20) {
     pagination: { page: number; perPage: number; total: number; totalPages: number };
   }>(`/business/settings/login-history?page=${page}&perPage=${perPage}`);
 }
+
+export function cancelAppointment(appointmentId: string, reason: string) {
+  return apiPost<{ appointment: unknown; smsOutcome: unknown }>(
+    `/business/appointments/${encodeURIComponent(appointmentId)}/cancel`,
+    { reason }
+  );
+}
+
+export function requestRescheduleAppointment(appointmentId: string, reason?: string) {
+  return apiPost<{ appointment: unknown; smsOutcome: unknown }>(
+    `/business/appointments/${encodeURIComponent(appointmentId)}/request-reschedule`,
+    { reason }
+  );
+}
+

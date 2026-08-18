@@ -11,6 +11,7 @@ import { AgentPauseConfirmationModal } from "@/components/business/agent-pause-c
 import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { BUSINESS_AGENTS_PATH, BUSINESS_ANALYTICS_PATH, BUSINESS_BILLING_PATH, BUSINESS_MARKETPLACE_PATH, HELP_PATH, businessSetupPath, businessAgentDetailPath } from "@/lib/routes";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
+import { BookingActionsModal } from "@/components/business/booking-actions-modal";
 
 type ApiPurchasedAgent = {
     purchaseId: string;
@@ -402,6 +403,15 @@ export default function BusinessDashboardPage() {
     const [overviewState, setOverviewState] = useState<"loading" | "ready" | "error">("loading");
     const [agents, setAgents] = useState<Agent[]>([]);
     const [agentsState, setAgentsState] = useState<"loading" | "ready" | "error">("loading");
+    const [bookingActionModal, setBookingActionModal] = useState<{
+        isOpen: boolean;
+        mode: "cancel" | "reschedule";
+        booking: DashboardBooking | null;
+    }>({
+        isOpen: false,
+        mode: "cancel",
+        booking: null
+    });
 
     const {
         pricing: executionPricing,
@@ -488,6 +498,14 @@ export default function BusinessDashboardPage() {
         setCurrentUser(readCoreAiUser());
         setFullDate(getFullDate());
     }, []);
+
+    async function reloadOverview() {
+        const result = await apiGet<DashboardOverview>("/business/dashboard");
+        if (result.success && result.data) {
+            setOverview(result.data);
+            setOverviewState("ready");
+        }
+    }
 
     useEffect(() => {
         let active = true;
@@ -758,8 +776,18 @@ export default function BusinessDashboardPage() {
                             </div>
                         ) : (
                             <div className="max-h-96 divide-y divide-gray-50 overflow-y-auto" data-testid="dashboard-bookings-list">
-                                {(overview?.bookings?.items ?? []).map((booking) => (
-                                    <BookingRow key={booking.id} booking={booking} />
+                                {(overview?.bookings?.items ?? []).map((booking, index, array) => (
+                                    <BookingRow
+                                        key={booking.id}
+                                        booking={booking}
+                                        isBottom={index >= Math.max(0, array.length - 2)}
+                                        onCancel={(targetBooking) =>
+                                            setBookingActionModal({ isOpen: true, mode: "cancel", booking: targetBooking })
+                                        }
+                                        onRequestReschedule={(targetBooking) =>
+                                            setBookingActionModal({ isOpen: true, mode: "reschedule", booking: targetBooking })
+                                        }
+                                    />
                                 ))}
                             </div>
                         )}
@@ -908,6 +936,14 @@ export default function BusinessDashboardPage() {
                     </section>
                 </div>
             </div>
+
+            <BookingActionsModal
+                isOpen={bookingActionModal.isOpen}
+                mode={bookingActionModal.mode}
+                booking={bookingActionModal.booking}
+                onClose={() => setBookingActionModal({ isOpen: false, mode: "cancel", booking: null })}
+                onSuccess={() => void reloadOverview()}
+            />
         </main>
     );
 }
@@ -1253,12 +1289,38 @@ function bookingStatusTone(status: string) {
     const value = status.toUpperCase();
     if (value === "BOOKED" || value === "CONFIRMED") return "bg-green-50 text-green-700";
     if (value === "CANCELLED" || value === "CANCELED") return "bg-red-50 text-red-600";
+    if (value === "RESCHEDULE_REQUESTED") return "bg-amber-50 text-amber-800 border border-amber-200";
     return "bg-slate-100 text-slate-600";
 }
 
-function BookingRow({ booking }: { booking: DashboardBooking }) {
+function BookingRow({
+    booking,
+    isBottom,
+    onCancel,
+    onRequestReschedule
+}: {
+    booking: DashboardBooking;
+    isBottom?: boolean;
+    onCancel?: (booking: DashboardBooking) => void;
+    onRequestReschedule?: (booking: DashboardBooking) => void;
+}) {
+    const [menuOpen, setMenuOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        if (!menuOpen) return;
+        function onPointerDown(event: MouseEvent) {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+                setMenuOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", onPointerDown);
+        return () => document.removeEventListener("mousedown", onPointerDown);
+    }, [menuOpen]);
+
     const customer = booking.customerName?.trim() || booking.customerPhone;
     const isUpcoming = new Date(booking.startAt).getTime() > Date.now();
+    const isCancelled = booking.status.toUpperCase() === "CANCELLED" || booking.status.toUpperCase() === "CANCELED";
     const isRescheduled = Boolean(booking.previousScheduleLabel || booking.previousScheduledAt);
     const startClock = formatBookingClock(booking.startAt, booking.timeZone);
     const endClock = formatBookingClock(booking.endAt, booking.timeZone);
@@ -1274,7 +1336,7 @@ function BookingRow({ booking }: { booking: DashboardBooking }) {
     return (
         <div className="group/booking relative flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-gray-50 sm:flex-row sm:items-center sm:gap-4 sm:px-6" data-testid={`dashboard-booking-row-${booking.id}`}>
             <div className="flex min-w-0 flex-1 items-center gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600 ring-1 ring-amber-100">
                     <Icon name="calendar" className="h-5 w-5" />
                 </span>
 
@@ -1297,15 +1359,16 @@ function BookingRow({ booking }: { booking: DashboardBooking }) {
                 </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 pl-12 sm:justify-end sm:pl-0">
+            <div className="flex shrink-0 items-center gap-2 pl-12 sm:justify-end sm:pl-0">
                 {isUpcoming ? (
                     <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700" data-testid="dashboard-booking-upcoming-badge">
                         Upcoming
                     </span>
                 ) : null}
                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${bookingStatusTone(booking.status)}`} data-testid="dashboard-booking-status">
-                    {booking.status}
+                    {booking.status === "RESCHEDULE_REQUESTED" ? "Reschedule Requested" : booking.status}
                 </span>
+
                 {booking.confirmationSms && (booking.confirmationSms.status === "UNDELIVERED" || booking.confirmationSms.status === "FAILED") ? (
                     <span
                         className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700"
@@ -1315,18 +1378,72 @@ function BookingRow({ booking }: { booking: DashboardBooking }) {
                         Text not delivered
                     </span>
                 ) : null}
-                {booking.onCalendar ? (
-                    <a
-                        href={calendarUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
-                        data-testid="dashboard-booking-open-calendar"
+
+                <div ref={menuRef} className="relative shrink-0">
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuOpen(!menuOpen);
+                        }}
+                        data-testid={`dashboard-booking-menu-${booking.id}`}
+                        className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-gray-100 hover:text-slate-600"
+                        aria-label={`Manage booking for ${customer}`}
                     >
-                        <Icon name="calendar" className="h-3 w-3" />
-                        Open calendar
-                    </a>
-                ) : null}
+                        <Icon name="settings" className="h-5 w-5" />
+                    </button>
+
+                    {menuOpen ? (
+                        <div
+                            className={`absolute right-0 ${isBottom ? "bottom-9" : "top-9"} z-30 w-48 overflow-hidden rounded-xl border border-gray-100 bg-white py-1 shadow-lg`}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {booking.onCalendar ? (
+                                <a
+                                    href={calendarUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={() => setMenuOpen(false)}
+                                    className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-gray-50"
+                                    data-testid="dashboard-booking-open-calendar"
+                                >
+                                    <Icon name="calendar" className="h-4 w-4 text-slate-400" />
+                                    Open calendar
+                                </a>
+                            ) : null}
+
+                            {isUpcoming && !isCancelled ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setMenuOpen(false);
+                                            onRequestReschedule?.(booking);
+                                        }}
+                                        className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-sm text-amber-700 transition-colors hover:bg-amber-50"
+                                        data-testid={`dashboard-booking-request-reschedule-${booking.id}`}
+                                    >
+                                        <Icon name="clock" className="h-4 w-4 text-amber-500" />
+                                        Reschedule
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setMenuOpen(false);
+                                            onCancel?.(booking);
+                                        }}
+                                        className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
+                                        data-testid={`dashboard-booking-cancel-${booking.id}`}
+                                    >
+                                        <Icon name="trash" className="h-4 w-4 text-red-500" />
+                                        Cancel Booking
+                                    </button>
+                                </>
+                            ) : null}
+                        </div>
+                    ) : null}
+                </div>
             </div>
 
             {isRescheduled && rescheduledTitle ? (

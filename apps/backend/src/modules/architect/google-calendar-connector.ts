@@ -344,3 +344,67 @@ export async function cancelGoogleCalendarAppointment({
     throw error;
   }
 }
+
+export async function ensureStaffGoogleCalendar({
+  userId,
+  businessName,
+  providerName,
+  providerEmail,
+  timeZone
+}: {
+  userId: string;
+  businessName: string;
+  providerName: string;
+  providerEmail?: string | null;
+  timeZone?: string | null;
+}): Promise<string> {
+  const auth = await createAuthorizedGoogleOAuthClient(userId);
+  const calendar = google.calendar({ version: "v3", auth });
+  const safeTimeZone = timeZone?.trim() || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
+
+  const targetSummary = `${providerName.trim()} - ${businessName.trim()}`;
+
+  try {
+    const listRes = await calendar.calendarList.list({ maxResults: 100 });
+    const existing = (listRes.data.items ?? []).find(
+      (item) =>
+        item.summary?.toLowerCase() === targetSummary.toLowerCase() ||
+        item.summary?.toLowerCase() === providerName.trim().toLowerCase()
+    );
+
+    let calendarId = existing?.id ?? null;
+
+    if (!calendarId) {
+      const created = await calendar.calendars.insert({
+        requestBody: {
+          summary: targetSummary,
+          timeZone: safeTimeZone
+        }
+      });
+      calendarId = created.data.id ?? null;
+    }
+
+    if (calendarId && providerEmail && providerEmail.includes("@")) {
+      try {
+        await calendar.acl.insert({
+          calendarId,
+          requestBody: {
+            role: "writer",
+            scope: {
+              type: "user",
+              value: providerEmail.trim()
+            }
+          }
+        });
+      } catch (aclErr) {
+        console.warn("[google-calendar] ACL insert warning (email share):", aclErr);
+      }
+    }
+
+    return calendarId || "primary";
+  } catch (error) {
+    console.warn("[google-calendar] ensureStaffGoogleCalendar fallback to primary:", error);
+    return "primary";
+  }
+}
+

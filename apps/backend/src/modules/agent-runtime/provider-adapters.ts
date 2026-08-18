@@ -18,6 +18,8 @@ export type CalendarAvailabilityInput = {
   durationMinutes?: number;
   /** Caller-requested service — drives service-specific durations. */
   serviceName?: string;
+  /** Requested provider/doctor/staff name. */
+  providerName?: string;
 };
 
 export type CalendarAvailabilityResult = {
@@ -31,6 +33,8 @@ export type CalendarAvailabilityResult = {
   totalFree?: number;
   openUntil?: string | null;
   closed?: boolean;
+  assignedProvider?: string | null;
+  sameSlotAlternatives?: string[];
 };
 
 export type CalendarBookingInput = {
@@ -354,7 +358,8 @@ async function readBusinessAvailability(
       businessId: options.businessId,
       installedAgentId: options.installedAgentId ?? null,
       date: input.date,
-      serviceName: input.serviceName
+      serviceName: input.serviceName,
+      providerName: input.providerName
     });
 
     if (availability.calendarStatus !== "connected") {

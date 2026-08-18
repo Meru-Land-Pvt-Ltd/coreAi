@@ -86,7 +86,12 @@ import {
 import { reconcileBusinessExecutionUsage } from "./execution-billing";
 import { getCallRoutingDiagnostics } from "../architect/twilio-business-routing";
 import { resolveTwilioSmsMode, validateSmsRecipientE164 } from "../architect/twilio-connector";
-import { sendTrackedSms } from "../notifications/sms-notification-service";
+import {
+  sendTrackedSms,
+  sendAppointmentDashboardCancellationSms,
+  sendAppointmentDashboardRescheduleRequestSms
+} from "../notifications/sms-notification-service";
+import { cancelGoogleCalendarAppointment } from "../architect/google-calendar-connector";
 import { Prisma, InstalledAgent } from "@prisma/client";
 import { canBusinessDeployAgent } from "./deployment-access";
 import { resolvePrimaryBusinessId } from "./primary-business";
@@ -4846,3 +4851,122 @@ businessRoutes.delete("/connectors/whatsapp", async (c) => {
     );
   }
 });
+
+businessRoutes.post("/appointments/:id/cancel", async (c) => {
+  const authUser = c.get("authUser");
+  const appointmentId = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+
+  if (!reason) {
+    return errorResponse(c, "Cancellation reason is required", 400, "REASON_REQUIRED");
+  }
+
+  const primaryBusinessId = await resolvePrimaryBusinessId(authUser.id);
+  const appointment = await prisma.appointment.findFirst({
+    where: { id: appointmentId, businessId: primaryBusinessId ?? "" },
+    include: { business: true }
+  });
+
+  if (!appointment) {
+    return errorResponse(c, "Appointment not found", 404, "APPOINTMENT_NOT_FOUND");
+  }
+
+  if (appointment.status === "CANCELLED") {
+    return errorResponse(c, "Appointment is already cancelled", 400, "ALREADY_CANCELLED");
+  }
+
+  if (appointment.calendarEventId && appointment.business.ownerId) {
+    try {
+      await cancelGoogleCalendarAppointment({
+        userId: appointment.business.ownerId,
+        calendarId: appointment.business.calendarId,
+        eventId: appointment.calendarEventId
+      });
+    } catch (error) {
+      console.error("[dashboard-appointment-cancel] Google calendar delete failed", error);
+    }
+  }
+
+  const updated = await prisma.appointment.update({
+    where: { id: appointment.id },
+    data: {
+      status: "CANCELLED",
+      cancelledAt: new Date(),
+      cancellationSource: "BUSINESS_DASHBOARD",
+      cancellationReason: reason
+    }
+  });
+
+  const smsOutcome = await sendAppointmentDashboardCancellationSms({
+    appointmentId: updated.id,
+    businessId: updated.businessId,
+    customerPhone: updated.customerPhone,
+    customerName: updated.customerName,
+    serviceName: updated.service,
+    appointmentDate: updated.startAt,
+    timeZone: updated.timeZone,
+    reason,
+    installedAgentId: updated.installedAgentId
+  }).catch((err) => {
+    console.error("[dashboard-appointment-cancel] SMS notification failed", err);
+    return null;
+  });
+
+  return successResponse(
+    c,
+    { appointment: updated, smsOutcome },
+    "Appointment cancelled successfully"
+  );
+});
+
+businessRoutes.post("/appointments/:id/request-reschedule", async (c) => {
+  const authUser = c.get("authUser");
+  const appointmentId = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+
+  const primaryBusinessId = await resolvePrimaryBusinessId(authUser.id);
+  const appointment = await prisma.appointment.findFirst({
+    where: { id: appointmentId, businessId: primaryBusinessId ?? "" }
+  });
+
+  if (!appointment) {
+    return errorResponse(c, "Appointment not found", 404, "APPOINTMENT_NOT_FOUND");
+  }
+
+  if (appointment.status === "CANCELLED") {
+    return errorResponse(c, "Cannot request reschedule on a cancelled appointment", 400, "APPOINTMENT_CANCELLED");
+  }
+
+  const noteEntry = `[${new Date().toISOString()}] Reschedule requested by business${reason ? `: ${reason}` : ""}`;
+  const updated = await prisma.appointment.update({
+    where: { id: appointment.id },
+    data: {
+      status: "RESCHEDULE_REQUESTED",
+      notes: appointment.notes ? `${appointment.notes}\n${noteEntry}` : noteEntry
+    }
+  });
+
+  const smsOutcome = await sendAppointmentDashboardRescheduleRequestSms({
+    appointmentId: updated.id,
+    businessId: updated.businessId,
+    customerPhone: updated.customerPhone,
+    customerName: updated.customerName,
+    serviceName: updated.service,
+    appointmentDate: updated.startAt,
+    timeZone: updated.timeZone,
+    reason,
+    installedAgentId: updated.installedAgentId
+  }).catch((err) => {
+    console.error("[dashboard-appointment-reschedule] SMS notification failed", err);
+    return null;
+  });
+
+  return successResponse(
+    c,
+    { appointment: updated, smsOutcome },
+    "Reschedule request sent to patient"
+  );
+});
+
