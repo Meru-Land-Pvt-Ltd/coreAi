@@ -353,6 +353,7 @@ export async function startArchitectTestDeployment(
   let assistant: { id: string; created: boolean };
   try {
     assistant = await deployVapiAssistant({
+      recordingEnabled,
       name: `Sandbox Test — ${workflow.name || businessName}`,
       firstMessage,
       systemPrompt,
@@ -373,7 +374,7 @@ export async function startArchitectTestDeployment(
     if (isThirdPartyVoice) {
       console.warn("[test-deployment] Third-party voice deployment failed. Falling back to the built-in Vapi voice.", error);
       assistant = await deployVapiAssistant({
-    recordingEnabled,
+        recordingEnabled,
         name: `Sandbox Test — ${workflow.name || businessName}`,
         firstMessage,
         systemPrompt,
