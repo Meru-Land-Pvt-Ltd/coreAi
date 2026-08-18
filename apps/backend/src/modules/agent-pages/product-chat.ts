@@ -1297,6 +1297,15 @@ export function registerAgentPageProductChatRoute(routes: Hono) {
           break;
         }
 
+        // Rejections were invisible: the architect saw only the kind fallback
+        // and the logs said nothing. One line so an operator can tell a model
+        // hiccup from a contract drift.
+        console.error("[product-chat] gate rejected model output", {
+          workflowId,
+          provider: resolved.providerId,
+          error: String(gate.error ?? "unknown").slice(0, 300)
+        });
+
         // Single retry: the exact validation error goes back to the model.
         messages.push(
           { role: "assistant", content: response.text ?? "" },
