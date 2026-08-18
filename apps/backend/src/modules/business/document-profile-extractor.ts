@@ -502,12 +502,12 @@ ${fullText.slice(0, 8000)}`;
       providers: Array.isArray(parsed.providers)
         ? parsed.providers
             .filter((p: unknown): p is Record<string, unknown> => Boolean(p && typeof p === "object"))
-            .map((p) => {
+            .map((p: Record<string, unknown>) => {
               const name = typeof p.name === "string" ? sanitizePersonName(p.name) : null;
               const email = typeof p.email === "string" && p.email.includes("@") ? p.email.trim().toLowerCase() : null;
               return name ? { name, email } : null;
             })
-            .filter((p): p is { name: string; email: string | null } => p !== null)
+            .filter((p: { name: string; email: string | null } | null): p is { name: string; email: string | null } => p !== null)
         : uniqueMembers.map((name) => ({ name, email: null })),
       primaryDoctor,
       multipleDoctorsDetected: uniqueMembers.length > 1,
@@ -534,7 +534,8 @@ export function extractProfileFallbackFromText(fullText: string): Pick<
   DocumentProfileSuggestion,
   "businessName" | "businessNameCandidates" | "primaryDoctor" | "doctorNames" |
   "multipleDoctorsDetected" | "businessType" | "category" | "categoryLabel" |
-  "teamLabel" | "offeringsLabel" | "licenseOrRegLabel" | "teamMembers" | "services" | "registrationNumber"
+  "teamLabel" | "offeringsLabel" | "licenseOrRegLabel" | "teamMembers" | "providers" | "services" |
+  "registrationNumber"
 > {
   const categoryConfig = classifyDocumentCategory(fullText);
   const businessNameCandidates = new Set<string>();

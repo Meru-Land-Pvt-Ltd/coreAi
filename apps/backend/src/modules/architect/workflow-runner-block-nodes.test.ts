@@ -1,7 +1,8 @@
 import { BLOCK_NODE_TYPES, DESIGN_BRAIN_NODE_TYPE } from "@coreai/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "../../lib/prisma";
 import { runWorkflowTest } from "./workflow-runner";
+import { getProviderEngine, initProviderEngine } from "../ai-provider-engine/ai-provider-engine";
 
 /**
  * Product blocks (block.*) are Face anchors — sections of the customer-facing
@@ -76,6 +77,19 @@ const productWorkflowJson = {
 };
 
 beforeAll(async () => {
+  // This suite asserts block-node skipping, not model output. Stub the
+  // provider (as the sibling AI-node suites do) so it never calls OpenAI.
+  await initProviderEngine().catch(() => {});
+  vi.spyOn(getProviderEngine(), "executeWithProvider").mockImplementation(async () => ({
+    text: "Generated AI Response",
+    providerId: "mock",
+    modelName: "mock-model",
+    status: "success",
+    error: null,
+    usage: { inputTokens: 10, outputTokens: 20 },
+    cost: 0,
+    durationMs: 5
+  }));
   try {
     await prisma.$queryRaw`SELECT 1`;
     dbAvailable = true;

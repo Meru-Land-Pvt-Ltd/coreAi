@@ -4865,7 +4865,7 @@ businessRoutes.post("/appointments/:id/cancel", async (c) => {
   const primaryBusinessId = await resolvePrimaryBusinessId(authUser.id);
   const appointment = await prisma.appointment.findFirst({
     where: { id: appointmentId, businessId: primaryBusinessId ?? "" },
-    include: { business: true }
+    include: { business: { include: { profile: { select: { calendarId: true } } } } }
   });
 
   if (!appointment) {
@@ -4880,7 +4880,7 @@ businessRoutes.post("/appointments/:id/cancel", async (c) => {
     try {
       await cancelGoogleCalendarAppointment({
         userId: appointment.business.ownerId,
-        calendarId: appointment.business.calendarId,
+        calendarId: appointment.business.profile?.calendarId,
         eventId: appointment.calendarEventId
       });
     } catch (error) {

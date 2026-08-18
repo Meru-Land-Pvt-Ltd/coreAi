@@ -592,10 +592,10 @@ export async function sendAppointmentDashboardRescheduleRequestSms(
   return sendTrackedSms({
     to: input.customerPhone,
     body: lines.join("\n"),
-    messageType: "APPOINTMENT_RESCHEDULE",
+    messageType: "APPOINTMENT_CONFIRMATION",
     businessId: input.businessId,
     businessName: business.name,
-    smsPurpose: "RESCHEDULE_REQUEST",
+    smsPurpose: "RESCHEDULE_CONFIRMATION",
     installedAgentId: input.installedAgentId ?? null,
     appointmentId: input.appointmentId
   });
