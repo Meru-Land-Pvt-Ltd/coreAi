@@ -296,26 +296,35 @@ export type VapiSpeechPlans = {
 export function vapiSpeechPlansFor(tuning: SalesTuning): VapiSpeechPlans {
   const sensitivity = Math.round(tuning.interruptSensitivity ?? 3);
   // 3 → stop on the first word. 0 → let her finish the thought.
+  //
+  // numWords 0 hands the decision to voiceSeconds, which is Vapi's
+  // voice-activity threshold rather than raw sound. Even so it must not go
+  // below 0.2s: a cough, a chair, or a TV in the background reads as voice for
+  // a tenth of a second, and an agent that stops dead every time a door shuts
+  // is as broken as one that talks over you.
   const numWords = [4, 2, 1, 0][Math.max(0, Math.min(3, sensitivity))];
-  const voiceSeconds = [0.4, 0.3, 0.2, 0.15][Math.max(0, Math.min(3, sensitivity))];
+  const voiceSeconds = [0.4, 0.3, 0.25, 0.2][Math.max(0, Math.min(3, sensitivity))];
 
   const waitSeconds = tuning.responseDelay ?? 0.2;
   // The smart-endpointing curve tops out at roughly the answer-speed dial, so
   // moving one slider moves the whole feel of her timing rather than leaving a
   // fixed 900ms ceiling underneath a "0.05s" setting that then does nothing.
   const ceilingMs = Math.round(Math.max(300, Math.min(2000, 300 + waitSeconds * 1200)));
+  // Rounded because these go into a JSON payload a human will read when a call
+  // sounds wrong; 0.30000000000000004 helps nobody debug anything.
+  const round2 = (value: number) => Number(value.toFixed(2));
 
   return {
     startSpeakingPlan: {
-      waitSeconds,
+      waitSeconds: round2(waitSeconds),
       smartEndpointingPlan: {
         provider: "livekit",
         waitFunction: `${ceilingMs} / (1 + exp(-10 * (x - 0.4)))`
       },
       transcriptionEndpointingPlan: {
-        onPunctuationSeconds: Math.max(0.05, waitSeconds * 0.5),
-        onNoPunctuationSeconds: Math.max(0.2, waitSeconds * 1.5),
-        onNumberSeconds: Math.max(0.2, waitSeconds * 1.5)
+        onPunctuationSeconds: round2(Math.max(0.05, waitSeconds * 0.5)),
+        onNoPunctuationSeconds: round2(Math.max(0.2, waitSeconds * 1.5)),
+        onNumberSeconds: round2(Math.max(0.2, waitSeconds * 1.5))
       }
     },
     stopSpeakingPlan: {
