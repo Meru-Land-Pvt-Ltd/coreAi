@@ -1452,25 +1452,38 @@ export async function deployVapiAssistant({
       model: env.VAPI_TRANSCRIBER_MODEL,
       language: resolveTranscriberLanguage(language)
     },
+    // TURN-TAKING. Both numbers below were wrong in a way you only hear on a
+    // real call, and a live test found each of them.
     startSpeakingPlan: {
       waitSeconds: 0.2,
       smartEndpointingPlan: {
         provider: "livekit",
-        waitFunction: "2000 / (1 + exp(-10 * (x - 0.5)))"
+        // The old curve could hold up to two full seconds before she began.
+        // Stack that on top of the model thinking and the caller hears dead
+        // air and says "hello? … I lost you". This curve tops out near 900ms.
+        waitFunction: "900 / (1 + exp(-10 * (x - 0.4)))"
       },
       transcriptionEndpointingPlan: {
         onPunctuationSeconds: 0.1,
-        onNoPunctuationSeconds: 0.4,
+        onNoPunctuationSeconds: 0.3,
         onNumberSeconds: 0.3
       }
     },
     stopSpeakingPlan: {
-      numWords: 0,
-      voiceSeconds: 0.2,
-      backoffSeconds: 0
+      // numWords 0 meant ANY sound cut her off mid-sentence — a breath, an
+      // "mm-hmm", a door closing. A person finishes their sentence unless you
+      // actually start saying something, so it now takes real words.
+      numWords: 3,
+      voiceSeconds: 0.3,
+      // And once interrupted she waits a beat instead of talking over the
+      // person the instant they pause.
+      backoffSeconds: 1.2
     },
     interruptionsEnabled: true,
-    firstMessageInterruptionsEnabled: true,
+    // Let her finish "Hi, this is Maya from Triven" even if the caller says
+    // hello over it. Being cut off in your own first sentence is the single
+    // most machine-like thing a voice can do.
+    firstMessageInterruptionsEnabled: false,
     server: {
       url: serverUrl,
       // Vapi echoes this back as X-Vapi-Secret on every webhook call.

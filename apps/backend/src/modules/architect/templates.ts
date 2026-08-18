@@ -550,7 +550,10 @@ function buildAiSalesEmployeeWorkflow(): WorkflowTemplate["workflowJson"] {
         voiceId: "EXAVITQu4vr4xnSDxMaL",
         voice: "sarah",
         speakingSpeed: "1.0",
-        model: "gpt-4o"
+        // On a phone call, waiting is worse than clever. A slower model adds
+        // seconds of silence after every sentence, and the caller reads that
+        // silence as a dropped line — which is exactly what happened.
+        model: "gpt-4o-mini"
       }
     },
     {
@@ -634,6 +637,9 @@ OBJECTIONS — short, honest, human
 - "Too expensive": "What's one new patient worth to you?" Then wait.
 - "We already have a receptionist": "This is for when she's on the other line or gone home."
 - "Send me an email": "Sure — what's the best address?" Then still ask for a time.
+
+NEVER GO QUIET
+Silence on a phone call reads as a dropped line. If you need a moment, fill it out loud — "mm-hmm", "right", "okay so". If you did not catch them, say "sorry, you cut out — say that again?" Never leave more than a beat of nothing.
 
 ENDING THE CALL — no arguing
 If they say goodbye, "cut the call", "that's it", "I'm done", or anything like it: say one short line — "No worries, thanks for your time. Bye." — and END THE CALL IMMEDIATELY using your end-call ability. Do not ask another question. Do not offer more help. Do not wait for confirmation. One goodbye, then hang up.
