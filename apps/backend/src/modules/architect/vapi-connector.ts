@@ -1415,6 +1415,12 @@ export async function deployVapiAssistant({
 
   const body: Record<string, unknown> = {
     name: assistantName,
+    // Let the assistant HANG UP. Without this it physically cannot end a call:
+    // told "cut the call" it can only say it will, then keep talking — which
+    // is exactly what happened on the first live test, three times over.
+    endCallFunctionEnabled: true,
+    // A human hears silence as "we're done", not as a cue to re-offer help.
+    endCallPhrases: ["goodbye", "bye", "cut the call", "end the call", "hang up", "that's it"],
     // Choke-point safety net: EVERY recording-on assistant greets with the
     // recording notice, no matter which deploy flow built the greeting
     // (buyer deploy already appends it; self-test/dental flows may not).
