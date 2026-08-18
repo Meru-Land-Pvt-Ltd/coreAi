@@ -638,7 +638,11 @@ export function PreviewPanel({
         </div>
         <SmartDesignerPanel
           workflowId={workflowId}
-          hasComposedSpec={blueprint !== null}
+          // A composed interface exists when the saved ProductSpec does (the
+          // composer writes the spec, not canvas blocks) — or when the graph
+          // carries product blocks. Checking only blocks locked the chat
+          // behind a pointless re-Generate after every page reload.
+          hasComposedSpec={productSpec !== null || blueprint !== null}
           onApplied={onDesignApplied}
         />
       </section>
