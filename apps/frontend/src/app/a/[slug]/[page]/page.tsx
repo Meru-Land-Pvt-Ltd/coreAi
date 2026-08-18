@@ -25,15 +25,23 @@ import { buildProductMetadata } from "../product-metadata";
  *     sub-page under it 404s, which is what it did before this route existed.
  */
 
-type PageRouteProps = { params: Promise<{ slug: string; page: string }> };
+type PageRouteProps = {
+  params: Promise<{ slug: string; page: string }>;
+  /**
+   * `?embed=1` means this page is inside a business's own website. Optional:
+   * Next always passes it, but the route stays callable without it.
+   */
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
 
 export async function generateMetadata({ params }: PageRouteProps): Promise<Metadata> {
   const { slug, page } = await params;
   return buildProductMetadata({ slug, path: page });
 }
 
-export default async function PublishedProductSubPage({ params }: PageRouteProps) {
+export default async function PublishedProductSubPage({ params, searchParams }: PageRouteProps) {
   const { slug, page: pagePath } = await params;
+  const embed = (await searchParams)?.embed === "1";
 
   const resolved = await loadPublicProduct(slug);
   if (!resolved) notFound();
@@ -55,6 +63,7 @@ export default async function PublishedProductSubPage({ params }: PageRouteProps
       page={page}
       listingName={resolved.listing.name}
       contentWidth={resolved.contentWidth}
+      embed={embed}
     />
   );
 }

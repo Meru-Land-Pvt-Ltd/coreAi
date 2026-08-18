@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { PageSpec, ProductSpec } from "@coreai/shared";
 import { createPublicAgentPageRuntime, type ContentWidth } from "../types";
+import { EmbedHeightBeacon } from "./embed-height-beacon";
 import { ProductSite } from "./site/product-site";
 import { SpecRunProvider } from "./spec-run";
 import { buildSpecTheme } from "./spec-theme";
@@ -36,6 +37,11 @@ export type LiveProductSiteProps = {
    * screens always use their full width whatever it says.
    */
   contentWidth?: ContentWidth | null;
+  /**
+   * Rendered inside a third-party website's iframe: our chrome steps aside and
+   * the page reports its height so the frame can size itself.
+   */
+  embed?: boolean;
 };
 
 export function LiveProductSite({
@@ -43,7 +49,8 @@ export function LiveProductSite({
   product,
   page,
   listingName,
-  contentWidth
+  contentWidth,
+  embed = false
 }: LiveProductSiteProps) {
   // The same public runtime the block-rendered pages use: POST
   // /agent-pages/<slug>/run, byte-for-byte on the wire.
@@ -69,7 +76,9 @@ export function LiveProductSite({
         page={page}
         renderNode={renderNode}
         contentWidth={contentWidth}
+        embed={embed}
       />
+      {embed ? <EmbedHeightBeacon slug={slug} /> : null}
     </SpecRunProvider>
   );
 }

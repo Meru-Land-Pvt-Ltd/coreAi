@@ -342,6 +342,21 @@ const AGENT_PAGE_HEX_PATTERN = /^#[0-9a-fA-F]{6}$/;
 const AGENT_PAGE_DEFAULT_ACCENT = "#f59e0b";
 const AGENT_PAGE_MAX_PROMPTS = 4;
 
+/**
+ * The one line a business pastes into their own website.
+ *
+ * Deliberately a single self-closing script tag: every website builder accepts
+ * one, and a business owner can copy it without understanding it. The loader it
+ * fetches does the rest.
+ */
+function embedSnippet(slug: string): string {
+  const origin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "https://triven.ai";
+  return `<script src="${origin}/embed.js" data-triven-agent="${slug}" async></script>`;
+}
+
 function normalizeAccentHex(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
@@ -532,6 +547,42 @@ function AgentPageSection({ workflowId }: { workflowId: string }) {
                 Open page
               </a>
             </div>
+          ) : null}
+
+          {page?.slug ? (
+            <>
+              <p className="mt-6 text-sm font-semibold text-slate-800" data-testid="agent-embed-heading">
+                Put it on any website
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-slate-500" data-testid="agent-embed-intro">
+                One line. A business pastes this into their own site and your
+                agent works there, in their page — no coding, nothing to install.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <code
+                  data-testid="agent-embed-snippet"
+                  className="min-w-0 flex-1 truncate rounded-xl border border-gray-100 bg-gray-50/40 px-3 py-2 font-mono text-sm text-slate-700"
+                >
+                  {embedSnippet(page.slug)}
+                </code>
+                <button
+                  data-testid="agent-embed-copy"
+                  type="button"
+                  onClick={() => void copyUrl(embedSnippet(page.slug))}
+                  className="flex shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-gray-50"
+                >
+                  {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-500" data-testid="agent-embed-bubble-hint">
+                Want a floating button instead of a section? Add{" "}
+                <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[11px]">
+                  data-triven-mode=&quot;bubble&quot;
+                </code>{" "}
+                to the same line.
+              </p>
+            </>
           ) : null}
 
           <p className="mt-6 text-sm font-semibold text-slate-800" data-testid="agent-page-template-heading">
