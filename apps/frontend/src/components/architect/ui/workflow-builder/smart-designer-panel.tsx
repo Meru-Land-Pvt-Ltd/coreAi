@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { smartCompose, smartDesignerChat } from "@/components/architect/features/api";
+import { productChat, smartCompose, smartDesignerChat } from "@/components/architect/features/api";
 import type { DesignChatMessage } from "@/components/architect/features/types";
 import { BuilderIcon } from "./icons";
 
@@ -169,11 +169,31 @@ export function SmartDesignerPanel({
       }
 
       if (data.boundary === "packaging") {
-        // A redirect, not a failure — and nothing changed, so no refetch.
+        // One door for the architect: packaging work is not refused, it is
+        // ROUTED — the same instruction goes straight to the packaging brain
+        // (product-chat), and its reply lands here like any other answer.
+        const packaged = await productChat(workflowId, {
+          instruction: trimmed,
+          ...(history.length ? { history } : {})
+        });
+        const pages = packaged.success ? packaged.data : undefined;
+        if (!pages) {
+          failed();
+          return;
+        }
+        const built = pages.pagesCreated.length;
         setMessages((current) => [
           ...current,
-          { id: nextMessageId(), role: "assistant", content: data.reply, boundary: true }
+          {
+            id: nextMessageId(),
+            role: "assistant",
+            content: built
+              ? `${pages.reply} (${built} new ${built === 1 ? "page" : "pages"})`
+              : pages.reply,
+            boundary: true
+          }
         ]);
+        onApplied?.({});
         return;
       }
 
@@ -250,15 +270,15 @@ export function SmartDesignerPanel({
                 </p>
               </div>
             ) : message.boundary ? (
-              // A packaging redirect — visibly quieter than a normal reply so
-              // the architect reads "sent elsewhere", never "failed".
+              // Packaging work — same conversation, quietly labeled so the
+              // architect knows the selling pages changed, not the interface.
               <div key={message.id} className="flex flex-col items-start">
                 <div
                   data-testid="smart-designer-boundary"
-                  className="max-w-[85%] rounded-2xl rounded-bl-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2"
+                  className="max-w-[85%] rounded-2xl rounded-bl-md border border-slate-200 bg-slate-50 px-3 py-2"
                 >
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                    That belongs to Packaging
+                    Packaging
                   </p>
                   <p className="mt-0.5 text-xs leading-5 text-slate-600">{message.content}</p>
                 </div>

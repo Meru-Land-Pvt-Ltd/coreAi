@@ -15,14 +15,16 @@ import { SmartDesignerPanel } from "./smart-designer-panel";
  * - A not-yet-autosaved workflow (null id) disables everything.
  */
 
-const { smartComposeMock, smartDesignerChatMock } = vi.hoisted(() => ({
+const { smartComposeMock, smartDesignerChatMock, productChatMock } = vi.hoisted(() => ({
   smartComposeMock: vi.fn(),
-  smartDesignerChatMock: vi.fn()
+  smartDesignerChatMock: vi.fn(),
+  productChatMock: vi.fn()
 }));
 
 vi.mock("@/components/architect/features/api", () => ({
   smartCompose: smartComposeMock,
-  smartDesignerChat: smartDesignerChatMock
+  smartDesignerChat: smartDesignerChatMock,
+  productChat: productChatMock
 }));
 
 function composeResult(overrides: Partial<{
@@ -59,6 +61,7 @@ function designerResult(overrides: Partial<{ reply: string; boundary: "packaging
 beforeEach(() => {
   smartComposeMock.mockReset();
   smartDesignerChatMock.mockReset();
+  productChatMock.mockReset();
 });
 afterEach(() => cleanup());
 
@@ -165,26 +168,50 @@ describe("SmartDesignerPanel feedback chat", () => {
     );
   });
 
-  it("a packaging redirect renders the boundary note and never fires onApplied", async () => {
+  it("a packaging ask is ROUTED to the packaging brain — one door for the architect", async () => {
     smartDesignerChatMock.mockResolvedValue(
       designerResult({
         reply: "Sell pages live in Packaging — I only shape your product's interface.",
         boundary: "packaging"
       })
     );
+    productChatMock.mockResolvedValue({
+      success: true,
+      data: { reply: "Privacy page added.", pagesCreated: ["privacy"] }
+    });
+    const onApplied = vi.fn();
+    render(<SmartDesignerPanel workflowId="wf-1" hasComposedSpec onApplied={onApplied} />);
+
+    await sendFeedback("add a privacy policy page");
+
+    // The packaging brain got the SAME instruction, and its answer landed in
+    // the conversation labeled as packaging work — never a refusal.
+    await waitFor(() =>
+      expect(screen.getByTestId("smart-designer-boundary").textContent).toContain(
+        "Privacy page added. (1 new page)"
+      )
+    );
+    expect(productChatMock).toHaveBeenCalledWith("wf-1", {
+      instruction: "add a privacy policy page"
+    });
+    // Packaging rewrote the saved product, so the preview refetches.
+    expect(onApplied).toHaveBeenCalledTimes(1);
+  });
+
+  it("a packaging ask whose build fails shows the kind fallback and no refetch", async () => {
+    smartDesignerChatMock.mockResolvedValue(
+      designerResult({ reply: "Sell pages live in Packaging.", boundary: "packaging" })
+    );
+    productChatMock.mockResolvedValue({ success: false });
     const onApplied = vi.fn();
     render(<SmartDesignerPanel workflowId="wf-1" hasComposedSpec onApplied={onApplied} />);
 
     await sendFeedback("add a privacy policy page");
 
     await waitFor(() =>
-      expect(screen.getByTestId("smart-designer-boundary").textContent).toContain(
-        "Sell pages live in Packaging"
-      )
+      expect(screen.getAllByTestId("smart-designer-message-assistant").length).toBeGreaterThan(0)
     );
-    // A redirect is not a fix: nothing changed, so the preview never refetches.
     expect(onApplied).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("smart-designer-message-assistant")).toBeNull();
   });
 
   it("caps the history it sends at the last 10 turns", async () => {
