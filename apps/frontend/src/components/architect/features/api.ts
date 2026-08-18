@@ -36,6 +36,21 @@ export function getModelStatusesFromBackend() {
   return apiGet<Record<string, { available: boolean; disabledReason?: string; hasKey: boolean; isQuotaExceeded: boolean }>>("/architect/model-statuses");
 }
 
+export type ArchitectBuilderNodePresentation = {
+  type: string;
+  label: string;
+  group: string;
+  visible: boolean;
+  defaultLabel: string;
+  defaultGroup: string;
+};
+
+export function getArchitectBuilderNodeVisibility() {
+  return apiGet<{ hiddenNodeTypes: string[]; nodes?: ArchitectBuilderNodePresentation[] }>(
+    "/architect/builder-nodes"
+  );
+}
+
 export type ArchitectAgentsStats = {
   totalAgents: number;
   agentsAddedThisMonth: number;

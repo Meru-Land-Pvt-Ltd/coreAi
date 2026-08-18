@@ -13,6 +13,7 @@ import {
   LifeBuoy,
   LogOut,
   KeyRound,
+  LayoutGrid,
   Mail,
   MessageSquareText,
   Paintbrush,
@@ -55,7 +56,11 @@ const NAV_GROUPS: Array<{ label: string; items: AdminNavItem[] }> = [
       { label: "Phone numbers", href: "/admin/phone-numbers" as Route, icon: Phone },
       { label: "Mail", href: "/admin/mail" as Route, icon: Mail },
       { label: "Manage API", href: "/admin/manage-api" as Route, icon: KeyRound },
+<<<<<<< HEAD
       { label: "Design Brain rules", href: "/admin/design-rules" as Route, icon: Paintbrush }
+=======
+      { label: "Builder nodes", href: "/admin/builder-nodes" as Route, icon: LayoutGrid }
+>>>>>>> origin/gaurav
     ]
   },
   {

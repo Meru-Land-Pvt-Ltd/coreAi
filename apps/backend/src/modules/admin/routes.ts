@@ -1,3 +1,4 @@
+import { isArchitectNodeType } from "@coreai/shared";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
@@ -19,6 +20,7 @@ import {
   savePlatformApiSettings
 } from "./platform-api-settings";
 import {
+<<<<<<< HEAD
   DEFAULT_DESIGN_BRAIN_RULES,
   DESIGN_BRAIN_RULES_MAX_LENGTH,
   getDesignBrainRulesSetting,
@@ -45,6 +47,14 @@ import {
   isSupportedSmartDesignerBrainProvider,
   saveSmartDesignerBrainConfig
 } from "./smart-designer-brain-settings";
+=======
+  listArchitectNodeGroups,
+  listArchitectNodeVisibility,
+  createArchitectNodeGroup,
+  deleteArchitectNodeGroup,
+  saveArchitectNodeVisibility
+} from "./node-visibility";
+>>>>>>> origin/gaurav
 
 export const adminRoutes = new Hono();
 
@@ -106,6 +116,7 @@ adminRoutes.put("/api-settings", async (c) => {
   return successResponse(c, { groups: await listPlatformApiSettings(), ...result }, "API settings saved");
 });
 
+<<<<<<< HEAD
 /* ------------------ Design Brain rules (platform constitution) ------------------ */
 
 adminRoutes.get("/design-rules", async (c) => {
@@ -314,6 +325,117 @@ adminRoutes.patch("/smart-designer-brain", async (c) => {
     },
     result.restoredDefault ? "Default Smart Designer model restored" : "Smart Designer model saved"
   );
+=======
+/* ---------------- Architect builder node visibility ---------------------- */
+
+adminRoutes.get("/builder-nodes", async (c) => {
+  const [nodes, groups] = await Promise.all([listArchitectNodeVisibility(), listArchitectNodeGroups()]);
+  return successResponse(c, { nodes, groups });
+});
+
+const builderNodesUpdateSchema = z.object({
+  nodes: z
+    .array(
+      z
+        .object({
+          type: z.string().trim().min(1).max(120),
+          visible: z.boolean().optional(),
+          label: z.string().max(80).optional(),
+          group: z.string().max(80).optional()
+        })
+        .refine(
+          (node) => node.visible !== undefined || node.label !== undefined || node.group !== undefined,
+          { message: "Each node update needs visible, label, or group" }
+        )
+    )
+    .min(1)
+    .max(80)
+});
+
+adminRoutes.put("/builder-nodes", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = builderNodesUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid node visibility payload", 422, "VALIDATION_ERROR");
+  }
+
+  const unknown = parsed.data.nodes.filter((node) => !isArchitectNodeType(node.type));
+  if (unknown.length > 0) {
+    return errorResponse(
+      c,
+      `Unknown builder node: ${unknown.map((node) => node.type).join(", ")}`,
+      422,
+      "UNKNOWN_NODE_TYPE"
+    );
+  }
+
+  const result = await saveArchitectNodeVisibility(parsed.data.nodes);
+
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "ARCHITECT_NODE_VISIBILITY_UPDATED",
+    targetType: "ArchitectNodeVisibility",
+    meta: { nodes: parsed.data.nodes, ...result }
+  }).catch(() => undefined);
+
+  return successResponse(
+    c,
+    { nodes: await listArchitectNodeVisibility(), groups: await listArchitectNodeGroups(), ...result },
+    "Builder nodes saved"
+  );
+});
+
+const builderGroupCreateSchema = z.object({
+  name: z.string().trim().min(1).max(80)
+});
+
+adminRoutes.post("/builder-nodes/groups", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = builderGroupCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Enter a group name", 422, "VALIDATION_ERROR");
+  }
+
+  const result = await createArchitectNodeGroup(parsed.data.name);
+  if (!result.created) {
+    return errorResponse(c, "That group already exists", 422, "GROUP_EXISTS");
+  }
+
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "ARCHITECT_NODE_GROUP_CREATED",
+    targetType: "ArchitectNodeGroup",
+    meta: { name: parsed.data.name }
+  }).catch(() => undefined);
+
+  return successResponse(c, { groups: result.groups }, "Group created", 201);
+});
+
+adminRoutes.delete("/builder-nodes/groups", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = builderGroupCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Enter a group name", 422, "VALIDATION_ERROR");
+  }
+
+  const result = await deleteArchitectNodeGroup(parsed.data.name);
+  if (!result.deleted) {
+    return errorResponse(c, "That group cannot be deleted", 422, "GROUP_NOT_DELETABLE");
+  }
+
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "ARCHITECT_NODE_GROUP_DELETED",
+    targetType: "ArchitectNodeGroup",
+    meta: { name: parsed.data.name, moved: result.moved }
+  }).catch(() => undefined);
+
+  return successResponse(c, {
+    nodes: await listArchitectNodeVisibility(),
+    groups: result.groups,
+    moved: result.moved
+  }, "Group deleted");
+>>>>>>> origin/gaurav
 });
 
 function parsePagination(c: { req: { query: (k: string) => string | undefined } }) {

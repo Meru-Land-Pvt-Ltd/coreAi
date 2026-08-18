@@ -130,6 +130,7 @@ export const libraryGroups: LibraryGroup[] = [
       // Acts
       paletteItem(VOICE_NODE_TYPES.calendarAvailability, { icon: "calendar", accent: "blue" }),
       paletteItem(VOICE_NODE_TYPES.bookAppointment, { icon: "calendar", accent: "blue" }),
+<<<<<<< HEAD
       paletteItem(CALENDLY_NODE_TYPES.action, { icon: "calendly", accent: "blue", kind: "CALENDLY" }),
       paletteItem(VOICE_NODE_TYPES.sendEmail, { icon: "mail", accent: "green" }),
       paletteItem(VOICE_NODE_TYPES.sendSms, { icon: "message", accent: "green" }),
@@ -170,6 +171,53 @@ export const libraryGroups: LibraryGroup[] = [
       },
   // Human Handoff is intentionally hidden from the architect library.
   // paletteItem("action.human_handoff", { icon: "phone-call", accent: "red" }),
+=======
+      paletteItem(CALENDLY_NODE_TYPES.action, { icon: "calendly", accent: "blue", kind: "CALENDLY" })
+    ]
+  },
+  /* Keep the common reply action visible by default; advanced Telegram actions
+     stay in the palette so Admin → Builder nodes can turn them on. */
+  {
+    title: "Telegram Features",
+    items: [
+      paletteItem(TELEGRAM_NODE_TYPES.sendMessage, { icon: "telegram", accent: "blue" }),
+      paletteItem(TELEGRAM_NODE_TYPES.sendButtons, { icon: "telegram", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.answerCallback, { icon: "telegram", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.requestContact, { icon: "telegram", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.sendPhoto, { icon: "image", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.sendDocument, { icon: "file", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.sendVoice, { icon: "mic", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.sendLocation, { icon: "map-pin", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.editMessage, { icon: "edit", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.deleteMessage, { icon: "trash", accent: "red" })
+    ]
+  },
+  {
+    title: "Communication",
+    items: [
+      paletteItem(VOICE_NODE_TYPES.sendEmail, { icon: "mail", accent: "green" }),
+      paletteItem(VOICE_NODE_TYPES.sendSms, { icon: "message", accent: "green" }),
+      paletteItem("action.send_whatsapp", { icon: "whatsapp", accent: "green" })
+    ]
+  },
+  {
+    title: "CRM / Data",
+    items: [
+      paletteItem("action.save_lead", { icon: "capture", accent: "blue" }),
+      paletteItem("action.save_conversation_message", { icon: "message", accent: "green" })
+    ]
+  },
+  {
+    title: "Routing / Logic",
+    items: [
+      paletteItem("logic.condition", { icon: "diamond", accent: "orange", kind: "BUSINESS HOURS" }),
+      paletteItem("action.human_handoff", { icon: "phone-call", accent: "red" }),
+      paletteItem(VOICE_NODE_TYPES.endFlow, { icon: "capture", accent: "slate" })
+    ]
+  }
+>>>>>>> origin/gaurav
 ];
 
-// Coming Soon nodes are intentionally hidden from the architect library.
+export function libraryItemType(item: LibraryItem): string {
+  return typeof item.overrides?.type === "string" ? item.overrides.type : "";
+}

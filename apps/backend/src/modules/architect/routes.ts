@@ -1,6 +1,10 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
+<<<<<<< HEAD
 import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, presentationDoorEnabled, requiredConnectorKeys, TRIVEN_AGENT_TAXONOMY, workflowJsonForTemplate } from "@coreai/shared";
+=======
+import { calendarEventTitleForMode, defaultArchitectNodePresentation, defaultHiddenArchitectNodeTypes, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys, TRIVEN_AGENT_TAXONOMY, workflowJsonForTemplate } from "@coreai/shared";
+>>>>>>> origin/gaurav
 import { llmCredentialStatus } from "../ai-provider-engine/llm-credentials";
 import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
 import { llmProviderAvailability } from "../ai-provider-engine/llm-probe";
@@ -66,6 +70,7 @@ import {
   saveWorkflowConfigureDraft,
   submitWorkflowForReview
 } from "./configure";
+import { listArchitectNodeVisibility } from "../admin/node-visibility";
 import { deployDentalWorkflow } from "./dental-deploy";
 import {
   getPhoneRoutingStatus,
@@ -507,6 +512,29 @@ architectRoutes.use(
     code: "ARCHITECT_ACCESS_REQUIRED"
   })
 );
+
+architectRoutes.get("/builder-nodes", async (c) => {
+  try {
+    const nodes = await listArchitectNodeVisibility();
+    return successResponse(c, {
+      nodes: nodes.map((node) => ({
+        type: node.type,
+        label: node.label,
+        group: node.group,
+        visible: node.visible,
+        defaultLabel: node.defaultLabel,
+        defaultGroup: node.defaultGroup
+      })),
+      hiddenNodeTypes: nodes.filter((node) => !node.visible).map((node) => node.type)
+    });
+  } catch (error) {
+    console.error("[architect] builder-nodes visibility failed", error);
+    return successResponse(c, {
+      nodes: defaultArchitectNodePresentation(),
+      hiddenNodeTypes: defaultHiddenArchitectNodeTypes()
+    });
+  }
+});
 
 architectRoutes.post("/connectors/telegram/manager/setup", async (c) => {
   try {

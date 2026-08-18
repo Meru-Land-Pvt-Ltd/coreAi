@@ -21,8 +21,8 @@ function telegramNode(): BuilderNode {
     type: "coreNode",
     position: { x: 0, y: 0 },
     data: {
-      label: definition?.label ?? "Telegram Bot Trigger",
-      title: definition?.label ?? "Telegram Bot Trigger",
+      label: definition?.label ?? "Telegram message",
+      title: definition?.label ?? "Telegram message",
       kind: "TELEGRAM",
       nodeKind: "trigger",
       type: "trigger.telegram_message",
@@ -40,8 +40,8 @@ function telegramSendMessageNode(): BuilderNode {
     type: "coreNode",
     position: { x: 0, y: 0 },
     data: {
-      label: definition?.label ?? "Telegram Send Message",
-      title: definition?.label ?? "Telegram Send Message",
+      label: definition?.label ?? "Send Telegram",
+      title: definition?.label ?? "Send Telegram",
       kind: "TELEGRAM",
       nodeKind: "connector",
       type: "action.telegram_send_message",
@@ -59,7 +59,7 @@ describe("Telegram trigger architect setup", () => {
       (candidate) => candidate.overrides?.type === "trigger.telegram_message"
     );
 
-    expect(item?.label).toBe("Telegram Bot Trigger");
+    expect(item?.label).toBe("Telegram message");
     expect(item?.accent).toBe("blue");
     expect(item?.icon).toBe("telegram");
     // Business-scoped copy, never a hardcoded business name.
@@ -100,6 +100,7 @@ describe("Telegram trigger architect setup", () => {
   });
 
   it("exposes the Telegram Send Message action for confirmations", () => {
+<<<<<<< HEAD
     const handsGroup = libraryGroups.find((group) => group.title === "Hands");
     expect(handsGroup?.items.map((item) => item.overrides?.type)).toContain("action.telegram_send_message");
     // Only the common reply action is visible; advanced Telegram actions stay hidden.
@@ -107,6 +108,10 @@ describe("Telegram trigger architect setup", () => {
       (item) => String(item.overrides?.type ?? "").startsWith("action.telegram_")
     );
     expect(telegramActions).toHaveLength(1);
+=======
+    const telegramGroup = libraryGroups.find((group) => group.title === "Telegram Features");
+    expect(telegramGroup?.items.map((item) => item.overrides?.type)).toContain("action.telegram_send_message");
+>>>>>>> origin/gaurav
   });
 
   it("uses one mandatory catch-all output connection", () => {

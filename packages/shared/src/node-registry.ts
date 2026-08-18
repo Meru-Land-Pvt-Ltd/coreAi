@@ -1446,7 +1446,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   // ---- A. Launch-critical (Missed Call Text-Back) ----
   def({
     type: "trigger.twilio_missed_call",
-    label: "Missed Call Trigger",
+    label: "Missed call",
     category: "trigger",
     description: "Starts the workflow when a call goes unanswered (no-answer/busy/failed).",
     requiredConfig: [],
@@ -1457,7 +1457,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: "trigger.twilio_inbound_sms",
-    label: "Inbound SMS Trigger",
+    label: "Text message",
     category: "trigger",
     description: "Marks the inbound-SMS entry. Inbound texts are handled by the SMS webhook.",
     requiredConfig: [],
@@ -1468,7 +1468,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: "trigger.whatsapp_message_received",
-    label: "WhatsApp Trigger",
+    label: "WhatsApp message",
     category: "trigger",
     description: "Starts when a WhatsApp message arrives on a connected Meta Cloud API number.",
     requiredConfig: ["connectionId"],
@@ -1496,7 +1496,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: TELEGRAM_NODE_TYPES.trigger,
-    label: "Telegram Bot Trigger",
+    label: "Telegram message",
     category: "trigger",
     description: "Starts the workflow from a private message, command, callback, contact, media, or location event.",
     requiredConfig: [
@@ -1572,7 +1572,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: TELEGRAM_NODE_TYPES.sendMessage,
-    label: "Telegram Send Message",
+    label: "Send Telegram",
     category: "action",
     description: "Sends a text message through the installed business bot.",
     requiredConfig: ["telegramMessageText"],
@@ -1600,7 +1600,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: TELEGRAM_NODE_TYPES.sendButtons,
-    label: "Telegram Send Buttons",
+    label: "Telegram buttons",
     category: "action",
     description: "Sends text with callback or URL buttons arranged in rows.",
     requiredConfig: ["telegramMessageText", "telegramButtonsJson"],
@@ -1622,7 +1622,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: TELEGRAM_NODE_TYPES.answerCallback,
-    label: "Telegram Answer Callback",
+    label: "Confirm button tap",
     category: "action",
     description: "Acknowledges a Telegram inline-button callback query.",
     requiredConfig: [],
@@ -1641,7 +1641,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: TELEGRAM_NODE_TYPES.requestContact,
-    label: "Telegram Request Contact",
+    label: "Ask for phone number",
     category: "action",
     description: "Asks a private-chat user to share their phone contact, with a manual-entry fallback.",
     requiredConfig: [],
@@ -1660,9 +1660,9 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     producedVariables: ["telegram.action.success", "telegram.action.chatId", "telegram.action.messageId"]
   }),
   ...([
-    [TELEGRAM_NODE_TYPES.sendPhoto, "Telegram Send Photo", "send_photo", "telegramPhotoSource", "Photo"],
-    [TELEGRAM_NODE_TYPES.sendDocument, "Telegram Send Document", "send_document", "telegramDocumentSource", "Document"],
-    [TELEGRAM_NODE_TYPES.sendVoice, "Telegram Send Voice", "send_voice", "telegramVoiceSource", "Voice"]
+    [TELEGRAM_NODE_TYPES.sendPhoto, "Send photo", "send_photo", "telegramPhotoSource", "Photo"],
+    [TELEGRAM_NODE_TYPES.sendDocument, "Send file", "send_document", "telegramDocumentSource", "Document"],
+    [TELEGRAM_NODE_TYPES.sendVoice, "Send voice note", "send_voice", "telegramVoiceSource", "Voice"]
   ] as const).map(([type, label, connectorAction, sourceField, mediaLabel]) =>
     def({
       type,
@@ -1687,7 +1687,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   ),
   def({
     type: TELEGRAM_NODE_TYPES.sendLocation,
-    label: "Telegram Send Location",
+    label: "Send location",
     category: "action",
     description: "Sends a geographic location through the installed business bot.",
     requiredConfig: ["telegramLatitude", "telegramLongitude"],
@@ -1707,7 +1707,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: TELEGRAM_NODE_TYPES.editMessage,
-    label: "Telegram Edit Message",
+    label: "Edit Telegram",
     category: "action",
     description: "Edits text, caption, or buttons on a previously sent Telegram message.",
     requiredConfig: ["telegramMessageIdExpression"],
@@ -1727,7 +1727,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: TELEGRAM_NODE_TYPES.deleteMessage,
-    label: "Telegram Delete Message",
+    label: "Delete Telegram",
     category: "action",
     description: "Deletes a Telegram message when Telegram permissions and age limits allow it.",
     requiredConfig: ["telegramMessageIdExpression"],
@@ -1785,7 +1785,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: "ai.image_generation",
-    label: "Image Generation",
+    label: "Create image",
     category: "ai",
     description: "Generates or improves images using AI (Gemini Imagen, DALL-E, Stability). Outputs binary image Buffer and metadata JSON.",
     requiredConfig: [],
@@ -2087,7 +2087,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: "action.save_lead",
-    label: "Save Lead",
+    label: "Save customer",
     category: "data",
     description: "Persists/updates the caller as a Lead for this business (idempotent).",
     requiredConfig: [],
@@ -2099,7 +2099,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: "action.save_conversation_message",
-    label: "Save Conversation",
+    label: "Save chat",
     category: "data",
     description: "Stores a conversation message (inbound/outbound/system) for the caller.",
     requiredConfig: ["conversationDirection"],
@@ -2115,7 +2115,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: "action.human_handoff",
-    label: "Human Handoff",
+    label: "Transfer to staff",
     category: "action",
     description: "Escalates the lead to a human and records the handoff with a reason.",
     requiredConfig: [],
@@ -2230,7 +2230,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   // ---- Calendly connector (one trigger + one action; options in node props) ----
   def({
     type: CALENDLY_NODE_TYPES.trigger,
-    label: "Calendly Trigger",
+    label: "Calendly booking",
     category: "trigger",
     description: "Starts on a Calendly webhook event. Choose the event in node properties.",
     requiredConfig: ["calendlyEvent"],
@@ -2243,7 +2243,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: CALENDLY_NODE_TYPES.action,
-    label: "Calendly Action",
+    label: "Calendly action",
     category: "integration",
     description: "Run a Calendly API action. Choose the action in node properties.",
     requiredConfig: ["connectorAction"],
@@ -2271,7 +2271,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   // tools from these by capability; the Vapi webhook executes the tools at call time.
   def({
     type: VOICE_NODE_TYPES.phoneCallTrigger,
-    label: "Phone Call Trigger",
+    label: "Incoming call",
     category: "trigger",
     description: "Starts when a customer calls the assigned Twilio number.",
     requiredConfig: [],
@@ -2286,7 +2286,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: VOICE_NODE_TYPES.voiceConversation,
-    label: "AI Voice Conversation",
+    label: "AI receptionist",
     category: "ai",
     description: "Real-time voice conversation using Vapi / ElevenLabs / model config.",
     requiredConfig: ["systemPrompt"],
@@ -2314,7 +2314,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: VOICE_NODE_TYPES.calendarAvailability,
-    label: "Calendar Availability",
+    label: "Check Availability",
     category: "integration",
     description: "Check open Google Calendar slots.",
     requiredConfig: [],
@@ -2333,7 +2333,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: VOICE_NODE_TYPES.bookAppointment,
-    label: "Book Calendar Appointment",
+    label: "Book appointment",
     category: "integration",
     description: "Create a Google Calendar event.",
     requiredConfig: [],
@@ -2364,7 +2364,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: VOICE_NODE_TYPES.sendSms,
-    label: "Send SMS",
+    label: "Send text",
     category: "action",
     description:
       "Optional add-on: send SMS to the customer and/or team via Twilio. May require A2P/10DLC registration — for MVP use Send Email instead.",
@@ -2389,7 +2389,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: VOICE_NODE_TYPES.sendEmail,
-    label: "Send Email",
+    label: "Send email",
     category: "action",
     description: "Send confirmations, follow-ups, and internal notifications from the buyer's Triven proxy email.",
     requiredConfig: [],
@@ -2422,7 +2422,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: VOICE_NODE_TYPES.endFlow,
-    label: "End Flow",
+    label: "End",
     category: "logic",
     description: "Ends the conversation/flow with a closing message.",
     requiredConfig: [],
@@ -2542,7 +2542,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
 
   // ---- B. Near-term marketplace nodes (coming soon) ----
-  def({ type: "trigger.manual", label: "Input", category: "trigger", description: "Start a workflow manually.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
+  def({ type: "trigger.manual", label: "Start here", category: "trigger", description: "Start a workflow manually.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
   def({ type: "trigger.webhook", label: "Webhook Trigger", category: "trigger", description: "Start from an inbound webhook.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
   def({ type: "trigger.schedule", label: "Schedule Trigger", category: "trigger", description: "Start on a schedule.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
   def({ type: "trigger.gmail_new_email", label: "Gmail New Email", category: "trigger", description: "Start when a new email arrives.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
