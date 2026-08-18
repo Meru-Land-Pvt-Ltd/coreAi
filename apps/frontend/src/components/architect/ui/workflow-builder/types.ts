@@ -60,6 +60,10 @@ export type BuilderNodeData = Record<string, unknown> & {
   messageId?: string;
   sendAt?: string;
   outputKey?: string;
+  scriptLanguage?: string;
+  scriptCode?: string;
+  scriptOutputKey?: string;
+  scriptTimeoutMs?: string;
   leadSource?: string;
   leadStatus?: string;
   conversationDirection?: string;

@@ -2,17 +2,13 @@ import {
   getNodeDefinition,
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
+  SCRIPT_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_PRESENTATION,
   VOICE_NODE_TYPES
 } from "@coreai/shared";
 import type { BuilderNodeData, LibraryGroup, LibraryItem, NodeAccent, NodeKind } from "./types";
 
-/**
- * Build a draggable palette item from a registry node definition. The dragged
- * node carries the same node.data (type + defaultConfig) as a template node, so
- * manual building and template import are identical and open the same inspector.
- */
 function paletteItem(
   type: string,
   presentation: { icon: string; accent: NodeAccent; kind?: string }
@@ -146,6 +142,10 @@ export const libraryGroups: LibraryGroup[] = [
     title: "Routing / Logic",
     items: [
       paletteItem("logic.condition", { icon: "diamond", accent: "orange", kind: "BUSINESS HOURS" }),
+      {
+        ...paletteItem(SCRIPT_NODE_TYPE, { icon: "code", accent: "slate", kind: "CODE" }),
+        badge: "NEW"
+      },
       // Human Handoff is intentionally hidden from the architect library.
       // paletteItem("action.human_handoff", { icon: "phone-call", accent: "red" }),
       paletteItem(VOICE_NODE_TYPES.endFlow, { icon: "capture", accent: "slate" })

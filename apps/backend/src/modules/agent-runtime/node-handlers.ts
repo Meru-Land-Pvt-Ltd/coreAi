@@ -1,4 +1,6 @@
+import { SCRIPT_NODE_TYPE } from "@coreai/shared";
 import { type MemoryAttachment } from "../memory/memory-compression";
+import { executeScript } from "./script-executor";
 import { buildSmartMemory } from "../memory/smart-memory";
 import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
 import {
@@ -564,6 +566,33 @@ const handleImageGeneration: NodeHandler = async (node, context) => {
   return { status: "executed" };
 };
 
+const handleScriptNode: NodeHandler = async (node, context) => {
+  const outputKey = asString(node.data?.scriptOutputKey) || "script.output";
+
+  const result = await executeScript({
+    language: node.data?.scriptLanguage,
+    code: node.data?.scriptCode,
+    timeoutMs: node.data?.scriptTimeoutMs,
+    input: { ...context.variables, "conversation.latest_user_message": context.userMessage }
+  });
+
+  if (result.status === "error") {
+    log(context, node, "error", result.error ?? "Code node failed.", { logs: result.logs });
+    return { status: "failed" };
+  }
+
+  const output = result.output ?? null;
+  setVariables(context, { [outputKey]: output, [`node.${node.id}.output`]: output });
+
+  log(context, node, "success", `Ran ${result.language === "python" ? "Python" : "JavaScript"} in ${result.durationMs}ms.`, {
+    outputKey,
+    output,
+    logs: result.logs
+  });
+
+  return { status: "executed" };
+};
+
 const handleUnknown: NodeHandler = async (node, context) => {
   log(context, node, "waiting", "Not part of this conversation channel; skipped by the runtime.");
   return { status: "skipped" };
@@ -579,7 +608,8 @@ const HANDLERS: Record<string, NodeHandler> = {
   "calendar.book_appointment": handleBookAppointment,
   "sms.send": handleSendSms,
   "flow.end": handleEndFlow,
-  "logic.condition": handleCondition
+  "logic.condition": handleCondition,
+  [SCRIPT_NODE_TYPE]: handleScriptNode
 };
 
 export async function executeNode(

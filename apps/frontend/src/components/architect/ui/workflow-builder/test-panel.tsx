@@ -13,6 +13,8 @@ import type {
 import type { AIAttachment, BuilderNode } from "./types";
 import { BuilderIcon } from "./icons";
 import { logColor, formatRunLogOutputFields } from "./run-context";
+import { detectUiPreview, isMarkupField } from "./ui-preview-source";
+import { UiPreview } from "./ui-preview";
 import { getCalendarAppointment, getCalendlyResult, getCapturedLead, getDeepgramSttResults, getDeepgramTtsResults, getDraftEmail, getGmailRead, getSentEmail, getSentSms, getVapiCall } from "./run-context";
 import { BrowserVoiceCallTest } from "./browser-voice-call-test";
 import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
@@ -2404,7 +2406,10 @@ export function TestPanel({
                   </div>
                 </div>
                 <div className="space-y-3">
-                  {Object.values(runContext.llmPipeline as Record<string, LlmPipelineStep>).map((step, idx) => (
+                  {Object.values(runContext.llmPipeline as Record<string, LlmPipelineStep>).map((step, idx) => {
+                    const stepText = typeof step.output === "string" ? step.output : String(step.output ?? "");
+                    const stepPreview = detectUiPreview(stepText);
+                    return (
                     <div
                       key={idx}
                       className="overflow-hidden rounded-xl border border-violet-100 bg-gradient-to-br from-violet-50/60 to-white p-4"
@@ -2420,10 +2425,14 @@ export function TestPanel({
                         ) : null}
                       </div>
                       <div className="mt-3 rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-700 shadow-sm ring-1 ring-violet-100/80 break-words [overflow-wrap:anywhere]">
-                        <Markdown content={typeof step.output === "string" ? step.output : String(step.output ?? "")} />
+                        <Markdown content={stepText} />
                       </div>
+                      {stepPreview ? (
+                        <UiPreview source={stepPreview} nodeId={`llm-step-${idx}`} />
+                      ) : null}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ) : null}
@@ -2674,7 +2683,15 @@ function NodeResultsPanel({
       <div className="relative space-y-0">
         {runLogs.map((log, index) => {
           const llmMessage = getLlmMessageFromLog(log, llmPipeline);
-          const fields = llmMessage
+          /* A step that generated markup gets a rendered preview. Checked on the
+             LLM text too, since a page usually arrives inside a ```html fence.
+             When the AI reply card is on screen it owns the preview for LLM
+             steps, so the same page is not rendered twice on one run. */
+          const uiPreview =
+            llmMessage && llmPipeline
+              ? null
+              : (detectUiPreview(llmMessage?.text ?? null) ?? detectUiPreview(log.output));
+          const allFields = llmMessage
             ? formatRunLogOutputFields(log.output).filter(
                 (field) =>
                   field.label.toLowerCase() !== "text" &&
@@ -2684,6 +2701,9 @@ function NodeResultsPanel({
                   field.label.toLowerCase() !== "output key"
               )
             : formatRunLogOutputFields(log.output);
+          // The markup is on screen in the preview; repeating it as a one-line
+          // summary row would bury every other field under it.
+          const fields = uiPreview ? allFields.filter((field) => !isMarkupField(field.value)) : allFields;
           const isLast = index === runLogs.length - 1;
           const isError = log.status === "error";
           const isWaiting = log.status === "waiting";
@@ -2790,6 +2810,8 @@ function NodeResultsPanel({
                   </div>
                 ) : null}
 
+                {uiPreview ? <UiPreview source={uiPreview} nodeId={log.nodeId} /> : null}
+
                 {fields.length > 0 ? (
                   <div
                     className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2"
@@ -2820,7 +2842,7 @@ function NodeResultsPanel({
                       </div>
                     ))}
                   </div>
-                ) : !llmMessage ? (
+                ) : !llmMessage && !uiPreview ? (
                   <p className="mt-3 text-[12px] italic text-slate-400">
                     {isWaiting
                       ? "Fill the fields above, then run the dry test again."

@@ -1,4 +1,4 @@
-import { FileText, Image as ImageIcon, MapPin, Pencil, Trash2 } from "lucide-react";
+import { Code2, FileText, Image as ImageIcon, MapPin, Pencil, Trash2 } from "lucide-react";
 
 export function BuilderIcon({
   name,
@@ -14,6 +14,7 @@ export function BuilderIcon({
       </svg>
     );
   }
+  if (name === "code") return <Code2 className={className} aria-hidden="true" />;
   if (name === "image") return <ImageIcon className={className} aria-hidden="true" />;
   if (name === "file") return <FileText className={className} aria-hidden="true" />;
   if (name === "map-pin") return <MapPin className={className} aria-hidden="true" />;

@@ -5,12 +5,14 @@ import {
   DEEPGRAM_NODE_TYPES,
   resolveDeepgramMode,
   MAX_WORKFLOW_CHAIN_DEPTH,
+  SCRIPT_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_TYPES,
   calendlyActionPaidPlanNote,
   normalizeTimeZone,
   zonedWallClockToUtc
 } from "@coreai/shared";
+import { executeScript } from "../agent-runtime/script-executor";
 import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
 import { transcribeWithDeepgram, speakWithDeepgram } from "../ai-provider-engine/deepgram-stt";
 import { createTestCalendarEvent } from "./test-calendar-events";
@@ -334,6 +336,11 @@ type RunnerNodeData = {
   llmMaxTokens?: unknown;
   llmOutputFormat?: unknown;
   llmOutputKey?: unknown;
+  // Code node fields (logic.script) — set from the workflow builder inspector
+  scriptLanguage?: unknown;
+  scriptCode?: unknown;
+  scriptOutputKey?: unknown;
+  scriptTimeoutMs?: unknown;
   audioSource?: unknown;
   smartFormat?: unknown;
   punctuate?: unknown;
@@ -1856,10 +1863,6 @@ function parseHoursMinutes(value: unknown): number | null {
   return match ? Number(match[1]) * 60 + Number(match[2]) : null;
 }
 
-/**
- * Real business-hours evaluation: uses the business's configured weekly hours
- * (from setup) when available, otherwise falls back to Mon–Fri 8:00–18:00.
- */
 function evaluateBusinessHours(context: RunnerContext): boolean {
   const { weekday, minutes } = nowInZone(context.business?.timeZone);
   const hours = Array.isArray(context.business?.hours)
@@ -1900,6 +1903,60 @@ function runConditionNode(node: RunnerNode, context: RunnerContext, logs: Workfl
         : `Condition failed: ${condition}`,
       context.condition
     )
+  );
+}
+
+async function runScriptNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
+  const data = (node.data ?? {}) as Record<string, unknown>;
+  const outputKey = asString(data.scriptOutputKey, "script.output");
+  const label = asString(node.data?.title ?? node.data?.label, node.id);
+
+  const result = await executeScript({
+    language: data.scriptLanguage,
+    code: data.scriptCode,
+    timeoutMs: data.scriptTimeoutMs,
+    input: context
+  });
+
+  if (result.status === "error") {
+    logs.push(
+      createLog(node, "error", result.error ?? "Code node failed.", {
+        language: result.language,
+        durationMs: result.durationMs,
+        logs: result.logs
+      })
+    );
+    return;
+  }
+
+  const output = result.output ?? null;
+  context[outputKey] = output;
+  context.lastOutput = output;
+  context[`node.${node.id}.output`] = output;
+
+  const labelKey = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/(^\.|\.$)/g, "");
+  if (labelKey) context[`node.${labelKey}.output`] = output;
+
+  if (!context.scriptPipeline || typeof context.scriptPipeline !== "object") {
+    context.scriptPipeline = {};
+  }
+  (context.scriptPipeline as Record<string, unknown>)[node.id] = {
+    label,
+    language: result.language,
+    outputKey,
+    output
+  };
+
+  logs.push(
+    createLog(node, "success", `Ran ${result.language === "python" ? "Python" : "JavaScript"} in ${result.durationMs}ms.`, {
+      outputKey,
+      output,
+      logs: result.logs,
+      durationMs: result.durationMs
+    })
   );
 }
 
@@ -4667,6 +4724,32 @@ async function executeSingleNodeInRunner(params: {
   const nodeKind = asString(node.data?.nodeKind);
 
   try {
+    // Dispatched on type, ahead of the kind branches: a Code node is its own
+    // execution model, not a variant of the logic kind it is grouped under.
+    if (asString(node.data?.type) === SCRIPT_NODE_TYPE) {
+      await runScriptNode(node, context, nodeLogs);
+      const scriptFailed = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
+      await memoryBroker.saveNodeMemory({
+        workflowRunId,
+        nodeId: node.id,
+        nodeType: SCRIPT_NODE_TYPE,
+        nodeLabel: asString(node.data?.title ?? node.data?.label),
+        status: scriptFailed ? "error" : "success",
+        executionOrder,
+        threadId,
+        /* Wrapped: a script may return a string or an array, and NodeRun.outputJson
+           is read back as an object elsewhere. */
+        output: {
+          outputKey: asString(node.data?.scriptOutputKey, "script.output"),
+          value: context[asString(node.data?.scriptOutputKey, "script.output")] ?? null
+        },
+        summary: scriptFailed ? "Code node failed" : "Code node ran",
+        startedAt: new Date(nodeStart).toISOString(),
+        finishedAt: new Date().toISOString()
+      });
+      return { logs: nodeLogs, runFailed: scriptFailed };
+    }
+
     if (nodeKind === "trigger") {
       runTriggerNode(node, context, nodeLogs);
       const triggerFiles = Array.isArray(input?.attachments)

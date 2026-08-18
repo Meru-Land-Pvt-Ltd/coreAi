@@ -93,6 +93,57 @@ export const TELEGRAM_NODE_TYPES = {
   deleteMessage: "action.telegram_delete_message"
 } as const;
 
+export const SCRIPT_NODE_TYPE = "logic.script";
+
+export const SCRIPT_LANGUAGES = ["javascript", "python"] as const;
+export type ScriptLanguage = (typeof SCRIPT_LANGUAGES)[number];
+
+export function isScriptLanguage(value: unknown): value is ScriptLanguage {
+  return typeof value === "string" && (SCRIPT_LANGUAGES as readonly string[]).includes(value);
+}
+
+/** Falls back to JavaScript so a node saved before the field existed still runs. */
+export function resolveScriptLanguage(value: unknown): ScriptLanguage {
+  return isScriptLanguage(value) ? value : "javascript";
+}
+
+/** Upper bound on a single script; a runaway paste should fail in the builder, not the runner. */
+export const SCRIPT_MAX_SOURCE_LENGTH = 100_000;
+
+/** Wall-clock ceiling per execution, and the range the architect may choose from. */
+export const SCRIPT_DEFAULT_TIMEOUT_MS = 10_000;
+export const SCRIPT_MIN_TIMEOUT_MS = 1_000;
+export const SCRIPT_MAX_TIMEOUT_MS = 60_000;
+
+export function resolveScriptTimeoutMs(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return SCRIPT_DEFAULT_TIMEOUT_MS;
+  return Math.min(SCRIPT_MAX_TIMEOUT_MS, Math.max(SCRIPT_MIN_TIMEOUT_MS, Math.round(parsed)));
+}
+
+export const SCRIPT_STARTER_CODE: Record<ScriptLanguage, string> = {
+  javascript: `// \`input\` holds the workflow context so far (read-only copy).
+// Whatever you return becomes this node's output.
+
+const message = input.message ?? "";
+
+return {
+  message,
+  words: String(message).split(/\\s+/).filter(Boolean).length
+};
+`,
+  python: `# \`input\` holds the workflow context so far (read-only copy).
+# Assign \`output\` (or return from main()) to set this node's output.
+
+message = input.get("message", "")
+
+output = {
+    "message": message,
+    "words": len(str(message).split()),
+}
+`
+};
+
 /** Calendly connector — one trigger + one action; event/action chosen in node props. */
 export const CALENDLY_NODE_TYPES = {
   trigger: "trigger.calendly",
@@ -1921,6 +1972,30 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     runtime: { nodeKind: "condition" }
   }),
   def({
+    type: SCRIPT_NODE_TYPE,
+    label: "Code",
+    category: "logic",
+    description: "Run your own JavaScript or Python on the workflow context and return a result.",
+    requiredConfig: ["scriptCode"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    /* Dispatched by type in both runners. "condition" only decides how the
+       builder groups it and what a runner does if the type ever goes unmatched
+       — a read-only pass-through rather than an output/connector side effect. */
+    runtime: { nodeKind: "condition" },
+    /* Explicit so the agent-runtime resolves this to its own handler instead of
+       falling through the structural classifier to "logic.condition". */
+    capability: SCRIPT_NODE_TYPE,
+    defaultConfig: {
+      scriptLanguage: "javascript",
+      scriptCode: SCRIPT_STARTER_CODE.javascript,
+      scriptOutputKey: "script.output",
+      scriptTimeoutMs: String(SCRIPT_DEFAULT_TIMEOUT_MS)
+    },
+    producedVariables: ["script.output"]
+  }),
+  def({
     type: "output.result",
     label: "Output",
     category: "data",
@@ -2469,6 +2544,7 @@ export const VOICE_NODE_PRESENTATION: Record<string, { kind: string; icon: strin
   [VOICE_NODE_TYPES.sendSms]: { kind: "TWILIO SMS", icon: "message", accent: "green" },
   [VOICE_NODE_TYPES.sendEmail]: { kind: "TRIVEN MAIL", icon: "mail", accent: "green" },
   [VOICE_NODE_TYPES.endFlow]: { kind: "END FLOW", icon: "capture", accent: "slate" },
+  [SCRIPT_NODE_TYPE]: { kind: "CODE", icon: "code", accent: "slate" },
   "trigger.whatsapp_message_received": { kind: "WHATSAPP", icon: "whatsapp", accent: "green" },
   "action.send_whatsapp": { kind: "WHATSAPP", icon: "whatsapp", accent: "green" },
   "communication.send_whatsapp": { kind: "WHATSAPP", icon: "whatsapp", accent: "green" }
