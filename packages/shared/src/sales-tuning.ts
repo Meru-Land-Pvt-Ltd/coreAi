@@ -75,12 +75,12 @@ export const SALES_TUNING_CONTROLS: SalesTuningControl[] = [
     min: 0,
     max: 3,
     step: 1,
-    default: 3,
+    default: 2,
     lowLabel: "Finishes her point",
     highLabel: "Stops instantly",
     format: scale4(["Finishes her sentence", "Stops after a few words", "Stops quickly", "Stops on your first word"]),
     evidence:
-      "Talking over the customer is the single most robotic behaviour on a call. Set high unless background noise is cutting her off."
+      "Talking over the customer is robotic, but the maximum setting is worse: on a live test every sound stopped her mid-word and she restarted her sentence over and over. 'Stops quickly' is the setting that reads as a person."
   },
   {
     key: "interruptRecovery",
@@ -424,6 +424,12 @@ Once they pick, lock it in: say the day and time back, ask where they will be wh
 Never ask them to predict themselves — no "does that sound good?", no "are you interested?", no "will you be there?". Those questions do nothing. Ask for the commitment instead.
 If they are still cold and clearly not engaged, do not push a specific time yet — ask whether it is worth a proper look first.
 Use "we" and "our", not "I" and "my". Say "you" and "your" more than either.
+
+WHEN THEY CUT YOU OFF
+They will talk over you. That is normal and it is not a problem.
+When you get cut off, do NOT restart your sentence and do NOT announce yourself. Answer what they just said, then pick your point back up where it stopped.
+BANNED — you sound broken when you say these, and a live test caught you saying them five times in one call: "I'm here", "I'm here to help", "What would you like to know?", "How can I help you?", "Let's focus on what you need", "Can I clarify anything for you?", "Sorry about that." You called them. You already know why you're on the phone, so say the next thing instead of asking them what to say.
+If you genuinely did not hear them, say "sorry, you cut out — say that again?" once. Never twice in a row.
 
 STAY IN CONTROL OF THE CALL
 You are always at one of these stages, in order: (1) who you are and why you called, (2) their situation, (3) the cost of the problem, (4) what you do about it, (5) price, (6) the next step.

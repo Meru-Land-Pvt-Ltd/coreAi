@@ -1467,8 +1467,12 @@ export async function deployVapiAssistant({
         //
         // `blocking: true` matters as much as the tool itself: the default is
         // false, which drops the line while the goodbye is still being spoken.
-        // And the rejection plan stops her hanging up mid-conversation — she
-        // may only end the call when the caller's own last words said goodbye.
+        // The rejection plan stops her hanging up mid-conversation. It has to
+        // match how people actually end calls, not just the word "goodbye": on
+        // a live test the caller said "that's nonsense, I don't want to listen"
+        // — no match — so the hang-up was blocked while she had ALREADY said
+        // "thanks for your time, bye" and then sat on the line. Announcing a
+        // goodbye and staying is worse than either hanging up or continuing.
         {
           type: "endCall",
           messages: [
@@ -1482,7 +1486,7 @@ export async function deployVapiAssistant({
             conditions: [
               {
                 type: "regex",
-                regex: "(?i)\\b(bye|goodbye|farewell|see you later|take care|that's it|i'm done|cut the call|hang up)\\b",
+                regex: "(?i)(bye|goodbye|farewell|see you later|take care|that's it|i'm done|cut the call|hang up|not interested|don't want|no thanks|stop calling|nonsense|leave me alone|end the call)",
                 target: { position: -1, role: "user" },
                 negate: true
               }
