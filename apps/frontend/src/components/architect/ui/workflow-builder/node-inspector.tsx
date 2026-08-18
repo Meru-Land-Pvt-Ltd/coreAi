@@ -25,6 +25,9 @@ import {
   hasNodeDoors,
   nodeDoorsEnabled,
   resolveLlmSelection,
+  resolveSalesTuning,
+  SALES_TUNING_CONTROLS,
+  type SalesTuningControl,
   OUTBOUND_CALL_NODE_TYPE,
   SCHEDULE_NODE_TYPE,
   WEBHOOK_NODE_TYPE
@@ -314,6 +317,57 @@ export function Label({ children }: { children: ReactNode }) {
     >
       {children}
     </span>
+  );
+}
+
+/**
+ * One behaviour dial. The value shown under the track is the real setting, not
+ * a percentage — an operator tuning a call needs to know she now waits 0.35s,
+ * not that the slider is at 40%.
+ */
+export function TuningSlider({
+  control,
+  value,
+  onChange
+}: {
+  control: SalesTuningControl;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="mb-5" data-testid={`sales-tuning-${control.key}`}>
+      <div className="flex items-baseline justify-between">
+        <Label>{control.label}</Label>
+        <span
+          className="text-[11px] font-semibold tabular-nums text-violet-600"
+          data-testid={`sales-tuning-${control.key}-value`}
+        >
+          {control.format(value)}
+        </span>
+      </div>
+
+      <input
+        type="range"
+        min={control.min}
+        max={control.max}
+        step={control.step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        data-testid={`sales-tuning-${control.key}-input`}
+        className="mt-1 w-full accent-violet-500"
+        aria-label={control.label}
+      />
+
+      <div className="mt-0.5 flex justify-between text-[10px] text-slate-400">
+        <span>{control.lowLabel}</span>
+        <span>{control.highLabel}</span>
+      </div>
+
+      <p className="mt-1.5 text-[11px] leading-5 text-slate-500">{control.help}</p>
+      <p className="mt-1 text-[10px] leading-4 text-slate-400" data-testid={`sales-tuning-${control.key}-evidence`}>
+        {control.evidence}
+      </p>
+    </div>
   );
 }
 
@@ -1456,6 +1510,9 @@ function PhoneCallTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPane
 
 function AiVoiceConversationProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
+  // A node saved before these dials existed resolves to the researched
+  // defaults, so the sliders always show the behaviour the call will have.
+  const tuning = resolveSalesTuning(selectedNode.data as Record<string, unknown>);
 
   return (
     <>
@@ -1555,6 +1612,35 @@ function AiVoiceConversationProps({ selectedNode, onUpdateNodeData, variableNode
         <p className="mt-2 text-[11px] leading-5 text-slate-400">
           Use generic placeholders like {"{{business.name}}"}, {"{{customer.name}}"}, and {"{{appointment.service}}"}.
         </p>
+      </Section>
+
+      <Section title="How she runs the call">
+        <p className="mb-4 text-[11px] leading-5 text-slate-500" data-testid="sales-tuning-intro">
+          These change the call itself — her timing, her patience, how hard she closes. Every default below comes from
+          measured data on real sales calls, so move one only when you have heard the problem yourself.
+        </p>
+
+        {SALES_TUNING_CONTROLS.map((control) => (
+          <TuningSlider
+            key={control.key}
+            control={control}
+            value={tuning[control.key]}
+            onChange={(value) => onUpdateNodeData(control.key as keyof BuilderNodeData, value)}
+          />
+        ))}
+
+        <button
+          type="button"
+          data-testid="sales-tuning-reset"
+          onClick={() => {
+            for (const control of SALES_TUNING_CONTROLS) {
+              onUpdateNodeData(control.key as keyof BuilderNodeData, control.default);
+            }
+          }}
+          className="mt-1 rounded-lg border border-gray-200 px-3 py-1.5 text-[11px] font-semibold text-slate-500 transition hover:border-violet-300 hover:text-violet-600"
+        >
+          Reset to the researched defaults
+        </button>
       </Section>
 
       <Section title="Custom instructions" last>

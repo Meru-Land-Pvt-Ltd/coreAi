@@ -10,6 +10,7 @@ export * from "./node-declarations";
 export * from "./node-registry";
 export * from "./architect-node-catalog";
 export * from "./prompt-variables";
+export * from "./sales-tuning";
 export * from "./sms-consent";
 export * from "./spoken-date";
 export * from "./timezone";

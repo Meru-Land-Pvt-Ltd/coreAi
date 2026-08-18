@@ -1,4 +1,10 @@
-import { normalizeTimeZone, VOICE_TOOL_NAMES } from "@coreai/shared";
+import {
+  elevenLabsVoiceSettingsFor,
+  normalizeTimeZone,
+  resolveSalesTuning,
+  vapiSpeechPlansFor,
+  VOICE_TOOL_NAMES
+} from "@coreai/shared";
 import { normalizeAiProvider, type ResolvedVoicePipeline } from "../compliance/workspace-ai-guard";
 import {
   PLATFORM_DEFAULT_VOICE_ID,
@@ -1379,6 +1385,12 @@ export type DeployVapiAssistantInput = {
   maxDurationSeconds?: number;
   /** End Flow node "Call recording" toggle → Vapi artifactPlan.recordingEnabled (default on). */
   recordingEnabled?: boolean;
+  /**
+   * The behaviour dials saved on the AI node — answer speed, interruption
+   * sensitivity, patience after pushback. Anything missing falls back to the
+   * researched default, so callers may pass a partial object or nothing.
+   */
+  tuning?: Record<string, unknown>;
 };
 
 export async function deployVapiAssistant({
@@ -1401,7 +1413,8 @@ export async function deployVapiAssistant({
   includeTools,
   silenceTimeoutSeconds,
   maxDurationSeconds,
-  recordingEnabled
+  recordingEnabled,
+  tuning
 }: DeployVapiAssistantInput): Promise<{ id: string; created: boolean; pipeline: ResolvedVoicePipeline }> {
   if (!env.VAPI_API_KEY) {
     throw new Error("VAPI_API_KEY is required to deploy the voice assistant.");
@@ -1412,6 +1425,12 @@ export async function deployVapiAssistant({
   // Vapi rejects assistant names longer than 40 characters — clamp centrally
   // so long listing/business/workflow names never fail a deploy.
   const assistantName = clean(name).slice(0, 40) || "Triven Assistant";
+
+  // Turn-taking and delivery come from the node's dials. An untuned node
+  // resolves to the researched defaults, so every existing workflow keeps
+  // working unchanged.
+  const resolvedTuning = resolveSalesTuning(tuning ?? {});
+  const speechPlans = vapiSpeechPlansFor(resolvedTuning);
 
   const body: Record<string, unknown> = {
     name: assistantName,
@@ -1452,38 +1471,10 @@ export async function deployVapiAssistant({
       model: env.VAPI_TRANSCRIBER_MODEL,
       language: resolveTranscriberLanguage(language)
     },
-    // TURN-TAKING. Both numbers below were wrong in a way you only hear on a
-    // real call, and a live test found each of them.
-    startSpeakingPlan: {
-      waitSeconds: 0.2,
-      smartEndpointingPlan: {
-        provider: "livekit",
-        // The old curve could hold up to two full seconds before she began.
-        // Stack that on top of the model thinking and the caller hears dead
-        // air and says "hello? … I lost you". This curve tops out near 900ms.
-        waitFunction: "900 / (1 + exp(-10 * (x - 0.4)))"
-      },
-      transcriptionEndpointingPlan: {
-        onPunctuationSeconds: 0.1,
-        onNoPunctuationSeconds: 0.3,
-        onNumberSeconds: 0.3
-      }
-    },
-    stopSpeakingPlan: {
-      // numWords 0 meant ANY sound cut her off mid-sentence — a breath, an
-      // "mm-hmm", a door closing. A person finishes their sentence unless you
-      // actually start saying something, so it now takes real words.
-      numWords: 3,
-      voiceSeconds: 0.3,
-      // And once interrupted she waits a beat instead of talking over the
-      // person the instant they pause.
-      backoffSeconds: 1.2
-    },
-    interruptionsEnabled: true,
-    // Let her finish "Hi, this is Maya from Triven" even if the caller says
-    // hello over it. Being cut off in your own first sentence is the single
-    // most machine-like thing a voice can do.
-    firstMessageInterruptionsEnabled: false,
+    // TURN-TAKING. Every number here now comes from the tuning dials on the
+    // node, so an operator who can hear the problem can fix it without a
+    // deploy. The defaults are the researched ones (see sales-tuning.ts).
+    ...speechPlans,
     server: {
       url: serverUrl,
       // Vapi echoes this back as X-Vapi-Secret on every webhook call.
@@ -1508,14 +1499,20 @@ export async function deployVapiAssistant({
 
   const voiceSpeed = resolveVoiceSpeed(speakingSpeed);
 
+  const voiceSettings = elevenLabsVoiceSettingsFor(resolvedTuning);
+
   body.voice =
     voiceResolution.config.provider === "11labs"
       ? {
         ...voiceResolution.config,
-        stability: typeof stability === "number" ? stability : 0.65,
+        // Turbo is the low-latency model. On a sales call the wait before she
+        // answers costs more than the last few percent of audio polish, and
+        // the caller hears every millisecond of it as a dropped line.
+        model: "eleven_turbo_v2_5",
+        stability: typeof stability === "number" ? stability : voiceSettings.stability,
         similarityBoost: typeof similarityBoost === "number" ? similarityBoost : 0.75,
-        style: typeof style === "number" ? style : 0.0,
-        useSpeakerBoost: typeof useSpeakerBoost === "boolean" ? useSpeakerBoost : false,
+        style: typeof style === "number" ? style : voiceSettings.style,
+        useSpeakerBoost: typeof useSpeakerBoost === "boolean" ? useSpeakerBoost : voiceSettings.useSpeakerBoost,
         ...(voiceSpeed !== undefined ? { speed: voiceSpeed } : {})
       }
       : voiceResolution.config;
