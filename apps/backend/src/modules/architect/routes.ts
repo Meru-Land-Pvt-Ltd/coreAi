@@ -2446,6 +2446,11 @@ architectRoutes.post("/workflows/:workflowId/test-call", async (c) => {
         installedAgentId: deployment.installedAgentId ?? undefined,
         businessName: workflow.name,
         callerNumber: body.data.phone,
+        // The sandbox just deployed a voice assistant for this agent; without
+        // its id the call node has no voice to place the call with. The number
+        // to dial FROM is resolved by the connector from the platform numbers
+        // an admin enabled for outbound.
+        ...(deployment.vapiAssistantId ? { vapiAssistantId: deployment.vapiAssistantId } : {}),
         latestMessage: "Test call requested by the architect."
       }
     });
