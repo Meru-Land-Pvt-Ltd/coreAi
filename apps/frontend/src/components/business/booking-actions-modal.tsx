@@ -61,7 +61,7 @@ export function BookingActionsModal({
   const bookingId = booking.id;
 
   const isCancel = mode === "cancel";
-  const customerLabel = activeBooking.customerName?.trim() || activeBooking.customerPhone;
+  const customerLabel = booking.customerName?.trim() || booking.customerPhone;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
