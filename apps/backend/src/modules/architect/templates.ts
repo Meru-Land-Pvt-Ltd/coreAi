@@ -601,6 +601,22 @@ function buildAiSalesEmployeeWorkflow(): WorkflowTemplate["workflowJson"] {
 /**
  * The first thing they hear. It is OUR call, so it opens like one.
  *
+ * The AI disclosure sits INSIDE the opener as one clause, never as a standalone
+ * opening sentence. That placement is both the legal floor and the commercial
+ * one:
+ *  - Maine 10 M.R.S. 1500-DD (in force since Sept 2025) expressly covers "aural"
+ *    communications and is not limited to outbound, so an agent that could
+ *    mislead a reasonable consumer must say it is not a human. Utah offers a
+ *    safe harbour for disclosing at the outset AND answering honestly if asked.
+ *    47 CFR 64.1200(b)(1) separately requires an artificial-voice call to name
+ *    the business at the start — FCC 24-17 (Feb 2024) classified AI voice as
+ *    "artificial", so that rule already reaches us.
+ *  - The commercial half: a bare front-loaded disclosure ("I am the AI voice
+ *    chatbot of company XYZ") produced a 56.3% hang-up rate and collapsed
+ *    purchases by 79.7% (Marketing Science 2019, N=6,255), while the same
+ *    disclosure delivered inside a useful opener cost almost nothing. So it is
+ *    said plainly, but never before the reason for the call.
+ *
  * Rewritten against Gong's analysis of 100,000 recorded cold calls:
  *  - "Did I catch you at a bad time?" (and near variants) makes a rep 40% LESS
  *    likely to book the meeting. The old version of this line asked exactly
@@ -610,7 +626,7 @@ function buildAiSalesEmployeeWorkflow(): WorkflowTemplate["workflowJson"] {
  * Source: Gong, "9 Secret Elements of Highly Effective Cold Calls".
  */
 const SALES_EMPLOYEE_OPENING =
-  "Hi, this is Maya with Triven. You asked us to call you about the AI receptionist, so that's why I'm ringing — we answer the calls your business misses and book them straight into your calendar. Can I take two minutes to show you what that looks like?";
+  "Hi, this is Maya — I'm the AI assistant at Triven. You asked us to call you about the AI receptionist, so that's why I'm ringing: we answer the calls your business misses and book them straight into your calendar. Can I take two minutes to show you what that looks like?";
 
 /**
  * The salesperson's character.

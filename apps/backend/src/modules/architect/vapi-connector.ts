@@ -1434,12 +1434,14 @@ export async function deployVapiAssistant({
 
   const body: Record<string, unknown> = {
     name: assistantName,
-    // Let the assistant HANG UP. Without this it physically cannot end a call:
-    // told "cut the call" it can only say it will, then keep talking — which
-    // is exactly what happened on the first live test, three times over.
-    endCallFunctionEnabled: true,
-    // A human hears silence as "we're done", not as a cue to re-offer help.
-    endCallPhrases: ["goodbye", "bye", "cut the call", "end the call", "hang up", "that's it"],
+    // The line the caller actually hears before the line drops. Without it
+    // Vapi hangs up silently, which a caller reads as a dropped call.
+    endCallMessage: "Thanks for your time — take care.",
+    // endCallPhrases fires on phrases the ASSISTANT speaks, not the caller.
+    // The old list here was full of caller lines ("cut the call", "hang up"),
+    // so it never fired once — which is why she could not hang up when asked
+    // three times on the first live test. These are her own closing words.
+    endCallPhrases: ["Thanks for your time — take care.", "Have a great day.", "Talk soon — bye."],
     // Choke-point safety net: EVERY recording-on assistant greets with the
     // recording notice, no matter which deploy flow built the greeting
     // (buyer deploy already appends it; self-test/dental flows may not).
@@ -1456,15 +1458,47 @@ export async function deployVapiAssistant({
       // The knowledge-lookup tool is independent of the booking-tools flag —
       // PDF retrieval must never be silently disabled by an unrelated env
       // toggle while the prompt still advertises the tool.
-      tools: genericAssistantTools()
-        .filter((tool) => {
-          const toolName = tool.function.name;
-          if (toolName === VOICE_TOOL_NAMES.lookupKnowledge) {
-            return includeTools?.knowledgeLookup !== false;
+      tools: [
+        // HANGING UP. This used to be the assistant-level flag
+        // `endCallFunctionEnabled`, which Vapi has removed from the Create
+        // Assistant API — so the agent had no way to end a call at all. Told
+        // "cut the call" three times on the first live test it could only
+        // promise to, then keep talking.
+        //
+        // `blocking: true` matters as much as the tool itself: the default is
+        // false, which drops the line while the goodbye is still being spoken.
+        // And the rejection plan stops her hanging up mid-conversation — she
+        // may only end the call when the caller's own last words said goodbye.
+        {
+          type: "endCall",
+          messages: [
+            {
+              type: "request-start",
+              content: "Thanks for your time — take care.",
+              blocking: true
+            }
+          ],
+          rejectionPlan: {
+            conditions: [
+              {
+                type: "regex",
+                regex: "(?i)\\b(bye|goodbye|farewell|see you later|take care|that's it|i'm done|cut the call|hang up)\\b",
+                target: { position: -1, role: "user" },
+                negate: true
+              }
+            ]
           }
-          return env.VAPI_ENABLE_BOOKING_TOOLS;
-        })
-        .filter((tool) => shouldIncludeAssistantTool(tool.function.name, includeTools))
+        },
+        ...genericAssistantTools()
+          .filter((tool) => {
+            const toolName = tool.function.name;
+            if (toolName === VOICE_TOOL_NAMES.lookupKnowledge) {
+              return includeTools?.knowledgeLookup !== false;
+            }
+            return env.VAPI_ENABLE_BOOKING_TOOLS;
+          })
+          .filter((tool) => shouldIncludeAssistantTool(tool.function.name, includeTools))
+      ]
     },
     transcriber: {
       provider: env.VAPI_TRANSCRIBER_PROVIDER,
