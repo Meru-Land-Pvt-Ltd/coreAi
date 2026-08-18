@@ -2,6 +2,13 @@ import { env } from "../src/config/env";
 import { prisma } from "../src/lib/prisma";
 import { isVapiConfigured } from "../src/modules/architect/vapi-connector";
 import { deployInstalledAgentVoiceAssistant } from "../src/modules/business/deploy";
+import { preloadPlatformApiSettings } from "../src/modules/admin/platform-api-settings";
+
+/** Vapi rate-limits bulk assistant writes; pace them and retry a 429 once. */
+const DEPLOY_SPACING_MS = 1_500;
+const RETRY_BACKOFF_MS = 20_000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
   const args = process.argv.slice(2);
@@ -14,6 +21,12 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+
+  /* Admin → Manage API values live in the database and override .env. The
+     server preloads them at boot; a standalone script must do the same or it
+     deploys stale .env credentials (e.g. an old Cartesia voice id) over the
+     admin's current ones. */
+  await preloadPlatformApiSettings();
 
   if (!isVapiConfigured()) {
     console.error("Vapi is not configured on this server (VAPI_API_KEY missing) — nothing to resync.");
@@ -72,7 +85,43 @@ async function main() {
     }
 
     try {
-      const result = await deployInstalledAgentVoiceAssistant(profile.businessId);
+      const agentId = profile.business.installedAgents[0]?.id;
+      if (agentId && profile.vapiAssistantId) {
+        const row = await prisma.installedAgent.findUnique({
+          where: { id: agentId },
+          select: { configJson: true }
+        });
+        const config =
+          row?.configJson && typeof row.configJson === "object" && !Array.isArray(row.configJson)
+            ? (row.configJson as Record<string, unknown>)
+            : {};
+        if (config.vapiAssistantId !== profile.vapiAssistantId) {
+          await prisma.installedAgent.update({
+            where: { id: agentId },
+            data: {
+              configJson: { ...config, vapiAssistantId: profile.vapiAssistantId } as object
+            }
+          });
+          console.log(
+            `  backfilled configJson.vapiAssistantId for ${profile.businessId} (was ${
+              config.vapiAssistantId ?? "missing"
+            })`
+          );
+        }
+      }
+
+      // Pace the writes, and give a rate-limited deploy one backed-off retry
+      // instead of losing that business from the batch.
+      const result = await deployInstalledAgentVoiceAssistant(profile.businessId).catch(
+        async (error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!message.includes("429")) throw error;
+          console.warn(`  rate limited — retrying ${label} in ${RETRY_BACKOFF_MS / 1000}s`);
+          await sleep(RETRY_BACKOFF_MS);
+          return deployInstalledAgentVoiceAssistant(profile.businessId);
+        }
+      );
+      await sleep(DEPLOY_SPACING_MS);
       if (!result) {
         failed += 1;
         console.error(`FAILED ${label}: no deployable plan (agent config incomplete?).`);

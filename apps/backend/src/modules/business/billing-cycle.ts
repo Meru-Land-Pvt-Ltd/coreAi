@@ -124,6 +124,15 @@ export function usageSuspensionTargets(input: {
   };
 }
 
+async function isBillingExempt(businessId: string | null | undefined): Promise<boolean> {
+  if (!businessId) return false;
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { billingExempt: true }
+  });
+  return business?.billingExempt === true;
+}
+
 async function suspendBusinessForUsageInvoice(invoiceId: string, now: Date) {
   const invoice = await prisma.businessUsageInvoice.findUnique({
     where: { id: invoiceId },
@@ -135,6 +144,9 @@ async function suspendBusinessForUsageInvoice(invoiceId: string, now: Date) {
     }
   });
   if (!invoice) return { changed: false, firstSuspension: false };
+  if (await isBillingExempt(invoice.businessId)) {
+    return { changed: false, firstSuspension: false };
+  }
   const targets = usageSuspensionTargets(invoice);
   if (!targets) return { changed: false, firstSuspension: false };
 
@@ -183,6 +195,9 @@ async function suspendAgentForPayment(paymentId: string, now: Date) {
     }
   });
   if (!payment || !payment.listingId) {
+    return { changed: false, firstSuspension: false };
+  }
+  if (await isBillingExempt(payment.businessId)) {
     return { changed: false, firstSuspension: false };
   }
 
@@ -311,30 +326,52 @@ export async function restoreBusinessAfterBillingPayment(
       businessId,
       ...(installedAgentId ? { installedAgentId } : {})
     },
-    select: { id: true, installedAgentId: true, configJson: true }
+    select: { id: true, phoneNumber: true, installedAgentId: true, configJson: true }
   });
   let restoredPhones = 0;
   for (const phone of phones) {
     const config = jsonRecord(phone.configJson);
     if (config.billingSuspended !== true) continue;
-    if (!phone.installedAgentId) continue;
+
+    let agentId = phone.installedAgentId;
+    if (!agentId) {
+      const activeAgents = await prisma.installedAgent.findMany({
+        where: { businessId, status: "ACTIVE" },
+        select: { id: true }
+      });
+      if (activeAgents.length !== 1) continue;
+      agentId = activeAgents[0].id;
+    }
+
     const listingId = (
       await prisma.installedAgent.findUnique({
-        where: { id: phone.installedAgentId },
+        where: { id: agentId },
         select: { listingId: true }
       })
     )?.listingId ?? null;
     if (
-      (await hasSuspendingUsageDebt(
-        businessId,
-        phone.installedAgentId
-      )) ||
-      (await hasSuspendingSubscriptionDebt(
-        businessId,
-        phone.installedAgentId,
-        listingId
-      ))
+      (await hasSuspendingUsageDebt(businessId, agentId)) ||
+      (await hasSuspendingSubscriptionDebt(businessId, agentId, listingId))
     ) {
+      continue;
+    }
+
+    // One active number per agent: never fight the partial unique index.
+    const conflicting = await prisma.businessPhoneNumber.findFirst({
+      where: {
+        installedAgentId: agentId,
+        isActive: true,
+        NOT: { id: phone.id }
+      },
+      select: { phoneNumber: true }
+    });
+    if (conflicting) {
+      console.warn("[billing] phone restore skipped — agent already has an active number", {
+        businessId,
+        agentId,
+        suspended: phone.phoneNumber,
+        active: conflicting.phoneNumber
+      });
       continue;
     }
 
@@ -343,8 +380,48 @@ export async function restoreBusinessAfterBillingPayment(
     delete config.billingSuspensionSourceIds;
     await prisma.businessPhoneNumber.update({
       where: { id: phone.id },
-      data: { isActive: true, configJson: config as Prisma.InputJsonValue }
+      data: {
+        isActive: true,
+        installedAgentId: agentId,
+        configJson: config as Prisma.InputJsonValue
+      }
     });
+
+    const platform = await prisma.platformPhoneNumber.findFirst({
+      where: { phoneNumber: phone.phoneNumber },
+      select: { id: true, status: true, businessId: true, isPlatformSmsSender: true }
+    });
+    if (platform && !platform.isPlatformSmsSender) {
+      if (platform.businessId && platform.businessId !== businessId) {
+        console.error("[billing] suspended number was reassigned to another business — not reclaimed", {
+          businessId,
+          phoneNumber: phone.phoneNumber,
+          heldBy: platform.businessId
+        });
+      } else if (platform.status === "AVAILABLE" || platform.businessId !== businessId) {
+        const owner = await prisma.business.findUnique({
+          where: { id: businessId },
+          select: { ownerId: true }
+        });
+        await prisma.platformPhoneNumber.update({
+          where: { id: platform.id },
+          data: {
+            status: "ASSIGNED",
+            businessId,
+            installedAgentId: agentId,
+            buyerUserId: owner?.ownerId ?? null,
+            assignedAt: new Date()
+          }
+        });
+      } else if (platform.status === "ASSIGNED") {
+        // Keep the agent link on the inventory mirror in step with routing.
+        await prisma.platformPhoneNumber.update({
+          where: { id: platform.id },
+          data: { installedAgentId: agentId }
+        });
+      }
+    }
+
     restoredPhones += 1;
   }
 

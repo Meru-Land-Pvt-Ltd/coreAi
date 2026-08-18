@@ -31,6 +31,9 @@ export type AiBrainNodeConfig = {
     llmSystemPrompt?: unknown;
     llmPrompt?: unknown;
     llmContext?: unknown;
+    /** The customer's own words this run — presented as the authoritative
+     * user turn, never buried inside the author's prompt template. */
+    llmCustomerMessage?: unknown;
     llmTemperature?: unknown;
     llmMaxTokens?: unknown;
     llmOutputFormat?: unknown;
@@ -61,13 +64,19 @@ function buildWorkflowLlmSystemPrompt(params: {
   bundle: ContextBundle;
   legacySystemPrompt: string;
   outputFormat: "text" | "json";
+  hasCustomerMessage: boolean;
 }): string {
-  const { bundle, legacySystemPrompt, outputFormat } = params;
+  const { bundle, legacySystemPrompt, outputFormat, hasCustomerMessage } = params;
   const sections = [
     "You are executing one AI step inside a Triven AI workflow.",
     "The workflow author may write rough, non-technical requirements. Convert those requirements into the best useful output for this step.",
     "Use the workflow context, previous-node memory, and any additional context provided with the request.",
     "Do not ask follow-up questions unless the workflow author explicitly asks you to ask one.",
+    // One-shot runs get no second turn — anything the customer already said
+    // must be used, never asked for again.
+    ...(hasCustomerMessage
+      ? ["If the user's message already contains details, use them; never re-ask for provided details."]
+      : []),
     "Preserve template variables exactly as written, including values like {{business.name}}, {{customer.phone}}, and {{ai.output}}.",
     outputFormat === "json"
       ? "Return only valid JSON. Do not wrap it in markdown fences or add explanatory text."
@@ -86,11 +95,21 @@ function buildWorkflowLlmSystemPrompt(params: {
 function buildWorkflowLlmUserPrompt(params: {
   requirements: string;
   context: string;
+  customerMessage: string;
 }): string {
   const sections = [`Workflow author's rough requirements:\n${params.requirements}`];
 
   if (params.context) {
     sections.push(`Additional context / knowledge:\n${params.context}`);
+  }
+
+  // The customer's own message closes the user turn as the authoritative ask —
+  // labeled and last, never buried mid-template. Skipped only when the
+  // author's template already embedded the exact message text.
+  if (params.customerMessage && !params.requirements.includes(params.customerMessage)) {
+    sections.push(
+      `The customer's message (authoritative — answer this, using every detail it contains):\n${params.customerMessage}`
+    );
   }
 
   return sections.join("\n\n");
@@ -120,15 +139,19 @@ export async function contextBundleToExecuteRequest(
     asString(data.llmSystemPrompt) ||
     asString(data.instructions);
 
+  const customerMessage = asString(data.llmCustomerMessage);
+
   const systemPrompt = buildWorkflowLlmSystemPrompt({
     bundle,
     legacySystemPrompt,
     outputFormat,
+    hasCustomerMessage: customerMessage.length > 0,
   });
 
   const userPrompt = buildWorkflowLlmUserPrompt({
     requirements,
     context: asString(data.llmContext),
+    customerMessage,
   });
 
   const rawAttachments = [

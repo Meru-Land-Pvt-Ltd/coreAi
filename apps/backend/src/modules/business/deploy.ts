@@ -23,10 +23,16 @@ import {
   resolveBusinessName,
   sanitizeLegacyFallbacks
 } from "../agent-runtime/prompt-builder";
-import { workflowCapabilities } from "../agent-runtime/graph-runner";
+import {
+  withRecordingDisclosure,
+  workflowCallRecordingEnabled,
+  workflowCapabilities
+} from "../agent-runtime/graph-runner";
 import { loadBusinessAgentKnowledge } from "./agent-knowledge";
 import { loadBusinessFacts } from "./business-facts";
 import { buildHoursPromptLines, loadBusinessHoursState } from "./business-hours-state";
+// [DISABLED:non-handoff]
+// import { compileRulesPromptSection, getEffectiveRules } from "./rules/rules-service";
 import {
   buildAfterHoursSnapshotForBusiness,
   logAfterHoursRouting,
@@ -69,14 +75,6 @@ function voiceNodeData(workflowJson: unknown): Record<string, unknown> | null {
     (n) => (n.data?.type as string) === VOICE_NODE_TYPES.voiceConversation
   );
   return node?.data ? (node.data as Record<string, unknown>) : null;
-}
-
-/** End Flow node's "Call recording" toggle — recording stays on unless explicitly disabled. */
-function endFlowRecordingEnabled(workflowJson: unknown): boolean {
-  const node = nodesOf(workflowJson).find((n) => (n.data?.type as string) === VOICE_NODE_TYPES.endFlow);
-  const value = (node?.data as Record<string, unknown> | undefined)?.callRecording;
-
-  return !(value === false || String(value ?? "").trim().toLowerCase() === "false");
 }
 
 function architectNodeInstructions(voiceNode: Record<string, unknown>): string {
@@ -298,6 +296,10 @@ type InstalledAgentAssistantPlan = {
   capabilities: ReturnType<typeof workflowCapabilities>;
   /** Effective after-hours policy (buyer configJson → architect node default). */
   afterHoursPolicy: AfterHoursPolicy | null;
+  /** Resolved team phone (per-agent first, then business profile) — gates transfer_to_human. */
+  teamPhone: string;
+  /** Buyer's master transfer switch (configJson.businessDetails.transferEnabled). */
+  transferEnabled: boolean;
 };
 
 async function buildInstalledAgentAssistantPlan(
@@ -357,6 +359,14 @@ async function buildInstalledAgentAssistantPlan(
     facts && facts.promptLines.length > 0
       ? `Verified business facts (answer these directly and exactly; NEVER invent a street, city, state, postal code, landmark, or link that is not listed):\n${facts.promptLines.map((line) => `- ${line}`).join("\n")}`
       : "";
+
+  // [DISABLED:non-handoff] owner-rules prompt section.
+  // const rulesSection = compileRulesPromptSection(
+  //   await getEffectiveRules({ businessId: business.id, installedAgentId: installedAgent.id }).catch(
+  //     () => []
+  //   )
+  // );
+  const rulesSection = "";
 
   // Escalation rules are per-agent (configJson.businessDetails), falling back to
   // the shared BusinessProfile only for agents installed before that split.
@@ -428,7 +438,7 @@ async function buildInstalledAgentAssistantPlan(
 
   /* Built BEFORE the system prompt so the prompt can quote the exact opening
      line and forbid repeating it — otherwise the model greets a second time. */
-  const firstMessage = buildAgentFirstMessage({
+  const baseFirstMessage = buildAgentFirstMessage({
     assistantName,
     businessName,
     customFirstMessage: buyer.firstMessage
@@ -440,6 +450,12 @@ async function buildInstalledAgentAssistantPlan(
         )
       : undefined
   });
+  /* Two-party-consent states require the caller to HEAR that the call may be
+     recorded. Recording defaults on, so the greeting carries the notice
+     whenever the End Flow toggle hasn't disabled it. */
+  const firstMessage = workflowCallRecordingEnabled(installedAgent.workflow.workflowJson)
+    ? withRecordingDisclosure(baseFirstMessage)
+    : baseFirstMessage;
 
   const systemPrompt = buildAgentSystemPrompt({
     assistantName,
@@ -467,7 +483,9 @@ async function buildInstalledAgentAssistantPlan(
       canBook: capabilities.canBook,
       canText: capabilities.canText,
       canEmail: capabilities.canEmail
+      // [DISABLED] canTransfer: Boolean(deployTokenValues.teamPhone) && agentDetails.transferEnabled !== false
     },
+    // [DISABLED] transferConditions: cleanString(agentDetails.transferConditions as string | undefined) || undefined,
     nodeInstructions: nodeInstructions
       ? fillDeployTemplate(
           sanitizeLegacyFallbacks(
@@ -480,6 +498,7 @@ async function buildInstalledAgentAssistantPlan(
     customFields,
     extraSections: [
       ...(factsSection ? [factsSection] : []),
+      ...(rulesSection ? [rulesSection] : []),
       ...(afterHoursSection ? [afterHoursSection] : []),
       ...(options?.extraSections ?? [LIVE_TOOL_NOTES])
     ]
@@ -513,7 +532,9 @@ async function buildInstalledAgentAssistantPlan(
     businessName,
     assistantName,
     capabilities,
-    afterHoursPolicy
+    afterHoursPolicy,
+    teamPhone: deployTokenValues.teamPhone,
+    transferEnabled: agentDetails.transferEnabled !== false
   };
 }
 
@@ -545,13 +566,14 @@ export async function deployInstalledAgentVoiceAssistant(
     serverUrl: webhookUrl,
     existingAssistantId,
     metadata: { businessId: plan.businessId, installedAgentId: plan.installedAgentId },
-    recordingEnabled: endFlowRecordingEnabled(plan.workflowJson),
+    recordingEnabled: workflowCallRecordingEnabled(plan.workflowJson),
     maxDurationSeconds: LIVE_MAX_CALL_DURATION_SECONDS,
     includeTools: {
       checkAvailability: plan.capabilities.canCheckAvailability,
       bookAppointment: plan.capabilities.canBook,
       sendNotification: plan.capabilities.canText || plan.capabilities.canEmail === true,
       recordSmsConsent: plan.capabilities.canText
+      // [DISABLED] transferToHuman: Boolean(plan.teamPhone) && plan.transferEnabled
     }
   });
 
@@ -573,7 +595,13 @@ export async function deployInstalledAgentVoiceAssistant(
   const agentConfig = recordOf(agentRow?.configJson ?? plan.configJson);
   await prisma.installedAgent.update({
     where: { id: plan.installedAgentId },
-    data: { configJson: { ...agentConfig, voicePipeline: assistant.pipeline } as object }
+    data: {
+      configJson: {
+        ...agentConfig,
+        vapiAssistantId: assistant.id,
+        voicePipeline: assistant.pipeline
+      } as object
+    }
   });
 
   return { assistantId: assistant.id, created: assistant.created };
@@ -850,6 +878,7 @@ export async function startInstalledAgentPreviewCall(
       bookAppointment: plan.capabilities.canBook,
       sendNotification: plan.capabilities.canText || plan.capabilities.canEmail === true,
       recordSmsConsent: plan.capabilities.canText
+      // [DISABLED] transferToHuman: Boolean(plan.teamPhone) && plan.transferEnabled
     },
     silenceTimeoutSeconds: 60,
     maxDurationSeconds: PREVIEW_MAX_DURATION_SECONDS,

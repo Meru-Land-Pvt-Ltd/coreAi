@@ -40,6 +40,8 @@ model User {
   memoryRecords        MemoryRecord[]
   whatsappConnections  WhatsAppConnection[]
   platformApiSettings  PlatformApiSetting[]
+  teamMemberships      BusinessTeamMember[]
+  architectSecrets     ArchitectSecret[]
 
   @@unique([email, role])
   @@index([role])
@@ -159,11 +161,44 @@ model AgentListing {
   workflow               WorkflowDefinition?  @relation(fields: [workflowId], references: [id])
   installedAgents        InstalledAgent[]
   payments               Payment[]
+  publishedPage          PublishedAgentPage?
 
   @@index([architectUserId])
   @@index([workflowId])
   @@index([status])
   @@index([status, createdAt])
+}
+
+/// Public hosted page for a published agent (triven.ai/a/<slug>): customers
+/// try the agent in sandboxed demo mode and follow the CTA into the purchase
+/// funnel. One page per approved listing; the architect customizes template
+/// and copy from the workflow's manage screen.
+model PublishedAgentPage {
+  id               String       @id @default(cuid())
+  slug             String       @unique
+  listingId        String       @unique
+  workflowId       String
+  architectUserId  String
+  template         String       @default("chat")
+  headline         String?
+  welcomeMessage   String?
+  suggestedPrompts String[]
+  accentColor      String?
+  /// Design Brain dials (theme, composer position, density, bubble style,
+  /// history sidebar). Null = all defaults; always read through resolveDesign.
+  designJson       Json?
+  /// Product Spec (packages/shared/src/product-spec.ts): the multi-page site
+  /// the AI architect designed, wires included. Null = no spec yet; the page
+  /// still renders from a spec synthesized off the Face Blueprint. Always read
+  /// through getProductSpec / resolveProductForPublic, never raw.
+  productJson      Json?
+  status           String       @default("LIVE")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  listing          AgentListing @relation(fields: [listingId], references: [id])
+
+  @@index([workflowId])
+  @@index([architectUserId])
 }
 
 model Project {
@@ -265,31 +300,48 @@ model Business {
   spendingAlertThresholdCents    Int       @default(5000)
   spendingAlertLastNotifiedMonth String?
   spendingAlertLastNotifiedAt    DateTime?
+  /// Hard monthly ceiling on live AI usage. null = platform default
+  /// (LIVE_USAGE_HARD_CAP_CENTS); 0 = explicitly unlimited.
+  usageHardCapCents              Int?
+  usageCapNotifiedMonth          String?
+  usageCapNotifiedAt             DateTime?
+  /// Days to keep recordings/transcripts/summaries. null = keep indefinitely.
+  recordingRetentionDays         Int?
+  billingExempt                  Boolean   @default(false)
 
-  appointments    Appointment[]
-  owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  knowledgeBases  BusinessKnowledgeBase[]
-  knowledgeFiles  BusinessKnowledgeFile[]
-  phoneNumbers    BusinessPhoneNumber[]
-  profile         BusinessProfile?
-  conversations   Conversation[]
-  installedAgents InstalledAgent[]
-  leads           Lead[]
-  vapiCalls       VapiCall[]
-  usageInvoices   BusinessUsageInvoice[]
-  payments        Payment[]
-  workflowRuns    WorkflowRun[]
-  emailAliases    BusinessEmailAlias[]
-  emailMessages   EmailMessage[]
-  smsExecutions   SmsExecution[]
-  smsConsents     SmsConsent[]
-  specialHours    BusinessSpecialHours[]
-  executionUsages AgentUsageExecution[]
-  memoryRecords   MemoryRecord[]
-  telegramBots    TelegramBotConnection[]
-  telegramStates  TelegramConversationState[]
-  telegramActions TelegramMessageExecution[]
-  businessServices BusinessService[]
+  appointments        Appointment[]
+  owner               User                        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  knowledgeBases      BusinessKnowledgeBase[]
+  knowledgeFiles      BusinessKnowledgeFile[]
+  phoneNumbers        BusinessPhoneNumber[]
+  profile             BusinessProfile?
+  conversations       Conversation[]
+  installedAgents     InstalledAgent[]
+  leads               Lead[]
+  vapiCalls           VapiCall[]
+  usageInvoices       BusinessUsageInvoice[]
+  payments            Payment[]
+  workflowRuns        WorkflowRun[]
+  emailAliases        BusinessEmailAlias[]
+  emailMessages       EmailMessage[]
+  smsExecutions       SmsExecution[]
+  smsConsents         SmsConsent[]
+  specialHours        BusinessSpecialHours[]
+  executionUsages     AgentUsageExecution[]
+  memoryRecords       MemoryRecord[]
+  telegramBots        TelegramBotConnection[]
+  telegramStates      TelegramConversationState[]
+  telegramActions     TelegramMessageExecution[]
+  businessServices    BusinessService[]
+  handoffEvents       HandoffEvent[]
+  teamMembers         BusinessTeamMember[]
+  memberInvites       BusinessMemberInvite[]
+  activityLogs        BusinessActivityLog[]
+  customers           Customer[]
+  agentRules          BusinessAgentRule[]
+  unansweredQuestions UnansweredQuestion[]
+  evaluations         ConversationEvaluation[]
+  crmConnections      CrmConnection[]
 
   @@index([ownerId])
   @@index([type])
@@ -343,21 +395,21 @@ model BusinessProfile {
 /// one-day special hours, temporary closures. One row per (business, date);
 /// the date is a calendar date in the business timezone.
 model BusinessSpecialHours {
-  id          String   @id @default(cuid())
-  businessId  String
+  id               String          @id @default(cuid())
+  businessId       String
   installedAgentId String?
   /// "YYYY-MM-DD" calendar date in the business timezone.
-  date        String
+  date             String
   /// "holiday" | "special" | "closure"
-  kind        String   @default("special")
-  closed      Boolean  @default(true)
+  kind             String          @default("special")
+  closed           Boolean         @default(true)
   /// [{ open: "HH:mm", close: "HH:mm" }, …] when not closed.
-  periodsJson Json?
-  note        String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  installedAgent InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  periodsJson      Json?
+  note             String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  business         Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent   InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, installedAgentId, date])
   @@index([businessId])
@@ -385,27 +437,27 @@ model BusinessPhoneNumber {
 }
 
 model InstalledAgent {
-  id                        String                  @id @default(cuid())
+  id                        String                      @id @default(cuid())
   businessId                String
   workflowId                String
   listingId                 String?
   name                      String
-  status                    String                  @default("ACTIVE")
+  status                    String                      @default("ACTIVE")
   pausedAt                  DateTime?
-  installSource             InstallSource           @default(MARKETPLACE_PURCHASE)
-  executionFeeCents         Int                     @default(0)
-  trialExecutionLimit       Int                     @default(50)
-  trialExecutionsUsed       Int                     @default(0)
-  executionBillingStartedAt DateTime                @default(now())
+  installSource             InstallSource               @default(MARKETPLACE_PURCHASE)
+  executionFeeCents         Int                         @default(0)
+  trialExecutionLimit       Int                         @default(50)
+  trialExecutionsUsed       Int                         @default(0)
+  executionBillingStartedAt DateTime                    @default(now())
   configJson                Json?
-  createdAt                 DateTime                @default(now())
-  updatedAt                 DateTime                @updatedAt
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @updatedAt
   phoneNumbers              BusinessPhoneNumber[]
   knowledgeFiles            BusinessKnowledgeFile[]
   specialHours              BusinessSpecialHours[]
-  business                  Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  listing                   AgentListing?           @relation(fields: [listingId], references: [id])
-  workflow                  WorkflowDefinition      @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  business                  Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  listing                   AgentListing?               @relation(fields: [listingId], references: [id])
+  workflow                  WorkflowDefinition          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   workflowRuns              WorkflowRun[]
   executionUsages           AgentUsageExecution[]
   usageInvoices             BusinessUsageInvoice[]
@@ -427,38 +479,38 @@ model InstalledAgent {
 /// One dedicated Telegram bot for one installed agent. Bot access tokens and
 /// webhook secrets are AES-GCM encrypted before they reach these columns.
 model TelegramBotConnection {
-  id                     String         @id @default(cuid())
-  businessId             String
-  installedAgentId       String         @unique
-  requestedUsername      String         @unique
-  webhookConnectionId    String         @unique @default(cuid())
-  botUserId              String?        @unique
-  botUsername            String?        @unique
-  botDisplayName         String
-  botTokenEncrypted      String?
-  webhookSecretEncrypted String
-  managerBotId           String?
-  provisioningMode       String         @default("MANAGED")
-  provisioningStatus     String         @default("PENDING_APPROVAL")
-  webhookStatus          String         @default("PENDING")
-  setupNonceHash         String?
-  telegramOwnerUserId    String?
-  ownerChatId            String?
-  ownerNotificationStatus String        @default("NOT_CONNECTED")
+  id                         String                      @id @default(cuid())
+  businessId                 String
+  installedAgentId           String                      @unique
+  requestedUsername          String                      @unique
+  webhookConnectionId        String                      @unique @default(cuid())
+  botUserId                  String?                     @unique
+  botUsername                String?                     @unique
+  botDisplayName             String
+  botTokenEncrypted          String?
+  webhookSecretEncrypted     String
+  managerBotId               String?
+  provisioningMode           String                      @default("MANAGED")
+  provisioningStatus         String                      @default("PENDING_APPROVAL")
+  webhookStatus              String                      @default("PENDING")
+  setupNonceHash             String?
+  telegramOwnerUserId        String?
+  ownerChatId                String?
+  ownerNotificationStatus    String                      @default("NOT_CONNECTED")
   ownerNotificationNonceHash String?
-  status                 String         @default("PENDING")
-  lastWebhookAt          DateTime?
-  lastSuccessfulSendAt   DateTime?
-  lastProviderErrorCode  String?
-  lastError              String?
-  credentialRotatedAt    DateTime?
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
-  business               Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  installedAgent         InstalledAgent @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
-  conversationStates     TelegramConversationState[]
-  processedUpdates       TelegramProcessedUpdate[]
-  messageExecutions      TelegramMessageExecution[]
+  status                     String                      @default("PENDING")
+  lastWebhookAt              DateTime?
+  lastSuccessfulSendAt       DateTime?
+  lastProviderErrorCode      String?
+  lastError                  String?
+  credentialRotatedAt        DateTime?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  business                   Business                    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent             InstalledAgent              @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  conversationStates         TelegramConversationState[]
+  processedUpdates           TelegramProcessedUpdate[]
+  messageExecutions          TelegramMessageExecution[]
 
   @@index([businessId])
   @@index([status])
@@ -538,26 +590,26 @@ model TelegramMessageExecution {
 }
 
 model BusinessService {
-  id                    String         @id @default(cuid())
-  businessId            String
-  installedAgentId      String?
-  slug                  String
-  name                  String
-  description           String?
-  durationMinutes       Int            @default(30)
-  priceCents            Int?
-  priceVisible          Boolean        @default(false)
-  active                Boolean        @default(true)
-  calendarId            String?
-  routingRuleJson       Json?
-  staffMappingJson      Json?
-  bufferMinutes         Int            @default(10)
-  minimumNoticeMinutes  Int            @default(0)
-  maximumAdvanceDays    Int            @default(30)
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
-  business              Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  installedAgent        InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  id                   String          @id @default(cuid())
+  businessId           String
+  installedAgentId     String?
+  slug                 String
+  name                 String
+  description          String?
+  durationMinutes      Int             @default(30)
+  priceCents           Int?
+  priceVisible         Boolean         @default(false)
+  active               Boolean         @default(true)
+  calendarId           String?
+  routingRuleJson      Json?
+  staffMappingJson     Json?
+  bufferMinutes        Int             @default(10)
+  minimumNoticeMinutes Int             @default(0)
+  maximumAdvanceDays   Int             @default(30)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  business             Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent       InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
 
   @@unique([businessId, installedAgentId, slug])
   @@index([businessId, installedAgentId, active])
@@ -603,6 +655,17 @@ model BusinessKnowledgeFile {
   contentHash      String
   /// UPLOADING | PROCESSING | PROCESSED | FAILED
   status           String                  @default("PROCESSING")
+  /// ACTIVE serves answers; ARCHIVED is kept but never retrieved (plan Part 3 versioning).
+  lifecycle        String                  @default("ACTIVE")
+  /// CUSTOMER_VISIBLE | INTERNAL_ONLY — internal docs never reach customer AI.
+  visibility       String                  @default("CUSTOMER_VISIBLE")
+  version          Int                     @default(1)
+  /// The file this one replaced (auto-archived on replacement).
+  supersedesId     String?
+  /// UPLOAD | URL | CSV | IMAGE | DRIVE | NOTION | YOUTUBE
+  sourceType       String                  @default("UPLOAD")
+  sourceUrl        String?
+  pageCount        Int?
   extractedChars   Int                     @default(0)
   chunkCount       Int                     @default(0)
   errorCode        String?
@@ -619,20 +682,37 @@ model BusinessKnowledgeFile {
 }
 
 model Conversation {
-  id            String                @id @default(cuid())
-  businessId    String
-  channel       String
-  customerPhone String
-  status        String                @default("OPEN")
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
-  business      Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  messages      ConversationMessage[]
+  id                   String                @id @default(cuid())
+  businessId           String
+  channel              String
+  customerPhone        String
+  status               String                @default("OPEN")
+  /// Shared-inbox state machine: AI_ACTIVE | WAITING_FOR_HUMAN | HUMAN_ACTIVE | RETURNED_TO_AI | CLOSED
+  aiState              String                @default("AI_ACTIVE")
+  /// BusinessTeamMember.id currently handling this thread (HUMAN_ACTIVE).
+  assignedTeamMemberId String?
+  waitingSince         DateTime?
+  humanSince           DateTime?
+  slaEscalatedAt       DateTime?
+  /// Canonical Customer.id (per business). Plain indexed link — no FK.
+  customerId           String?
+  /// Structured conversation understanding (plan Part 2).
+  outcome              String?
+  sentiment            String?
+  summary              String?
+  lastInboundAt        DateTime?
+  lastOutboundAt       DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  business             Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  messages             ConversationMessage[]
 
   @@unique([businessId, channel, customerPhone])
   @@index([businessId])
   @@index([customerPhone])
   @@index([channel, customerPhone])
+  @@index([businessId, aiState])
+  @@index([customerId])
 }
 
 model ConversationMessage {
@@ -652,6 +732,8 @@ model Lead {
   id             String   @id @default(cuid())
   businessId     String
   conversationId String?
+  /// Canonical Customer.id (per business). Plain indexed link — no FK.
+  customerId     String?
   phoneNumber    String
   name           String?
   source         String
@@ -668,17 +750,19 @@ model Lead {
 }
 
 model Appointment {
-  id                 String    @id @default(cuid())
+  id                 String                @id @default(cuid())
   businessId         String
   installedAgentId   String?
   conversationId     String?
   customerPhone      String
   customerName       String?
   customerEmail      String?
+  /// Canonical Customer.id (per business). Plain indexed link — no FK.
+  customerId         String?
   service            String?
   source             String?
-  bookingReference   String?   @unique
-  idempotencyKey     String?   @unique
+  bookingReference   String?               @unique
+  idempotencyKey     String?               @unique
   providerName       String?
   bookingCallId      String?
   startAt            DateTime
@@ -686,18 +770,19 @@ model Appointment {
   timeZone           String?
   calendarEventId    String?
   calendarEventLink  String?
-  status             String    @default("BOOKED")
+  status             String                @default("BOOKED")
   notes              String?
   cancelledAt        DateTime?
   cancellationSource String?
   cancellationReason String?
   cancellationCallId String?
-  executionMode      String    @default("LIVE")
+  executionMode      String                @default("LIVE")
   testSessionId      String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  business           Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  installedAgent     InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  business           Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent     InstalledAgent?       @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
+  reminders          AppointmentReminder[]
 
   @@index([businessId])
   @@index([installedAgentId])
@@ -706,6 +791,7 @@ model Appointment {
   @@index([calendarEventId])
   @@index([executionMode])
   @@index([bookingCallId])
+  @@index([customerId])
 }
 
 model TestCalendarEvent {
@@ -755,6 +841,19 @@ model VapiCall {
   durationSeconds       Int?
   durationMinutes       Float?
   smsCount              Int                   @default(0)
+  /// Structured understanding (plan Part 2): BOOKED | RESCHEDULED | CANCELLED |
+  /// LEAD | FOLLOW_UP | NO_INTEREST | MISSED | TRANSFERRED | SUPPORT_RESOLVED | UNKNOWN
+  outcome               String?
+  /// POSITIVE | NEUTRAL | CONFUSED | FRUSTRATED | ANGRY | UNKNOWN
+  sentiment             String?
+  /// Canonical Customer.id (per business). Plain indexed link — no FK.
+  customerId            String?
+  /// Durable fallback for the Redis transfer context (Twilio leg of this call).
+  twilioCallSid         String?
+  /// Retention/deletion state for the provider-hosted recording:
+  /// null (kept) | PENDING_DELETE | DELETED | DELETE_FAILED | UNSUPPORTED
+  providerDeletionState String?
+  recordingDeletedAt    DateTime?
   vapiCostMicroUsd      Int?
   actualCostMicroUsd    Int?
   billedCostMicroUsd    Int?
@@ -780,32 +879,71 @@ model VapiCall {
   @@index([customerPhone])
   @@index([status])
   @@index([pricingState])
+  @@index([customerId])
+  @@index([twilioCallSid])
+}
+
+model HandoffEvent {
+  id                   String           @id @default(cuid())
+  businessId           String
+  installedAgentId     String?
+  /// VOICE | SMS | CHAT | EMAIL
+  channel              String           @default("VOICE")
+  executionMode        String           @default("LIVE")
+  vapiCallId           String?
+  twilioCallSid        String?
+  customerPhone        String?
+  /// E.164 the call was sent to. Resolved server-side only — never model input.
+  destination          String?
+  reason               String?
+  /// customer | ai | policy
+  requestedBy          String           @default("customer")
+  /// INITIATED | CONNECTED | NO_ANSWER | FAILED | MESSAGE_TAKEN | SIMULATED
+  status               String           @default("INITIATED")
+  waitSeconds          Int?
+  /// BusinessTeamMember.id that took (or was last dialed for) this handoff.
+  assignedTeamMemberId String?
+  connectedAt          DateTime?
+  attemptsCount        Int              @default(0)
+  conversationId       String?
+  customerId           String?
+  metadataJson         Json?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  resolvedAt           DateTime?
+  business             Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  attempts             HandoffAttempt[]
+
+  @@index([businessId, createdAt])
+  @@index([businessId, status])
+  @@index([vapiCallId])
+  @@index([customerId])
 }
 
 model PlatformPhoneNumber {
-  id                  String              @id @default(cuid())
-  phoneNumber         String              @unique
+  id                           String              @id @default(cuid())
+  phoneNumber                  String              @unique
   /// Normalized E.164 form of phoneNumber (backfilled; canonical for lookups going forward).
-  e164                String?             @unique
-  provider            ConnectorProvider   @default(TWILIO)
-  status              PlatformPhoneStatus @default(AVAILABLE)
-  twilioSid           String?             @unique
+  e164                         String?             @unique
+  provider                     ConnectorProvider   @default(TWILIO)
+  status                       PlatformPhoneStatus @default(AVAILABLE)
+  twilioSid                    String?             @unique
   /// Provider-agnostic number id (alias for twilioSid; future non-Twilio providers).
-  providerNumberId    String?
-  country             String?
-  region              String?
-  locality            String?
+  providerNumberId             String?
+  country                      String?
+  region                       String?
+  locality                     String?
   /// e.g. { "voice": true, "sms": false, "mms": false }
-  capabilities        Json?
-  voiceEnabled        Boolean             @default(true)
-  smsEnabled          Boolean             @default(true)
-  mmsEnabled          Boolean?
-  businessId          String?
-  buyerUserId         String?
-  installedAgentId    String?
-  assignedAt          DateTime?
+  capabilities                 Json?
+  voiceEnabled                 Boolean             @default(true)
+  smsEnabled                   Boolean             @default(true)
+  mmsEnabled                   Boolean?
+  businessId                   String?
+  buyerUserId                  String?
+  installedAgentId             String?
+  assignedAt                   DateTime?
   /// Legacy one-time billing marker retained for migration compatibility.
-  feeBilledAt         DateTime?
+  feeBilledAt                  DateTime?
   /// Twilio's account-specific recurring monthly price at the last pricing lookup.
   providerMonthlyPriceMicroUsd Int?
   /// Buyer monthly price: round(provider monthly USD) + 1 USD.
@@ -814,19 +952,19 @@ model PlatformPhoneNumber {
   pricingNumberType            String?
   pricingFetchedAt             DateTime?
   /// Admin provisioning metadata (numbers purchased through the admin panel).
-  purchasedByAdminId  String?
-  purchasedAt         DateTime?
-  releasedAt          DateTime?
-  voiceWebhookUrl     String?
-  smsWebhookUrl       String?
-  webhookStatus       PhoneWebhookStatus  @default(UNKNOWN)
-  complianceStatus    String?
-  a2pStatus           String?
-  isPlatformSmsSender Boolean             @default(false)
-  lastSyncedAt        DateTime?
-  lastError           String?
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
+  purchasedByAdminId           String?
+  purchasedAt                  DateTime?
+  releasedAt                   DateTime?
+  voiceWebhookUrl              String?
+  smsWebhookUrl                String?
+  webhookStatus                PhoneWebhookStatus  @default(UNKNOWN)
+  complianceStatus             String?
+  a2pStatus                    String?
+  isPlatformSmsSender          Boolean             @default(false)
+  lastSyncedAt                 DateTime?
+  lastError                    String?
+  createdAt                    DateTime            @default(now())
+  updatedAt                    DateTime            @updatedAt
 
   @@index([status])
   @@index([businessId])
@@ -871,38 +1009,38 @@ model Payment {
   billingEmail   String?
   billingAddress String?
 
-  description         String?
-  invoiceKind         PaymentInvoiceKind @default(PURCHASE)
+  description                  String?
+  invoiceKind                  PaymentInvoiceKind @default(PURCHASE)
   /// Stable scheduler/idempotency key, for example
   /// "post-trial:<trialPaymentId>" or "subscription:<user>:<listing>:2026-07".
-  invoiceKey          String?            @unique
-  periodStart         DateTime?
-  periodEnd           DateTime?
-  dueAt               DateTime?
-  graceEndsAt         DateTime?
-  paidAt              DateTime?
-  canceledAt          DateTime?
-  suspendedAt         DateTime?
+  invoiceKey                   String?            @unique
+  periodStart                  DateTime?
+  periodEnd                    DateTime?
+  dueAt                        DateTime?
+  graceEndsAt                  DateTime?
+  paidAt                       DateTime?
+  canceledAt                   DateTime?
+  suspendedAt                  DateTime?
   /// Set after the buyer receives the reminder sent during the final 24 hours.
   trialEndingOneDayEmailSentAt DateTime?
   /// Set only after the buyer's trial-ended lifecycle email is accepted by SES.
   /// A null value lets the hourly billing cycle safely retry failed delivery.
-  trialEndedEmailSentAt DateTime?
+  trialEndedEmailSentAt        DateTime?
   /// One-time gentle reminder for a pending agent invoice.
-  pendingReminderSentAt DateTime?
-  pendingReminderCount  Int       @default(0)
-  paymentAttemptCount Int                @default(0)
-  paymentPendingAt    DateTime?
+  pendingReminderSentAt        DateTime?
+  pendingReminderCount         Int                @default(0)
+  paymentAttemptCount          Int                @default(0)
+  paymentPendingAt             DateTime?
   /// Buyer-facing fee breakdown: [{ label, amountCents }].
-  lineItemsJson       Json?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  lineItemsJson                Json?
+  createdAt                    DateTime           @default(now())
+  updatedAt                    DateTime           @updatedAt
 
-  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  business Business?         @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  listing  AgentListing?     @relation(fields: [listingId], references: [id])
-  installedAgent InstalledAgent? @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
-  earning  ArchitectEarning?
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business       Business?         @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  listing        AgentListing?     @relation(fields: [listingId], references: [id])
+  installedAgent InstalledAgent?   @relation(fields: [installedAgentId], references: [id], onDelete: SetNull)
+  earning        ArchitectEarning?
 
   @@index([userId])
   @@index([businessId])
@@ -943,11 +1081,11 @@ model ContactSubmission {
 }
 
 model SupportIssue {
-  id       String @id @default(cuid())
-  name     String?
-  email    String?
+  id    String  @id @default(cuid())
+  name  String?
+  email String?
   /// The written issue description ("" when the user only sent a document/voice).
-  issue    String @default("")
+  issue String  @default("")
 
   documentName      String?
   documentMimeType  String?
@@ -1508,6 +1646,7 @@ model WorkflowRun {
   triggeredBy       User?                @relation(fields: [triggeredByUserId], references: [id])
   nodeRuns          NodeRun[]
   contextLinks      ContextLink[]
+  stepRuns          WorkflowStepRun[]
   usageExecution    AgentUsageExecution?
   durationMs        Int? /// Total run duration in milliseconds
   totalTokenInput   Int?                 @default(0)
@@ -1710,6 +1849,10 @@ model EmailMessage {
   idempotencyKey    String?            @unique
   status            EmailMessageStatus @default(QUEUED)
   purpose           EmailPurpose       @default(CUSTOMER_FOLLOW_UP)
+  /// Canonical Customer.id (per business). Plain indexed link — no FK.
+  customerId        String?
+  /// Shared-inbox thread this message belongs to (Conversation.id).
+  conversationId    String?
   metadata          Json?
   sentAt            DateTime?
   deliveredAt       DateTime?
@@ -1726,6 +1869,8 @@ model EmailMessage {
   @@index([aliasId])
   @@index([sesMessageId])
   @@index([toEmail, status])
+  @@index([customerId])
+  @@index([conversationId])
 }
 
 model EmailSuppression {
@@ -2020,26 +2165,29 @@ model IntegrationDisclosureConsent {
 
 /// Architect-owned Meta Cloud API WhatsApp connection (MVP manual credentials).
 model WhatsAppConnection {
-  id                   String                   @id @default(cuid())
-  architectUserId      String
-  /// Reserved for later buyer mapping; unused in MVP.
-  businessId           String?
-  displayName          String?
-  businessName         String?
-  phoneNumber          String
+  id                    String                   @id @default(cuid())
+  architectUserId       String
+  /// Buyer scoping: the business this number serves. Inbound routing prefers
+  /// this over architect scanning (plan channel requirement).
+  businessId            String?
+  /// The installed agent whose runtime answers on this number.
+  installedAgentId      String?
+  displayName           String?
+  businessName          String?
+  phoneNumber           String
   /// Meta phone_number_id — public ID used for webhook routing (plaintext).
-  phoneNumberId        String
+  phoneNumberId         String
   /// Meta WhatsApp Business Account ID (plaintext).
-  businessAccountId    String
-  accessTokenEnc       String
+  businessAccountId     String
+  accessTokenEnc        String
   webhookVerifyTokenEnc String
-  appSecretEnc         String?
-  status               WhatsAppConnectionStatus @default(PENDING)
-  qualityRating        String?
-  lastConnectedAt      DateTime?
-  lastError            String?
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
+  appSecretEnc          String?
+  status                WhatsAppConnectionStatus @default(PENDING)
+  qualityRating         String?
+  lastConnectedAt       DateTime?
+  lastError             String?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
 
   architect     User                   @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
   conversations WhatsAppConversation[]
@@ -2052,14 +2200,14 @@ model WhatsAppConnection {
 }
 
 model WhatsAppConversation {
-  id             String    @id @default(cuid())
-  connectionId   String
-  contactPhone   String
-  contactName    String?
-  lastMessage    String?
-  lastMessageAt  DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  connectionId  String
+  contactPhone  String
+  contactName   String?
+  lastMessage   String?
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   connection WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   messages   WhatsAppMessage[]
@@ -2108,20 +2256,519 @@ model WhatsAppWebhookLog {
 /// Manage API instead of .env, so a key can be rotated without a redeploy.
 /// A key absent here falls back to the matching environment variable, which
 /// keeps every existing deployment working until an admin fills the form in.
+/// Per-architect encrypted secret ("My Keys" locker). Each row is one named
+/// key an architect stores once and references by name from an API Call node.
+/// The value is AES-256-GCM encrypted with ENCRYPTION_KEY using the shared
+/// crypto helper — iv, auth tag and ciphertext are bundled into the single
+/// `valueEncrypted` string (same encoding as PlatformApiSetting and the
+/// Telegram/Calendly token columns). Plaintext is NEVER stored or returned to
+/// the browser; the API only ever exposes a mask.
+model ArchitectSecret {
+  id              String   @id @default(cuid())
+  architectUserId String
+  /// Human label the architect chose, e.g. "My Weather API key". Referenced by
+  /// name from the API Call node. Unique per architect.
+  name            String
+  /// AES-256-GCM(iv.authTag.ciphertext) — never returned in plaintext.
+  valueEncrypted  String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  architect User @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+
+  @@unique([architectUserId, name])
+  @@index([architectUserId])
+}
+
 model PlatformApiSetting {
-  id             String   @id @default(cuid())
+  id              String   @id @default(cuid())
   /// Environment-variable name, e.g. "OPENAI_API_KEY". Unique.
-  key            String   @unique
+  key             String   @unique
   /// AES-encrypted with ENCRYPTION_KEY — never stored or returned in plaintext.
-  valueEncrypted String
+  valueEncrypted  String
   /// True for credentials (masked in every API response). False for non-secret
   /// settings like model names and voice ids, which are returned in full.
-  secret         Boolean  @default(true)
+  secret          Boolean  @default(true)
   updatedByUserId String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   updatedBy User? @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@index([updatedAt])
+}
+
+// ============================================================================
+// Business team / RBAC (plan Parts 1 & 6). One business is no longer one
+// login: members are people (optionally linked to a User login) with roles,
+// handoff eligibility, and presence. All customerId/teamMemberId link columns
+// across older models are indexed strings (no FK) so the additive migration
+// never has to backfill or lock existing tables.
+// ============================================================================
+
+model BusinessTeamMember {
+  id              String    @id @default(cuid())
+  businessId      String
+  /// Linked login — null for phone-only staff or until an invite is accepted.
+  userId          String?
+  displayName     String
+  email           String?
+  phone           String?
+  /// OWNER | ADMIN | MANAGER | RECEPTIONIST | SALES | SUPPORT | VIEWER
+  role            String    @default("RECEPTIONIST")
+  department      String?
+  active          Boolean   @default(true)
+  handoffEligible Boolean   @default(true)
+  /// AVAILABLE | BUSY | OFFLINE
+  presence        String    @default("AVAILABLE")
+  /// Lower dials first in the handoff cascade.
+  priority        Int       @default(100)
+  /// Optional per-member permission overrides on top of the role matrix.
+  permissionsJson Json?
+  lastActiveAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  business        Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, userId])
+  @@index([businessId, active, handoffEligible])
+  @@index([userId])
+}
+
+model BusinessMemberInvite {
+  id              String    @id @default(cuid())
+  businessId      String
+  email           String
+  role            String    @default("RECEPTIONIST")
+  invitedByUserId String?
+  /// sha256 of the invite token — the raw token only ever lives in the email.
+  tokenHash       String    @unique
+  /// PENDING | ACCEPTED | REVOKED | EXPIRED
+  status          String    @default("PENDING")
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  business        Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, email])
+  @@index([businessId, status])
+}
+
+/// Append-only through application paths: business-scoped audit trail for
+/// important actions (rules, knowledge, team, integrations, deploy, billing
+/// settings). No update/delete route exists for these rows.
+model BusinessActivityLog {
+  id          String   @id @default(cuid())
+  businessId  String
+  actorUserId String?
+  /// Human label captured at write time so renames/deletes never blank history.
+  actorLabel  String?
+  action      String
+  targetType  String?
+  targetId    String?
+  detailJson  Json?
+  createdAt   DateTime @default(now())
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@index([businessId, action])
+}
+
+// ============================================================================
+// Customer domain (plan Part 7): one canonical person per business, linked by
+// identities across channels. NEVER matched across businesses.
+// ============================================================================
+
+model Customer {
+  id           String             @id @default(cuid())
+  businessId   String
+  displayName  String?
+  primaryPhone String?
+  primaryEmail String?
+  /// ACTIVE | MERGED (row kept for reversibility) | ANONYMOUS
+  status       String             @default("ACTIVE")
+  mergedIntoId String?
+  notes        String?
+  firstSeenAt  DateTime           @default(now())
+  lastSeenAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  business     Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  identities   CustomerIdentity[]
+
+  @@index([businessId, lastSeenAt])
+  @@index([businessId, primaryPhone])
+  @@index([businessId, status])
+  @@index([mergedIntoId])
+}
+
+model CustomerIdentity {
+  id         String   @id @default(cuid())
+  businessId String
+  customerId String
+  /// PHONE | EMAIL | WHATSAPP | TELEGRAM | NAME
+  kind       String
+  /// Normalized (E.164 phone, lowercased email, provider id).
+  value      String
+  /// STRONG identities auto-link; WEAK ones only ever suggest.
+  confidence String   @default("STRONG")
+  source     String?
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, kind, value])
+  @@index([customerId])
+}
+
+model CustomerMergeSuggestion {
+  id               String    @id @default(cuid())
+  businessId       String
+  customerAId      String
+  customerBId      String
+  reason           String
+  score            Float?
+  /// PENDING | MERGED | DISMISSED
+  status           String    @default("PENDING")
+  resolvedByUserId String?
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@unique([businessId, customerAId, customerBId])
+  @@index([businessId, status])
+}
+
+/// Every merge is reversible: movedRefsJson records exactly which rows moved
+/// from the merged customer so a split can put them back.
+model CustomerMergeEvent {
+  id                  String    @id @default(cuid())
+  businessId          String
+  survivingCustomerId String
+  mergedCustomerId    String
+  movedRefsJson       Json
+  mergedByUserId      String?
+  reversedAt          DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@index([businessId, createdAt])
+}
+
+// ============================================================================
+// Handoff cascade (plan Part 1): per-attempt audit under a HandoffEvent.
+// ============================================================================
+
+model HandoffAttempt {
+  id             String       @id @default(cuid())
+  handoffEventId String
+  teamMemberId   String?
+  destination    String
+  attemptOrder   Int
+  startedAt      DateTime     @default(now())
+  connectedAt    DateTime?
+  endedAt        DateTime?
+  /// CONNECTED | NO_ANSWER | BUSY | FAILED | SKIPPED
+  outcome        String?
+  handoffEvent   HandoffEvent @relation(fields: [handoffEventId], references: [id], onDelete: Cascade)
+
+  @@index([handoffEventId, attemptOrder])
+}
+
+// ============================================================================
+// Rules engine (plan Part 4): owner-defined behavior rules with deterministic
+// priority, categories, scheduling, and full version history.
+// ============================================================================
+
+model BusinessAgentRule {
+  id               String                     @id @default(cuid())
+  businessId       String
+  installedAgentId String?
+  title            String
+  instruction      String
+  /// COMPLIANCE | SAFETY | BOOKING | ESCALATION | BUSINESS_POLICY | SALES | TONE | CUSTOM
+  category         String                     @default("CUSTOM")
+  /// Lower wins within a tier; COMPLIANCE/SAFETY always outrank other tiers.
+  priority         Int                        @default(100)
+  active           Boolean                    @default(true)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  version          Int                        @default(1)
+  createdByUserId  String?
+  updatedByUserId  String?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  business         Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  versions         BusinessAgentRuleVersion[]
+
+  @@index([businessId, active])
+  @@index([installedAgentId])
+}
+
+model BusinessAgentRuleVersion {
+  id              String            @id @default(cuid())
+  ruleId          String
+  version         Int
+  title           String
+  instruction     String
+  category        String
+  priority        Int
+  active          Boolean
+  startsAt        DateTime?
+  endsAt          DateTime?
+  changedByUserId String?
+  changeNote      String?
+  createdAt       DateTime          @default(now())
+  rule            BusinessAgentRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, version])
+}
+
+/// Customer-supplied text that tried to override system/business rules
+/// ("ignore your instructions…"). Logged as a security signal, never acted on.
+model RuleInjectionAttempt {
+  id               String   @id @default(cuid())
+  businessId       String
+  installedAgentId String?
+  channel          String
+  callId           String?
+  excerpt          String
+  createdAt        DateTime @default(now())
+
+  @@index([businessId, createdAt])
+}
+
+// ============================================================================
+// Knowledge gaps (plan Part 3): questions the AI could not answer.
+// ============================================================================
+
+model UnansweredQuestion {
+  id               String    @id @default(cuid())
+  businessId       String
+  installedAgentId String?
+  channel          String
+  question         String
+  /// Normalized dedupe key so repeats count up instead of piling rows.
+  normalizedKey    String
+  count            Int       @default(1)
+  lastAskedAt      DateTime  @default(now())
+  /// OPEN | RESOLVED
+  status           String    @default("OPEN")
+  resolvedByFileId String?
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  business         Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, normalizedKey])
+  @@index([businessId, status])
+}
+
+// ============================================================================
+// Appointment reminders (plan Part 5): durable scheduled sends with retry
+// state — a reminder failure never touches the appointment itself.
+// ============================================================================
+
+model AppointmentReminder {
+  id            String      @id @default(cuid())
+  businessId    String
+  appointmentId String
+  offsetMinutes Int
+  sendAt        DateTime
+  channel       String      @default("SMS")
+  /// SCHEDULED | RETRYING | SENT | FAILED | CANCELLED | SKIPPED_NO_CONSENT
+  status        String      @default("SCHEDULED")
+  attempts      Int         @default(0)
+  lastError     String?
+  sentAt        DateTime?
+  providerId    String?
+  /// appointmentId:offsetMinutes — one reminder per slot, ever.
+  dedupeKey     String      @unique
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([status, sendAt])
+  @@index([businessId])
+  @@index([appointmentId])
+}
+
+// ============================================================================
+// Per-step workflow execution (plan Part 5): every step gets its own durable
+// status instead of one run-level flag.
+// ============================================================================
+
+model WorkflowStepRun {
+  id             String      @id @default(cuid())
+  workflowRunId  String
+  nodeId         String
+  label          String?
+  /// PENDING | RUNNING | SUCCEEDED | RETRYING | FAILED | SKIPPED
+  status         String      @default("PENDING")
+  attempts       Int         @default(0)
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  providerId     String?
+  errorCode      String?
+  /// Sanitized — never raw provider payloads with PII/secrets.
+  errorMessage   String?
+  idempotencyKey String?     @unique
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  workflowRun    WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+
+  @@index([workflowRunId])
+  @@index([status])
+}
+
+// ============================================================================
+// Conversation quality scoring (plan Part 8).
+// ============================================================================
+
+model ConversationEvaluation {
+  id                      String    @id @default(cuid())
+  businessId              String
+  installedAgentId        String?
+  vapiCallId              String?   @unique
+  conversationId          String?
+  /// AI | HUMAN | MIXED — same rubric either way.
+  handledBy               String    @default("AI")
+  rubricVersion           String
+  overallScore            Float
+  confidence              Float
+  dimensionsJson          Json
+  coachingJson            Json?
+  missedOpportunitiesJson Json?
+  evaluator               String
+  /// SCORED | UNDER_REVIEW | ADJUSTED | EXCLUDED
+  status                  String    @default("SCORED")
+  adjustedScore           Float?
+  reviewNote              String?
+  reviewedByUserId        String?
+  reviewedAt              DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  business                Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@index([businessId, overallScore])
+  @@index([businessId, status])
+}
+
+/// ---------------------------------------------------------------------------
+/// Customer-context CRM.
+///
+/// Triven does not replace the customer's CRM — it becomes the AI layer on top
+/// of it. HubSpot is the first live adapter; the provider enum and the
+/// per-business `isActive` flag exist so Salesforce/Zoho/Pipedrive can be added
+/// without reshaping these tables or the buyer UI.
+/// ---------------------------------------------------------------------------
+
+enum CrmProvider {
+  HUBSPOT
+  // Add SALESFORCE, ZOHO, PIPEDRIVE, … in a later migration when that adapter
+  // ships. The UI catalog lists coming-soon providers without an enum value.
+}
+
+enum CrmConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  PENDING
+}
+
+model CrmConnection {
+  id                    String              @id @default(cuid())
+  businessId            String
+  provider              CrmProvider         @default(HUBSPOT)
+  /// True for the one CRM used for AI lookup + after-call sync. At most one
+  /// CONNECTED row per business should be isActive.
+  isActive              Boolean             @default(true)
+  portalId              String?
+  encryptedAccessToken  String?
+  encryptedRefreshToken String?
+  expiresAt             DateTime?
+  scopes                String?
+  status                CrmConnectionStatus @default(PENDING)
+  lastSyncedAt          DateTime?
+  lastError             String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  business              Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  contactCache          CrmContactCache[]
+  objectMappings        CrmObjectMapping[]
+
+  @@unique([businessId, provider])
+  @@index([businessId])
+  @@index([businessId, isActive])
+  @@index([portalId])
+  @@index([status])
+}
+
+model CrmContactCache {
+  id           String        @id @default(cuid())
+  connectionId String
+  businessId   String
+  /// Provider-side contact id (HubSpot contact id).
+  contactId    String
+  /// E.164. The only reliable identifier for consumer callers — indexed so a
+  /// mid-call lookup stays well under the latency budget.
+  phone        String?
+  email        String?
+  firstName    String?
+  lastName     String?
+  company      String?
+  owner        String?
+  stage        String?
+  lastActivity DateTime?
+  lastSynced   DateTime      @default(now())
+  /// Short AI insight line rendered in the table.
+  insight      String?
+  /// Extra provider properties (vip, preferred language, …).
+  payloadJson  Json?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  connection   CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, contactId])
+  @@index([businessId])
+  @@index([phone])
+  @@index([email])
+  @@index([lastSynced])
+  @@index([businessId, phone])
+}
+
+model CrmObjectMapping {
+  id            String        @id @default(cuid())
+  connectionId  String
+  businessId    String
+  /// "lead" | "appointment" | "conversation" | "vapi_call" | "whatsapp_conversation"
+  trivenEntity  String
+  trivenId      String
+  /// "contact" | "deal" | "note" | "task" | "meeting"
+  hubspotObject String
+  hubspotId     String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  connection    CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, trivenEntity, trivenId])
+  @@index([businessId])
+  @@index([hubspotObject, hubspotId])
+}
+
+model CrmWebhookEvent {
+  id           String    @id @default(cuid())
+  connectionId String?
+  businessId   String?
+  eventType    String
+  payloadJson  Json
+  /// PENDING | PROCESSING | DONE | FAILED
+  status       String    @default("PENDING")
+  attempts     Int       @default(0)
+  lastError    String?
+  createdAt    DateTime  @default(now())
+  processedAt  DateTime?
+
+  @@index([status, createdAt])
+  @@index([businessId])
 }

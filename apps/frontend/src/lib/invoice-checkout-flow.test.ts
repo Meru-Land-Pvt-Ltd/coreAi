@@ -1,20 +1,25 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+// Resolve relative to this test file so the suite passes regardless of the
+// vitest invocation cwd (e.g. `vitest --root apps/frontend` from the repo root).
+const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
 const billingSource = readFileSync(
-  resolve(process.cwd(), "src/app/business/(protected)/billingandusage/page.tsx"),
+  resolve(frontendRoot, "src/app/business/(protected)/billingandusage/page.tsx"),
   "utf8"
 );
 const invoiceDetailSource = readFileSync(
   resolve(
-    process.cwd(),
+    frontendRoot,
     "src/app/business/(protected)/billingandusage/billing/page.tsx"
   ),
   "utf8"
 );
 const checkoutSource = readFileSync(
-  resolve(process.cwd(), "src/app/business/(protected)/checkout/page.tsx"),
+  resolve(frontendRoot, "src/app/business/(protected)/checkout/page.tsx"),
   "utf8"
 );
 

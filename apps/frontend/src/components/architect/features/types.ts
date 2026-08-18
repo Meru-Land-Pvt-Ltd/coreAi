@@ -1,3 +1,5 @@
+import type { ContentWidth, DesignConfig, FaceBlueprint, FaceLayoutMap } from "@/components/agent-page/types";
+
 export type ArchitectProfile = {
   id: string;
   userId: string;
@@ -256,4 +258,83 @@ export type ArchitectTestDeploymentInput = {
   services?: string[];
   faqs?: string[];
   knowledge?: string[];
+};
+export type AgentPageTemplate = "chat" | "voice" | "media" | "form";
+
+export type AgentPageConfig = {
+  slug: string;
+  template: AgentPageTemplate;
+  headline: string | null;
+  welcomeMessage: string | null;
+  suggestedPrompts: string[];
+  accentColor: string | null;
+  status: "LIVE";
+};
+
+export type AgentPageManageData = {
+  page: AgentPageConfig | null;
+  url: string | null;
+  defaultTemplate: AgentPageTemplate;
+  /**
+   * Non-null only when the workflow's canvas contains product blocks — the
+   * Test preview (and the live page) then assemble the customer interface
+   * from these blocks instead of a built-in template. Optional so older
+   * fixtures without the field keep compiling; absent reads as null.
+   */
+  blueprint?: FaceBlueprint | null;
+  /**
+   * The saved Design Brain config, resolved to a full DesignConfig by the
+   * backend. Optional so older fixtures keep compiling; absent reads as the
+   * design defaults.
+   */
+  design?: DesignConfig | null;
+};
+
+export type AgentPageUpdateBody = {
+  template?: AgentPageTemplate;
+  headline?: string;
+  welcomeMessage?: string;
+  suggestedPrompts?: string[];
+  /** null clears the accent back to the default; omitting leaves it unchanged. */
+  accentColor?: string | null;
+  /**
+   * Design dial patches riding the manage PATCH (additive). The Arrange
+   * Editor sends the FULL layout map on every drop ({} clears it); the
+   * Preview toolbar sends `contentWidth`; other saved dials are preserved
+   * server-side.
+   */
+  design?: {
+    layout?: FaceLayoutMap;
+    contentWidth?: ContentWidth;
+  };
+};
+
+/** One turn of the Design Brain conversation, oldest first. */
+export type DesignChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type DesignChatBody = {
+  instruction: string;
+  /** Up to the last 10 turns, for follow-ups like "a bit darker". */
+  history?: DesignChatMessage[];
+};
+
+/**
+ * POST /agent-pages/manage/:workflowId/design-chat result. `patch` is the
+ * validated set of dials the Design Brain just turned — empty when the ask
+ * was impossible; `design` is the full post-patch DesignConfig.
+ */
+export type DesignChatData = {
+  reply: string;
+  patch: Record<string, unknown>;
+  design: DesignConfig;
+  page: Partial<AgentPageConfig> | null;
+  /**
+   * True when the Design Brain also changed the saved canvas graph (added or
+   * rewired pieces), so the builder must reload nodes/edges from the server —
+   * not just refetch the page design. Additive: older backends omit it.
+   */
+  graphChanged?: boolean;
 };

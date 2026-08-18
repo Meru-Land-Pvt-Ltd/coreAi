@@ -402,6 +402,11 @@ export type ArchitectTestProviderOptions = {
   businessName?: string;
   /** Create real events in the architect's own connected test calendar. */
   useTestCalendar?: boolean;
+  /**
+   * Public agent-page traffic: availability is ALWAYS business-hours test
+   * slots — anonymous visitors must never read the architect's real calendar.
+   */
+  forceTestAvailability?: boolean;
 };
 
 /**
@@ -420,7 +425,13 @@ export function createArchitectTestProviders(options: ArchitectTestProviderOptio
     telephonyEnabled: false,
     calendar: {
       checkAvailability: (input) =>
-        readCalendarAvailability(userId, "the architect's connected Google Calendar", input),
+        options.forceTestAvailability
+          ? Promise.resolve({
+              slots: fallbackTestSlots(input),
+              source: "test" as const,
+              note: "Public preview: used business-hours test slots. No Google Calendar data was read."
+            })
+          : readCalendarAvailability(userId, "the architect's connected Google Calendar", input),
       bookAppointment: (input) =>
         bookTestAppointment(
           {

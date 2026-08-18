@@ -19,7 +19,6 @@ import {
 import {
   authorizeVapiWebhook,
   buildBusinessContext,
-  extractStructuredCallTurns,
   findBusinessByVapiWebhook,
   firstNestedString,
   getAllToolCalls,
@@ -30,12 +29,14 @@ import {
   latestActiveInstalledAgent,
   loadDentalToolConfig,
   parseBody,
-  parseStoredVoicePipeline,
-  recordVapiCallUsage,
-  resolveLiveAfterHoursGateContext,
-  resolveVapiCallExecutionMode,
-  endLiveAfterHoursCall
+  resolveVapiCallExecutionMode
 } from "../../architect/twilio-business-routing";
+import {
+  endLiveAfterHoursCall,
+  extractStructuredCallTurns,
+  resolveLiveAfterHoursGateContext
+} from "../../architect/after-hours-live-gate";
+import { recordVapiCallUsage } from "../../business/usage-billing";
 import { getVoiceSession, updateVoiceSessionState } from "./session";
 import { buildUnifiedVoiceSystemPrompt } from "./prompt";
 import { executeToolGateway } from "./tools";
@@ -172,7 +173,7 @@ export async function handleVapiWebhook(c: Context) {
       const installedAgent = await (async () => {
         const storedCall = await prisma.vapiCall.findUnique({
           where: { callId },
-          select: { installedAgentId: true }
+          select: { installedAgentId: true, createdAt: true, metadataJson: true }
         });
         const directIds = [metadataInstalledAgentId, storedCall?.installedAgentId].filter(
           (id): id is string => Boolean(id)
@@ -188,8 +189,77 @@ export async function handleVapiWebhook(c: Context) {
             if (direct) return direct;
           }
         }
-        return latestActiveInstalledAgent(liveBusinessId);
+
+        // Phone-mapping rung, bounded to the CURRENT assignment window: a
+        // reassigned number must never hand the previous agent's call — and
+        // its billing — to the number's new holder.
+        const assignedPhoneNumber =
+          typeof metadata.assignedPhoneNumber === "string"
+            ? metadata.assignedPhoneNumber
+            : null;
+        if (assignedPhoneNumber) {
+          const [phone, platformNumber] = await Promise.all([
+            prisma.businessPhoneNumber.findFirst({
+              where: {
+                businessId: liveBusinessId,
+                phoneNumber: assignedPhoneNumber,
+                isActive: true
+              },
+              select: { installedAgentId: true }
+            }),
+            prisma.platformPhoneNumber.findUnique({
+              where: { phoneNumber: assignedPhoneNumber },
+              select: { assignedAt: true }
+            })
+          ]);
+          const callStartedAt = storedCall?.createdAt ?? null;
+          const withinCurrentAssignment =
+            !platformNumber?.assignedAt ||
+            !callStartedAt ||
+            callStartedAt >= platformNumber.assignedAt;
+          if (phone?.installedAgentId && withinCurrentAssignment) {
+            const phoneAgent = await prisma.installedAgent.findFirst({
+              where: { id: phone.installedAgentId, businessId: liveBusinessId },
+              select: { id: true, workflowId: true }
+            });
+            if (phoneAgent) return phoneAgent;
+          }
+        }
+
+        const workflowId =
+          typeof metadata.workflowId === "string" ? metadata.workflowId : null;
+        if (workflowId) {
+          const workflowAgent = await prisma.installedAgent.findFirst({
+            where: { businessId: liveBusinessId, workflowId },
+            select: { id: true, workflowId: true }
+          });
+          if (workflowAgent) return workflowAgent;
+        }
+
+        // Sole-agent fallback, bounded to calls made after that agent existed:
+        // an uninstalled predecessor's late webhook must not stamp — and bill —
+        // the replacement agent.
+        const soleAgent = await latestActiveInstalledAgent(liveBusinessId);
+        if (
+          soleAgent &&
+          storedCall?.createdAt &&
+          storedCall.createdAt < soleAgent.createdAt
+        ) {
+          return null;
+        }
+        return soleAgent;
       })().catch(() => null);
+
+      if (installedAgent) {
+        await prisma.vapiCall
+          .updateMany({
+            where: { callId, businessId: liveBusinessId },
+            data: { installedAgentId: installedAgent.id }
+          })
+          .catch((error) => {
+            console.error("[ai-voice-assistant] vapiCall agent stamp failed (non-fatal)", error);
+          });
+      }
 
       if (installedAgent?.workflowId) {
         try {

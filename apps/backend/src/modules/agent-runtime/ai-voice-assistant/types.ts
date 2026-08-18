@@ -1,9 +1,13 @@
-import type { Context } from "hono";
 import type { VOICE_TOOL_NAMES } from "@coreai/shared";
+import type { BusinessRuntimeContext } from "../../architect/twilio-business-routing";
+import type { LiveAfterHoursGateContext } from "../../architect/after-hours-live-gate";
 
 export type ExecutionMode = "LIVE" | "ARCHITECT_DRY_RUN" | "BUSINESS_TEST";
 
-export type VoiceToolName = (typeof VOICE_TOOL_NAMES)[number] | string;
+// VOICE_TOOL_NAMES is a name map (camelCase key → tool name), not an array.
+export type VoiceToolName =
+  | (typeof VOICE_TOOL_NAMES)[keyof typeof VOICE_TOOL_NAMES]
+  | string;
 
 export interface VoiceCallSessionState {
   businessId: string;
@@ -29,16 +33,8 @@ export interface VoiceCallSessionState {
 
 export interface VoiceToolContext {
   session: VoiceCallSessionState;
-  business: {
-    businessId: string;
-    businessName: string;
-    timeZone: string;
-    formattedHours?: string;
-    address?: string;
-    contactEmail?: string;
-    contactPhone?: string;
-    shortPolicy?: string;
-  } | null;
+  // The exact runtime context the live webhook builds — not a lookalike shape.
+  business: BusinessRuntimeContext | null;
   customerPhone: string;
   patientPhone: string;
   conversationId?: string;
@@ -49,11 +45,7 @@ export interface VoiceToolContext {
   installedAgentId?: string;
   timeZone: string;
   callTurns?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
-  afterHours?: {
-    isAfterHours: boolean;
-    route?: string | null;
-    state?: Record<string, unknown> | null;
-  };
+  afterHours?: LiveAfterHoursGateContext | null;
   dental?: Record<string, unknown> | null;
 }
 

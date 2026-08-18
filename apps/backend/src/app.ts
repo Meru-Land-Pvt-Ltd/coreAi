@@ -9,6 +9,8 @@ import { authRoutes } from "./modules/auth/routes";
 import { healthRoutes } from "./modules/health/routes";
 import { architectRoutes } from "./modules/architect/routes";
 import { businessRoutes } from "./modules/business/routes";
+// [DISABLED] import { crmRoutes } from "./modules/crm/routes";
+// [DISABLED] import { handleHubSpotWebhookPost } from "./modules/crm/hubspot/webhook";
 import { mailRoutes } from "./modules/mails/routes";
 import { adminRoutes } from "./modules/admin/routes";
 import { paymentRoutes } from "./modules/payments/routes";
@@ -19,6 +21,7 @@ import { memoryRoutes } from "./modules/memory/routes";
 import { emailRoutes } from "./modules/email/routes";
 import { legalRoutes } from "./modules/legal/routes";
 import { publicBookingRoutes } from "./modules/public/booking-routes";
+import { agentPagesRoutes } from "./modules/agent-pages/routes";
 import { chatbotRoutes } from "./modules/chatbot/routes";
 import { supportRoutes } from "./modules/support/routes";
 import { integrationsRoutes } from "./modules/integrations/routes";
@@ -51,6 +54,9 @@ app.route("/architect", architectRoutes);
 app.route("/api/architect", architectRoutes);
 app.route("/business", businessRoutes);
 app.route("/api/business", businessRoutes);
+// [DISABLED] HubSpot CRM routes
+// app.route("/crm", crmRoutes);
+// app.route("/api/crm", crmRoutes);
 app.route("/integrations", integrationsRoutes);
 app.route("/api/integrations", integrationsRoutes);
 app.route("/mail", mailRoutes);
@@ -78,6 +84,9 @@ app.route("/api/legal", legalRoutes);
 // Public customer-facing booking/service-request endpoints (slug-addressed).
 app.route("/public", publicBookingRoutes);
 app.route("/api/public", publicBookingRoutes);
+// Published agent pages (triven.ai/a/<slug>) — public by design; /manage/* guarded per-route.
+app.route("/agent-pages", agentPagesRoutes);
+app.route("/api/agent-pages", agentPagesRoutes);
 app.route("/chatbot", chatbotRoutes);
 app.route("/api/chatbot", chatbotRoutes);
 
@@ -96,6 +105,10 @@ app.post("/webhook/calendly", handleCalendlyWebhookPost);
 // Local/dev safety: same handlers if someone registered an /api-prefixed URL.
 app.get("/api/webhook/calendly", handleCalendlyOAuthMisdirectGet);
 app.post("/api/webhook/calendly", handleCalendlyWebhookPost);
+
+// [DISABLED] HubSpot CRM public webhook.
+// app.post("/webhook/hubspot", handleHubSpotWebhookPost);
+// app.post("/api/webhook/hubspot", handleHubSpotWebhookPost);
 
 app.notFound((c) => {
   console.warn(`[app] Route not found: ${c.req.method} ${c.req.url}`);

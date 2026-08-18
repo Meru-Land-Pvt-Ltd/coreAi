@@ -1,4 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { isBlockNodeType } from "@coreai/shared";
 import type { CSSProperties } from "react";
 import { cn } from "@/components/architect/ui/architect-ui";
 import { BuilderIcon } from "./icons";
@@ -20,7 +21,8 @@ const nodePalette: Record<NodeAccent, {
   green: { border: "border-green-200", headerBg: "bg-green-50", headerBorder: "border-green-100", dot: "bg-green-500", text: "text-green-700", icon: "text-green-600", rgb: "34,197,94", handle: "#22c55e" },
   blue: { border: "border-blue-200", headerBg: "bg-blue-50", headerBorder: "border-blue-100", dot: "bg-blue-500", text: "text-blue-700", icon: "text-blue-600", rgb: "59,130,246", handle: "#3b82f6" },
   red: { border: "border-red-200", headerBg: "bg-red-50", headerBorder: "border-red-100", dot: "bg-red-500", text: "text-red-700", icon: "text-red-600", rgb: "239,68,68", handle: "#ef4444" },
-  slate: { border: "border-slate-200", headerBg: "bg-slate-50", headerBorder: "border-slate-100", dot: "bg-slate-500", text: "text-slate-700", icon: "text-slate-600", rgb: "100,116,139", handle: "#64748b" }
+  slate: { border: "border-slate-200", headerBg: "bg-slate-50", headerBorder: "border-slate-100", dot: "bg-slate-500", text: "text-slate-700", icon: "text-slate-600", rgb: "100,116,139", handle: "#64748b" },
+  rose: { border: "border-rose-200", headerBg: "bg-rose-50", headerBorder: "border-rose-100", dot: "bg-rose-500", text: "text-rose-700", icon: "text-rose-600", rgb: "244,63,94", handle: "#f43f5e" }
 };
 
 export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
@@ -29,13 +31,17 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
   const isTelegramTrigger = data.type === "trigger.telegram_message";
   const hasInput = data.nodeKind !== "trigger";
   const cssVars = { "--glow-rgb": palette.rgb } as CSSProperties;
+  /* Product blocks always badge as PRODUCT — data.kind doubles as the Result
+     Viewer's saved setting ("auto"/"image"/…), so it can't drive the header. */
+  const isProductBlock = data.nodeKind === "block" || isBlockNodeType(String(data.type ?? ""));
+  const kindLabel = isProductBlock ? "PRODUCT" : data.kind;
 
   return (
     <div
       className={cn("core-node group relative w-56 outline-none", selected && "selected")}
       style={cssVars}
       role="group"
-      aria-label={`${data.kind}: ${data.title}`}
+      aria-label={`${kindLabel}: ${data.title}`}
     >
       {hasInput ? (
         <Handle
@@ -49,7 +55,7 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
       <div className={cn("node-card relative rounded-2xl border-2 bg-white shadow-lg", palette.border)}>
         <div className={cn("flex items-center gap-2 rounded-t-[14px] border-b px-4 py-2.5", palette.headerBg, palette.headerBorder)}>
           <span className={cn("h-2 w-2 rounded-full", palette.dot)} />
-          <span className={cn("text-[11px] font-bold uppercase tracking-wider", palette.text)} data-testid="architect-ui-workflow-builder-core-node-kind-text-2">{data.kind}</span>
+          <span className={cn("text-[11px] font-bold uppercase tracking-wider", palette.text)} data-testid="architect-ui-workflow-builder-core-node-kind-text-2">{kindLabel}</span>
         </div>
 
         <div className="px-4 py-3">

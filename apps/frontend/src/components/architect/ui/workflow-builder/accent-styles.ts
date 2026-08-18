@@ -91,6 +91,21 @@ export const accentStyles: Record<NodeAccent, AccentStyle> = {
     ring: "ring-red-100",
     glow: "shadow-red-500/25"
   },
+  rose: {
+    solid: "bg-rose-500",
+    soft: "bg-rose-50",
+    subtle: "bg-rose-50/70",
+    border: "border-rose-100",
+    selectedBorder: "border-rose-300",
+    icon: "bg-gradient-to-br from-rose-400 to-pink-500 text-white shadow-sm shadow-rose-500/25",
+    chip: "border-rose-100 bg-rose-50 text-rose-700",
+    text: "text-rose-700",
+    handle: "#f43f5e",
+    edge: "#f43f5e",
+    edgeClass: "edge-rose",
+    ring: "ring-rose-100",
+    glow: "shadow-rose-500/25"
+  },
   slate: {
     solid: "bg-slate-500",
     soft: "bg-slate-50",

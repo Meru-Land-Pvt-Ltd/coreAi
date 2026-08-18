@@ -2,7 +2,7 @@ import type { Edge, Node } from "@xyflow/react";
 
 export type BuilderTab = "build" | "test" | "configure" | "publish";
 export type MobilePanel = "library" | "settings" | null;
-export type NodeKind = "trigger" | "ai" | "condition" | "connector" | "output";
+export type NodeKind = "trigger" | "ai" | "condition" | "connector" | "output" | "block";
 export type NodeAccent =
   | "amber"
   | "violet"
@@ -10,7 +10,22 @@ export type NodeAccent =
   | "green"
   | "blue"
   | "red"
-  | "slate";
+  | "slate"
+  | "rose";
+
+/** One tappable style card in a Styles Gallery product block. */
+export type BlockPreset = {
+  id: string;
+  title: string;
+  emoji: string;
+  promptFragment: string;
+};
+
+/** One choice in a Model Picker product block. */
+export type BlockModelOption = {
+  id: string;
+  label: string;
+};
 
 export type BuilderNodeData = Record<string, unknown> & {
   label: string;
@@ -132,6 +147,10 @@ export type BuilderNodeData = Record<string, unknown> & {
   telegramLongitude?: string;
   telegramLivePeriod?: string;
   attachments?: AIAttachment[];
+  /* Product blocks ("Your Product" group) — config lives flat on node.data. */
+  placeholder?: string;
+  presets?: BlockPreset[];
+  options?: BlockModelOption[];
 };
 
 export type AIAttachment = {
@@ -180,6 +199,8 @@ export type ComingSoonItem = {
 
 export type LibraryGroup = {
   title: string;
+  /** Plain-English one-liner rendered under the group title. */
+  subtitle?: string;
   items: LibraryItem[];
 };
 

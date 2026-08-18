@@ -1,3 +1,8 @@
+import {
+  API_CALL_CONNECTOR,
+  API_CALL_CONNECTOR_ACTION,
+  API_CALL_DEFAULT_CONFIG
+} from "@coreai/shared";
 import type { BuilderNodeData, NodeKind } from "./types";
 
 export const defaultAgentName = "Untitled Agent";
@@ -154,6 +159,22 @@ export function defaultNodeData(
     };
   }
 
+  if (nodeKind === "block") {
+    /* Product blocks — pre-designed sections of the customer page. The library
+       overrides always supply the real title/subtitle/icon and the block's
+       flattened config fields (placeholder, presets, options, kind, label). */
+    return {
+      ...base,
+      label: "Product Section",
+      title: "Product Section",
+      kind: "PRODUCT",
+      icon: "gallery",
+      accent: "rose",
+      subtitle: "A section of your customer's page",
+      ...overrides
+    };
+  }
+
   if (nodeKind === "connector") {
     const connector = overrides?.connector ?? "SMS";
 
@@ -241,6 +262,22 @@ export function defaultNodeData(
         connectionId: "",
         recipient: "{{contact.phone}}",
         message: "Hello {{contact.name}}",
+        ...overrides
+      };
+    }
+
+    if (connector === API_CALL_CONNECTOR) {
+      return {
+        ...base,
+        label: "Connect to a service",
+        title: "Connect to a service",
+        kind: "API CALL",
+        icon: "globe",
+        accent: "amber",
+        subtitle: "Fetch live data from any service on the internet — using your key.",
+        connector: API_CALL_CONNECTOR,
+        connectorAction: API_CALL_CONNECTOR_ACTION,
+        ...API_CALL_DEFAULT_CONFIG,
         ...overrides
       };
     }

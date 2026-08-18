@@ -41,6 +41,12 @@ import {
   type BusinessSetupData
 } from "@/components/business/features/api";
 import { BusinessPaymentMethodModal } from "@/components/business/business-payment-method-modal";
+import {
+  disconnectHubSpot as disconnectBusinessHubSpot,
+  getCrmProviders,
+  getHubSpotOAuthUrl,
+  type CrmProviderEntry
+} from "@/components/business/crm/api";
 import { apiGet } from "@/lib/api";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { getAuthUser, logout, saveAuthSession, updateAuthUser, type AuthUser } from "@/lib/auth";
@@ -1162,6 +1168,10 @@ export function BusinessSettingsView() {
   const [whatsappPhoneNumber, setWhatsappPhoneNumber] = useState<string | null>(null);
   const [whatsappDisplayName, setWhatsappDisplayName] = useState<string | null>(null);
   const [whatsappConnectOpen, setWhatsappConnectOpen] = useState(false);
+  // Customer CRM providers — HubSpot is live, the rest are catalog entries so
+  // the buyer can see what is coming without a second settings page.
+  const [crmProviders, setCrmProviders] = useState<CrmProviderEntry[]>([]);
+  const [crmBusy, setCrmBusy] = useState(false);
 
   const [profileForm, setProfileForm] = useState(() => buildProfileForm(authUser, null));
   const [accountEmail, setAccountEmail] = useState(authUser?.email ?? "");
@@ -1231,7 +1241,7 @@ export function BusinessSettingsView() {
   }
 
   const loadData = useCallback(async () => {
-    const [setupResult, billingResult, calendarResult, calendlyResult, whatsappResult, profileResult, sessionsResult, loginHistoryResult] =
+    const [setupResult, billingResult, calendarResult, calendlyResult, whatsappResult, profileResult, sessionsResult, loginHistoryResult, crmResult] =
       await Promise.all([
         getBusinessSetup(),
         apiGet<{ billing: BillingData }>("/payments/billing"),
@@ -1240,8 +1250,13 @@ export function BusinessSettingsView() {
         getBusinessWhatsAppStatus(),
         getBusinessSettingsProfile(),
         getBusinessActiveSessions(),
-        getBusinessLoginHistory()
+        getBusinessLoginHistory(),
+        getCrmProviders()
       ]);
+
+    if (crmResult.success && crmResult.data) {
+      setCrmProviders(crmResult.data.providers);
+    }
 
     const settingsProfile =
       profileResult.success && profileResult.data?.profile ? profileResult.data.profile : null;
@@ -1584,6 +1599,37 @@ export function BusinessSettingsView() {
       return;
     }
     showToast(result.error ?? "Could not disconnect Calendly");
+  }
+
+  // Both entry points (Settings and the CRM empty state) call the same OAuth
+  // start endpoint; only the return path differs.
+  async function handleConnectHubSpot() {
+    if (crmBusy) return;
+    setCrmBusy(true);
+    const result = await getHubSpotOAuthUrl("/business/setting?tab=integrations");
+    setCrmBusy(false);
+
+    if (result.success && result.data?.url) {
+      window.location.href = result.data.url;
+      return;
+    }
+    showToast(result.error ?? "Could not start the HubSpot connection");
+  }
+
+  async function handleDisconnectHubSpot() {
+    const result = await disconnectBusinessHubSpot();
+    if (result.success) {
+      setCrmProviders((providers) =>
+        providers.map((provider) =>
+          provider.id === "HUBSPOT"
+            ? { ...provider, connected: false, isActive: false, lastSyncedAt: null }
+            : provider
+        )
+      );
+      showToast("HubSpot disconnected");
+      return;
+    }
+    showToast(result.error ?? "Could not disconnect HubSpot");
   }
 
   function handleConnectWhatsApp() {
@@ -2399,6 +2445,49 @@ export function BusinessSettingsView() {
                   onConnect={() => showToast("QuickBooks connection coming soon")}
                 /> */}
               </div>
+
+              {/*
+                Customer CRM. Triven does not replace the CRM a business already
+                uses — it becomes the AI layer on top of it. HubSpot is the first
+                live adapter; the rest are listed so the buyer can see the
+                roadmap without a second settings page.
+              */}
+              <div className="mb-6 mt-10">
+                <h2 className="text-lg font-bold text-slate-900">Customer CRM</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Connect your CRM so agents greet returning customers by name and log every call
+                  back to their record. Email and company are optional.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                {crmProviders.map((provider) => {
+                  const live = provider.status === "live";
+                  const isHubSpot = provider.id === "HUBSPOT";
+
+                  return (
+                    <IntegrationCard
+                      key={provider.id}
+                      name={provider.name}
+                      description={provider.description}
+                      connected={live && provider.connected}
+                      connectedDetail={
+                        provider.isActive ? "Connected · used for customer context" : undefined
+                      }
+                      testId={provider.id.toLowerCase()}
+                      icon={provider.id.toLowerCase()}
+                      onConnect={
+                        isHubSpot
+                          ? handleConnectHubSpot
+                          : () => showToast(`${provider.name} connection coming soon`)
+                      }
+                      onDisconnect={
+                        isHubSpot && provider.connected ? handleDisconnectHubSpot : undefined
+                      }
+                    />
+                  );
+                })}
+              </div>
             </SettingsSection>
 
             <SettingsSection
@@ -3019,6 +3108,41 @@ function IntegrationIcon({ icon }: { icon?: string }) {
         <svg viewBox="0 0 48 48" className="h-7 w-7" aria-hidden="true">
           <circle cx="24" cy="24" r="19" fill="#2CA01C" />
           <text x="24" y="31" textAnchor="middle" fontFamily="Inter, Arial, sans-serif" fontSize="17" fontWeight="700" fill="#fff">qb</text>
+        </svg>
+      );
+    case "hubspot":
+      return (
+        <svg viewBox="0 0 48 48" className="h-7 w-7" aria-hidden="true">
+          <circle cx="33" cy="16" r="5.5" fill="none" stroke="#FF7A59" strokeWidth="3" />
+          <circle cx="14" cy="30" r="6.5" fill="#FF7A59" />
+          <path d="M14 30 L28.5 18.5" stroke="#FF7A59" strokeWidth="3" strokeLinecap="round" />
+          <rect x="31" y="4" width="3" height="7" rx="1.5" fill="#FF7A59" />
+        </svg>
+      );
+    case "salesforce":
+      return (
+        <svg viewBox="0 0 48 48" className="h-7 w-7" aria-hidden="true">
+          <path
+            fill="#00A1E0"
+            d="M20 14a7 7 0 0 1 11.7-2.3A8 8 0 0 1 44 19a7.5 7.5 0 0 1-9.3 7.3A6.5 6.5 0 0 1 23 29.5 7 7 0 0 1 11 27a7.5 7.5 0 0 1 1.4-14.8A7 7 0 0 1 20 14z"
+          />
+        </svg>
+      );
+    case "zoho":
+      return (
+        <svg viewBox="0 0 48 48" className="h-7 w-7" aria-hidden="true">
+          <rect x="6" y="14" width="16" height="20" rx="3" fill="#E42527" />
+          <rect x="26" y="14" width="16" height="20" rx="3" fill="#226DB4" />
+        </svg>
+      );
+    case "pipedrive":
+      return (
+        <svg viewBox="0 0 48 48" className="h-7 w-7" aria-hidden="true">
+          <rect x="6" y="6" width="36" height="36" rx="9" fill="#017737" />
+          <path
+            fill="#fff"
+            d="M26 13c-3 0-5 1.4-6 3v-2.5h-6v29h6.3V32c1 1.3 2.8 2.4 5.5 2.4 5 0 8.7-4 8.7-10.8S31 13 26 13zm-1.4 16.2c-2.6 0-4.5-2-4.5-5.4s1.9-5.5 4.5-5.5 4.5 2 4.5 5.5-1.8 5.4-4.5 5.4z"
+          />
         </svg>
       );
     default:

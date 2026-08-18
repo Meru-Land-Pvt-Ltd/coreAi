@@ -29,6 +29,11 @@ export type AgentBusinessContext = {
   address?: string;
   factsLines?: string[];
   businessHours?: string;
+  /** The business this runtime serves — lets the runner load owner rules. */
+  businessId?: string;
+  installedAgentId?: string;
+  /** Pre-compiled owner-rules prompt section (loaded by runAgentWorkflow). */
+  rulesSection?: string;
   afterHours?: {
     policy: AfterHoursPolicy;
     snapshot: AfterHoursSnapshot;

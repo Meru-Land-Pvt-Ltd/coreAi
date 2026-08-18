@@ -41,6 +41,14 @@ const envSchema = z.object({
   CALENDLY_OAUTH_REDIRECT_URI: z.string().url().optional(),
   CALENDLY_WEBHOOK_URL: z.string().url().optional(),
 
+  HUBSPOT_CLIENT_ID: z.string().optional(),
+  HUBSPOT_CLIENT_SECRET: z.string().optional(),
+  HUBSPOT_OAUTH_REDIRECT_URI: z.string().url().optional(),
+  HUBSPOT_WEBHOOK_URL: z.string().url().optional(),
+  /// HubSpot signs webhooks with the app client secret; kept separate so a
+  /// rotated webhook secret does not invalidate live OAuth tokens.
+  HUBSPOT_CLIENT_SECRET_WEBHOOK: z.string().optional(),
+
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_API_KEY_SID: z.string().optional(),
@@ -98,6 +106,18 @@ const envSchema = z.object({
   TWILIO_DEFAULT_BUSINESS_NAME: z.string().optional(),
   TWILIO_FORWARD_TO_PHONE: z.string().optional(),
   TWILIO_FORWARD_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(20),
+  /**
+   * Platform-default hard ceiling on a business's monthly live AI usage, in
+   * cents. When month-to-date execution spend reaches it, inbound calls stop
+   * bridging to the AI (they forward to the business phone instead) and AI
+   * follow-ups pause until the next month. 0 disables the platform default;
+   * Business.usageHardCapCents overrides per business.
+   */
+  LIVE_USAGE_HARD_CAP_CENTS: z.coerce.number().int().min(0).default(50000),
+  /** Conservative per-minute estimate for LIVE calls still PENDING/UNPRICED — keeps the cap honest while pricing lags. */
+  LIVE_USAGE_PROVISIONAL_CENTS_PER_MIN: z.coerce.number().int().min(0).default(15),
+  /** Conservative per-message estimate for standalone SMS ledger spend the execution ledger doesn't carry. */
+  LIVE_USAGE_SMS_ESTIMATE_CENTS: z.coerce.number().int().min(0).default(2),
   TWILIO_DEFAULT_BOOKING_URL: z.string().optional(),
   TWILIO_DEFAULT_TEAM_PHONE: z.string().optional(),
   TWILIO_NUMBER_POOL: z.string().optional(),
@@ -154,6 +174,10 @@ const envSchema = z.object({
 
   /** Platform-wide cap on marketplace demo call starts per day (cost control). */
   MARKETPLACE_DEMO_GLOBAL_DAILY_LIMIT: z.coerce.number().int().positive().default(200),
+  /** Published agent pages: sandboxed uses per IP per page per day. */
+  AGENT_PAGE_DAILY_LIMIT: z.coerce.number().int().positive().default(20),
+  /** Published agent pages: platform-wide cap on sandboxed uses per day (cost control). */
+  AGENT_PAGE_GLOBAL_DAILY_LIMIT: z.coerce.number().int().positive().default(2000),
   /** Pinecone Vector Database configuration */
   PINECONE_API_KEY: z.string().optional(),
   PINECONE_INDEX_NAME: z.string().default("memory"),
@@ -168,6 +192,21 @@ const envSchema = z.object({
   MEMORY_TIMELINE_SNIPPET_WORDS: z.coerce.number().int().positive().default(18),
   MEMORY_CHUNK_TARGET_CHARS: z.coerce.number().int().positive().default(2000),
   MEMORY_CHUNK_MAX_CHARS: z.coerce.number().int().positive().default(2500),
+
+  /**
+   * Ceiling on AI door calls (entry + exit + presentation combined) inside a
+   * single run. Doors are an enhancement, never a dependency — past this the
+   * run continues with no doors and no extra cost.
+   */
+  DOOR_BRAIN_MAX_PER_RUN: z.coerce.number().int().min(0).default(8),
+
+  /**
+   * Total wall-clock milliseconds one run may spend waiting on doors, shared by
+   * every door in it. The per-call timeout alone would let a full allowance of
+   * slow doors add 8 × 12s to a customer's page load; this collapses that to a
+   * single shared ceiling, after which the run finishes with no doors at all.
+   */
+  DOOR_BRAIN_MAX_MS_PER_RUN: z.coerce.number().int().min(0).default(25_000),
 
   /** Meta WhatsApp Cloud API (optional — connections store their own tokens). */
   META_WHATSAPP_APP_ID: z.string().optional(),
@@ -184,6 +223,15 @@ const envSchema = z.object({
    * Used to ensure the app can verify Meta webhooks after automated onboarding.
    */
   META_WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+
+  /**
+   * Platform YouTube Data API key pool. A JSON array of API keys, e.g.
+   * '["AIza...one","AIza...two"]'. The API Call node's "use platform YouTube
+   * key" option rotates over these so a YouTube demo works out of the box
+   * without the architect adding their own key. Optional and empty-safe: when
+   * unset or not a JSON array, getPlatformYouTubeKey() returns null.
+   */
+  YOUTUBE_API_KEY_POOL: z.string().optional(),
 
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),

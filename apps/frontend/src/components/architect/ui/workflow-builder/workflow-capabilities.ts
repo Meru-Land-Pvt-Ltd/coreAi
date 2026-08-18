@@ -1,4 +1,10 @@
-import { DEEPGRAM_NODE_TYPES, resolveDeepgramMode, TELEGRAM_NODE_TYPES, VOICE_NODE_TYPES } from "@coreai/shared";
+import {
+  DEEPGRAM_NODE_TYPES,
+  resolveDeepgramMode,
+  TELEGRAM_NODE_TYPES,
+  VOICE_NODE_TYPES,
+  workflowGraphHasTrigger
+} from "@coreai/shared";
 
 /** Minimal node shape used to derive Test / Configure capabilities from the canvas. */
 export type CapabilityNode = {
@@ -241,15 +247,6 @@ export function deriveWorkflowCapabilities(nodes: CapabilityNode[]): WorkflowCap
  * missed-call, telegram, whatsapp, or nodeKind=trigger).
  */
 export function workflowHasTriggerNode(nodes: CapabilityNode[]): boolean {
-  return nodes.some((node) => {
-    const type = nodeType(node);
-    const kind = String(node.data?.nodeKind ?? "").toLowerCase();
-    if (kind === "trigger") return true;
-    if (type.startsWith("trigger.")) return true;
-    if (type === "manual_trigger" || type === "manual") return true;
-    if (type === "phone_call" || type === "twilio_missed_call" || type === "twilio_inbound_sms") {
-      return true;
-    }
-    return false;
-  });
+  // One rule, shared with the graph validator and the template seeds.
+  return workflowGraphHasTrigger(nodes);
 }

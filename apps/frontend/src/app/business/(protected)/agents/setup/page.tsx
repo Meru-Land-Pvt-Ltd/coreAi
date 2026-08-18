@@ -663,6 +663,9 @@ function SetupWizard() {
   // Location-based number selection (country → state → city → search → confirm).
   const [forwardToPhone, setForwardToPhone] = useState("");
   const [teamPhone, setTeamPhone] = useState("");
+  // [DISABLED] Human-transfer settings UI is temporarily turned off.
+  // const [transferEnabled, setTransferEnabled] = useState(true);
+  // const [transferConditions, setTransferConditions] = useState("");
   const [answeringMode, setAnsweringMode] = useState("NO_ANSWER");
   const [calendar, setCalendar] = useState<{ connected: boolean; email: string | null }>({
     connected: false,
@@ -938,6 +941,9 @@ function SetupWizard() {
         if (!isNewInstall) {
           setBookingUrl(data.profile.bookingUrl ?? "");
           setTeamPhone(data.profile.teamPhone ?? "");
+          // [DISABLED] Human-transfer settings UI is temporarily turned off.
+          // setTransferEnabled((data.profile as { transferEnabled?: boolean }).transferEnabled !== false);
+          // setTransferConditions((data.profile as { transferConditions?: string | null }).transferConditions ?? "");
           setTone(data.profile.tone ?? "friendly");
           setServicesText((data.profile.services ?? []).join("\n"));
           setCalendarId(data.profile.calendarId ?? "primary");
@@ -1323,6 +1329,9 @@ function SetupWizard() {
       forwardToPhone: forwardToPhone.trim(),
       bookingUrl: bookingUrl.trim(),
       teamPhone: teamPhone.trim(),
+      // [DISABLED] Human-transfer settings UI is temporarily turned off.
+      // transferEnabled,
+      // transferConditions: transferConditions.trim(),
       ...(tzValue !== savedTimeZoneRef.current ? { timeZone: tzValue } : {}),
       tone,
       services: parseLines(servicesText),
@@ -2226,6 +2235,9 @@ function SetupWizard() {
               assignedNumber={assignedNumber}
               forwardToPhone={forwardToPhone}
               teamPhone={teamPhone}
+              // [DISABLED] Human-transfer settings UI is temporarily turned off.
+              // transferEnabled={transferEnabled}
+              // transferConditions={transferConditions}
               answeringMode={answeringMode}
               calendar={calendar}
               calendarBusy={calendarBusy}
@@ -2240,7 +2252,19 @@ function SetupWizard() {
               }}
               onSelectPhone={setSelectedPhoneId}
               onForward={setForwardToPhone}
-              onTeamPhone={setTeamPhone}
+              onTeamPhone={(value) => {
+                setTeamPhone(value);
+                setConfigDirty(true);
+              }}
+              // [DISABLED] Human-transfer settings UI is temporarily turned off.
+              // onTransferEnabled={(value) => {
+              //   setTransferEnabled(value);
+              //   setConfigDirty(true);
+              // }}
+              // onTransferConditions={(value) => {
+              //   setTransferConditions(value);
+              //   setConfigDirty(true);
+              // }}
               onAnsweringMode={setAnsweringMode}
               onConnectCalendar={handleConnectCalendar}
               onDisconnectCalendar={handleDisconnectCalendar}
@@ -2318,7 +2342,7 @@ function SetupWizard() {
                     onSummaryChange={setKnowledgeSummary}
                     onKnowledgeChanged={handleKnowledgeChanged}
                     hoursSuggestionReady={businessHours.suggestion}
-                    onReviewHours={setupVisibility.availability ? () => jumpToConfigureSection("hours-availability") : undefined}
+                    onReviewHours={setupVisibility.hours ? () => jumpToConfigureSection("hours-availability") : undefined}
                     // The address is stored on the business, not an installed
                     // agent. Reuse it when the business adds another agent.
                     clearAddressOnMount={false}
@@ -2746,6 +2770,9 @@ function StepConnect({
   assignedNumber,
   forwardToPhone,
   teamPhone,
+  // [DISABLED] Human-transfer settings UI is temporarily turned off.
+  // transferEnabled,
+  // transferConditions,
   answeringMode,
   calendar,
   calendarBusy,
@@ -2757,6 +2784,9 @@ function StepConnect({
   onSelectPhone,
   onForward,
   onTeamPhone,
+  // [DISABLED] Human-transfer settings UI is temporarily turned off.
+  // onTransferEnabled,
+  // onTransferConditions,
   onAnsweringMode,
   onConnectCalendar,
   onDisconnectCalendar,
@@ -2794,6 +2824,9 @@ function StepConnect({
   assignedNumber: string | null;
   forwardToPhone: string;
   teamPhone: string;
+  // [DISABLED] Human-transfer settings UI is temporarily turned off.
+  // transferEnabled: boolean;
+  // transferConditions: string;
   answeringMode: string;
   calendar: { connected: boolean; email: string | null };
   calendarBusy: boolean;
@@ -2811,6 +2844,9 @@ function StepConnect({
   onSelectPhone: (id: string) => void;
   onForward: (v: string) => void;
   onTeamPhone: (v: string) => void;
+  // [DISABLED] Human-transfer settings UI is temporarily turned off.
+  // onTransferEnabled: (v: boolean) => void;
+  // onTransferConditions: (v: string) => void;
   onAnsweringMode: (v: string) => void;
   onConnectCalendar: () => void;
   onDisconnectCalendar: () => void;
@@ -3040,6 +3076,78 @@ function StepConnect({
           ) : null}
         </div>
       ) : null}
+
+      {/* [DISABLED] SECTION — Human transfer (live handoff to a real person).
+          Temporarily disabled. Original JSX preserved verbatim below. */}
+      {/* [DISABLED]
+      <div className="mt-6 border-t border-gray-100 pt-6" data-testid="business-setup-transfer-section">
+        <h3 className="text-sm font-bold text-slate-900 mb-1">Transfer to a real person</h3>
+        <p className="text-xs text-slate-500 mb-3">
+          When a caller asks for a human — or your conditions below apply — the AI connects them to
+          your team phone on the same call.
+        </p>
+
+        <label className="flex items-center gap-2.5 py-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={transferEnabled}
+            onChange={(e) => onTransferEnabled(e.target.checked)}
+            data-testid="business-setup-transfer-enabled"
+            className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-400"
+          />
+          <span className="text-sm text-slate-700">Allow the AI to transfer calls to a person</span>
+        </label>
+
+        {transferEnabled ? (
+          <div className="mt-2 space-y-3">
+            <div>
+              <label htmlFor="setup-team-phone" className="block text-xs font-semibold text-slate-600 mb-1">
+                Team phone (where transfers ring)
+              </label>
+              <input
+                id="setup-team-phone"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                value={teamPhone}
+                onChange={(e) => onTeamPhone(e.target.value)}
+                data-testid="business-setup-team-phone"
+                className="field w-full px-4 py-3 text-sm font-mono placeholder:text-slate-300 outline-none rounded-xl border border-gray-200"
+                placeholder="+1 (555) 123-4567"
+              />
+              <p className="mt-1 text-[11px] text-slate-400">
+                Include the country code. Add team members with their own numbers on the Team page —
+                the AI rings whoever is available first.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="setup-transfer-conditions" className="block text-xs font-semibold text-slate-600 mb-1">
+                When should the AI transfer? (optional, plain English)
+              </label>
+              <textarea
+                id="setup-transfer-conditions"
+                value={transferConditions}
+                onChange={(e) => onTransferConditions(e.target.value)}
+                rows={3}
+                maxLength={1500}
+                data-testid="business-setup-transfer-conditions"
+                className="field w-full px-4 py-3 text-sm placeholder:text-slate-300 outline-none rounded-xl border border-gray-200 resize-y"
+                placeholder={"One condition per line, e.g.\nAnyone asking about billing disputes\nQuotes over $500\nExisting customers with a complaint"}
+              />
+              <p className="mt-1 text-[11px] text-slate-400">
+                These add extra transfer reasons. Callers who ask for a person are always connected,
+                no matter what.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400" data-testid="business-setup-transfer-disabled-note">
+            The AI will take a message and notify your team instead of transferring calls.
+          </p>
+        )}
+      </div>
+      */}
 
       {/* SECTION 3 — Calendar Connection block */}
       {showCalendar ? (

@@ -49,6 +49,13 @@ import { telegramCommandList, telegramCustomCommands } from "./telegram-command-
 import { parseRunnerWorkflowJson, runWorkflowTest } from "./workflow-runner";
 import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/agent-knowledge";
 import { addressFromProfile, formatAddressOneLine } from "../business/business-facts";
+// [DISABLED:non-handoff]
+// import {
+//   cancelRemindersForAppointment,
+//   rescheduleRemindersForAppointment,
+//   scheduleRemindersForAppointment
+// } from "../business/reminders/reminder-service";
+// import { ensureCustomerByIdentity } from "../business/customers/customer-service";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -97,6 +104,7 @@ async function recordTelegramTurn(
   if (!body || !body.trim()) return;
   try {
     const customerId = event.sender.id || "unknown";
+    const now = new Date();
     const conversation = await prisma.conversation.upsert({
       where: {
         businessId_channel_customerPhone: {
@@ -105,14 +113,42 @@ async function recordTelegramTurn(
           customerPhone: customerId
         }
       },
-      update: { status: "OPEN" },
+      update: {
+        status: "OPEN",
+        ...(direction === "INBOUND" ? { lastInboundAt: now } : {}),
+        ...(direction === "OUTBOUND" ? { lastOutboundAt: now } : {})
+      },
       create: {
         businessId: connection.businessId,
         channel: "TELEGRAM",
         customerPhone: customerId,
-        status: "OPEN"
+        status: "OPEN",
+        ...(direction === "INBOUND" ? { lastInboundAt: now } : {})
       }
     });
+
+    // [DISABLED:non-handoff] canonical customer linking.
+    // if (!conversation.customerId && customerId !== "unknown") {
+    //   void ensureCustomerByIdentity({
+    //     businessId: connection.businessId,
+    //     kind: "TELEGRAM",
+    //     value: customerId,
+    //     displayName:
+    //       [event.sender.firstName, event.sender.lastName].filter(Boolean).join(" ") ||
+    //       event.sender.username ||
+    //       undefined,
+    //     source: "telegram"
+    //   })
+    //     .then((result) =>
+    //       result.outcome !== "SKIPPED"
+    //         ? prisma.conversation.update({
+    //             where: { id: conversation.id },
+    //             data: { customerId: result.customerId }
+    //           })
+    //         : null
+    //     )
+    //     .catch(() => null);
+    // }
 
     const latest = await prisma.conversationMessage.findFirst({
       where: { conversationId: conversation.id },
@@ -864,7 +900,7 @@ async function createTelegramAppointment(options: {
           })
         : null;
       try {
-        return await prisma.appointment.create({
+        const created = await prisma.appointment.create({
           data: {
             businessId: connection.businessId,
             installedAgentId: connection.installedAgentId,
@@ -884,6 +920,11 @@ async function createTelegramAppointment(options: {
             notes: context.customerNotes
           }
         });
+        // [DISABLED:non-handoff] appointment reminders.
+        // void scheduleRemindersForAppointment({ appointmentId: created.id }).catch((error) =>
+        //   console.error("[reminders] telegram schedule failed (booking kept)", error)
+        // );
+        return created;
       } catch (error) {
         if (calendarEvent?.id) {
           await cancelGoogleCalendarAppointment({
@@ -1529,6 +1570,7 @@ async function cancelAppointment(
       eventId: appointment.calendarEventId
     });
   }
+  // [DISABLED:non-handoff] await cancelRemindersForAppointment(appointment.id).catch(() => null);
   const cancelled = await prisma.appointment.update({
     where: { id: appointment.id },
     data: {
@@ -1650,7 +1692,7 @@ async function confirmReschedule(
         timeZone
       });
       if (!calendar.updated) throw new Error("The Google Calendar event no longer exists.");
-      return prisma.appointment.update({
+      const moved = await prisma.appointment.update({
         where: { id: appointment.id },
         data: {
           startAt,
@@ -1659,6 +1701,10 @@ async function confirmReschedule(
           calendarEventLink: calendar.htmlLink
         }
       });
+      // [DISABLED:non-handoff] reminder rescheduling.
+      // await rescheduleRemindersForAppointment(appointment.id).catch(() => null);
+      // await scheduleRemindersForAppointment({ appointmentId: appointment.id }).catch(() => null);
+      return moved;
     }
   });
   if (!reservation.ok) {

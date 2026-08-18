@@ -711,6 +711,83 @@ export async function revalidateAndReserveSlot<T>(input: {
   );
 }
 
+/**
+ * Wall-clock date/hour/minute of an instant in `timeZone` — the slot-lock
+ * key. Kept HERE, next to the lock, so every booking channel derives the key
+ * identically. Normalizes ICU's occasional hour "24" for midnight.
+ */
+export function wallClockPartsInZone(
+  instant: Date,
+  timeZone: string
+): { date: string; hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(instant);
+  const map: Record<string, string> = {};
+  for (const part of parts) {
+    if (part.type !== "literal") map[part.type] = part.value;
+  }
+
+  let date = `${map.year}-${map.month}-${map.day}`;
+  let hour = Number(map.hour);
+  if (hour === 24) {
+    hour = 0;
+    const shifted = new Date(`${date}T12:00:00Z`);
+    shifted.setUTCDate(shifted.getUTCDate() + 1);
+    date = shifted.toISOString().slice(0, 10);
+  }
+  return { date, hour, minute: Number(map.minute) };
+}
+
+/** The "offer up to N nearby openings" policy, shared by every rejection reply. */
+export function topAlternativeLabels(result: BusinessExactTimeResult, limit = 3): string[] {
+  return result.alternatives
+    .slice(0, limit)
+    .map((slot) => slot.label)
+    .filter(Boolean);
+}
+
+/**
+ * Reserve-by-instant: derives the lock key in the SCHEDULE's own timezone
+ * (the one checkBusinessExactTime validates in), so a caller-supplied or
+ * env-default timezone can never make the advisory lock guard a different
+ * slot than the one being booked.
+ */
+export async function reserveSlotForInstant<T>(input: {
+  businessId: string;
+  installedAgentId?: string | null;
+  startAt: Date;
+  serviceName?: string | null;
+  now?: Date;
+  createBooking: () => Promise<T>;
+}): Promise<
+  | { ok: true; booking: T; startAt: string; durationMinutes: number }
+  | { ok: false; result: BusinessExactTimeResult }
+> {
+  const { schedule } = await resolveScheduleForBusiness({
+    businessId: input.businessId,
+    installedAgentId: input.installedAgentId
+  });
+  const wall = wallClockPartsInZone(input.startAt, schedule.timeZone);
+
+  return revalidateAndReserveSlot({
+    businessId: input.businessId,
+    installedAgentId: input.installedAgentId,
+    date: wall.date,
+    hour: wall.hour,
+    minute: wall.minute,
+    serviceName: input.serviceName,
+    now: input.now,
+    createBooking: input.createBooking
+  });
+}
+
 /* ------------------------ brochure hours extraction ------------------------ */
 
 const DAY_ALIASES: Record<string, Weekday> = {

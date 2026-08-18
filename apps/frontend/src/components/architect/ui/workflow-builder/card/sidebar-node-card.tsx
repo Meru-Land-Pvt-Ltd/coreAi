@@ -39,7 +39,16 @@ const CARD_PALETTE_BY_ICON: Record<string, { bg: string; fg: string }> = {
 
   // 📊 Presentation / Slides (NotebookLM-style muted pastel)
   presentation: { bg: "#F4EFE4", fg: "#96793A" },
-  "slide-deck": { bg: "#F4EFE4", fg: "#96793A" }
+  "slide-deck": { bg: "#F4EFE4", fg: "#96793A" },
+
+  // 🛍 Your Product blocks (rose family)
+  edit: { bg: "#FFF1F2", fg: "#BE123C" },
+  gallery: { bg: "#FFF1F2", fg: "#BE123C" },
+  sliders: { bg: "#FFF1F2", fg: "#BE123C" },
+  eye: { bg: "#FFF1F2", fg: "#BE123C" },
+  "arrow-right": { bg: "#FFF1F2", fg: "#BE123C" },
+  clock: { bg: "#FFF1F2", fg: "#BE123C" },
+  wand: { bg: "#FFF1F2", fg: "#BE123C" }
 };
 
 const CARD_PALETTE_FALLBACK = { bg: "#F8FAFC", fg: "#475569" };

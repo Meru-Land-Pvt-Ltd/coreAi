@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, requiredConnectorKeys, TRIVEN_AGENT_TAXONOMY, workflowJsonForTemplate } from "@coreai/shared";
+import { calendarEventTitleForMode, getLlmProvider, normalizeAgentConfigure, presentationDoorEnabled, requiredConnectorKeys, TRIVEN_AGENT_TAXONOMY, workflowJsonForTemplate } from "@coreai/shared";
 import { llmCredentialStatus } from "../ai-provider-engine/llm-credentials";
 import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
 import { llmProviderAvailability } from "../ai-provider-engine/llm-probe";
@@ -8,6 +8,7 @@ import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { apiErrorStatus } from "../../lib/error-utils";
 import { prisma } from "../../lib/prisma";
+import { resolveRunOutput } from "../agent-pages/run-output";
 import { MarketplaceDemoError, normalizeDemoCallCustomInfo, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import {
@@ -47,8 +48,14 @@ import {
   handleTwilioMissedCall,
   handleTwilioVoice,
   handleTwilioVoiceAction
+  // [DISABLED] handleTwilioTransferResult
 } from "./twilio-business-routing";
-import { handleVapiWebhook } from "../agent-runtime/ai-voice-assistant";
+// The live Vapi webhook stays on the battle-tested handler — every webhook
+// test suite drives THIS implementation. The ai-voice-assistant module's
+// handler is compiled and importable, but cutting production over to it must
+// be a deliberate change with its own test migration, not a build-fix side
+// effect (it landed uncompilable, so it has never actually run anywhere).
+import { handleVapiWebhook } from "./twilio-business-routing";
 import { whatsappRoutes } from "../whatsapp/routes";
 import { handleWhatsAppWebhookPost, verifyWhatsAppWebhookChallenge } from "../whatsapp/webhook";
 import {
@@ -104,6 +111,7 @@ import { runArchitectConversationTest } from "./workflow-conversation-test";
 import { deleteTestCalendarEvent } from "./test-calendar-events";
 import { architectPayoutRoutes, handleStripeConnectWebhook } from "./payout-routes";
 import { architectSettingsRoutes } from "./settings-routes";
+import { architectSecretsRoutes } from "./secrets-routes";
 import { getProviderRegistry } from "../ai-provider-engine/provider-engine";
 import { transcribeWithDeepgram, speakWithDeepgram } from "../ai-provider-engine/deepgram-stt";
 import {
@@ -249,6 +257,8 @@ architectRoutes.post("/connectors/twilio/voice", handleTwilioVoice);
 architectRoutes.post("/connectors/twilio/voice/:workflowId", handleTwilioVoice);
 architectRoutes.post("/connectors/twilio/voice-action", handleTwilioVoiceAction);
 architectRoutes.post("/connectors/twilio/voice-action/:workflowId", handleTwilioVoiceAction);
+// [DISABLED] live human-handoff dial-result webhook.
+// architectRoutes.post("/connectors/twilio/transfer-result/:handoffId", handleTwilioTransferResult);
 architectRoutes.post("/connectors/twilio/inbound-sms", handleTwilioInboundSms);
 architectRoutes.post("/connectors/twilio/inbound-sms/:workflowId", handleTwilioInboundSms);
 // SMS delivery-status callback (https://triven.ai/api/architect/connectors/twilio/message-status).
@@ -757,6 +767,7 @@ architectRoutes.post("/media/upload", async (c) => {
 
 architectRoutes.route("/payouts", architectPayoutRoutes);
 architectRoutes.route("/settings", architectSettingsRoutes);
+architectRoutes.route("/secrets", architectSecretsRoutes);
 architectRoutes.route("/whatsapp", whatsappRoutes);
 
 architectRoutes.get("/dashboard/activity", async (c) => {
@@ -2402,7 +2413,13 @@ architectRoutes.post("/workflows/:workflowId/conversation-test", async (c) => {
       workflowJson: workflow.workflowJson,
       message: input.message,
       history: input.history,
-      testContext: input.testContext,
+      // The test form's business name wins; without one, the workflow's own
+      // name stands in so {{business.name}} never resolves to a raw
+      // placeholder (there is no installed business in a dry-run).
+      testContext: {
+        ...input.testContext,
+        businessName: input.testContext.businessName?.trim() || workflow.name
+      },
       executionMode: "ARCHITECT_DRY_RUN",
       ...(input.simulateBusinessHoursState === "open" || input.simulateBusinessHoursState === "closed"
         ? { simulateBusinessHoursState: input.simulateBusinessHoursState }
@@ -2433,6 +2450,85 @@ architectRoutes.post("/workflows/:workflowId/conversation-test", async (c) => {
       error instanceof Error ? error.message : "Could not run browser conversation test",
       500,
       "ARCHITECT_CONVERSATION_TEST_FAILED"
+    );
+  }
+});
+
+const architectPreviewRunSchema = z.object({
+  prompt: z
+    .string({ message: "Prompt is required" })
+    .trim()
+    .min(1, "Prompt is required")
+    .max(4000, "Prompt is too long (4000 characters max)"),
+  /** Accepted for parity with the public page runtime; one-shot runs are stateless. */
+  sessionId: z.string().trim().max(64).optional()
+});
+
+// One sandboxed one-shot run for the builder's Test tab preview (media/form
+// Faces). Same engine + output extraction as the public /agent-pages/:slug/run
+// endpoint, but architect-authed with ownership — and never rate-limited by
+// the public page limiter.
+architectRoutes.post("/workflows/:workflowId/preview-run", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const workflowId = c.req.param("workflowId");
+
+    if (!workflowId) {
+      return errorResponse(c, "Agent id is required", 422, "WORKFLOW_ID_REQUIRED");
+    }
+
+    const input = architectPreviewRunSchema.parse(await c.req.json().catch(() => ({})));
+
+    const workflow = await prisma.workflowDefinition.findFirst({
+      where: {
+        id: workflowId,
+        architectUserId: authUser.id
+      }
+    });
+
+    if (!workflow) {
+      return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+    }
+
+    // Dry-runs have no installed business, so the workflow's own name stands
+    // in — saved text like {{business.name}} resolves to the agent's name
+    // instead of leaking a raw placeholder into the preview.
+    const result = await runWorkflowTest({
+      userId: authUser.id,
+      workflowId,
+      workflowJson: workflow.workflowJson,
+      input: { message: input.prompt, businessName: workflow.name },
+      mode: "test"
+    });
+
+    // Same Face-out door as the public page, so the builder's Test tab shows
+    // the architect exactly what a visitor will see.
+    const output = await resolveRunOutput(result, {
+      userMessage: input.prompt,
+      businessName: workflow.name,
+      doorsEnabled: presentationDoorEnabled(workflow.workflowJson)
+    });
+
+    return successResponse(c, { output }, "Preview run completed");
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(
+        c,
+        error.issues[0]?.message ?? "Invalid preview input",
+        422,
+        "VALIDATION_ERROR"
+      );
+    }
+
+    // Engine failures are logged server-side only — the architect gets a calm,
+    // human message with no stack or config detail.
+    console.error("[architect-preview-run] failed", error);
+
+    return errorResponse(
+      c,
+      "This agent had trouble responding. Please try again.",
+      500,
+      "PREVIEW_RUN_FAILED"
     );
   }
 });
@@ -2655,7 +2751,7 @@ architectRoutes.get("/listings", async (c) => {
     const limit = parseMarketplacePageSize(c.req.query("limit"));
     const cursor = decodeListingCursor(c.req.query("cursor"));
 
-    const [allListings, profile] = await Promise.all([
+    const [allListings, sales, profile, installedAgents] = await Promise.all([
       prisma.agentListing.findMany({
         where: {
           architectUserId: authUser.id,
@@ -2667,6 +2763,7 @@ architectRoutes.get("/listings", async (c) => {
               id: true,
               name: true,
               description: true,
+              configureJson: true,
               updatedAt: true
             }
           },
@@ -2679,6 +2776,10 @@ architectRoutes.get("/listings", async (c) => {
         }
       }).catch((err) => {
         console.error("[listings] findMany failed", err);
+        return [];
+      }),
+      loadArchitectEarnings(authUser.id).catch((err) => {
+        console.error("[listings] loadArchitectEarnings failed", err);
         return [];
       }),
       prisma.architectProfile.findUnique({
@@ -2751,6 +2852,12 @@ architectRoutes.get("/listings", async (c) => {
         return true;
       })
       .map(({ _count, workflow, ...listing }) => {
+        const configureFields = workflow
+          ? myAgentsCardFieldsFromConfigure(workflow.configureJson, {
+              name: workflow.name || listing.name,
+              description: workflow.description ?? listing.shortDescription
+            })
+          : null;
         const screenshotUrls = listing.screenshotUrls ?? [];
         const tags = listing.industryTags?.length
           ? listing.industryTags

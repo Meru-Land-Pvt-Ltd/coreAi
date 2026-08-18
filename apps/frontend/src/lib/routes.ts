@@ -7,6 +7,9 @@ export const BUSINESS_MARKETPLACE_PATH = "/business/marketplace" as Route;
 export const BUSINESS_MARKETPLACE_PUBLIC_PATH = "/marketplace" as Route;
 export const BUSINESS_CHECKOUT_PATH = "/business/checkout" as Route;
 export const BUSINESS_AGENTS_PATH = "/business/agents" as Route;
+export const BUSINESS_ANALYTICS_PATH = "/business/analytics" as Route;
+// [DISABLED] CRM (HubSpot) UI is temporarily turned off — nothing links to it.
+// export const BUSINESS_CRM_PATH = "/business/crm" as Route;
 export const BUSINESS_PAYMENT_SUCCESS_PATH = "/business/paymentsuccess" as Route;
 export const BUSINESS_PAYMENT_FAILED_PATH = "/business/paymentfailed" as Route;
 export const BUSINESS_BILLING_PATH = "/business/billingandusage" as Route;
@@ -34,9 +37,24 @@ export const CONTACT_PATH = "/contact" as Route;
 export const ABOUT_PATH = "/about" as Route;
 
 
+/**
+ * Business analytics page. With an agentId it opens the same page focused on
+ * that one agent — the page reads the id from the query string.
+ */
+export function businessAnalyticsPath(agentId?: string | null): Route {
+  return (agentId
+    ? `/business/analytics?agentId=${encodeURIComponent(agentId)}`
+    : "/business/analytics") as Route;
+}
+
 /** Public shareable agent details page (no login required to view). */
 export function publicAgentPath(agentId: string): Route {
   return `/agent/${agentId}` as Route;
+}
+
+/** Published hosted agent page (triven.ai/a/<slug>) — public, no login. */
+export function publishedAgentPagePath(slug: string): Route {
+  return `/a/${encodeURIComponent(slug)}` as Route;
 }
 
 /** Public share URL for a marketplace listing — same as publicAgentPath. */

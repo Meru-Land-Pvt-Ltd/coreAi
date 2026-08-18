@@ -9,6 +9,8 @@ import {
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { getProviderRegistry } from "../ai-provider-engine/ai-provider-engine";
+import { withRecordingDisclosure } from "../agent-runtime/graph-runner";
+// [DISABLED] import { storeVoiceTransferContext } from "./voice-transfer-store";
 
 export function isVapiConfigured(): boolean {
   const key = env.VAPI_API_KEY;
@@ -451,6 +453,22 @@ export async function startVapiOutboundCall({
     throw new Error(vapiErrorMessage(responseJson, response.status, "Vapi outbound call failed"));
   }
 
+  /* [DISABLED] Best-effort transfer context for AI callbacks.
+  const outboundCallId = stringField(responseJson, "id");
+  const providerCallSid = stringField(responseJson, "phoneCallProviderId");
+  if (outboundCallId && providerCallSid?.startsWith("CA")) {
+    await storeVoiceTransferContext(outboundCallId, {
+      twilioCallSid: providerCallSid,
+      businessId: business.businessId ?? null,
+      installedAgentId:
+        typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : null,
+      workflowId: typeof metadata.workflowId === "string" ? metadata.workflowId : null,
+      calledNumber: null,
+      callerNumber: customerPhone
+    });
+  }
+  */
+
   return {
     id: stringField(responseJson, "id") ?? null,
     status: stringField(responseJson, "status") ?? null,
@@ -473,7 +491,9 @@ export async function createVapiInboundTwiml({
   smsConsentStatus,
   businessHours,
   firstMessageOverride,
-  callerContext
+  callerContext,
+  crmContextSection,
+  twilioCallSid
 }: {
   callerNumber: string;
   callerName?: string | null;
@@ -487,6 +507,14 @@ export async function createVapiInboundTwiml({
   businessHours?: VapiBusinessHoursVariables | null;
   firstMessageOverride?: string | null;
   callerContext?: VapiCallerContext | null;
+  /**
+   * Rendered CRM record for this caller, injected as a system message override
+   * so the agent can use their history for the whole call. Empty/null for an
+   * unknown caller, which leaves the deployed prompt exactly as-is.
+   */
+  crmContextSection?: string | null;
+  /** Twilio CallSid of the inbound leg — stored so transfer_to_human can redirect it. */
+  twilioCallSid?: string | null;
 }): Promise<string | null> {
   // Assistant ids come from the database (InstalledAgent.configJson), never
   // from a platform-wide env default — two buyers must never share one.
@@ -512,7 +540,12 @@ export async function createVapiInboundTwiml({
         businessHours,
         callerContext
       }),
-      ...(firstMessageOverride?.trim() ? { firstMessage: firstMessageOverride.trim() } : {})
+      ...(firstMessageOverride?.trim() ? { firstMessage: firstMessageOverride.trim() } : {}),
+      /* [DISABLED] CRM caller-context system message.
+      ...(crmContextSection?.trim()
+        ? { model: { messages: [{ role: "system", content: crmContextSection.trim() }] } }
+        : {})
+      */
     },
     metadata: {
       ...metadata,
@@ -564,7 +597,50 @@ export async function createVapiInboundTwiml({
 
   const providerDetails = recordOrEmpty(responseJson.phoneCallProviderDetails);
   const twiml = stringField(providerDetails, "twiml");
-  return typeof twiml === "string" && twiml.trim().length > 0 ? twiml : null;
+
+  if (typeof twiml !== "string" || twiml.trim().length === 0) return null;
+
+  /* [DISABLED] live-transfer context storage (Redis + durable CallSid stamp).
+  const vapiCallId = stringField(responseJson, "id");
+  const cleanCallSid = clean(twilioCallSid);
+  if (vapiCallId && cleanCallSid) {
+    await storeVoiceTransferContext(vapiCallId, {
+      twilioCallSid: cleanCallSid,
+      businessId: business.businessId ?? null,
+      installedAgentId:
+        typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : null,
+      workflowId: typeof metadata.workflowId === "string" ? metadata.workflowId : null,
+      calledNumber: clean(phoneNumber) || null,
+      callerNumber
+    });
+    if (business.businessId) {
+      const durableBusinessId = business.businessId;
+      void prisma.vapiCall
+        .upsert({
+          where: { callId: vapiCallId },
+          update: { twilioCallSid: cleanCallSid },
+          create: {
+            businessId: durableBusinessId,
+            installedAgentId:
+              typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : null,
+            callId: vapiCallId,
+            customerPhone: callerNumber,
+            executionMode: "LIVE",
+            status: "STARTED",
+            twilioCallSid: cleanCallSid
+          }
+        })
+        .catch((error) =>
+          console.error("[voice-transfer] durable CallSid stamp failed", {
+            vapiCallId,
+            message: error instanceof Error ? error.message : String(error)
+          })
+        );
+    }
+  }
+  */
+
+  return twiml;
 }
 
 /** Vapi built-in voices — the API requires these exact names for provider "vapi". */
@@ -1122,7 +1198,30 @@ export function genericAssistantTools() {
           required: ["full_name", "booking_phone"]
         }
       }
+    },
+    /* [DISABLED] transfer_to_human (live human handoff).
+    {
+      type: "function",
+      messages: [
+        {
+          type: "request-start",
+          content: "Of course — let me connect you with the team now. One moment, please stay on the line."
+        }
+      ],
+      function: {
+        name: VOICE_TOOL_NAMES.transferToHuman,
+        description: "Connect the caller to a real person on the business team RIGHT NOW, on this same call.",
+        parameters: {
+          type: "object",
+          properties: {
+            reason: { type: "string", description: "One short neutral sentence on why the caller needs a person." },
+            caller_requested: { type: "boolean", description: "true when the caller explicitly asked for a human." }
+          },
+          required: ["reason"]
+        }
+      }
     }
+    */
   ];
 }
 
@@ -1132,19 +1231,11 @@ export type AssistantIncludeTools = {
   bookAppointment?: boolean;
   /** send_notification (SMS and/or email delivery) — include when the workflow can text OR email. */
   sendNotification?: boolean;
-  /**
-   * record_sms_consent — include ONLY when the workflow can text (SMS node).
-   * Email-only workflows must not carry the SMS consent tool. Defaults to
-   * sendNotification for back-compat.
-   */
   recordSmsConsent?: boolean;
+
+  transferToHuman?: boolean;
 };
 
-/**
- * Capability-based voice-tool gating (A2P rule: the SMS consent tool exists
- * only where SMS can actually be sent; the notification tool exists wherever
- * SMS OR email delivery exists). Pure so tests can pin the matrix.
- */
 export function shouldIncludeAssistantTool(
   toolName: string,
   includeTools?: AssistantIncludeTools
@@ -1156,6 +1247,10 @@ export function shouldIncludeAssistantTool(
   // values exclude the tool.
   if (toolName === VOICE_TOOL_NAMES.recordSmsConsent) {
     return includeTools?.recordSmsConsent === true;
+  }
+  // [DISABLED] transfer_to_human is never attached while handoff is off.
+  if (toolName === VOICE_TOOL_NAMES.transferToHuman) {
+    return false;
   }
   if (!includeTools) return true;
   if (toolName === VOICE_TOOL_NAMES.checkAvailability) return includeTools.checkAvailability !== false;
@@ -1234,7 +1329,10 @@ export async function deployVapiAssistant({
 
   const body: Record<string, unknown> = {
     name: assistantName,
-    firstMessage,
+    // Choke-point safety net: EVERY recording-on assistant greets with the
+    // recording notice, no matter which deploy flow built the greeting
+    // (buyer deploy already appends it; self-test/dental flows may not).
+    firstMessage: recordingEnabled !== false ? withRecordingDisclosure(firstMessage) : firstMessage,
     model: {
       provider: resolvedModel.provider,
       model: resolvedModel.model,

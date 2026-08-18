@@ -1,10 +1,32 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getWorkflowConfigure } from "@/components/architect/features/api";
+import {
+  getAgentPageConfig,
+  getWorkflowConfigure,
+  updateAgentPageConfig
+} from "@/components/architect/features/api";
+import type {
+  AgentPageManageData,
+  AgentPageTemplate,
+  AgentPageUpdateBody
+} from "@/components/architect/features/types";
 import type { AgentConfigurePricing } from "@coreai/shared";
 import { resolveBrowseIndustries } from "@coreai/shared";
 import { CategoryTagsPill } from "@/components/common/category-tags-pill";
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  ExternalLink,
+  FileText,
+  Image,
+  MessageCircle,
+  Mic,
+  Plus,
+  X,
+  type LucideIcon
+} from "lucide-react";
 import { BuilderIcon } from "./icons";
 
 function formatPricingText(pricing: AgentConfigurePricing | null, fallbackPrice: string): string {
@@ -277,8 +299,449 @@ export function PublishPanel({
             <p className="mt-2 text-center text-[11px] text-slate-400" data-testid="architect-ui-workflow-builder-publish-panel-you-apos-ll-be-notified-once-your-text">You&apos;ll be notified once your agent is approved and live.</p>
           </div>
         </div>
+
+        <AgentPageSection workflowId={workflowId} />
       </div>
     </section>
+  );
+}
+
+const AGENT_PAGE_TEMPLATE_OPTIONS: Array<{
+  value: AgentPageTemplate;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+}> = [
+  {
+    value: "chat",
+    label: "Chat",
+    description: "Visitors message your agent, like texting.",
+    icon: MessageCircle
+  },
+  {
+    value: "voice",
+    label: "Voice",
+    description: "Visitors talk with your agent out loud.",
+    icon: Mic
+  },
+  {
+    value: "media",
+    label: "Media",
+    description: "Visitors describe it, your agent creates it.",
+    icon: Image
+  },
+  {
+    value: "form",
+    label: "Form",
+    description: "Visitors send one request, get one result.",
+    icon: FileText
+  }
+];
+
+const AGENT_PAGE_HEX_PATTERN = /^#[0-9a-fA-F]{6}$/;
+const AGENT_PAGE_DEFAULT_ACCENT = "#f59e0b";
+const AGENT_PAGE_MAX_PROMPTS = 4;
+
+function normalizeAccentHex(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+}
+
+function AgentPageSection({ workflowId }: { workflowId: string }) {
+  const [loadState, setLoadState] = useState<"loading" | "error" | "ready">("loading");
+  const [manage, setManage] = useState<AgentPageManageData | null>(null);
+  const [template, setTemplate] = useState<AgentPageTemplate>("chat");
+  const [headline, setHeadline] = useState("");
+  const [welcomeMessage, setWelcomeMessage] = useState("");
+  const [prompts, setPrompts] = useState<string[]>([]);
+  const [accentColor, setAccentColor] = useState("");
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [savingPage, setSavingPage] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [saveError, setSaveError] = useState("");
+
+  useEffect(() => {
+    if (!workflowId) return;
+    let cancelled = false;
+    void (async () => {
+      const result = await getAgentPageConfig(workflowId);
+      if (cancelled) return;
+      if (!result.success || !result.data) {
+        setLoadState("error");
+        return;
+      }
+      const data = result.data;
+      setManage(data);
+      if (data.page) {
+        setTemplate(data.page.template);
+        setHeadline(data.page.headline ?? "");
+        setWelcomeMessage(data.page.welcomeMessage ?? "");
+        setPrompts(data.page.suggestedPrompts ?? []);
+        setAccentColor(data.page.accentColor ?? "");
+      } else {
+        setTemplate(data.defaultTemplate);
+      }
+      setLoadState("ready");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workflowId]);
+
+  /** Any edit invalidates a previous "Saved" confirmation. */
+  function markEdited() {
+    setSaveMessage("");
+  }
+
+  async function copyUrl(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable — the URL stays selectable in the field.
+    }
+  }
+
+  async function savePage() {
+    if (savingPage) return;
+    const accent = normalizeAccentHex(accentColor);
+    if (accent && !AGENT_PAGE_HEX_PATTERN.test(accent)) {
+      setSaveMessage("");
+      setSaveError("Accent color should be a 6-digit hex value, like #f59e0b.");
+      return;
+    }
+    setSavingPage(true);
+    setSaveError("");
+    setSaveMessage("");
+    const body: AgentPageUpdateBody = {
+      template,
+      headline: headline.trim(),
+      welcomeMessage: welcomeMessage.trim(),
+      suggestedPrompts: prompts
+        .map((prompt) => prompt.trim())
+        .filter(Boolean)
+        .slice(0, AGENT_PAGE_MAX_PROMPTS),
+      // An emptied field clears the accent back to the default (null);
+      // omitting the key would leave the old color in place forever.
+      accentColor: accent || null
+    };
+    const result = await updateAgentPageConfig(workflowId, body);
+    setSavingPage(false);
+    if (!result.success || !result.data) {
+      // Validation errors are already human ("Headline must be…"); anything
+      // 5xx-shaped gets a friendly fallback instead of raw server text.
+      const friendly =
+        result.error && (result.status ?? 0) < 500
+          ? result.error
+          : "Could not save your page settings. Please try again.";
+      setSaveError(friendly);
+      return;
+    }
+    const saved = result.data;
+    setManage((prev) =>
+      prev
+        ? { ...prev, page: saved.page, url: saved.url }
+        : { page: saved.page, url: saved.url, defaultTemplate: saved.page.template }
+    );
+    setTemplate(saved.page.template);
+    setHeadline(saved.page.headline ?? "");
+    setWelcomeMessage(saved.page.welcomeMessage ?? "");
+    setPrompts(saved.page.suggestedPrompts ?? []);
+    setAccentColor(saved.page.accentColor ?? "");
+    setSaveMessage("Saved — your page is up to date.");
+  }
+
+  if (loadState === "loading") {
+    return (
+      <div className="mt-10" data-testid="agent-page-section-loading">
+        <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+          Your agent&apos;s page
+        </p>
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="h-3.5 w-2/3 animate-pulse rounded-full bg-gray-100" />
+          <div className="mt-3 h-9 w-full animate-pulse rounded-xl bg-gray-100" />
+        </div>
+      </div>
+    );
+  }
+
+  if (loadState === "error" || !manage) {
+    return (
+      <div className="mt-10" data-testid="agent-page-section-error">
+        <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+          Your agent&apos;s page
+        </p>
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">
+            We couldn&apos;t load your page settings. Refresh to try again.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const page = manage.page;
+  const pageUrl = manage.url;
+  const accentPreview = normalizeAccentHex(accentColor);
+
+  return (
+    <div className="mt-10" data-testid="agent-page-section">
+      <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400" data-testid="agent-page-section-heading">
+        Your agent&apos;s page
+      </p>
+      {!page ? (
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500" data-testid="agent-page-pending-note">
+            Your agent&apos;s public page is created when you submit for review.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500" data-testid="agent-page-intro-text">
+            Every published agent gets its own page — a polished place where customers can try it before they buy it.
+          </p>
+
+          {pageUrl ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <code
+                data-testid="agent-page-url"
+                className="min-w-0 flex-1 truncate rounded-xl border border-gray-100 bg-gray-50/40 px-3 py-2 font-mono text-sm text-slate-700"
+              >
+                {pageUrl}
+              </code>
+              <button
+                data-testid="agent-page-copy-url"
+                type="button"
+                onClick={() => void copyUrl(pageUrl)}
+                className="flex shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-gray-50"
+              >
+                {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                {copied ? "Copied" : "Copy"}
+              </button>
+              <a
+                data-testid="agent-page-open"
+                href={pageUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-gray-50"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Open page
+              </a>
+            </div>
+          ) : null}
+
+          <p className="mt-6 text-sm font-semibold text-slate-800" data-testid="agent-page-template-heading">
+            How visitors experience it
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {AGENT_PAGE_TEMPLATE_OPTIONS.map((option) => {
+              const Icon = option.icon;
+              const selected = template === option.value;
+              const recommended = manage.defaultTemplate === option.value;
+              return (
+                <button
+                  key={option.value}
+                  data-testid={`agent-page-template-${option.value}`}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => {
+                    markEdited();
+                    setTemplate(option.value);
+                  }}
+                  className={
+                    selected
+                      ? "relative rounded-2xl border border-amber-200 bg-amber-50/50 p-4 text-left ring-2 ring-amber-500 transition"
+                      : "relative rounded-2xl border border-gray-100 bg-white p-4 text-left shadow-sm transition hover:border-amber-200"
+                  }
+                >
+                  {recommended ? (
+                    <span
+                      data-testid={`agent-page-template-${option.value}-recommended`}
+                      className="absolute right-3 top-3 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700"
+                    >
+                      Recommended
+                    </span>
+                  ) : null}
+                  <Icon className={selected ? "h-5 w-5 text-amber-600" : "h-5 w-5 text-slate-400"} />
+                  <p className="mt-2 text-sm font-semibold text-slate-900">{option.label}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{option.description}</p>
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            data-testid="agent-page-customize-toggle"
+            type="button"
+            aria-expanded={customizeOpen}
+            onClick={() => setCustomizeOpen((open) => !open)}
+            className="mt-6 flex items-center gap-1.5 text-sm font-semibold text-slate-700 transition hover:text-slate-900"
+          >
+            <ChevronDown className={customizeOpen ? "h-4 w-4 rotate-180 transition-transform" : "h-4 w-4 transition-transform"} />
+            Customize
+          </button>
+
+          {customizeOpen ? (
+            <div className="mt-4 space-y-5">
+              <div>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="agent-page-headline" className="text-xs font-semibold text-slate-600">
+                    Headline
+                  </label>
+                  <span className="text-[11px] text-slate-400" data-testid="agent-page-headline-counter">
+                    {headline.length}/120
+                  </span>
+                </div>
+                <input
+                  id="agent-page-headline"
+                  data-testid="agent-page-headline"
+                  type="text"
+                  value={headline}
+                  maxLength={120}
+                  onChange={(event) => {
+                    markEdited();
+                    setHeadline(event.target.value);
+                  }}
+                  placeholder="What your agent does, in one line"
+                  className="fld mt-2 w-full rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="agent-page-welcome" className="text-xs font-semibold text-slate-600">
+                    Welcome message
+                  </label>
+                  <span className="text-[11px] text-slate-400" data-testid="agent-page-welcome-counter">
+                    {welcomeMessage.length}/500
+                  </span>
+                </div>
+                <textarea
+                  id="agent-page-welcome"
+                  data-testid="agent-page-welcome"
+                  value={welcomeMessage}
+                  maxLength={500}
+                  rows={3}
+                  onChange={(event) => {
+                    markEdited();
+                    setWelcomeMessage(event.target.value);
+                  }}
+                  placeholder="The first thing visitors see. e.g. Hi! Ask me anything about booking an appointment."
+                  className="fld mt-2 w-full resize-none rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400"
+                />
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-slate-600">Suggested prompts</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">Give visitors up to 4 ideas to try first.</p>
+                <div className="mt-2 space-y-2">
+                  {prompts.map((prompt, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <input
+                        data-testid={`agent-page-prompt-${index}`}
+                        type="text"
+                        value={prompt}
+                        maxLength={80}
+                        onChange={(event) => {
+                          markEdited();
+                          setPrompts((prev) => prev.map((value, i) => (i === index ? event.target.value : value)));
+                        }}
+                        placeholder="e.g. Book me in for Tuesday morning"
+                        className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400"
+                      />
+                      <button
+                        data-testid={`agent-page-prompt-remove-${index}`}
+                        type="button"
+                        aria-label="Remove prompt"
+                        onClick={() => {
+                          markEdited();
+                          setPrompts((prev) => prev.filter((_, i) => i !== index));
+                        }}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-gray-50 hover:text-slate-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {prompts.length < AGENT_PAGE_MAX_PROMPTS ? (
+                  <button
+                    data-testid="agent-page-prompt-add"
+                    type="button"
+                    onClick={() => {
+                      markEdited();
+                      setPrompts((prev) => [...prev, ""]);
+                    }}
+                    className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-600 transition hover:text-amber-700"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add a prompt
+                  </button>
+                ) : null}
+              </div>
+
+              <div>
+                <label htmlFor="agent-page-accent-hex" className="text-xs font-semibold text-slate-600">
+                  Accent color
+                </label>
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    data-testid="agent-page-accent-color"
+                    type="color"
+                    aria-label="Pick accent color"
+                    value={AGENT_PAGE_HEX_PATTERN.test(accentPreview) ? accentPreview : AGENT_PAGE_DEFAULT_ACCENT}
+                    onChange={(event) => {
+                      markEdited();
+                      setAccentColor(event.target.value);
+                    }}
+                    className="h-9 w-9 cursor-pointer rounded-lg border border-gray-200 bg-white p-1"
+                  />
+                  <input
+                    id="agent-page-accent-hex"
+                    data-testid="agent-page-accent-hex"
+                    type="text"
+                    value={accentColor}
+                    maxLength={7}
+                    onChange={(event) => {
+                      markEdited();
+                      setAccentColor(event.target.value);
+                    }}
+                    placeholder="#f59e0b"
+                    className="fld w-28 rounded-xl border border-gray-100 bg-gray-50/40 px-3 py-2 font-mono text-sm text-slate-800 placeholder:text-slate-400"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-4">
+            <button
+              data-testid="agent-page-save"
+              type="button"
+              onClick={() => void savePage()}
+              disabled={savingPage}
+              className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingPage ? "Saving..." : "Save page settings"}
+            </button>
+            {saveMessage ? (
+              <p data-testid="agent-page-save-status" className="text-xs font-semibold text-green-600">
+                {saveMessage}
+              </p>
+            ) : null}
+            {saveError ? (
+              <p data-testid="agent-page-save-error" className="text-xs font-semibold text-red-600">
+                {saveError}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
