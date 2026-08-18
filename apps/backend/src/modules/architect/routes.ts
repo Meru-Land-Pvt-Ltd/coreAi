@@ -38,6 +38,7 @@ import {
 } from "../calendly/calendly-connector";
 import { GOOGLE_CALENDAR_INTEGRATION } from "@coreai/shared";
 import { syncWaysInForWorkflow } from "./schedule-trigger";
+import { recordCallConsent } from "./call-consent";
 import {
   DisclosureConsentError,
   hasFreshDisclosureConsent,
@@ -2366,6 +2367,95 @@ architectRoutes.post("/workflows/:workflowId/test-deployment", async (c) => {
     if (error instanceof z.ZodError) {
       return errorResponse(c, error.issues[0]?.message ?? "Invalid test input", 422, "VALIDATION_ERROR");
     }
+    return handleTestDeploymentError(c, error);
+  }
+});
+
+/**
+ * "Call me so I can hear my agent."
+ *
+ * The only honest way to judge a voice agent is to be on the other end of the
+ * phone, and until now an architect could only wait for someone to call in.
+ * This dials THEM — and only them: the number must be one they have attested
+ * is their own, and the attestation is written to CallConsent exactly like any
+ * customer's, because an AI voice on an outbound call needs consent whoever
+ * answers it.
+ */
+architectRoutes.post("/workflows/:workflowId/test-call", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+
+  const body = z
+    .object({
+      phone: z
+        .string()
+        .trim()
+        .min(8, "A phone number with country code is required")
+        .max(20),
+      consent: z.literal(true, {
+        message: "Tick the box confirming this is your own number and you agree to be called."
+      })
+    })
+    .safeParse(await c.req.json().catch(() => ({})));
+
+  if (!body.success) {
+    return errorResponse(c, body.error.issues[0]?.message ?? "Invalid request", 422, "VALIDATION_ERROR");
+  }
+
+  const workflow = await prisma.workflowDefinition.findFirst({
+    where: { id: workflowId, architectUserId: authUser.id },
+    select: { id: true, name: true, workflowJson: true }
+  });
+  if (!workflow) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+
+  try {
+    // The sandbox gives this architect a business, an installed agent and a
+    // deployed voice assistant — the same machinery a real buyer gets.
+    const deployment = await startArchitectTestDeployment(authUser.id, workflowId, {});
+    if (!deployment.businessId) {
+      return errorResponse(
+        c,
+        "The sandbox is not ready yet. Start a live sandbox test first.",
+        409,
+        "SANDBOX_NOT_READY"
+      );
+    }
+
+    // Their own attestation, recorded like any other consent so the call is
+    // lawful and the record is auditable later.
+    await recordCallConsent({
+      businessId: deployment.businessId,
+      installedAgentId: deployment.installedAgentId ?? undefined,
+      phoneNumber: body.data.phone,
+      method: "OWNER_SELF",
+      evidence: `Architect ${authUser.email} confirmed this is their own number and asked to be called to test "${workflow.name}".`,
+      disclosureText: "You are testing your own AI agent. It will call this number now."
+    });
+
+    const result = await runWorkflowTest({
+      userId: authUser.id,
+      workflowId: workflow.id,
+      workflowJson: workflow.workflowJson,
+      mode: "live",
+      executionMode: "LIVE",
+      callProvider: "TEST_CALL",
+      externalCallId: `${workflow.id}:${Date.now()}`,
+      input: {
+        businessId: deployment.businessId,
+        businessOwnerId: authUser.id,
+        installedAgentId: deployment.installedAgentId ?? undefined,
+        businessName: workflow.name,
+        callerNumber: body.data.phone,
+        latestMessage: "Test call requested by the architect."
+      }
+    });
+
+    return successResponse(
+      c,
+      { workflowRunId: result.workflowRunId, logs: result.logs },
+      "Calling you now."
+    );
+  } catch (error) {
     return handleTestDeploymentError(c, error);
   }
 });

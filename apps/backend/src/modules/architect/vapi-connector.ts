@@ -353,6 +353,30 @@ export async function listVapiPhoneNumbers(): Promise<Array<{ id: string; number
     .map((row) => ({ id: row.id, number: String(row.number ?? "") }));
 }
 
+/**
+ * The number an outbound call is placed FROM.
+ *
+ * A business rarely has one of its own: its number answers calls, and only a
+ * number registered with the voice provider can make them. So when nothing
+ * specific is set we fall back to any platform number that has been enabled
+ * for outbound — which is what the admin "Enable outbound calling" button
+ * produces. Without this, every outbound call fails with "Vapi is not
+ * configured" even though a perfectly good number is sitting there registered.
+ */
+export async function resolveOutboundPhoneNumberId(
+  preferred?: string | null
+): Promise<string | null> {
+  const explicit = clean(preferred) || clean(env.VAPI_DEFAULT_PHONE_NUMBER_ID);
+  if (explicit) return explicit;
+
+  const registered = await prisma.platformPhoneNumber.findFirst({
+    where: { vapiPhoneNumberId: { not: null } },
+    orderBy: { createdAt: "asc" },
+    select: { vapiPhoneNumberId: true }
+  });
+  return registered?.vapiPhoneNumberId ?? null;
+}
+
 function requireVapiConfig(assistantId?: string | null, phoneNumberId?: string | null) {
   // Assistant ids come from the database (InstalledAgent.configJson), never
   // from a platform-wide env default — two buyers must never share one.

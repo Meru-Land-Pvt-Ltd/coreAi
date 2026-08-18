@@ -59,7 +59,7 @@ import {
   listAvailableSlots
 } from "./google-calendar-connector";
 import { reserveSlotForInstant, topAlternativeLabels } from "../business/scheduling";
-import { startVapiOutboundCall } from "./vapi-connector";
+import { resolveOutboundPhoneNumberId, startVapiOutboundCall } from "./vapi-connector";
 import {
   calendlyBookMeetingForInvitee,
   calendlyCancelScheduledEvent,
@@ -2343,7 +2343,14 @@ async function runVapiConnectorNode({
   }
 
   const assistantId = renderTemplate(node.data?.vapiAssistantId, context) || context.business?.vapiAssistantId;
-  const phoneNumberId = renderTemplate(node.data?.vapiPhoneNumberId, context) || context.business?.vapiPhoneNumberId;
+  // A business's own number answers calls; only a number registered with the
+  // voice provider can place them. Fall back to whichever platform number an
+  // admin enabled for outbound, so an architect never has to paste an id.
+  const phoneNumberId =
+    renderTemplate(node.data?.vapiPhoneNumberId, context) ||
+    context.business?.vapiPhoneNumberId ||
+    (await resolveOutboundPhoneNumberId()) ||
+    undefined;
 
   if (!outboundSendsAllowed(context, mode)) {
     context.vapiCall = {
