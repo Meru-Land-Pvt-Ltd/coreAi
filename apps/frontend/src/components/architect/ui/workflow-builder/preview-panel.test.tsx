@@ -13,12 +13,12 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPushMock, prefetch: vi.fn(), replace: vi.fn() })
 }));
 
-// The floating Design Brain talks to the styling endpoint itself — stub the
-// wrapper so no test ever leaves the room.
-const { designChatMock } = vi.hoisted(() => ({ designChatMock: vi.fn() }));
+// The floating Packaging chat talks to the product-chat endpoint itself —
+// stub the wrapper so no test ever leaves the room.
+const { productChatMock } = vi.hoisted(() => ({ productChatMock: vi.fn() }));
 
 vi.mock("@/components/architect/features/api", () => ({
-  designChat: designChatMock,
+  productChat: productChatMock,
   // The Arrange Editor's layout PATCH — never exercised by these tests, but
   // the panel imports it, so the mocked module must carry it.
   updateAgentPageConfig: vi.fn().mockResolvedValue({ success: true })
@@ -54,7 +54,7 @@ function frame() {
 beforeEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  designChatMock.mockReset();
+  productChatMock.mockReset();
 });
 
 // Unmount after every test too — a render left mounted past the file's end
@@ -299,7 +299,7 @@ describe("PreviewPanel device frames", () => {
   });
 });
 
-describe("PreviewPanel floating Design Brain", () => {
+describe("PreviewPanel floating Packaging panel", () => {
   it("starts closed: only the launcher shows, the panel is tucked away", () => {
     render(<PreviewPanel {...makeProps()} />);
 
@@ -319,9 +319,9 @@ describe("PreviewPanel floating Design Brain", () => {
     const panel = screen.getByTestId("design-dock");
     expect(panel.getAttribute("data-open")).toBe("true");
     expect(panel.className).toContain("opacity-100");
-    expect(within(panel).getByTestId("design-dock-title").textContent).toBe("Design Brain");
+    expect(within(panel).getByTestId("design-dock-title").textContent).toBe("Packaging");
     expect(within(panel).getByTestId("design-dock-intro").textContent).toBe(
-      "Type how it should look — watch it change."
+      "The pages that sell your product — sell page, pricing, FAQ, legal."
     );
     expect(within(panel).getByTestId("design-dock-input")).toBeTruthy();
     expect(within(panel).getByTestId("design-dock-send")).toBeTruthy();
@@ -344,37 +344,32 @@ describe("PreviewPanel floating Design Brain", () => {
     expect(screen.queryByTestId("design-dock-backdrop")).toBeNull();
   });
 
-  it("a send goes through the styling endpoint and refreshes the page", async () => {
+  it("a send goes through the packaging endpoint and refreshes the page", async () => {
     const onDesignApplied = vi.fn();
-    designChatMock.mockResolvedValue({
+    productChatMock.mockResolvedValue({
       success: true,
-      data: { reply: "Dark and moody now.", patch: { theme: "dark" }, design: null, page: null }
+      data: { reply: "Pricing page is up.", pagesCreated: ["pricing"] }
     });
     const user = userEvent.setup();
     render(<PreviewPanel {...makeProps({ onDesignApplied })} />);
 
     await user.click(screen.getByTestId("design-float-toggle"));
-    await user.type(screen.getByTestId("design-dock-input"), "dark theme");
+    await user.type(screen.getByTestId("design-dock-input"), "a pricing page");
     await user.click(screen.getByTestId("design-dock-send"));
 
     await waitFor(() => {
       expect(screen.getByTestId("design-dock-message-assistant").textContent).toBe(
-        "Dark and moody now."
+        "Pricing page is up. (1 new page)"
       );
     });
-    expect(designChatMock).toHaveBeenCalledTimes(1);
-    expect(designChatMock).toHaveBeenCalledWith("wf-1", { instruction: "dark theme" });
+    expect(productChatMock).toHaveBeenCalledTimes(1);
+    expect(productChatMock).toHaveBeenCalledWith("wf-1", { instruction: "a pricing page" });
     expect(onDesignApplied).toHaveBeenCalledTimes(1);
-    // Beside a live page there is no "check the Test tab" note to show.
-    expect(screen.queryByTestId("design-dock-applied-note")).toBeNull();
   });
 
-  it("a reply that changed nothing never refreshes the page", async () => {
+  it("a failed build shows the kind fallback and never refreshes the page", async () => {
     const onDesignApplied = vi.fn();
-    designChatMock.mockResolvedValue({
-      success: true,
-      data: { reply: "I can change colors, layout, or wording — not that one.", patch: {}, design: null, page: null }
-    });
+    productChatMock.mockResolvedValue({ success: false });
     const user = userEvent.setup();
     render(<PreviewPanel {...makeProps({ onDesignApplied })} />);
 
@@ -384,6 +379,9 @@ describe("PreviewPanel floating Design Brain", () => {
 
     await waitFor(() =>
       expect(screen.getByTestId("design-dock-message-assistant")).toBeTruthy()
+    );
+    expect(screen.getByTestId("design-dock-message-assistant").textContent).toContain(
+      "I couldn't build that one"
     );
     expect(onDesignApplied).not.toHaveBeenCalled();
   });

@@ -607,7 +607,7 @@ export function PreviewPanel({
         }
       >
         <Wand2 className="h-4 w-4" aria-hidden="true" />
-        Design
+        Packaging
       </button>
 
       {/* Phone-size scrim behind the bottom sheet — tap anywhere to close. */}
@@ -621,13 +621,14 @@ export function PreviewPanel({
         />
       ) : null}
 
-      {/* The floating Design Brain panel. Stays mounted so open and close both
-          animate (translate + fade); `inert` keeps its controls out of reach
-          while hidden. On phones it becomes a near-full-width bottom sheet. */}
+      {/* The floating Packaging panel (formerly Design Brain). Stays mounted
+          so open and close both animate (translate + fade); `inert` keeps its
+          controls out of reach while hidden. On phones it becomes a
+          near-full-width bottom sheet. */}
       <section
         ref={designPanelRef}
         role="dialog"
-        aria-label="Design Brain"
+        aria-label="Packaging"
         inert={!designOpen}
         data-testid="design-dock"
         data-open={designOpen ? "true" : "false"}
@@ -645,10 +646,10 @@ export function PreviewPanel({
               className="text-xs font-bold uppercase tracking-wider text-slate-400"
               data-testid="design-dock-title"
             >
-              Design Brain
+              Packaging
             </h3>
             <p className="mt-1 text-xs leading-5 text-slate-500" data-testid="design-dock-intro">
-              Type how it should look — watch it change.
+              The pages that sell your product — sell page, pricing, FAQ, legal.
             </p>
           </div>
           <button
@@ -661,7 +662,7 @@ export function PreviewPanel({
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
-        <DesignBrainChat variant="docked" workflowId={workflowId} onApplied={onDesignApplied} />
+        <DesignBrainChat workflowId={workflowId} onApplied={onDesignApplied} />
       </section>
 
       {/* The Smart Designer launcher — stacked above Design, same corner

@@ -2455,9 +2455,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       onDeleteNode={deleteSelectedNode}
       connectorOwnership="architect"
       variableNodePrefixes={variableNodePrefixes}
-      workflowId={currentWorkflowId || null}
-      previewVisible={activeTab === "test"}
-      onDesignApplied={handleDesignApplied}
     />
   );
 
