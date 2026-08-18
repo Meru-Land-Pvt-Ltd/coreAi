@@ -36,6 +36,8 @@ export const ARCHITECT_NODE_CATALOG: readonly ArchitectNodeCatalogItem[] = [
   { type: "trigger.whatsapp_message_received", group: "Triggers", label: "WhatsApp message", defaultVisible: true },
   { type: "trigger.calendly", group: "Triggers", label: "Calendly booking", defaultVisible: true },
   { type: "trigger.manual", group: "Triggers", label: "Start here", defaultVisible: true },
+  { type: "trigger.schedule", group: "Triggers", label: "On a schedule", defaultVisible: true },
+  { type: "trigger.webhook", group: "Triggers", label: "When another app sends data", defaultVisible: true },
 
   { type: "ai.voice_conversation", group: "AI", label: "AI receptionist", defaultVisible: true },
   { type: "ai.context_reply", group: "AI", label: "AI Text Reply", defaultVisible: true },

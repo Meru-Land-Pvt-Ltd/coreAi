@@ -6,9 +6,11 @@ import {
   BLOCK_NODE_TYPES,
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
+  SCHEDULE_NODE_TYPE,
   SCRIPT_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
-  VOICE_NODE_TYPES
+  VOICE_NODE_TYPES,
+  WEBHOOK_NODE_TYPE
 } from "@coreai/shared";
 import { ComponentLibrary } from "./component-library";
 import { libraryGroups } from "./library";
@@ -54,10 +56,11 @@ describe("library groups (Face / Brain / Hands)", () => {
     ]);
   });
 
-  it("keeps every pre-regroup item plus the API Call and Code nodes (32 total) with its testId", () => {
+  it("keeps every pre-regroup item plus the API Call, Code, Timer and Webhook nodes (34 total) with its testId", () => {
     const testIds = libraryGroups.flatMap((group) => group.items.map((item) => item.testId));
-    // 33 with the old Design Brain card; retired for the Smart Designer.
-    expect(testIds).toHaveLength(32);
+    // The two ways IN (timer + webhook) joined the Hands group; the old Design
+    // Brain card left when the Smart Designer took over.
+    expect(testIds).toHaveLength(34);
 
     // Face: all block.* — the old Design Brain card is retired (the Smart
     // Designer generates and fixes the interface now).
@@ -94,6 +97,8 @@ describe("library groups (Face / Brain / Hands)", () => {
       tid("trigger.twilio_missed_call"),
       tid("trigger.whatsapp_message_received"),
       tid(CALENDLY_NODE_TYPES.trigger),
+      tid(SCHEDULE_NODE_TYPE),
+      tid(WEBHOOK_NODE_TYPE),
       tid("trigger.manual"),
       tid(VOICE_NODE_TYPES.calendarAvailability),
       tid(VOICE_NODE_TYPES.bookAppointment),

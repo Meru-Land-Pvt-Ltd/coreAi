@@ -86,6 +86,12 @@ export type PreviewPanelProps = {
    */
   product?: ProductSpec | null;
   /**
+   * True while the saved page/product is still being fetched. The stage stays
+   * quiet rather than painting the built-in Face and swapping it a moment
+   * later — an architect must never see a page they did not design.
+   */
+  configLoading?: boolean;
+  /**
    * The saved Design Brain config (GET /agent-pages/manage/:id `design`).
    * Passed straight into the page data so the shell + templates render every
    * dial exactly like the live page; a change here live-updates the preview.
@@ -194,6 +200,7 @@ export function PreviewPanel({
   defaultTemplate,
   blueprint = null,
   product = null,
+  configLoading = false,
   design = null,
   architectName,
   underReview = false,
@@ -411,7 +418,22 @@ export function PreviewPanel({
           the main builder header, so nothing here ever covers the page. */}
       <div className={STAGE_CLASSES[device]}>
         <div className={FRAME_CLASSES[device]} data-device={device} data-testid="preview-panel-frame">
-          {productSpec && productPage ? (
+          {configLoading ? (
+            // Nothing is known yet about this agent's saved product, so the
+            // stage holds still — a flash of a page the architect never
+            // designed is worse than a beat of nothing. The spinner itself
+            // only fades in after a third of a second, so a fast load looks
+            // instant and a slow one still explains itself.
+            <div
+              className="flex h-full w-full items-center justify-center bg-white"
+              data-testid="preview-panel-loading"
+            >
+              <span
+                className="h-6 w-6 animate-spin rounded-full border-2 border-amber-200 border-t-amber-500 opacity-0 [animation-delay:0ms] motion-reduce:animate-none"
+                style={{ animation: "spin 0.7s linear infinite, preview-hold-fade 0.2s ease-out 0.33s forwards" }}
+              />
+            </div>
+          ) : productSpec && productPage ? (
             // The architect BUILT a product — the preview shows the real
             // multi-page site with its wires live, exactly what /a/<slug>
             // serves once the agent is approved. The frame clips overflow, so

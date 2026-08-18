@@ -24,7 +24,9 @@ import {
   getNodeDefinition,
   hasNodeDoors,
   nodeDoorsEnabled,
-  resolveLlmSelection
+  resolveLlmSelection,
+  SCHEDULE_NODE_TYPE,
+  WEBHOOK_NODE_TYPE
 } from "@coreai/shared";
 import { useState, useEffect, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
@@ -176,6 +178,8 @@ export function NodeInspector({
   } else if (type === VOICE_NODE_TYPES.sendEmail) panel = <SendEmailProps {...base} />;
   else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
   else if (type === "trigger.whatsapp_message_received") panel = <WhatsAppTriggerProps {...base} />;
+  else if (type === SCHEDULE_NODE_TYPE) panel = <ScheduleTriggerProps {...base} />;
+  else if (type === WEBHOOK_NODE_TYPE) panel = <WebhookTriggerProps {...base} />;
   else if (type === CALENDLY_NODE_TYPES.trigger || type.startsWith("trigger.calendly_")) {
     panel = <CalendlyTriggerProps {...base} />;
   }
@@ -1826,6 +1830,146 @@ function WhatsAppConnectionPicker({
         }}
       />
     </div>
+  );
+}
+
+/**
+ * The timer's settings. Deliberately four plain choices — an architect should
+ * never meet a cron expression, and the hour floor is enforced by the engine,
+ * so nothing here can create a clock that burns money every minute.
+ */
+function ScheduleTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const cadence = str("cadence", "daily");
+
+  return (
+    <>
+      <Section title="General">
+        <Label>Node name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+        <div className="mt-4">
+          <Label>Description</Label>
+          <TextArea value={str("subtitle")} onChange={set("subtitle")} height="h-16" />
+        </div>
+      </Section>
+
+      <Section title="How often" last>
+        <p className="mb-3 text-xs leading-5 text-slate-500" data-testid="schedule-trigger-intro">
+          This agent runs by itself, with nobody watching. Times follow the
+          business&apos;s own clock once they install it.
+        </p>
+
+        <Label>Runs</Label>
+        <SelectBox
+          value={cadence}
+          onChange={set("cadence")}
+          options={[
+            { value: "hourly", label: "Every hour" },
+            { value: "daily", label: "Every day" },
+            { value: "weekly", label: "Every week" }
+          ]}
+          testId="schedule-trigger-cadence"
+        />
+
+        {cadence === "weekly" ? (
+          <div className="mt-4">
+            <Label>On</Label>
+            <SelectBox
+              value={str("weekday", "1")}
+              onChange={set("weekday")}
+              options={[
+                { value: "1", label: "Monday" },
+                { value: "2", label: "Tuesday" },
+                { value: "3", label: "Wednesday" },
+                { value: "4", label: "Thursday" },
+                { value: "5", label: "Friday" },
+                { value: "6", label: "Saturday" },
+                { value: "0", label: "Sunday" }
+              ]}
+              testId="schedule-trigger-weekday"
+            />
+          </div>
+        ) : null}
+
+        {cadence === "hourly" ? (
+          <p className="mt-4 text-xs leading-5 text-slate-500" data-testid="schedule-trigger-hourly-note">
+            Runs once an hour. That is the fastest schedule we allow — anything
+            quicker multiplies cost with nobody checking the result.
+          </p>
+        ) : (
+          <div className="mt-4 flex gap-3">
+            <div className="flex-1">
+              <Label>Hour</Label>
+              <SelectBox
+                value={str("hour", "9")}
+                onChange={set("hour")}
+                options={Array.from({ length: 24 }, (_, h) => ({
+                  value: String(h),
+                  label: `${String(h).padStart(2, "0")}:00`
+                }))}
+                testId="schedule-trigger-hour"
+              />
+            </div>
+            <div className="flex-1">
+              <Label>Minute</Label>
+              <SelectBox
+                value={str("minute", "0")}
+                onChange={set("minute")}
+                options={["0", "15", "30", "45"].map((m) => ({
+                  value: m,
+                  label: `:${m.padStart(2, "0")}`
+                }))}
+                testId="schedule-trigger-minute"
+              />
+            </div>
+          </div>
+        )}
+      </Section>
+    </>
+  );
+}
+
+/**
+ * The webhook's settings. The private link itself is NOT shown here on purpose:
+ * one workflow is installed by many businesses, so there is no single URL at
+ * design time. Each buyer gets their own link when they go live.
+ */
+function WebhookTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="General">
+        <Label>Node name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+        <div className="mt-4">
+          <Label>Description</Label>
+          <TextArea value={str("subtitle")} onChange={set("subtitle")} height="h-16" />
+        </div>
+      </Section>
+
+      <Section title="How it works" last>
+        <p className="mb-3 text-xs leading-5 text-slate-500" data-testid="webhook-trigger-intro">
+          Every business that installs this agent gets its own private link. They
+          paste it into their own software — their shop, their forms, their
+          booking tool — and that software starts this agent.
+        </p>
+
+        <Label>Example of what they will send</Label>
+        <TextArea
+          value={str("sampleBody", '{\n  "message": "New order from Priya",\n  "amount": 4200\n}')}
+          onChange={set("sampleBody")}
+          height="h-28"
+        />
+        <p className="mt-2 text-xs leading-5 text-slate-500" data-testid="webhook-trigger-variables">
+          Use any field in later steps as{" "}
+          <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[11px]">
+            {"{{webhook.body.message}}"}
+          </code>
+          . Field names may use letters, numbers and underscores.
+        </p>
+      </Section>
+    </>
   );
 }
 

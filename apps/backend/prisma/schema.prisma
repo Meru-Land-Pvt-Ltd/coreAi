@@ -111,6 +111,8 @@ model WorkflowDefinition {
   installedAgents      InstalledAgent[]
   workflowRuns         WorkflowRun[]
   memoryRecords        MemoryRecord[]
+  scheduledRuns        ScheduledAgentRun[]
+  webhookEndpoints     AgentWebhookEndpoint[]
   architect            User                 @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
   @@index([architectUserId])
@@ -334,6 +336,8 @@ model Business {
   telegramActions     TelegramMessageExecution[]
   businessServices    BusinessService[]
   handoffEvents       HandoffEvent[]
+  scheduledRuns       ScheduledAgentRun[]
+  webhookEndpoints    AgentWebhookEndpoint[]
   teamMembers         BusinessTeamMember[]
   memberInvites       BusinessMemberInvite[]
   activityLogs        BusinessActivityLog[]
@@ -468,6 +472,8 @@ model InstalledAgent {
   telegramActions           TelegramMessageExecution[]
   businessServices          BusinessService[]
   appointments              Appointment[]
+  scheduledRuns             ScheduledAgentRun[]
+  webhookEndpoints          AgentWebhookEndpoint[]
 
   @@unique([businessId, listingId])
   @@index([businessId])
@@ -2278,6 +2284,76 @@ model ArchitectSecret {
 
   @@unique([architectUserId, name])
   @@index([architectUserId])
+}
+
+/// One clock per schedule node per installed agent — the timer that lets an
+/// agent work with nobody watching. The graph says WHAT runs; this row says
+/// WHEN and for WHICH business, because one WorkflowDefinition is shared by
+/// every buyer and must never carry one buyer's schedule.
+model ScheduledAgentRun {
+  id                  String    @id @default(cuid())
+  businessId          String
+  installedAgentId    String
+  workflowId          String
+  /// node.id of the trigger.schedule node this clock belongs to.
+  nodeId              String
+  /// hourly | daily | weekly
+  cadence             String    @default("daily")
+  /// Wall-clock time in the business's own zone, not UTC.
+  hourLocal           Int       @default(9)
+  minuteLocal         Int       @default(0)
+  /// 0=Sunday .. 6=Saturday. Weekly only.
+  weekdayLocal        Int?
+  timeZone            String
+  /// ACTIVE | PAUSED | PAUSED_FAILING
+  status              String    @default("ACTIVE")
+  nextRunAt           DateTime
+  lastRunAt           DateTime?
+  lastWorkflowRunId   String?
+  lastError           String?
+  consecutiveFailures Int       @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  business       Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent InstalledAgent     @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  workflow       WorkflowDefinition @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([installedAgentId, nodeId])
+  @@index([status, nextRunAt])
+  @@index([businessId])
+}
+
+/// One private inbound link per webhook node per installed agent. The token is
+/// the credential, so only its hash is searchable; the encrypted copy exists
+/// solely to show the buyer their URL again on the setup screen.
+model AgentWebhookEndpoint {
+  id               String    @id @default(cuid())
+  businessId       String
+  installedAgentId String
+  workflowId       String
+  /// node.id of the trigger.webhook node this link feeds.
+  nodeId           String
+  /// sha256(token) hex — the lookup column. Verification never decrypts.
+  tokenHash        String    @unique
+  /// AES-256-GCM of the token, so the buyer can see the link again.
+  tokenCipher      String
+  /// Optional shared secret; when set, deliveries must carry a valid signature.
+  signingSecretCipher String?
+  /// ACTIVE | PAUSED
+  status           String    @default("ACTIVE")
+  lastDeliveryAt   DateTime?
+  deliveryCount    Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  business       Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent InstalledAgent     @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  workflow       WorkflowDefinition @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([installedAgentId, nodeId])
+  @@index([businessId])
+  @@index([status])
 }
 
 model PlatformApiSetting {

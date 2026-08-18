@@ -30,6 +30,11 @@ import {
   verifyWhatsAppWebhookChallenge
 } from "./modules/whatsapp/webhook";
 import { handleCalendlyOAuthMisdirectGet, handleCalendlyWebhookPost } from "./modules/calendly/webhook";
+import {
+  handleInboundAgentWebhookPost,
+  handleInboundAgentWebhookProbe,
+  webhookBodyLimit
+} from "./modules/webhooks/inbound-webhook";
 
 export const app = new Hono();
 
@@ -105,6 +110,14 @@ app.post("/webhook/calendly", handleCalendlyWebhookPost);
 // Local/dev safety: same handlers if someone registered an /api-prefixed URL.
 app.get("/api/webhook/calendly", handleCalendlyOAuthMisdirectGet);
 app.post("/api/webhook/calendly", handleCalendlyWebhookPost);
+
+// Inbound agent webhooks — public by design: the token in the URL IS the
+// credential, so a business can paste the link into any tool without holding a
+// password. Live URL: https://triven.ai/api/webhook/in/<token>
+app.get("/webhook/in/:token", handleInboundAgentWebhookProbe);
+app.post("/webhook/in/:token", webhookBodyLimit, handleInboundAgentWebhookPost);
+app.get("/api/webhook/in/:token", handleInboundAgentWebhookProbe);
+app.post("/api/webhook/in/:token", webhookBodyLimit, handleInboundAgentWebhookPost);
 
 // [DISABLED] HubSpot CRM public webhook.
 // app.post("/webhook/hubspot", handleHubSpotWebhookPost);
