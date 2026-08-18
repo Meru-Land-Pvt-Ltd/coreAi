@@ -31,6 +31,73 @@ export function AdminAuthCard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const currentYear = new Date().getFullYear();
 
+  /**
+   * Every other door on Triven opens with an emailed code; this one asked for
+   * a password, and most accounts have never set one — which locked the owner
+   * out of his own admin. The code path is the same one the rest of the
+   * platform uses, and the backend still refuses to hand an admin code to an
+   * address that is not already an admin.
+   */
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState("");
+  const [sendingCode, setSendingCode] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  async function sendCode() {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!isValidEmail(cleanEmail)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    try {
+      setError("");
+      setNotice("");
+      setSendingCode(true);
+      const result = await apiPost<{ email: string }>("/auth/send-verification-code", {
+        email: cleanEmail,
+        role: "ADMIN"
+      });
+      if (!result.success) {
+        setError(result.error ?? "Could not send the code.");
+        return;
+      }
+      setCodeSent(true);
+      setNotice(`We emailed a 6-digit code to ${cleanEmail}.`);
+    } catch {
+      setError("Something went wrong sending the code.");
+    } finally {
+      setSendingCode(false);
+    }
+  }
+
+  async function submitCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanEmail = email.trim().toLowerCase();
+    if (!/^\d{6}$/.test(code.trim())) {
+      setError("Enter the 6-digit code from your email.");
+      return;
+    }
+    try {
+      setError("");
+      setIsSubmitting(true);
+      const result = await apiPost<AuthResponse>("/auth/verify-code", {
+        email: cleanEmail,
+        code: code.trim(),
+        role: "ADMIN"
+      });
+      if (!result.success || !result.data) {
+        setError(result.error ?? "That code did not work.");
+        return;
+      }
+      saveAuthSession(result.data.token, result.data.user);
+      router.push(ADMIN_DASHBOARD_PATH);
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   useEffect(() => {
     const authUser = getAuthUser();
     if (hasAuthRole(authUser, "ADMIN")) {
@@ -256,6 +323,52 @@ export function AdminAuthCard() {
                   )}
                 </button>
               </form>
+
+              {/* The way in for an admin who never set a password — which is
+                  most of them, since every other Triven login is a code. */}
+              <div className="mt-6 border-t border-slate-100 pt-5">
+                {notice ? (
+                  <p className="mb-3 text-sm text-emerald-600" data-testid="admin-auth-code-notice">
+                    {notice}
+                  </p>
+                ) : null}
+
+                {codeSent ? (
+                  <form className="space-y-3" onSubmit={submitCode}>
+                    <label htmlFor="admin-code" className="block text-sm font-medium text-slate-700">
+                      6-digit code from your email
+                    </label>
+                    <input
+                      id="admin-code"
+                      data-testid="admin-auth-code-input"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="123456"
+                      className="w-full rounded-xl border border-gray-200 bg-white p-3.5 text-center text-lg tracking-[0.4em] text-slate-900 placeholder:tracking-normal placeholder:text-slate-300 focus:border-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-100"
+                    />
+                    <button
+                      type="submit"
+                      data-testid="admin-auth-code-submit"
+                      disabled={isSubmitting}
+                      className="w-full rounded-xl border border-amber-300 bg-white py-3 font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-60"
+                    >
+                      {isSubmitting ? "Signing in…" : "Sign in with this code"}
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="admin-auth-send-code"
+                    onClick={() => void sendCode()}
+                    disabled={sendingCode}
+                    className="w-full rounded-xl border border-slate-200 bg-white py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+                  >
+                    {sendingCode ? "Sending…" : "No password? Email me a sign-in code"}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 

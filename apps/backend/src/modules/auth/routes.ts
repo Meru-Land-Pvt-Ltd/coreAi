@@ -78,6 +78,17 @@ function toSafeUser(user: {
   };
 }
 
+/**
+ * Does this account already hold ADMIN? An emailed code may let an existing
+ * admin in; it may never turn anyone into one.
+ */
+function holdsAdminRole(
+  user: { role: string; roleMemberships: Array<{ role: string }> } | null | undefined
+): boolean {
+  if (!user) return false;
+  return user.role === "ADMIN" || user.roleMemberships.some((m) => m.role === "ADMIN");
+}
+
 authRoutes.post("/send-verification-code", async (c) => {
   try {
     const input = sendVerificationCodeSchema.parse(await c.req.json());
@@ -111,6 +122,18 @@ authRoutes.post("/send-verification-code", async (c) => {
         "Your account is suspended",
         403,
         "ACCOUNT_SUSPENDED"
+      );
+    }
+
+    // An emailed code can never MAKE an admin. It may only let one in, and
+    // only when that account already holds the role — so a stranger typing an
+    // address into the admin screen gets nothing, not an account.
+    if (input.role === "ADMIN" && !holdsAdminRole(existingUser)) {
+      return errorResponse(
+        c,
+        "This email is not an admin account.",
+        403,
+        "ADMIN_ACCOUNT_REQUIRED"
       );
     }
 
@@ -163,14 +186,16 @@ type LoginOutcome =
 async function establishEmailLogin(
   c: Parameters<typeof issueAuthSession>[1],
   email: string,
-  role: "BUSINESS" | "ARCHITECT",
+  role: "ADMIN" | "BUSINESS" | "ARCHITECT",
   failureCode: string
 ): Promise<LoginOutcome> {
 const { user, isNewUser } = await resolveLoginUser({
     email,
     role,
     fallbackFullName: getNameFromEmail(email),
-    allowCreate: true
+    // An admin signing in with a code must already exist — a code proves the
+    // inbox, never the privilege, so this path may never mint an admin.
+    allowCreate: role !== "ADMIN"
   });
 
   if (!user) {
@@ -218,6 +243,20 @@ authRoutes.post("/verify-code", async (c) => {
     const verification = await verifyEmailVerificationCode(input.email, input.role, input.code);
     if (!verification.ok) {
       return errorResponse(c, verification.message, verification.status, verification.code);
+    }
+
+    // The same rule as issuing the code, checked again at the door: a correct
+    // code proves the inbox, never the privilege. Only an account that already
+    // holds ADMIN may come in this way, and never as a new account.
+    if (input.role === "ADMIN") {
+      const existing = await prisma.user.findFirst({
+        where: { email: input.email },
+        select: { role: true, roleMemberships: { select: { role: true } } },
+        orderBy: { createdAt: "asc" }
+      });
+      if (!holdsAdminRole(existing)) {
+        return errorResponse(c, "This email is not an admin account.", 403, "ADMIN_ACCOUNT_REQUIRED");
+      }
     }
 
     const outcome = await establishEmailLogin(c, input.email, input.role, "VERIFY_CODE_FAILED");

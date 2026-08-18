@@ -116,7 +116,7 @@ type VerificationEmailPurpose = "sign_in" | "email_update";
 type SendVerificationEmailInput = {
   to: string;
   code: string;
-  role: "BUSINESS" | "ARCHITECT";
+  role: "ADMIN" | "BUSINESS" | "ARCHITECT";
   purpose?: VerificationEmailPurpose;
   /** One-click sign-in link. Present for sign_in mail only. */
   magicLinkUrl?: string;
@@ -167,7 +167,8 @@ export async function sendVerificationEmail({
   purpose = "sign_in",
   magicLinkUrl
 }: SendVerificationEmailInput) {
-  const roleLabel = role === "BUSINESS" ? "Business Owner" : "AI Architect";
+  const roleLabel =
+    role === "BUSINESS" ? "Business Owner" : role === "ADMIN" ? "Admin" : "AI Architect";
   const copy = verificationEmailCopy({
     purpose,
     roleLabel,
