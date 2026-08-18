@@ -228,7 +228,7 @@ function publicRuntimeError(
  * The live runtime used by /a/<slug> — the exact fetch behavior the templates
  * had before the runtime existed, byte-for-byte on the wire.
  */
-export function createPublicAgentPageRuntime(slug: string): AgentPageRuntime {
+export function createPublicAgentPageRuntime(slug: string, installKey?: string | null): AgentPageRuntime {
   return {
     mode: "live",
 
@@ -283,7 +283,13 @@ export function createPublicAgentPageRuntime(slug: string): AgentPageRuntime {
           structured?: VisualResultsPayload | null;
         };
         remainingToday: number;
-      }>(`/agent-pages/${slug}/run`, { prompt });
+      }>(`/agent-pages/${slug}/run`, {
+        prompt,
+        // Present only when this page is the widget on the buyer's own site.
+        // It is what tells the backend to do real work for that business
+        // instead of running the marketplace demo.
+        ...(installKey ? { installKey } : {})
+      });
 
       const payload = response.success ? response.data : undefined;
       if (payload) return payload;

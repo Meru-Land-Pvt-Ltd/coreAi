@@ -6,6 +6,7 @@ import { z } from "zod";
 import { presentationDoorEnabled } from "@coreai/shared";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
+import { resolveEmbedLive } from "./embed-live";
 import { runArchitectConversationTest } from "../architect/workflow-conversation-test";
 import { runWorkflowTest } from "../architect/workflow-runner";
 import { MarketplaceDemoError, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
@@ -305,7 +306,12 @@ const runBodySchema = z.object({
     .trim()
     .min(1, "Prompt is required")
     .max(4000, "Prompt is too long (4000 characters max)"),
-  sessionId: z.string().uuid("Session id must be a UUID").optional()
+  sessionId: z.string().uuid("Session id must be a UUID").optional(),
+  /**
+   * The buyer's public widget key, sent by the embed loader. Absent on the
+   * marketplace page, which stays a demo exactly as before.
+   */
+  installKey: z.string().trim().max(120).optional()
 });
 
 /** One sandboxed one-shot run for media/form templates (rate-limited). */
@@ -339,17 +345,58 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
     return errorResponse(c, LIMIT_REACHED_MESSAGE, 429, "PAGE_LIMIT_REACHED");
   }
 
+  // A widget on a business's own website does REAL work for that business:
+  // real calendar, real leads. Everything else — the marketplace demo, an
+  // unknown key, a paused agent, a hit ceiling — runs exactly as it always
+  // has. A "no" here is never an error; the visitor still gets an answer.
+  const embed = await resolveEmbedLive({
+    installKey: parsed.data.installKey,
+    workflowId: page.workflowId,
+    listingId: page.listingId
+  }).catch(() => ({ live: false as const, reason: "resolver failed" }));
+
   try {
-    // Sandboxed one-shot run under the architect's identity — never LIVE.
-    // The listing's public name stands in for the business so saved text like
-    // {{business.name}} resolves to the agent's name in visitor-facing output.
-    const result = await runWorkflowTest({
-      userId: page.architectUserId,
-      workflowId: page.workflowId,
-      workflowJson,
-      input: { message: parsed.data.prompt, businessName: page.listing.name },
-      mode: "test"
-    });
+    const result = embed.live
+      ? await runWorkflowTest({
+          userId: embed.install.businessOwnerId,
+          workflowId: page.workflowId,
+          workflowJson,
+          mode: "live",
+          executionMode: "LIVE",
+          callProvider: "EMBED",
+          // One run per submit: a retry of the same submit is refused by
+          // WorkflowRun's unique index rather than charged twice.
+          externalCallId: `${embed.install.id}:${parsed.data.sessionId ?? randomUUID()}`,
+          input: {
+            businessId: embed.install.businessId,
+            businessOwnerId: embed.install.businessOwnerId,
+            installedAgentId: embed.install.id,
+            listingId: embed.install.listingId ?? undefined,
+            businessName: embed.install.businessName,
+            businessType: embed.install.businessType ?? undefined,
+            businessPhoneNumber: embed.install.businessPhoneNumber,
+            bookingUrl: embed.install.bookingUrl,
+            teamPhone: embed.install.teamPhone,
+            calendarId: embed.install.calendarId,
+            timeZone: embed.install.timeZone,
+            services: embed.install.services,
+            latestMessage: parsed.data.prompt,
+            // Marks the run as coming from a public widget: real calendar and
+            // real leads, but no texts, calls, emails or WhatsApp — the page
+            // is public and a stranger must never reach outward on this bill.
+            embedSource: true
+          }
+        })
+      : // Sandboxed one-shot run under the architect's identity — never LIVE.
+        // The listing's public name stands in for the business so saved text
+        // like {{business.name}} resolves to the agent's name.
+        await runWorkflowTest({
+          userId: page.architectUserId,
+          workflowId: page.workflowId,
+          workflowJson,
+          input: { message: parsed.data.prompt, businessName: page.listing.name },
+          mode: "test"
+        });
 
     return successResponse(c, {
       // The Face-out door turns whatever the run produced into cards, a chart

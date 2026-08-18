@@ -54,6 +54,7 @@ import {
   searchNumbersForBusiness
 } from "./phone-provisioning-flow";
 import { prisma } from "../../lib/prisma";
+import { ensureEmbedKey, rotateEmbedKey } from "../agent-pages/embed-live";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import {
   createGmailOAuthUrl,
@@ -529,6 +530,60 @@ export const telegramBusinessSettingsSchema = z.object({
   telegramRequestPhone: z.boolean(),
   telegramRequestEmail: z.boolean(),
   telegramRequestNotes: z.boolean()
+});
+
+/**
+ * The buyer's own widget snippet.
+ *
+ * GET mints the key on first ask and returns the exact line to paste into
+ * their website. Holding this key is what lets the widget do real work for
+ * them — book on their calendar, save their leads — instead of running as the
+ * marketplace demo. It is public by nature (it lives in their page source),
+ * which is why a daily ceiling, not the key, is what bounds the bill.
+ */
+businessRoutes.get("/agents/:installedAgentId/embed", async (c) => {
+  const authUser = c.get("authUser");
+  const installedAgentId = c.req.param("installedAgentId");
+
+  const agent = await prisma.installedAgent.findFirst({
+    where: { id: installedAgentId, business: { ownerId: authUser.id } },
+    select: {
+      id: true,
+      listing: { select: { publishedPage: { select: { slug: true } } } }
+    }
+  });
+  if (!agent) return errorResponse(c, "Agent not found", 404, "AGENT_NOT_FOUND");
+
+  const slug = agent.listing?.publishedPage?.slug;
+  if (!slug) {
+    return errorResponse(
+      c,
+      "This agent has no public page yet, so it cannot be embedded.",
+      409,
+      "AGENT_PAGE_MISSING"
+    );
+  }
+
+  const key = await ensureEmbedKey(agent.id);
+  const origin = (env.FRONTEND_URL || "https://triven.ai").replace(/\/$/, "");
+  return successResponse(c, {
+    slug,
+    key,
+    snippet: `<script src="${origin}/embed.js" data-triven-agent="${slug}" data-triven-key="${key}" async></script>`
+  });
+});
+
+/** Replace the key — the answer to a widget being abused on someone's site. */
+businessRoutes.post("/agents/:installedAgentId/embed/rotate", async (c) => {
+  const authUser = c.get("authUser");
+  const agent = await prisma.installedAgent.findFirst({
+    where: { id: c.req.param("installedAgentId"), business: { ownerId: authUser.id } },
+    select: { id: true }
+  });
+  if (!agent) return errorResponse(c, "Agent not found", 404, "AGENT_NOT_FOUND");
+
+  const key = await rotateEmbedKey(agent.id);
+  return successResponse(c, { key }, "New key created. Update the line on your website.");
 });
 
 businessRoutes.get("/agents/:installedAgentId/telegram/status", async (c) => {

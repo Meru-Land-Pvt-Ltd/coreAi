@@ -41,7 +41,11 @@ export async function generateMetadata({ params }: PageRouteProps): Promise<Meta
 
 export default async function PublishedProductSubPage({ params, searchParams }: PageRouteProps) {
   const { slug, page: pagePath } = await params;
-  const embed = (await searchParams)?.embed === "1";
+  const query = await searchParams;
+  const embed = query?.embed === "1";
+  // The buyer's widget key, forwarded by the embed loader. Only a page loaded
+  // from their own website carries it.
+  const installKey = typeof query?.k === "string" ? query.k : null;
 
   const resolved = await loadPublicProduct(slug);
   if (!resolved) notFound();
@@ -64,6 +68,7 @@ export default async function PublishedProductSubPage({ params, searchParams }: 
       listingName={resolved.listing.name}
       contentWidth={resolved.contentWidth}
       embed={embed}
+      installKey={installKey}
     />
   );
 }

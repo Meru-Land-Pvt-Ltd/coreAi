@@ -222,6 +222,14 @@ export type WorkflowRunInput = {
     headers: Record<string, string>;
     body: unknown;
   };
+  /**
+   * True when this run came from a widget embedded on a business's own
+   * website. Such a run gets the business's REAL context — real calendar, real
+   * leads — but never the outbound channels: the page is public, so a stranger
+   * could otherwise make the business text or call any number in the world on
+   * their account. See modules/agent-pages/embed-live.ts.
+   */
+  embedSource?: boolean;
   /** A tick from the schedule (timer) trigger — no human, no caller. */
   schedule?: {
     scheduleId: string;
@@ -519,6 +527,8 @@ type RunnerContext = {
     headers: Record<string, string>;
     body: unknown;
   };
+  /** Set when the run came from a widget on a business's own website. */
+  embedSource?: boolean;
   /** Set when the run came from the timer, not a person. */
   schedule?: {
     scheduleId: string;
@@ -1677,8 +1687,26 @@ function seedMissedCallContext(
     context.schedule = input.schedule;
   }
 
+  if (input?.embedSource) {
+    context.embedSource = true;
+  }
+
   context._mode = mode;
   return context;
+}
+
+/**
+ * May this run actually SEND something into the world — a text, a call, an
+ * email, a WhatsApp message?
+ *
+ * Live runs normally may. The exception is a run that started from a widget on
+ * a business's own website: that page is public, so a stranger could otherwise
+ * type a phone number and make the business text or dial it, on the business's
+ * account. Those runs still read the real calendar and save real leads — they
+ * simply never reach outward. See modules/agent-pages/embed-live.ts.
+ */
+function outboundSendsAllowed(context: RunnerContext, mode: WorkflowRunMode): boolean {
+  return mode === "live" && context.embedSource !== true;
 }
 
 function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
@@ -2202,7 +2230,7 @@ async function runSmsConnectorNode({
     return;
   }
 
-  if (mode === "live") {
+  if (outboundSendsAllowed(context, mode)) {
     const outcome = await sendTrackedSms({
       to: actionTo,
       body: actionBody,
@@ -2303,7 +2331,7 @@ async function runVapiConnectorNode({
   const assistantId = renderTemplate(node.data?.vapiAssistantId, context) || context.business?.vapiAssistantId;
   const phoneNumberId = renderTemplate(node.data?.vapiPhoneNumberId, context) || context.business?.vapiPhoneNumberId;
 
-  if (mode !== "live") {
+  if (!outboundSendsAllowed(context, mode)) {
     context.vapiCall = {
       id: null,
       status: "dry_run",
@@ -3667,7 +3695,7 @@ async function runEmailConnectorNode({
     `Message from ${business?.name ?? "your business"}`;
   const textBody = fillEmailTemplate(emailConfig.bodyTemplate, templateVars);
 
-  if (mode !== "live") {
+  if (!outboundSendsAllowed(context, mode)) {
     // A Test Email on the Test tab turns the dry preview into a real delivery
     // so the architect can verify the confirmation flow before publishing.
     const testRecipient = (context.testEmail ?? "").trim().toLowerCase();
@@ -4531,7 +4559,7 @@ async function runWhatsAppConnectorNode({
           return;
         }
 
-        if (mode !== "live") {
+        if (!outboundSendsAllowed(context, mode)) {
           whatsappResult.status = "dry_run";
           whatsappResult.wamid = null;
           setContextResult();
@@ -4570,7 +4598,7 @@ async function runWhatsAppConnectorNode({
           return;
         }
 
-        if (mode !== "live") {
+        if (!outboundSendsAllowed(context, mode)) {
           whatsappResult.status = "dry_run";
           whatsappResult.wamid = null;
           setContextResult();
@@ -4609,7 +4637,7 @@ async function runWhatsAppConnectorNode({
           return;
         }
 
-        if (mode !== "live") {
+        if (!outboundSendsAllowed(context, mode)) {
           whatsappResult.status = "dry_run";
           whatsappResult.wamid = null;
           setContextResult();
@@ -4658,7 +4686,7 @@ async function runWhatsAppConnectorNode({
         return;
       }
 
-      if (mode !== "live") {
+      if (!outboundSendsAllowed(context, mode)) {
         whatsappResult.status = "dry_run";
         whatsappResult.wamid = null;
         setContextResult();
@@ -4701,7 +4729,7 @@ async function runWhatsAppConnectorNode({
         return;
       }
 
-      if (mode !== "live") {
+      if (!outboundSendsAllowed(context, mode)) {
         whatsappResult.status = "dry_run";
         whatsappResult.wamid = null;
         setContextResult();
@@ -4736,7 +4764,7 @@ async function runWhatsAppConnectorNode({
         return;
       }
 
-      if (mode !== "live") {
+      if (!outboundSendsAllowed(context, mode)) {
         whatsappResult.status = "dry_run";
         whatsappResult.wamid = messageId;
         setContextResult();

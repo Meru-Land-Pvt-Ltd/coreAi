@@ -42,6 +42,11 @@ export type LiveProductSiteProps = {
    * the page reports its height so the frame can size itself.
    */
   embed?: boolean;
+  /**
+   * The buyer's public widget key, present only when this page is embedded on
+   * their own website. It is what makes the agent do real work for them.
+   */
+  installKey?: string | null;
 };
 
 export function LiveProductSite({
@@ -50,11 +55,15 @@ export function LiveProductSite({
   page,
   listingName,
   contentWidth,
-  embed = false
+  embed = false,
+  installKey = null
 }: LiveProductSiteProps) {
   // The same public runtime the block-rendered pages use: POST
   // /agent-pages/<slug>/run, byte-for-byte on the wire.
-  const runtime = useMemo(() => createPublicAgentPageRuntime(slug), [slug]);
+  const runtime = useMemo(
+    () => createPublicAgentPageRuntime(slug, installKey),
+    [slug, installKey]
+  );
   const renderNode = useWiredNodeRenderer();
   // Charts need a concrete hex, and the theme is the one place a color is
   // decided — so it is resolved once, here.

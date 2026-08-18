@@ -454,6 +454,16 @@ model InstalledAgent {
   trialExecutionsUsed       Int                         @default(0)
   executionBillingStartedAt DateTime                    @default(now())
   configJson                Json?
+  /// sha256 of the public embed key. Present once the buyer has taken the
+  /// snippet for their own website; its presence is what lets that widget do
+  /// real work (book, save a lead) instead of running as a demo.
+  embedKeyHash              String?                     @unique
+  /// Encrypted copy of the same key, so the buyer can read their snippet again.
+  embedKeyCipher            String?
+  /// Per-day ceiling of live widget runs for this install. Null = platform
+  /// default. The key is public by nature (it sits in the buyer's HTML), so
+  /// THIS is the guard that actually protects the bill.
+  embedDailyLimit           Int?
   createdAt                 DateTime                    @default(now())
   updatedAt                 DateTime                    @updatedAt
   phoneNumbers              BusinessPhoneNumber[]
