@@ -653,14 +653,26 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
 
   async sampleRecordsForTimeline(scopeKey, limit) {
     const conversationScopeKey = scopeKey.replace(/\|node:[^|]+/, "");
-    const records = await prisma.$queryRaw<TimelineRecord[]>`
-      SELECT "sourceType", "sourceLabel", "content", "createdAt" 
-      FROM "MemoryRecord"
-      WHERE "scopeKey" = ${conversationScopeKey} OR "scopeKey" = ${scopeKey}
-      ORDER BY "createdAt" DESC
-      LIMIT ${limit}
+    // Evenly spaced across the whole history rather than the newest `limit`
+    // rows, so a long history gets summarised instead of truncated. The oldest
+    // and the newest record are always both included.
+    return prisma.$queryRaw<TimelineRecord[]>`
+      WITH ordered AS (
+        SELECT "sourceType", "sourceLabel", "content", "createdAt",
+               (ROW_NUMBER() OVER (ORDER BY "createdAt" ASC)) - 1 AS rn,
+               (COUNT(*) OVER ()) AS total
+        FROM "MemoryRecord"
+        WHERE "scopeKey" = ${conversationScopeKey} OR "scopeKey" = ${scopeKey}
+      )
+      SELECT "sourceType", "sourceLabel", "content", "createdAt"
+      FROM ordered
+      WHERE total <= ${limit}::int
+         OR rn IN (
+           SELECT ROUND(s::numeric * (total - 1) / GREATEST(${limit}::int - 1, 1))
+           FROM generate_series(0, ${limit}::int - 1) s
+         )
+      ORDER BY "createdAt" ASC
     `;
-    return records.reverse();
   },
 
   async countRecords(scopeKey) {

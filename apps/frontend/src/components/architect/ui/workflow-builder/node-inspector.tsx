@@ -40,7 +40,6 @@ import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/W
 import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment, BlockPreset, BlockModelOption } from "./types";
-import { DesignBrainPanel } from "./design-brain-panel";
 import { LlmNodeInspector } from "./llm-node-inspector";
 import { DeepgramNodeInspector } from "./deepgram-node-inspector";
 import { DeepgramTtsNodeInspector } from "./deepgram-tts-node-inspector";
@@ -117,10 +116,7 @@ export function NodeInspector({
   calendarEmail = null,
   connectingCalendar = false,
   onConnectCalendar,
-  variableNodePrefixes,
-  workflowId = null,
-  previewVisible = false,
-  onDesignApplied
+  variableNodePrefixes
 }: {
   selectedNode: BuilderNode | null;
   onClearSelection: () => void;
@@ -134,16 +130,6 @@ export function NodeInspector({
   onConnectCalendar?: () => void;
   /** Node ids/labels from the graph — whitelists {{node.prop}}-style tokens in warnings. */
   variableNodePrefixes?: string[];
-  /** Saved workflow id — lets the Design Brain chat talk to the backend. */
-  workflowId?: string | null;
-  /** True while the Test preview is on screen (Design Brain skips its "check the Test tab" note). */
-  previewVisible?: boolean;
-  /**
-   * Design Brain applied a patch — the builder refetches the Test preview
-   * data; `graphChanged` true means the saved canvas graph changed too and
-   * the builder reloads nodes/edges from the server.
-   */
-  onDesignApplied?: (result: { graphChanged?: boolean }) => void;
 }) {
   if (!selectedNode) return <EmptyProperties />;
 
@@ -161,23 +147,14 @@ export function NodeInspector({
   // — an architect fills in words and choices here, nothing more technical.
   const isProductBlock =
     isBlockNodeType(type) || String(selectedNode.data.nodeKind ?? "") === "block";
-  // The Design Brain is a chat, not a form — it gets the block-style frame
-  // (no jargon, no variable drawer) but its own header and no step overview.
+  // Old canvases can still carry a design.brain node — it gets the plain
+  // block-style frame now; its chat was retired for the Smart Designer.
   const isDesignBrain = type === DESIGN_BRAIN_NODE_TYPE;
   const base: NodePropsPanel = { selectedNode, onUpdateNodeData, variableNodePrefixes };
 
   let panel: ReactNode;
 
-  if (isDesignBrain) {
-    panel = (
-      <DesignBrainPanel
-        workflowId={workflowId}
-        previewVisible={previewVisible}
-        onDesignApplied={onDesignApplied}
-      />
-    );
-  }
-  else if (type === "ai.image_generation") panel = <ImageGenNodeProps {...base} />;
+  if (type === "ai.image_generation") panel = <ImageGenNodeProps {...base} />;
   else if (type === DEEPGRAM_NODE_TYPES.stt || (type === DEEPGRAM_NODE_TYPES.speech && String(selectedNode.data.mode ?? "stt") !== "tts")) {
     panel = <DeepgramNodeInspector {...base} />;
   } else if (type === DEEPGRAM_NODE_TYPES.tts || (type === DEEPGRAM_NODE_TYPES.speech && String(selectedNode.data.mode ?? "") === "tts")) {

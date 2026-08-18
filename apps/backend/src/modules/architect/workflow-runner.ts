@@ -27,6 +27,7 @@ import {
   type DoorBudget,
   type DoorContext
 } from "../agent-runtime/node-doors";
+import { executeScript } from "../agent-runtime/script-executor";
 import { safeFetch, SafeFetchError, type SafeFetchErrorCode } from "../../lib/safe-fetch";
 import { getArchitectSecretValue, getPlatformYouTubeKey } from "./architect-secrets";
 import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";

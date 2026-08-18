@@ -6,10 +6,8 @@ import {
   MessageCircle,
   Phone,
   Sparkles,
-  Wand2,
   X
 } from "lucide-react";
-import { DesignBrainChat } from "./design-brain-chat";
 import { SmartDesignerPanel } from "./smart-designer-panel";
 import { AgentPageShell } from "@/components/agent-page/agent-page-shell";
 import { ChatTemplate } from "@/components/agent-page/chat-template";
@@ -207,36 +205,22 @@ export function PreviewPanel({
   onOpenAdvanced,
   onDesignApplied
 }: PreviewPanelProps) {
-  // The floating Design Brain panel behind the bottom-right launcher.
-  const [designOpen, setDesignOpen] = useState(false);
-  const designPanelRef = useRef<HTMLElement | null>(null);
-  const designLauncherRef = useRef<HTMLButtonElement | null>(null);
-
-  // Closing hands focus back to the launcher — the panel goes inert the same
-  // moment, and focus must never be left stranded inside an inert subtree.
-  const closeDesign = () => {
-    setDesignOpen(false);
-    designLauncherRef.current?.focus();
-  };
-  // The Smart Designer — the composed interface's feedback loop. A separate,
-  // parallel feature beside the Design Brain: same corner, its own panel, so
-  // only one of the two is ever up at once.
+  // The Smart Designer — ONE door for everything design: it fixes the
+  // composed interface itself and quietly routes packaging asks (sell page,
+  // pricing, legal) to the packaging brain. One launcher owns the corner.
   const [smartOpen, setSmartOpen] = useState(false);
   const smartPanelRef = useRef<HTMLElement | null>(null);
   const smartLauncherRef = useRef<HTMLButtonElement | null>(null);
 
+  // Closing hands focus back to the launcher — the panel goes inert the same
+  // moment, and focus must never be left stranded inside an inert subtree.
   const closeSmart = () => {
     setSmartOpen(false);
     smartLauncherRef.current?.focus();
   };
   const openSmart = () => {
-    setDesignOpen(false);
     setSmartOpen(true);
   };
-  // The Design Brain opening reclaims the corner — the Smart Designer yields.
-  useEffect(() => {
-    if (designOpen) setSmartOpen(false);
-  }, [designOpen]);
 
   // Opening hands focus to the composer, same as the Design Brain dock.
   useEffect(() => {
@@ -289,15 +273,6 @@ export function PreviewPanel({
   // True after an engine failure (thrown or returned); cleared by the next
   // success so the snag card never lingers over a working agent.
   const [engineSnag, setEngineSnag] = useState(false);
-
-  // Opening the panel hands focus to its composer, so the architect can type
-  // how the page should look without an extra click.
-  useEffect(() => {
-    if (!designOpen) return;
-    designPanelRef.current
-      ?.querySelector<HTMLInputElement>("[data-testid='design-dock-input']")
-      ?.focus();
-  }, [designOpen]);
 
   const runtime = useMemo<AgentPageRuntime>(
     () => ({
@@ -590,93 +565,20 @@ export function PreviewPanel({
         </div>
       )}
 
-      {/* The Design Brain launcher — bottom-right, always one tap away. It
-          fades out while the panel is up (the panel owns that corner). */}
-      <button
-        type="button"
-        ref={designLauncherRef}
-        onClick={() => setDesignOpen(true)}
-        aria-expanded={designOpen}
-        aria-haspopup="dialog"
-        tabIndex={designOpen ? -1 : undefined}
-        data-testid="design-float-toggle"
-        className={
-          "absolute bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-amber-400 to-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:from-amber-500 hover:to-amber-600 motion-reduce:transition-none" +
-          (designOpen ? " pointer-events-none opacity-0" : " opacity-100") +
-          PILL_FOCUS_CLASSES
-        }
-      >
-        <Wand2 className="h-4 w-4" aria-hidden="true" />
-        Design
-      </button>
-
-      {/* Phone-size scrim behind the bottom sheet — tap anywhere to close. */}
-      {designOpen ? (
-        <button
-          type="button"
-          aria-label="Close styling"
-          onClick={closeDesign}
-          data-testid="design-dock-backdrop"
-          className="absolute inset-0 z-40 bg-slate-900/30 sm:hidden"
-        />
-      ) : null}
-
-      {/* The floating Design Brain panel. Stays mounted so open and close both
-          animate (translate + fade); `inert` keeps its controls out of reach
-          while hidden. On phones it becomes a near-full-width bottom sheet. */}
-      <section
-        ref={designPanelRef}
-        role="dialog"
-        aria-label="Design Brain"
-        inert={!designOpen}
-        data-testid="design-dock"
-        data-open={designOpen ? "true" : "false"}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") closeDesign();
-        }}
-        className={
-          "absolute bottom-4 right-4 z-50 flex h-[min(65vh,560px)] max-h-[calc(100%-2rem)] w-[380px] max-w-[calc(100%-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/25 transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none max-sm:inset-x-3 max-sm:bottom-3 max-sm:h-[70vh] max-sm:w-auto max-sm:max-w-none " +
-          (designOpen ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")
-        }
-      >
-        <div className="flex flex-none items-start justify-between gap-2 border-b border-gray-100 px-4 pb-3 pt-4">
-          <div className="min-w-0">
-            <h3
-              className="text-xs font-bold uppercase tracking-wider text-slate-400"
-              data-testid="design-dock-title"
-            >
-              Design Brain
-            </h3>
-            <p className="mt-1 text-xs leading-5 text-slate-500" data-testid="design-dock-intro">
-              Type how it should look — watch it change.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={closeDesign}
-            aria-label="Close"
-            data-testid="design-dock-close"
-            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
-        <DesignBrainChat variant="docked" workflowId={workflowId} onApplied={onDesignApplied} />
-      </section>
-
-      {/* The Smart Designer launcher — stacked above Design, same corner
-          language. Hidden while either panel owns the corner. */}
+      {/* THE design launcher — one button owns the corner. The Smart Designer
+          fixes the interface and routes packaging asks itself, so nothing
+          else needs a door here. Fades out while its panel is up. */}
       <button
         type="button"
         ref={smartLauncherRef}
         onClick={openSmart}
         aria-expanded={smartOpen}
         aria-haspopup="dialog"
-        tabIndex={smartOpen || designOpen ? -1 : undefined}
+        tabIndex={smartOpen ? -1 : undefined}
         data-testid="smart-designer-toggle"
         className={
-          "absolute bottom-16 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 shadow-lg shadow-amber-500/20 transition hover:bg-amber-50 motion-reduce:transition-none" +
-          (smartOpen || designOpen ? " pointer-events-none opacity-0" : " opacity-100") +
+          "absolute bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-amber-400 to-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:from-amber-500 hover:to-amber-600 motion-reduce:transition-none" +
+          (smartOpen ? " pointer-events-none opacity-0" : " opacity-100") +
           PILL_FOCUS_CLASSES
         }
       >
@@ -736,7 +638,11 @@ export function PreviewPanel({
         </div>
         <SmartDesignerPanel
           workflowId={workflowId}
-          hasComposedSpec={blueprint !== null}
+          // A composed interface exists when the saved ProductSpec does (the
+          // composer writes the spec, not canvas blocks) — or when the graph
+          // carries product blocks. Checking only blocks locked the chat
+          // behind a pointless re-Generate after every page reload.
+          hasComposedSpec={productSpec !== null || blueprint !== null}
           onApplied={onDesignApplied}
         />
       </section>

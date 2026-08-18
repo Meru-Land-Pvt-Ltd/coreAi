@@ -6,7 +6,7 @@ import {
   BLOCK_NODE_TYPES,
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
-  DESIGN_BRAIN_NODE_TYPE,
+  SCRIPT_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_TYPES
 } from "@coreai/shared";
@@ -54,14 +54,15 @@ describe("library groups (Face / Brain / Hands)", () => {
     ]);
   });
 
-  it("keeps every pre-regroup item plus the API Call node (32 total) with its testId", () => {
+  it("keeps every pre-regroup item plus the API Call and Code nodes (32 total) with its testId", () => {
     const testIds = libraryGroups.flatMap((group) => group.items.map((item) => item.testId));
+    // 33 with the old Design Brain card; retired for the Smart Designer.
     expect(testIds).toHaveLength(32);
 
-    // Face: all block.* + design.brain
+    // Face: all block.* — the old Design Brain card is retired (the Smart
+    // Designer generates and fixes the interface now).
     const faceIds = libraryGroups[0].items.map((item) => item.testId);
     expect(faceIds).toEqual([
-      tid(DESIGN_BRAIN_NODE_TYPE),
       tid(BLOCK_NODE_TYPES.promptComposer),
       tid(BLOCK_NODE_TYPES.presetGallery),
       tid(BLOCK_NODE_TYPES.modelPicker),
@@ -102,6 +103,7 @@ describe("library groups (Face / Brain / Hands)", () => {
       tid("action.send_whatsapp"),
       tid(TELEGRAM_NODE_TYPES.sendMessage),
       tid(API_CALL_NODE_TYPE),
+      tid(SCRIPT_NODE_TYPE),
       tid(VOICE_NODE_TYPES.endFlow)
     ]);
   });

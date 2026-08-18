@@ -13,12 +13,12 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPushMock, prefetch: vi.fn(), replace: vi.fn() })
 }));
 
-// The floating Design Brain talks to the styling endpoint itself — stub the
-// wrapper so no test ever leaves the room.
-const { designChatMock } = vi.hoisted(() => ({ designChatMock: vi.fn() }));
+// The floating Packaging chat talks to the product-chat endpoint itself —
+// stub the wrapper so no test ever leaves the room.
+const { productChatMock } = vi.hoisted(() => ({ productChatMock: vi.fn() }));
 
 vi.mock("@/components/architect/features/api", () => ({
-  designChat: designChatMock,
+  productChat: productChatMock,
   // The Arrange Editor's layout PATCH — never exercised by these tests, but
   // the panel imports it, so the mocked module must carry it.
   updateAgentPageConfig: vi.fn().mockResolvedValue({ success: true })
@@ -54,7 +54,7 @@ function frame() {
 beforeEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  designChatMock.mockReset();
+  productChatMock.mockReset();
 });
 
 // Unmount after every test too — a render left mounted past the file's end
@@ -299,104 +299,26 @@ describe("PreviewPanel device frames", () => {
   });
 });
 
-describe("PreviewPanel floating Design Brain", () => {
-  it("starts closed: only the launcher shows, the panel is tucked away", () => {
+describe("PreviewPanel design corner", () => {
+  it("one launcher owns the corner: Smart Designer only, no second pill, no old dock", () => {
     render(<PreviewPanel {...makeProps()} />);
 
-    expect(screen.getByTestId("design-float-toggle")).toBeTruthy();
-    const panel = screen.getByTestId("design-dock");
-    expect(panel.getAttribute("data-open")).toBe("false");
-    expect(panel.className).toContain("opacity-0");
-    expect(screen.queryByTestId("design-dock-backdrop")).toBeNull();
+    expect(screen.getByTestId("smart-designer-toggle")).toBeTruthy();
+    // The old Design Brain / Packaging launcher and dock are gone for good.
+    expect(screen.queryByTestId("design-float-toggle")).toBeNull();
+    expect(screen.queryByTestId("design-dock")).toBeNull();
   });
 
-  it("the launcher opens the panel: header, quiet line, chat, close all present", async () => {
+  it("the launcher opens the Smart Designer panel and close hands the corner back", async () => {
     const user = userEvent.setup();
     render(<PreviewPanel {...makeProps()} />);
 
-    await user.click(screen.getByTestId("design-float-toggle"));
-
-    const panel = screen.getByTestId("design-dock");
+    await user.click(screen.getByTestId("smart-designer-toggle"));
+    const panel = screen.getByTestId("smart-designer-dock");
     expect(panel.getAttribute("data-open")).toBe("true");
-    expect(panel.className).toContain("opacity-100");
-    expect(within(panel).getByTestId("design-dock-title").textContent).toBe("Design Brain");
-    expect(within(panel).getByTestId("design-dock-intro").textContent).toBe(
-      "Type how it should look — watch it change."
-    );
-    expect(within(panel).getByTestId("design-dock-input")).toBeTruthy();
-    expect(within(panel).getByTestId("design-dock-send")).toBeTruthy();
 
-    // The close button tucks it away again.
-    await user.click(within(panel).getByTestId("design-dock-close"));
+    await user.click(screen.getByTestId("smart-designer-close"));
     expect(panel.getAttribute("data-open")).toBe("false");
-  });
-
-  it("on phones the scrim raises behind the sheet and closes it on tap", async () => {
-    const user = userEvent.setup();
-    render(<PreviewPanel {...makeProps()} />);
-
-    await user.click(screen.getByTestId("design-float-toggle"));
-    const backdrop = screen.getByTestId("design-dock-backdrop");
-    expect(backdrop).toBeTruthy();
-
-    await user.click(backdrop);
-    expect(screen.getByTestId("design-dock").getAttribute("data-open")).toBe("false");
-    expect(screen.queryByTestId("design-dock-backdrop")).toBeNull();
-  });
-
-  it("a send goes through the styling endpoint and refreshes the page", async () => {
-    const onDesignApplied = vi.fn();
-    designChatMock.mockResolvedValue({
-      success: true,
-      data: { reply: "Dark and moody now.", patch: { theme: "dark" }, design: null, page: null }
-    });
-    const user = userEvent.setup();
-    render(<PreviewPanel {...makeProps({ onDesignApplied })} />);
-
-    await user.click(screen.getByTestId("design-float-toggle"));
-    await user.type(screen.getByTestId("design-dock-input"), "dark theme");
-    await user.click(screen.getByTestId("design-dock-send"));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("design-dock-message-assistant").textContent).toBe(
-        "Dark and moody now."
-      );
-    });
-    expect(designChatMock).toHaveBeenCalledTimes(1);
-    expect(designChatMock).toHaveBeenCalledWith("wf-1", { instruction: "dark theme" });
-    expect(onDesignApplied).toHaveBeenCalledTimes(1);
-    // Beside a live page there is no "check the Test tab" note to show.
-    expect(screen.queryByTestId("design-dock-applied-note")).toBeNull();
-  });
-
-  it("a reply that changed nothing never refreshes the page", async () => {
-    const onDesignApplied = vi.fn();
-    designChatMock.mockResolvedValue({
-      success: true,
-      data: { reply: "I can change colors, layout, or wording — not that one.", patch: {}, design: null, page: null }
-    });
-    const user = userEvent.setup();
-    render(<PreviewPanel {...makeProps({ onDesignApplied })} />);
-
-    await user.click(screen.getByTestId("design-float-toggle"));
-    await user.type(screen.getByTestId("design-dock-input"), "add a 3D globe");
-    await user.click(screen.getByTestId("design-dock-send"));
-
-    await waitFor(() =>
-      expect(screen.getByTestId("design-dock-message-assistant")).toBeTruthy()
-    );
-    expect(onDesignApplied).not.toHaveBeenCalled();
-  });
-
-  it("Escape inside the panel closes it", async () => {
-    const user = userEvent.setup();
-    render(<PreviewPanel {...makeProps()} />);
-
-    await user.click(screen.getByTestId("design-float-toggle"));
-    expect(screen.getByTestId("design-dock").getAttribute("data-open")).toBe("true");
-
-    await user.keyboard("{Escape}");
-    expect(screen.getByTestId("design-dock").getAttribute("data-open")).toBe("false");
   });
 });
 

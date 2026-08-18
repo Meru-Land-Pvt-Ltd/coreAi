@@ -62,8 +62,23 @@ function upcoming(hoursFromNow: number): Date {
   return new Date(Date.now() + hoursFromNow * 60 * 60 * 1000);
 }
 
+/**
+ * A bookable day at/after `hoursFromNow`. The default schedule closes Sunday,
+ * so a fixed offset would make these cases fail on whichever weekday pushes
+ * the target onto a Sunday (e.g. +120h every Tuesday).
+ */
+function upcomingOpenDay(hoursFromNow: number): Date {
+  const date = upcoming(hoursFromNow);
+  while (date.toLocaleDateString("en-US", { timeZone: TEST_TIME_ZONE, weekday: "short" }) === "Sun") {
+    date.setDate(date.getDate() + 1);
+  }
+  return date;
+}
+
 /** YYYY-MM-DD for a future moment in the business timezone. */
-function dateStrInTz(date: Date, timeZone = "America/New_York"): string {
+const TEST_TIME_ZONE = "America/New_York";
+
+function dateStrInTz(date: Date, timeZone = TEST_TIME_ZONE): string {
   return date.toLocaleDateString("en-CA", { timeZone });
 }
 
@@ -306,7 +321,7 @@ describe("confirmed reschedule", () => {
     const app = buildApp();
     const phone = nextPhone();
     const appointment = await createAppointment({ businessId: bizAId, phone, service: "Cleaning" });
-    const newDay = dateStrInTz(upcoming(96));
+    const newDay = dateStrInTz(upcomingOpenDay(96));
 
     const result = await postReschedule(
       app,
@@ -348,7 +363,7 @@ describe("confirmed reschedule", () => {
       phone,
       calendarEventId: `evt_${RUN}_patch`
     });
-    const newDay = dateStrInTz(upcoming(120));
+    const newDay = dateStrInTz(upcomingOpenDay(120));
 
     const result = await postReschedule(
       app,
@@ -378,7 +393,7 @@ describe("confirmed reschedule", () => {
       phone,
       calendarEventId: `evt_${RUN}_gone`
     });
-    const newDay = dateStrInTz(upcoming(120));
+    const newDay = dateStrInTz(upcomingOpenDay(120));
 
     const result = await postReschedule(
       app,
@@ -407,7 +422,7 @@ describe("confirmed reschedule", () => {
       phone,
       calendarEventId: `evt_${RUN}_fail`
     });
-    const newDay = dateStrInTz(upcoming(120));
+    const newDay = dateStrInTz(upcomingOpenDay(120));
 
     const result = await postReschedule(
       app,
@@ -470,7 +485,7 @@ describe("confirmed reschedule", () => {
         args: {
           appointment_id: victim.id,
           confirmed: true,
-          new_date: dateStrInTz(upcoming(120)),
+          new_date: dateStrInTz(upcomingOpenDay(120)),
           new_time: "09:00"
         }
       })

@@ -95,6 +95,7 @@ function applyAdminPresentation(
     nodes.length > 0 ? nodes.filter((node) => !node.visible).map((node) => node.type) : hiddenNodeTypes
   );
   const query = searchTerm.trim().toLowerCase();
+  const subtitles = new Map(groups.map((group) => [group.title, group.subtitle]));
   const buckets = new Map<string, LibraryItem[]>();
 
   for (const group of groups) {
@@ -127,7 +128,7 @@ function applyAdminPresentation(
   const extra = [...buckets.keys()].filter((title) => !ARCHITECT_NODE_GROUP_ORDER.includes(title));
   return [...ARCHITECT_NODE_GROUP_ORDER, ...extra]
     .filter((title) => (buckets.get(title)?.length ?? 0) > 0)
-    .map((title) => ({ title, items: buckets.get(title) ?? [] }));
+    .map((title) => ({ title, subtitle: subtitles.get(title), items: buckets.get(title) ?? [] }));
 }
 
 export function ComponentLibrary({

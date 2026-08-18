@@ -5,7 +5,6 @@ import {
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
   SCRIPT_NODE_TYPE,
-  DESIGN_BRAIN_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_PRESENTATION,
   VOICE_NODE_TYPES
@@ -51,13 +50,10 @@ export const libraryGroups: LibraryGroup[] = [
     title: "Face",
     subtitle: "What your customer sees",
     items: [
-      {
-        /* Design Brain — not a page section: the architect chats with it and
-           the whole customer page restyles itself. Wand icon sets it apart
-           from the section cards around it. */
-        ...paletteItem(DESIGN_BRAIN_NODE_TYPE, { icon: "wand", accent: "rose", kind: "DESIGN" }),
-        badge: "NEW"
-      },
+      /* The old Design Brain card lived here. Removed: the Smart Designer now
+         generates and fixes the interface — no draggable design node needed.
+         Old canvases that still carry a design.brain node keep rendering; the
+         registry type and the runner's clean skip for it are untouched. */
       paletteItem(BLOCK_NODE_TYPES.promptComposer, { icon: "edit", accent: "rose", kind: "PRODUCT" }),
       paletteItem(BLOCK_NODE_TYPES.presetGallery, { icon: "gallery", accent: "rose", kind: "PRODUCT" }),
       paletteItem(BLOCK_NODE_TYPES.modelPicker, { icon: "sliders", accent: "rose", kind: "PRODUCT" }),
@@ -131,43 +127,10 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(VOICE_NODE_TYPES.calendarAvailability, { icon: "calendar", accent: "blue" }),
       paletteItem(VOICE_NODE_TYPES.bookAppointment, { icon: "calendar", accent: "blue" }),
       paletteItem(CALENDLY_NODE_TYPES.action, { icon: "calendly", accent: "blue", kind: "CALENDLY" }),
-    ]
-  },
-  /* Keep Telegram actions separate so Admin → Builder nodes can control their
-     visibility without crowding the general-purpose Hands group. */
-  {
-    title: "Telegram Features",
-    items: [
-      paletteItem(TELEGRAM_NODE_TYPES.sendMessage, { icon: "telegram", accent: "blue" }),
-      paletteItem(TELEGRAM_NODE_TYPES.sendButtons, { icon: "telegram", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.answerCallback, { icon: "telegram", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.requestContact, { icon: "telegram", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.sendPhoto, { icon: "image", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.sendDocument, { icon: "file", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.sendVoice, { icon: "mic", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.sendLocation, { icon: "map-pin", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.editMessage, { icon: "edit", accent: "green" }),
-      paletteItem(TELEGRAM_NODE_TYPES.deleteMessage, { icon: "trash", accent: "red" })
-    ]
-  },
-  {
-    title: "Communication",
-    items: [
       paletteItem(VOICE_NODE_TYPES.sendEmail, { icon: "mail", accent: "green" }),
       paletteItem(VOICE_NODE_TYPES.sendSms, { icon: "message", accent: "green" }),
-      paletteItem("action.send_whatsapp", { icon: "whatsapp", accent: "green" })
-    ]
-  },
-  {
-    title: "CRM / Data",
-    items: [
-      paletteItem("action.save_lead", { icon: "capture", accent: "blue" }),
-      paletteItem("action.save_conversation_message", { icon: "message", accent: "green" })
-    ]
-  },
-  {
-    title: "Routing / Logic",
-    items: [
+      paletteItem("action.send_whatsapp", { icon: "whatsapp", accent: "green" }),
+      paletteItem(TELEGRAM_NODE_TYPES.sendMessage, { icon: "telegram", accent: "blue" }),
       {
         // The universal action: one node reaches every service on the internet.
         ...paletteItem(API_CALL_NODE_TYPE, { icon: "globe", accent: "amber", kind: "API CALL" }),
@@ -177,10 +140,9 @@ export const libraryGroups: LibraryGroup[] = [
         ...paletteItem(SCRIPT_NODE_TYPE, { icon: "code", accent: "slate", kind: "CODE" }),
         badge: "NEW"
       },
-      paletteItem("action.human_handoff", { icon: "phone-call", accent: "red" }),
       paletteItem(VOICE_NODE_TYPES.endFlow, { icon: "capture", accent: "slate" })
     ]
-  }
+  },
 ];
 
 export function libraryItemType(item: LibraryItem): string {
