@@ -12,6 +12,7 @@ import { prisma } from "../../lib/prisma";
 import { checkUsageCapAndNotify } from "../business/usage-cap";
 import { isInstalledAgentActivityPaused } from "./twilio-business-routing";
 import { parseRunnerWorkflowJson, runWorkflowTest } from "./workflow-runner";
+import { syncWebhookEndpointsForInstalledAgent } from "../webhooks/inbound-webhook";
 
 /**
  * THE TIMER — the first way an agent starts with no human present.
@@ -205,6 +206,29 @@ export async function syncSchedulesForInstalledAgent(installedAgentId: string): 
         // a mere edit, so "every day at 9" stays 9 even if saved at 9:01.
         ...(paused ? {} : {})
       }
+    });
+  }
+}
+
+/**
+ * Both ways IN, re-read from the saved graph for every business that installed
+ * this workflow. Called on every architect save, so it must stay cheap: the
+ * first query returns nothing for the overwhelming majority of workflows, which
+ * have no installs at all, and the function ends there.
+ */
+export async function syncWaysInForWorkflow(workflowId: string): Promise<void> {
+  const installs = await prisma.installedAgent.findMany({
+    where: { workflowId },
+    select: { id: true }
+  });
+  if (installs.length === 0) return;
+
+  for (const install of installs) {
+    await syncSchedulesForInstalledAgent(install.id).catch((error) => {
+      console.error("[schedule] sync failed", { installedAgentId: install.id, error: String(error) });
+    });
+    await syncWebhookEndpointsForInstalledAgent(install.id).catch((error) => {
+      console.error("[webhook-in] sync failed", { installedAgentId: install.id, error: String(error) });
     });
   }
 }

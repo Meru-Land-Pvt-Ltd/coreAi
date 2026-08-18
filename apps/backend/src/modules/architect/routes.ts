@@ -37,6 +37,7 @@ import {
   listCalendlyMeetingRecapOptions
 } from "../calendly/calendly-connector";
 import { GOOGLE_CALENDAR_INTEGRATION } from "@coreai/shared";
+import { syncWaysInForWorkflow } from "./schedule-trigger";
 import {
   DisclosureConsentError,
   hasFreshDisclosureConsent,
@@ -1874,6 +1875,19 @@ architectRoutes.put("/workflows/:workflowId", async (c) => {
           : {})
       }
     });
+
+    // A saved graph is the truth for the ways IN, so the clocks and the
+    // private links follow it: a timer the architect removed must stop, a new
+    // one must start, a new webhook node must get its link. Fire-and-forget —
+    // saving an agent must never wait on, or fail because of, this.
+    if (nextWorkflowJson !== undefined) {
+      void syncWaysInForWorkflow(workflowId).catch((error) => {
+        console.error("[architect] ways-in sync failed", {
+          workflowId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
 
     return successResponse(c, { workflow }, "Agent saved");
   } catch (error) {
