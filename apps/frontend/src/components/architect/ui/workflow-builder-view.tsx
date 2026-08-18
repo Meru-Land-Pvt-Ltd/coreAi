@@ -2817,6 +2817,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             page={previewPageData?.page ?? null}
             defaultTemplate={previewPageData?.defaultTemplate}
             blueprint={previewPageData?.blueprint ?? null}
+            product={previewPageData?.product ?? null}
             design={previewPageData?.design ?? null}
             architectName={architectName}
             underReview={isUnderReview}

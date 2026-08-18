@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { designChat } from "@/components/architect/features/api";
+import { designChat, productChat } from "@/components/architect/features/api";
 import type { DesignChatMessage } from "@/components/architect/features/types";
 import { BuilderIcon } from "./icons";
 
@@ -23,9 +23,38 @@ const STARTER_SUGGESTIONS = [
   "Make it feel warm and welcoming"
 ] as const;
 
+/**
+ * Build mode asks for a whole product, so the examples are briefs, not dials.
+ * Each one names a business and what the page is for — the two things the
+ * Product Architect needs before it can write pages worth selling.
+ */
+const BUILD_SUGGESTIONS = [
+  "A sell page with pricing and an FAQ",
+  "Add privacy and terms pages",
+  "A contact page"
+] as const;
+
 const FALLBACK_REPLY = "That one didn't go through — give it another try in a moment.";
+const BUILD_FALLBACK_REPLY =
+  "I couldn't build that one. Say in a sentence what the page should do, and I'll try again.";
 const MAX_INSTRUCTION_LENGTH = 500;
+/** The build endpoint accepts a longer brief than a styling instruction. */
+const MAX_BUILD_INSTRUCTION_LENGTH = 800;
 const MAX_HISTORY_TURNS = 10;
+
+/**
+ * Two jobs, one chat. "style" turns the dials on the page that already exists
+ * (fast, small, the everyday case). "build" hands the whole thing to the
+ * Product Architect, which writes pages, sections, copy and the wires back to
+ * the agent. They are different endpoints because they are different work —
+ * the switch is here so an architect never has to know that.
+ */
+type ChatMode = "style" | "build";
+
+const MODES: Array<{ id: ChatMode; label: string; hint: string }> = [
+  { id: "style", label: "Style", hint: "Change how the page looks" },
+  { id: "build", label: "Packaging", hint: "Sell page, pricing, FAQ and legal — the pages that sell your product" }
+];
 
 type ChatBubble = {
   id: string;
@@ -72,7 +101,11 @@ export function DesignBrainChat({
   const [messages, setMessages] = useState<ChatBubble[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [mode, setMode] = useState<ChatMode>("style");
   const listRef = useRef<HTMLDivElement | null>(null);
+
+  const building = mode === "build";
+  const maxLength = building ? MAX_BUILD_INSTRUCTION_LENGTH : MAX_INSTRUCTION_LENGTH;
 
   // Keep the newest bubble in view as the conversation grows.
   useEffect(() => {
@@ -83,7 +116,7 @@ export function DesignBrainChat({
   const ready = Boolean(workflowId) && !sending;
 
   async function send(instruction: string) {
-    const trimmed = instruction.trim().slice(0, MAX_INSTRUCTION_LENGTH);
+    const trimmed = instruction.trim().slice(0, maxLength);
     if (!trimmed || sending || !workflowId) return;
 
     // History is everything said so far (newest last), minus local error lines.
@@ -96,7 +129,48 @@ export function DesignBrainChat({
     setDraft("");
     setSending(true);
 
+    const failed = () =>
+      setMessages((current) => [
+        ...current,
+        {
+          id: nextMessageId(),
+          role: "assistant",
+          content: building ? BUILD_FALLBACK_REPLY : FALLBACK_REPLY,
+          local: true
+        }
+      ]);
+
     try {
+      if (building) {
+        const result = await productChat(workflowId, {
+          instruction: trimmed,
+          ...(history.length ? { history } : {})
+        });
+        const data = result.success ? result.data : undefined;
+
+        if (!data) {
+          failed();
+          return;
+        }
+
+        // A build always rewrites the saved product, so the preview must
+        // refetch even when no NEW page was added (it may have rewritten one).
+        const built = data.pagesCreated.length;
+        setMessages((current) => [
+          ...current,
+          {
+            id: nextMessageId(),
+            role: "assistant",
+            content: built
+              ? `${data.reply} (${built} new ${built === 1 ? "page" : "pages"})`
+              : data.reply,
+            applied: true
+          }
+        ]);
+        onApplied?.({});
+        return;
+      }
+
       const result = await designChat(workflowId, {
         instruction: trimmed,
         ...(history.length ? { history } : {})
@@ -112,16 +186,10 @@ export function DesignBrainChat({
         ]);
         if (applied) onApplied?.({ graphChanged });
       } else {
-        setMessages((current) => [
-          ...current,
-          { id: nextMessageId(), role: "assistant", content: FALLBACK_REPLY, local: true }
-        ]);
+        failed();
       }
     } catch {
-      setMessages((current) => [
-        ...current,
-        { id: nextMessageId(), role: "assistant", content: FALLBACK_REPLY, local: true }
-      ]);
+      failed();
     } finally {
       setSending(false);
     }
@@ -138,10 +206,36 @@ export function DesignBrainChat({
         </p>
       )}
 
+      <div
+        className="mb-3 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5"
+        data-testid={`${t}-mode`}
+        role="group"
+        aria-label="What the Design Brain should do"
+      >
+        {MODES.map((option) => {
+          const active = option.id === mode;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setMode(option.id)}
+              aria-pressed={active}
+              title={option.hint}
+              data-testid={`${t}-mode-${option.id}`}
+              className={`rounded-md px-3 py-1 text-[11px] font-semibold transition ${
+                active ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+
       {messages.length === 0 ? (
         <div data-testid={`${t}-empty`} className={docked ? "min-h-0 flex-1" : undefined}>
           <div className="flex flex-wrap gap-2">
-            {STARTER_SUGGESTIONS.map((suggestion, index) => (
+            {(building ? BUILD_SUGGESTIONS : STARTER_SUGGESTIONS).map((suggestion, index) => (
               <button
                 key={suggestion}
                 type="button"
@@ -217,8 +311,12 @@ export function DesignBrainChat({
         <input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="e.g. dark theme with a green accent"
-          maxLength={MAX_INSTRUCTION_LENGTH}
+          placeholder={
+            building
+              ? "e.g. a sell page with pricing and an FAQ"
+              : "e.g. dark theme with a green accent"
+          }
+          maxLength={maxLength}
           disabled={!workflowId}
           spellCheck={false}
           data-testid={`${t}-input`}
@@ -248,7 +346,9 @@ export function DesignBrainChat({
         Design Brain
       </h3>
       <p className="mb-4 text-xs leading-5 text-slate-500" data-testid="design-brain-intro">
-        Tell it how your page should look and feel — it restyles everything for you.
+        {building
+          ? "Describe the pages that sell your product — it writes them. Your working interface comes from the Smart Designer."
+          : "Tell it how your page should look and feel — it restyles everything for you."}
       </p>
       {conversation}
     </div>

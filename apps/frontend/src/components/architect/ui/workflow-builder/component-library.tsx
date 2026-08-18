@@ -1,11 +1,28 @@
+<<<<<<< HEAD
 import { Activity, Clapperboard, FileText, Image as ImageIcon, MessageCircle, Phone } from "lucide-react";
 import { libraryGroups } from "./library";
+=======
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  ARCHITECT_NODE_GROUP_ORDER,
+  defaultArchitectNodePresentation,
+  defaultHiddenArchitectNodeTypes
+} from "@coreai/shared";
+import {
+  getArchitectBuilderNodeVisibility,
+  type ArchitectBuilderNodePresentation
+} from "@/components/architect/features/api";
+import { libraryGroups, libraryItemType } from "./library";
+>>>>>>> origin/gaurav
 import { SidebarNodeCard } from "./card/sidebar-node-card";
-import type { BuilderNodeData, NodeKind } from "./types";
+import type { BuilderNodeData, LibraryGroup, LibraryItem, NodeKind } from "./types";
 
 /** Re-export for canvas drop handler consumers. */
 export { BUILDER_NODE_DRAG_TYPE } from "./card/sidebar-node-card";
 
+<<<<<<< HEAD
 type FaceTemplateCard = {
   slug: string;
   title: string;
@@ -71,6 +88,53 @@ const FACE_COMING_SOON_CARDS: Array<Pick<FaceTemplateCard, "slug" | "title" | "p
     Icon: Activity
   }
 ];
+=======
+function applyAdminPresentation(
+  groups: LibraryGroup[],
+  nodes: ArchitectBuilderNodePresentation[],
+  hiddenNodeTypes: string[],
+  searchTerm: string
+): LibraryGroup[] {
+  const byType = new Map(nodes.map((node) => [node.type, node]));
+  const hidden = new Set(
+    nodes.length > 0 ? nodes.filter((node) => !node.visible).map((node) => node.type) : hiddenNodeTypes
+  );
+  const query = searchTerm.trim().toLowerCase();
+  const buckets = new Map<string, LibraryItem[]>();
+
+  for (const group of groups) {
+    for (const item of group.items) {
+      const type = libraryItemType(item);
+      if (type && hidden.has(type)) continue;
+      const presentation = type ? byType.get(type) : undefined;
+      const label =
+        presentation && presentation.label !== presentation.defaultLabel ? presentation.label : item.label;
+      const groupTitle =
+        presentation && presentation.group !== presentation.defaultGroup ? presentation.group : group.title;
+      if (
+        query &&
+        !label.toLowerCase().includes(query) &&
+        !item.helper.toLowerCase().includes(query) &&
+        !groupTitle.toLowerCase().includes(query)
+      ) {
+        continue;
+      }
+      const next: LibraryItem =
+        label !== item.label
+          ? { ...item, label, overrides: { ...item.overrides, title: label } }
+          : item;
+      const list = buckets.get(groupTitle) ?? [];
+      list.push(next);
+      buckets.set(groupTitle, list);
+    }
+  }
+
+  const extra = [...buckets.keys()].filter((title) => !ARCHITECT_NODE_GROUP_ORDER.includes(title));
+  return [...ARCHITECT_NODE_GROUP_ORDER, ...extra]
+    .filter((title) => (buckets.get(title)?.length ?? 0) > 0)
+    .map((title) => ({ title, items: buckets.get(title) ?? [] }));
+}
+>>>>>>> origin/gaurav
 
 export function ComponentLibrary({
   searchTerm,
@@ -83,17 +147,26 @@ export function ComponentLibrary({
   onUseTemplate: (slug: string) => void;
   onAddNode: (nodeKind: NodeKind, overrides?: Partial<BuilderNodeData>) => void;
 }) {
-  const query = searchTerm.trim().toLowerCase();
-  const filteredGroups = !query
-    ? libraryGroups
-    : libraryGroups
-        .map((group) => ({
-          ...group,
-          items: group.items.filter(
-            (item) => item.label.toLowerCase().includes(query) || item.helper.toLowerCase().includes(query)
-          )
-        }))
-        .filter((group) => group.items.length > 0);
+  const [hiddenNodeTypes, setHiddenNodeTypes] = useState<string[]>(() => defaultHiddenArchitectNodeTypes());
+  const [nodes, setNodes] = useState<ArchitectBuilderNodePresentation[]>(() => defaultArchitectNodePresentation());
+
+  useEffect(() => {
+    let cancelled = false;
+    void getArchitectBuilderNodeVisibility().then((result) => {
+      if (cancelled) return;
+      if (!result.success || !result.data) return;
+      if (result.data.hiddenNodeTypes) setHiddenNodeTypes(result.data.hiddenNodeTypes);
+      if (result.data.nodes) setNodes(result.data.nodes);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const filteredGroups = useMemo(
+    () => applyAdminPresentation(libraryGroups, nodes, hiddenNodeTypes, searchTerm),
+    [hiddenNodeTypes, nodes, searchTerm]
+  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-white">

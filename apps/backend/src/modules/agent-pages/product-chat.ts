@@ -24,10 +24,9 @@ import {
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
-import {
-  MISSING_LLM_CREDENTIALS_MESSAGE,
-  resolveConfiguredLlmProvider
-} from "../ai-provider-engine/llm-credentials";
+import { MISSING_LLM_CREDENTIALS_MESSAGE } from "../ai-provider-engine/llm-credentials";
+import { resolveBrainSlot } from "../admin/brain-slot-settings";
+import { getDesignBrainConfig } from "../admin/design-brain-settings";
 import {
   recordLlmProviderFailure,
   recordLlmProviderSuccess
@@ -71,8 +70,11 @@ import { ensureDraftAgentListingAndPage, type AgentPageTemplate } from "./slug";
  * resolveConfiguredLlmProvider into getProviderEngine().executeWithProvider.
  */
 
-/** Contract default; resolveConfiguredLlmProvider falls back from here. */
-export const PRODUCT_CHAT_PREFERRED_PROVIDER = "gemini";
+/**
+ * Product generation runs on the Design Brain battery an admin picks — never a
+ * provider hardcoded here. Both design paths share it: building a whole product
+ * and restyling one is the same craft.
+ */
 
 /** Graceful reply when the model never produces a usable product. */
 export const PRODUCT_CHAT_FALLBACK_REPLY =
@@ -649,7 +651,11 @@ export function buildProductChatSystemPrompt(args: {
     // The admin-editable constitution leads the prompt so it outranks
     // everything after it. Empty rules add nothing.
     ...(rules ? [`HOUSE RULES you must always obey:\n${rules}`, ""] : []),
-    `You are the Product Architect for "${agent.name}". An architect talks to you in plain language and you build their entire customer-facing product: a real multi-page website with their working AI product living inside it.`,
+    `You are the Packaging writer for "${agent.name}". An architect talks to you in plain language and you build the pages that SELL their product on the marketplace: the sell/landing page that explains it, pricing, FAQ, contact, privacy and terms.`,
+    // The product's own working interface is derived from the orchestration by
+    // the Smart Designer — packaging must never rebuild or replace it. This is
+    // the founder's locked frontend law: no general website building anywhere.
+    "You do not build the product's working interface — that is generated from the architect's workflow by the Smart Designer, and any wired input/button/result blocks already in the saved blueprint must be carried through unchanged, never redesigned. If the architect asks you to build or change the working product screen itself, say in one friendly line that the Smart Designer owns that, and change only what packaging you can.",
     "You never write code, HTML, CSS, or scripts. You write ONE JSON blueprint and our renderer paints it. Every element you write is drawn from a fixed design system, so you can be as creative as you like and the result can never come out broken, ugly, or off-brand.",
     "",
     describeProductSpecContract(),
@@ -661,6 +667,7 @@ export function buildProductChatSystemPrompt(args: {
     '- { "role": "input" } — whatever the customer types, picks, or uploads here is fed to the agent.',
     '- { "role": "action" } — pressing this runs the agent.',
     '- { "role": "output" } — the agent\'s answer appears here.',
+    'A "result" element must use "variant": "auto" (or no variant at all), so the customer sees EVERYTHING the agent sends back — text, stat cards, charts, tables, images. Never "text" for an agent that returns data or numbers; that setting hides the agent\'s own cards and charts. Pick a single-kind variant ("gallery", "chart", "stats", "table") only when the agent clearly returns just that one kind or the architect asked for exactly that.',
     "Every page where a customer can actually use the product needs all three. The home page ALWAYS needs all three.",
     'A "button" with an "href" is a link (to another page or an #anchor); a "button" with a "wire" runs the agent. Never give one button both.',
     "",
@@ -1217,7 +1224,10 @@ export function registerAgentPageProductChatRoute(routes: Hono) {
           design
         });
 
-      const resolved = resolveConfiguredLlmProvider(PRODUCT_CHAT_PREFERRED_PROVIDER);
+      // The battery an admin picked for design work, not a provider frozen into
+      // this file. Building a whole product is the job where taste shows, so it
+      // must be swappable the day a better model exists.
+      const resolved = resolveBrainSlot(await getDesignBrainConfig());
       if (!resolved) {
         return errorResponse(c, MISSING_LLM_CREDENTIALS_MESSAGE, 503, "LLM_NOT_CONFIGURED");
       }
@@ -1251,7 +1261,8 @@ export function registerAgentPageProductChatRoute(routes: Hono) {
           temperature: 0.4,
           maxTokens: MAX_OUTPUT_TOKENS,
           outputFormat: "json",
-          task: "agent-page-product-chat"
+          task: "agent-page-product-chat",
+          ...(resolved.model ? { model: resolved.model } : {})
         };
 
         let response;

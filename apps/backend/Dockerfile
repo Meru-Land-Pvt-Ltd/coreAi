@@ -1,6 +1,11 @@
 FROM node:22-slim
 WORKDIR /app
 
+# Code nodes can run Python; node:22-slim ships without an interpreter.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3-minimal \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package*.json ./
 COPY apps/backend/package.json ./apps/backend/package.json
 COPY apps/frontend/package.json ./apps/frontend/package.json

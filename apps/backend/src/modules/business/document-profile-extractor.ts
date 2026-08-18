@@ -62,6 +62,8 @@ export type DocumentProfileSuggestion = {
   licenseOrRegLabel?: string;
   /** All extracted team members / personnel */
   teamMembers?: string[];
+  /** Detailed provider entries with optional email */
+  providers?: Array<{ name: string; email: string | null }>;
   /** Extracted list of services / treatments / courses / offerings */
   services: string[];
   /** Medical license / registration / NPI / school code / tax ID number */
@@ -497,6 +499,16 @@ ${fullText.slice(0, 8000)}`;
       businessName: typeof parsed.businessName === "string" ? parsed.businessName.trim() : null,
       teamMembers: uniqueMembers,
       doctorNames: uniqueMembers,
+      providers: Array.isArray(parsed.providers)
+        ? parsed.providers
+            .filter((p: unknown): p is Record<string, unknown> => Boolean(p && typeof p === "object"))
+            .map((p) => {
+              const name = typeof p.name === "string" ? sanitizePersonName(p.name) : null;
+              const email = typeof p.email === "string" && p.email.includes("@") ? p.email.trim().toLowerCase() : null;
+              return name ? { name, email } : null;
+            })
+            .filter((p): p is { name: string; email: string | null } => p !== null)
+        : uniqueMembers.map((name) => ({ name, email: null })),
       primaryDoctor,
       multipleDoctorsDetected: uniqueMembers.length > 1,
       businessType: typeof parsed.businessType === "string" ? parsed.businessType.trim() : null,
@@ -613,6 +625,7 @@ export function extractProfileFallbackFromText(fullText: string): Pick<
     primaryDoctor: teamMembers[0] ?? null,
     doctorNames: teamMembers,
     teamMembers,
+    providers: teamMembers.map((name) => ({ name, email: null })),
     multipleDoctorsDetected: teamMembers.length > 1,
     businessType,
     services: extractFallbackServices(fullText, categoryConfig),

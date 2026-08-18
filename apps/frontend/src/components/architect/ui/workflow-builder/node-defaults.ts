@@ -146,6 +146,24 @@ export function defaultNodeData(
   }
 
   if (nodeKind === "condition") {
+    if (overrides?.type === SCRIPT_NODE_TYPE) {
+      return {
+        ...base,
+        label: "Code",
+        title: "Code",
+        kind: "CODE",
+        icon: "code",
+        accent: "slate",
+        subtitle: "Run your own JavaScript or Python on the workflow data",
+        scriptLanguage: "javascript",
+        scriptCode: SCRIPT_STARTER_CODE.javascript,
+        scriptOutputKey: "script.output",
+        scriptTimeoutMs: String(SCRIPT_DEFAULT_TIMEOUT_MS),
+        ...overrides,
+        type: SCRIPT_NODE_TYPE
+      };
+    }
+
     return {
       ...base,
       label: "Rule Check",

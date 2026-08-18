@@ -657,3 +657,34 @@ export function updateAdminApiSettings(settings: Array<{ key: string; value: str
     { settings }
   );
 }
+
+export type AdminBuilderNode = {
+  type: string;
+  group: string;
+  label: string;
+  visible: boolean;
+  defaultVisible: boolean;
+  defaultLabel: string;
+  defaultGroup: string;
+};
+
+export function getAdminBuilderNodes() {
+  return apiGet<{ nodes: AdminBuilderNode[]; groups: string[] }>("/admin/builder-nodes");
+}
+
+export function updateAdminBuilderNodes(
+  nodes: Array<{ type: string; visible?: boolean; label?: string; group?: string }>
+) {
+  return apiPut<{ nodes: AdminBuilderNode[]; groups: string[]; saved: number }>("/admin/builder-nodes", { nodes });
+}
+
+export function createAdminBuilderGroup(name: string) {
+  return apiPost<{ groups: string[] }>("/admin/builder-nodes/groups", { name });
+}
+
+export function deleteAdminBuilderGroup(name: string) {
+  return apiDelete<{ nodes: AdminBuilderNode[]; groups: string[]; moved: number }>(
+    "/admin/builder-nodes/groups",
+    { name }
+  );
+}

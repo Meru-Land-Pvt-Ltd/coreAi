@@ -1,3 +1,4 @@
+import type { ProductSpec } from "@coreai/shared";
 import type { ContentWidth, DesignConfig, FaceBlueprint, FaceLayoutMap } from "@/components/agent-page/types";
 
 export type ArchitectProfile = {
@@ -288,6 +289,12 @@ export type AgentPageManageData = {
    * design defaults.
    */
   design?: DesignConfig | null;
+  /**
+   * The saved ProductSpec — the whole product the Design Brain's Build mode
+   * wrote (pages, sections, copy, wires). Optional so older fixtures keep
+   * compiling; absent reads as null (no product built yet).
+   */
+  product?: ProductSpec | null;
 };
 
 export type AgentPageUpdateBody = {
@@ -322,6 +329,26 @@ export type DesignChatBody = {
 };
 
 /**
+ * POST /agent-pages/manage/:workflowId/product-chat — the Product Architect.
+ * Longer instructions than the styling chat allows (800 vs 500) because this
+ * one is given a whole brief, not a single dial to turn.
+ */
+export type ProductChatBody = {
+  instruction: string;
+  history?: DesignChatMessage[];
+};
+
+export type ProductChatData = {
+  reply: string;
+  /** The saved blueprint. Shape is validated server-side before it is stored. */
+  product: unknown;
+  /** Ids of pages this instruction created — empty when it only edited. */
+  pagesCreated: string[];
+  /** Set when legal pages were generated and need the architect's eye. */
+  legalNote: string | null;
+};
+
+/**
  * POST /agent-pages/manage/:workflowId/design-chat result. `patch` is the
  * validated set of dials the Design Brain just turned — empty when the ask
  * was impossible; `design` is the full post-patch DesignConfig.
@@ -337,4 +364,43 @@ export type DesignChatData = {
    * not just refetch the page design. Additive: older backends omit it.
    */
   graphChanged?: boolean;
+};
+
+/**
+ * POST /agent-pages/manage/:workflowId/smart-compose — the AI Composer.
+ * Reads every node's declarations and writes the MINIMUM interface out of
+ * our pre-built components. No request body: the workflow graph is the brief.
+ */
+export type SmartComposeData = {
+  reply: string;
+  /** The composed Product Spec. Validated server-side before it is stored. */
+  product: unknown;
+  /** False when the workflow declared nothing worth composing. */
+  composed: boolean;
+  /** How many asks the composer placed on the page. */
+  asksPlaced: number;
+  /** How many duplicate node inputs collapsed into shared fields — merging is the composer's core job. */
+  merged: number;
+};
+
+/**
+ * POST /agent-pages/manage/:workflowId/smart-designer — the feedback loop.
+ * The architect says what the composed interface got wrong ("this box isn't
+ * capturing email separately") and the Smart Designer fixes the spec.
+ */
+export type SmartDesignerBody = {
+  instruction: string;
+  /** Up to the last 10 turns, for follow-ups like "actually make it optional". */
+  history?: DesignChatMessage[];
+};
+
+export type SmartDesignerData = {
+  reply: string;
+  /** The updated Product Spec after this instruction (unchanged on a redirect). */
+  product: unknown;
+  /**
+   * "packaging" when the ask was outside the product interface (privacy page,
+   * landing page, sell page) and was redirected to Packaging — not a failure.
+   */
+  boundary: "packaging" | null;
 };

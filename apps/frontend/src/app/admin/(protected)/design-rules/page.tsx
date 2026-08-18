@@ -7,6 +7,7 @@ import {
   updateAdminDesignRules
 } from "@/components/admin/features/design-rules";
 import { DoorBrainCard } from "@/components/admin/ui/door-brain-card";
+import { SmartDesignerBrainCard } from "@/components/admin/ui/smart-designer-brain-card";
 
 /**
  * Admin → Design Brain rules.
@@ -191,6 +192,7 @@ export default function DesignRulesPage() {
       )}
 
       <DoorBrainCard />
+      <SmartDesignerBrainCard />
     </main>
   );
 }

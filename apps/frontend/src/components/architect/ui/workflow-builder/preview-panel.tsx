@@ -10,12 +10,16 @@ import {
   X
 } from "lucide-react";
 import { DesignBrainChat } from "./design-brain-chat";
+import { SmartDesignerPanel } from "./smart-designer-panel";
 import { AgentPageShell } from "@/components/agent-page/agent-page-shell";
 import { ChatTemplate } from "@/components/agent-page/chat-template";
 import { VoiceTemplate } from "@/components/agent-page/voice-template";
 import { MediaTemplate } from "@/components/agent-page/media-template";
 import { FormTemplate } from "@/components/agent-page/form-template";
 import { FaceRenderer } from "@/components/agent-page/face-renderer";
+import type { ProductSpec } from "@coreai/shared";
+import { SpecRunProvider, buildSpecTheme, useWiredNodeRenderer } from "@/components/agent-page/spec";
+import { ProductSite, productHomePage, productPathForPageId } from "@/components/agent-page/spec/site";
 import type {
   AgentPageData,
   AgentPageRuntime,
@@ -76,6 +80,13 @@ export type PreviewPanelProps = {
    * template Faces exactly as before.
    */
   blueprint?: FaceBlueprint | null;
+  /**
+   * The saved ProductSpec — the whole product the Design Brain's Build mode
+   * wrote (pages, copy, wires). Non-null means the architect built a product,
+   * and the preview shows THAT — the real multi-page site — over the single
+   * assembled Face. Absent/null keeps every pre-Build behavior untouched.
+   */
+  product?: ProductSpec | null;
   /**
    * The saved Design Brain config (GET /agent-pages/manage/:id `design`).
    * Passed straight into the page data so the shell + templates render every
@@ -184,6 +195,7 @@ export function PreviewPanel({
   page = null,
   defaultTemplate,
   blueprint = null,
+  product = null,
   design = null,
   architectName,
   underReview = false,
@@ -206,12 +218,73 @@ export function PreviewPanel({
     setDesignOpen(false);
     designLauncherRef.current?.focus();
   };
+  // The Smart Designer — the composed interface's feedback loop. A separate,
+  // parallel feature beside the Design Brain: same corner, its own panel, so
+  // only one of the two is ever up at once.
+  const [smartOpen, setSmartOpen] = useState(false);
+  const smartPanelRef = useRef<HTMLElement | null>(null);
+  const smartLauncherRef = useRef<HTMLButtonElement | null>(null);
+
+  const closeSmart = () => {
+    setSmartOpen(false);
+    smartLauncherRef.current?.focus();
+  };
+  const openSmart = () => {
+    setDesignOpen(false);
+    setSmartOpen(true);
+  };
+  // The Design Brain opening reclaims the corner — the Smart Designer yields.
+  useEffect(() => {
+    if (designOpen) setSmartOpen(false);
+  }, [designOpen]);
+
+  // Opening hands focus to the composer, same as the Design Brain dock.
+  useEffect(() => {
+    if (!smartOpen) return;
+    smartPanelRef.current
+      ?.querySelector<HTMLInputElement>("[data-testid='smart-designer-input']")
+      ?.focus();
+  }, [smartOpen]);
+
   // Face priority: a manual pill pick wins; then the architect's saved page
   // template; then the backend's inferred default; last, the local node
   // heuristic for drafts we know nothing about. (Voice outranks media.)
   const autoFace: AgentPageTemplate = hasVoiceNode ? "voice" : hasMediaNode ? "media" : "chat";
   const [pickedFace, setPickedFace] = useState<AgentPageTemplate | null>(null);
   const face = pickedFace ?? page?.template ?? defaultTemplate ?? autoFace;
+
+  // A built product (Design Brain "Build") outranks everything: the preview's
+  // promise is "what your customer will meet", and once a product exists,
+  // that is the product. An empty spec reads as none.
+  const productSpec = product && product.pages.length > 0 ? product : null;
+  // Which of the product's pages is on show. Nav clicks switch it in place;
+  // a rebuilt product that dropped the shown page falls back to home.
+  const [productPageId, setProductPageId] = useState<string | null>(null);
+  const productPage = useMemo(() => {
+    if (!productSpec) return null;
+    return (
+      productSpec.pages.find((entry) => entry.id === productPageId) ??
+      productHomePage(productSpec)
+    );
+  }, [productSpec, productPageId]);
+  const productAccent = useMemo(
+    () => (productSpec ? buildSpecTheme(productSpec.theme).accent : undefined),
+    [productSpec]
+  );
+  const renderWiredNode = useWiredNodeRenderer();
+  // The same slug the page config renders under — the spec runtime keys its
+  // session on it, and product hrefs are built from it.
+  const previewSlug = page?.slug ?? `preview-${workflowId}`;
+  const handleProductNavigate = useCallback(
+    (href: string) => {
+      if (!productSpec) return;
+      const target = productSpec.pages.find(
+        (entry) => productPathForPageId(productSpec, previewSlug, entry.id) === href
+      );
+      if (target) setProductPageId(target.id);
+    },
+    [productSpec, previewSlug]
+  );
 
   // True after an engine failure (thrown or returned); cleared by the next
   // success so the snag card never lingers over a working agent.
@@ -272,7 +345,8 @@ export function PreviewPanel({
   // page next visit) holds the saved truth. A failed save still refetches —
   // the block then honestly snaps back to its last saved spot. Review-locked
   // agents never write, same rule as every other builder surface.
-  const arrangeActive = arrangeMode && device === "desktop" && blueprint !== null && !underReview;
+  const arrangeActive =
+    arrangeMode && device === "desktop" && blueprint !== null && productSpec === null && !underReview;
 
   const handleArrangeCommit = useCallback(
     async (layout: FaceLayoutMap) => {
@@ -362,6 +436,32 @@ export function PreviewPanel({
           the main builder header, so nothing here ever covers the page. */}
       <div className={STAGE_CLASSES[device]}>
         <div className={FRAME_CLASSES[device]} data-device={device} data-testid="preview-panel-frame">
+          {productSpec && productPage ? (
+            // The architect BUILT a product — the preview shows the real
+            // multi-page site with its wires live, exactly what /a/<slug>
+            // serves once the agent is approved. The frame clips overflow, so
+            // the site scrolls inside its own column, like a browser page.
+            <div
+              className="h-full w-full overflow-y-auto"
+              data-testid="preview-panel-product-site"
+            >
+              <SpecRunProvider
+                page={productPage}
+                runtime={runtime}
+                accent={productAccent}
+                listingName={data.listing.name}
+              >
+                <ProductSite
+                  slug={previewSlug}
+                  product={productSpec}
+                  page={productPage}
+                  renderNode={renderWiredNode}
+                  contentWidth={design?.contentWidth ?? null}
+                  navigate={handleProductNavigate}
+                />
+              </SpecRunProvider>
+            </div>
+          ) : (
           <AgentPageShell data={data} runtime={runtime}>
             {blueprint ? (
               // The architect placed product blocks on their canvas — the
@@ -410,6 +510,7 @@ export function PreviewPanel({
               </>
             )}
           </AgentPageShell>
+          )}
 
           {/* A slim handset notch hint, floating over the page top like the
               real thing — decorative only, never interactive. */}
@@ -455,10 +556,10 @@ export function PreviewPanel({
         </div>
       ) : null}
 
-      {/* With product blocks on the canvas, the graph decides the product —
-          the look pills would contradict it, so they step aside. Otherwise
-          they float quietly at the bottom. */}
-      {blueprint ? null : (
+      {/* With product blocks on the canvas (or a built product), the graph
+          decides the product — the look pills would contradict it, so they
+          step aside. Otherwise they float quietly at the bottom. */}
+      {blueprint || productSpec ? null : (
         <div
           role="group"
           className="absolute bottom-[4.25rem] left-1/2 z-30 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200/70 bg-white/95 p-1 shadow-lg shadow-slate-900/10 backdrop-blur sm:bottom-4"
@@ -561,6 +662,83 @@ export function PreviewPanel({
           </button>
         </div>
         <DesignBrainChat variant="docked" workflowId={workflowId} onApplied={onDesignApplied} />
+      </section>
+
+      {/* The Smart Designer launcher — stacked above Design, same corner
+          language. Hidden while either panel owns the corner. */}
+      <button
+        type="button"
+        ref={smartLauncherRef}
+        onClick={openSmart}
+        aria-expanded={smartOpen}
+        aria-haspopup="dialog"
+        tabIndex={smartOpen || designOpen ? -1 : undefined}
+        data-testid="smart-designer-toggle"
+        className={
+          "absolute bottom-16 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-amber-700 shadow-lg shadow-amber-500/20 transition hover:bg-amber-50 motion-reduce:transition-none" +
+          (smartOpen || designOpen ? " pointer-events-none opacity-0" : " opacity-100") +
+          PILL_FOCUS_CLASSES
+        }
+      >
+        <Sparkles className="h-4 w-4" aria-hidden="true" />
+        Smart Designer
+      </button>
+
+      {/* Phone-size scrim behind the Smart Designer sheet — tap to close. */}
+      {smartOpen ? (
+        <button
+          type="button"
+          aria-label="Close Smart Designer"
+          onClick={closeSmart}
+          data-testid="smart-designer-backdrop"
+          className="absolute inset-0 z-40 bg-slate-900/30 sm:hidden"
+        />
+      ) : null}
+
+      {/* The floating Smart Designer panel — a sibling of the Design Brain
+          dock, never a replacement. Same mount-and-fade mechanics. */}
+      <section
+        ref={smartPanelRef}
+        role="dialog"
+        aria-label="Smart Designer"
+        inert={!smartOpen}
+        data-testid="smart-designer-dock"
+        data-open={smartOpen ? "true" : "false"}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") closeSmart();
+        }}
+        className={
+          "absolute bottom-4 right-4 z-50 flex h-[min(65vh,560px)] max-h-[calc(100%-2rem)] w-[380px] max-w-[calc(100%-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/25 transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none max-sm:inset-x-3 max-sm:bottom-3 max-sm:h-[70vh] max-sm:w-auto max-sm:max-w-none " +
+          (smartOpen ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")
+        }
+      >
+        <div className="flex flex-none items-start justify-between gap-2 border-b border-gray-100 px-4 pb-3 pt-4">
+          <div className="min-w-0">
+            <h3
+              className="text-xs font-bold uppercase tracking-wider text-slate-400"
+              data-testid="smart-designer-title"
+            >
+              Smart Designer
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500" data-testid="smart-designer-dock-intro">
+              Generate your product&apos;s interface — then fix it by talking.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={closeSmart}
+            aria-label="Close"
+            data-testid="smart-designer-close"
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+        <SmartDesignerPanel
+          workflowId={workflowId}
+          hasComposedSpec={blueprint !== null}
+          onApplied={onDesignApplied}
+        />
       </section>
     </div>
   );

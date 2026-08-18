@@ -30,6 +30,9 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().url().default("http://localhost:3000"),
   BACKEND_URL: z.string().url().default("http://localhost:8787"),
 
+  SCRIPT_NODE_ENABLED: booleanFromEnv.default(true),
+  PYTHON_BIN: z.string().optional(),
+
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GMAIL_OAUTH_REDIRECT_URI: z.string().url().optional(),

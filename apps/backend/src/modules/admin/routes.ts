@@ -1,3 +1,4 @@
+import { isArchitectNodeType } from "@coreai/shared";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
@@ -19,6 +20,7 @@ import {
   savePlatformApiSettings
 } from "./platform-api-settings";
 import {
+<<<<<<< HEAD
   DEFAULT_DESIGN_BRAIN_RULES,
   DESIGN_BRAIN_RULES_MAX_LENGTH,
   getDesignBrainRulesSetting,
@@ -35,9 +37,24 @@ import {
   saveDoorBrainConfig
 } from "./door-brain-settings";
 import {
-  listAiProviderModels,
-  ProviderModelDiscoveryError
-} from "../ai-provider-engine/provider-model-discovery";
+  DEFAULT_SMART_DESIGNER_BRAIN_PROVIDER,
+  DEFAULT_SMART_DESIGNER_BRAIN_MODEL,
+  SMART_DESIGNER_BRAIN_MODEL_MAX_LENGTH,
+  smartDesignerBrainModelMismatch,
+  smartDesignerBrainModelOptions,
+  smartDesignerBrainProviderOptions,
+  getSmartDesignerBrainSetting,
+  isSupportedSmartDesignerBrainProvider,
+  saveSmartDesignerBrainConfig
+} from "./smart-designer-brain-settings";
+=======
+  listArchitectNodeGroups,
+  listArchitectNodeVisibility,
+  createArchitectNodeGroup,
+  deleteArchitectNodeGroup,
+  saveArchitectNodeVisibility
+} from "./node-visibility";
+>>>>>>> origin/gaurav
 
 export const adminRoutes = new Hono();
 
@@ -99,6 +116,7 @@ adminRoutes.put("/api-settings", async (c) => {
   return successResponse(c, { groups: await listPlatformApiSettings(), ...result }, "API settings saved");
 });
 
+<<<<<<< HEAD
 /* ------------------ Design Brain rules (platform constitution) ------------------ */
 
 adminRoutes.get("/design-rules", async (c) => {
@@ -221,32 +239,203 @@ adminRoutes.patch("/door-brain", async (c) => {
   );
 });
 
-const aiPricingPreviewSchema = z.object({
-  apiKey: z.string().trim().max(4000).optional()
+/* ------------- Smart Designer brain (the composer's battery) ------------- */
+
+/**
+ * The provider/model the AI Composer and Smart Designer chat run on. One
+ * setting for the whole platform on purpose — architects never pick a model,
+ * and swapping it here changes every composition instantly.
+ */
+adminRoutes.get("/smart-designer-brain", async (c) => {
+  const setting = await getSmartDesignerBrainSetting();
+  return successResponse(c, {
+    smartDesignerBrain: {
+      ...setting,
+      defaultProviderId: DEFAULT_SMART_DESIGNER_BRAIN_PROVIDER,
+      defaultModelId: DEFAULT_SMART_DESIGNER_BRAIN_MODEL,
+      providers: smartDesignerBrainProviderOptions(),
+      models: smartDesignerBrainModelOptions(setting.providerId)
+    }
+  });
 });
 
-adminRoutes.post("/api-settings/ai-pricing/:providerId", async (c) => {
-  const parsed = aiPricingPreviewSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) {
-    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid API key preview payload", 422, "VALIDATION_ERROR");
-  }
+const smartDesignerBrainUpdateSchema = z
+  .object({
+    // Blank clears the override and restores the platform default.
+    provider: z.string().trim().max(60).optional(),
+    model: z.string().trim().max(SMART_DESIGNER_BRAIN_MODEL_MAX_LENGTH).optional()
+  })
+  .refine((body) => body.provider !== undefined || body.model !== undefined, {
+    message: "Send a provider, a model, or both"
+  });
 
-  try {
-    const result = await listAiProviderModels(c.req.param("providerId"), {
-      apiKey: parsed.data.apiKey
-    });
-    return successResponse(c, result, "AI models loaded");
-  } catch (error) {
-    if (error instanceof ProviderModelDiscoveryError) {
-      return errorResponse(c, error.message, error.status, error.code);
-    }
+adminRoutes.patch("/smart-designer-brain", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = smartDesignerBrainUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
     return errorResponse(
       c,
-      error instanceof Error ? error.message : "Could not load AI models.",
-      503,
-      "MODEL_DISCOVERY_FAILED"
+      parsed.error.issues[0]?.message ?? "Invalid Smart Designer model payload",
+      422,
+      "VALIDATION_ERROR"
     );
   }
+
+  const provider = parsed.data.provider;
+  if (provider && !isSupportedSmartDesignerBrainProvider(provider)) {
+    return errorResponse(c, "That AI service is not one we can run the designer on.", 422, "UNSUPPORTED_PROVIDER");
+  }
+
+  // A model from a different service would be rejected by every composition.
+  const model = parsed.data.model;
+  const targetProvider = provider || (await getSmartDesignerBrainSetting()).providerId;
+  if (model && smartDesignerBrainModelMismatch(targetProvider, model)) {
+    return errorResponse(c, "That model belongs to a different AI service.", 422, "PROVIDER_MODEL_MISMATCH");
+  }
+
+  const result = await saveSmartDesignerBrainConfig(
+    { ...(provider !== undefined ? { provider } : {}), ...(model !== undefined ? { model } : {}) },
+    authUser.id
+  );
+
+  // Which keys changed is audited; the chosen values are not written to the log.
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "SMART_DESIGNER_BRAIN_MODEL_UPDATED",
+    targetType: "PlatformApiSetting",
+    meta: {
+      providerChanged: provider !== undefined,
+      modelChanged: model !== undefined,
+      restoredDefault: result.restoredDefault
+    }
+  }).catch(() => undefined);
+
+  const setting = await getSmartDesignerBrainSetting();
+  return successResponse(
+    c,
+    {
+      smartDesignerBrain: {
+        ...setting,
+        defaultProviderId: DEFAULT_SMART_DESIGNER_BRAIN_PROVIDER,
+        defaultModelId: DEFAULT_SMART_DESIGNER_BRAIN_MODEL,
+        providers: smartDesignerBrainProviderOptions(),
+        models: smartDesignerBrainModelOptions(setting.providerId)
+      },
+      restoredDefault: result.restoredDefault
+    },
+    result.restoredDefault ? "Default Smart Designer model restored" : "Smart Designer model saved"
+  );
+=======
+/* ---------------- Architect builder node visibility ---------------------- */
+
+adminRoutes.get("/builder-nodes", async (c) => {
+  const [nodes, groups] = await Promise.all([listArchitectNodeVisibility(), listArchitectNodeGroups()]);
+  return successResponse(c, { nodes, groups });
+});
+
+const builderNodesUpdateSchema = z.object({
+  nodes: z
+    .array(
+      z
+        .object({
+          type: z.string().trim().min(1).max(120),
+          visible: z.boolean().optional(),
+          label: z.string().max(80).optional(),
+          group: z.string().max(80).optional()
+        })
+        .refine(
+          (node) => node.visible !== undefined || node.label !== undefined || node.group !== undefined,
+          { message: "Each node update needs visible, label, or group" }
+        )
+    )
+    .min(1)
+    .max(80)
+});
+
+adminRoutes.put("/builder-nodes", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = builderNodesUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Invalid node visibility payload", 422, "VALIDATION_ERROR");
+  }
+
+  const unknown = parsed.data.nodes.filter((node) => !isArchitectNodeType(node.type));
+  if (unknown.length > 0) {
+    return errorResponse(
+      c,
+      `Unknown builder node: ${unknown.map((node) => node.type).join(", ")}`,
+      422,
+      "UNKNOWN_NODE_TYPE"
+    );
+  }
+
+  const result = await saveArchitectNodeVisibility(parsed.data.nodes);
+
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "ARCHITECT_NODE_VISIBILITY_UPDATED",
+    targetType: "ArchitectNodeVisibility",
+    meta: { nodes: parsed.data.nodes, ...result }
+  }).catch(() => undefined);
+
+  return successResponse(
+    c,
+    { nodes: await listArchitectNodeVisibility(), groups: await listArchitectNodeGroups(), ...result },
+    "Builder nodes saved"
+  );
+});
+
+const builderGroupCreateSchema = z.object({
+  name: z.string().trim().min(1).max(80)
+});
+
+adminRoutes.post("/builder-nodes/groups", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = builderGroupCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Enter a group name", 422, "VALIDATION_ERROR");
+  }
+
+  const result = await createArchitectNodeGroup(parsed.data.name);
+  if (!result.created) {
+    return errorResponse(c, "That group already exists", 422, "GROUP_EXISTS");
+  }
+
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "ARCHITECT_NODE_GROUP_CREATED",
+    targetType: "ArchitectNodeGroup",
+    meta: { name: parsed.data.name }
+  }).catch(() => undefined);
+
+  return successResponse(c, { groups: result.groups }, "Group created", 201);
+});
+
+adminRoutes.delete("/builder-nodes/groups", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = builderGroupCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Enter a group name", 422, "VALIDATION_ERROR");
+  }
+
+  const result = await deleteArchitectNodeGroup(parsed.data.name);
+  if (!result.deleted) {
+    return errorResponse(c, "That group cannot be deleted", 422, "GROUP_NOT_DELETABLE");
+  }
+
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "ARCHITECT_NODE_GROUP_DELETED",
+    targetType: "ArchitectNodeGroup",
+    meta: { name: parsed.data.name, moved: result.moved }
+  }).catch(() => undefined);
+
+  return successResponse(c, {
+    nodes: await listArchitectNodeVisibility(),
+    groups: result.groups,
+    moved: result.moved
+  }, "Group deleted");
+>>>>>>> origin/gaurav
 });
 
 function parsePagination(c: { req: { query: (k: string) => string | undefined } }) {

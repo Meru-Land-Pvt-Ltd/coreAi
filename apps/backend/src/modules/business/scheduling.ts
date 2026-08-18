@@ -43,7 +43,7 @@ export type AppointmentSchedule = {
   confirmed: boolean;
 };
 
-export type BusyInterval = { start: number; end: number };
+export type BusyInterval = { start: number; end: number; providerName?: string | null };
 
 export type AvailabilitySlot = { startAt: string; label: string; minutes: number };
 
@@ -312,18 +312,73 @@ export function serviceDurationFor(schedule: AppointmentSchedule, serviceName?: 
 
 /* ------------------------------ availability ------------------------------ */
 
-export function overlapsBusy(startMs: number, endMs: number, busy: BusyInterval[]): boolean {
-  return busy.some((interval) => startMs < interval.end && endMs > interval.start);
+export type ProviderInfo = {
+  name: string;
+  email: string | null;
+  calendarId?: string;
+};
+
+export function resolveBusinessProviders(
+  agentConfig: unknown,
+  profile?: { onboardingDataJson?: unknown } | null
+): ProviderInfo[] {
+  const asRecord = (v: unknown): Record<string, unknown> =>
+    v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  const cfg = asRecord(agentConfig);
+  const details = asRecord(cfg.businessDetails);
+
+  const rawProviders = Array.isArray(cfg.providers) ? cfg.providers : Array.isArray(details.providers) ? details.providers : [];
+  if (rawProviders.length > 0) {
+    return rawProviders
+      .map((p) => {
+        if (typeof p === "string" && p.trim()) return { name: p.trim(), email: null };
+        if (p && typeof p === "object") {
+          const rec = p as Record<string, unknown>;
+          const name = typeof rec.name === "string" ? rec.name.trim() : null;
+          const email = typeof rec.email === "string" && rec.email.includes("@") ? rec.email.trim().toLowerCase() : null;
+          if (name) return { name, email, calendarId: typeof rec.calendarId === "string" ? rec.calendarId : undefined };
+        }
+        return null;
+      })
+      .filter((p): p is ProviderInfo => p !== null);
+  }
+
+  const contactName = String(cfg.contactName ?? details.contactName ?? cfg.doctorName ?? "").trim();
+  if (contactName) {
+    const list = contactName.split(",").map((s) => s.trim()).filter(Boolean);
+    if (list.length > 0) {
+      return list.map((name) => ({ name, email: null }));
+    }
+  }
+
+  return [];
+}
+
+export function overlapsBusy(
+  startMs: number,
+  endMs: number,
+  busy: BusyInterval[],
+  providerName?: string | null
+): boolean {
+  const target = providerName?.trim().toLowerCase();
+  return busy.some((interval) => {
+    if (!(startMs < interval.end && endMs > interval.start)) return false;
+    if (!interval.providerName) return true;
+    if (target) return interval.providerName.toLowerCase() === target;
+    return true;
+  });
 }
 
 export function computeDayAvailability(input: {
   schedule: AppointmentSchedule;
   date: string;
   serviceName?: string | null;
+  providerName?: string | null;
+  providerList?: string[];
   busy: BusyInterval[];
   now?: Date;
 }): DayAvailability {
-  const { schedule, date, busy } = input;
+  const { schedule, date, busy, providerName, providerList } = input;
   const now = input.now ?? new Date();
   const hours = effectiveScheduleDayHours(schedule, date);
   const durationMinutes = serviceDurationFor(schedule, input.serviceName);
@@ -346,6 +401,7 @@ export function computeDayAvailability(input: {
   const openMinutes = open.hour * 60 + open.minute;
   const closeMinutes = close.hour * 60 + close.minute;
   const earliestStartMs = now.getTime() + schedule.minNoticeMinutes * 60_000;
+  const roster = providerList && providerList.length > 0 ? providerList : providerName ? [providerName] : [];
 
   for (
     let minutes = openMinutes;
@@ -355,12 +411,21 @@ export function computeDayAvailability(input: {
     const startAt = zonedWallClockToUtc(date, Math.floor(minutes / 60), minutes % 60, schedule.timeZone);
     const startMs = startAt.getTime();
     const endMs = startMs + durationMinutes * 60_000;
-    // Buffer keeps a gap on both sides of existing events.
     const paddedStart = startMs - schedule.bufferMinutes * 60_000;
     const paddedEnd = endMs + schedule.bufferMinutes * 60_000;
 
     if (startMs < earliestStartMs) continue;
-    if (overlapsBusy(paddedStart, paddedEnd, busy)) continue;
+
+    let isSlotFree = false;
+    if (providerName && providerName.trim()) {
+      isSlotFree = !overlapsBusy(paddedStart, paddedEnd, busy, providerName);
+    } else if (roster.length > 0) {
+      isSlotFree = roster.some((p) => !overlapsBusy(paddedStart, paddedEnd, busy, p));
+    } else {
+      isSlotFree = !overlapsBusy(paddedStart, paddedEnd, busy);
+    }
+
+    if (!isSlotFree) continue;
 
     base.allSlots.push({
       startAt: startAt.toISOString(),
@@ -395,10 +460,19 @@ export function checkExactTime(input: {
   hour: number;
   minute: number;
   serviceName?: string | null;
+  providerName?: string | null;
+  providerList?: string[];
   busy: BusyInterval[];
   now?: Date;
-}): { verdict: ExactTimeVerdict; startAt: string | null; closeLabel: string | null; durationMinutes: number } {
-  const { schedule, date, hour, minute } = input;
+}): {
+  verdict: ExactTimeVerdict;
+  startAt: string | null;
+  closeLabel: string | null;
+  durationMinutes: number;
+  assignedProvider?: string | null;
+  sameSlotAlternatives?: string[];
+} {
+  const { schedule, date, hour, minute, providerName, providerList } = input;
   const now = input.now ?? new Date();
   const durationMinutes = serviceDurationFor(schedule, input.serviceName);
 
@@ -445,6 +519,46 @@ export function checkExactTime(input: {
   const endMs = startMs + durationMinutes * 60_000;
   const paddedStart = startMs - input.schedule.bufferMinutes * 60_000;
   const paddedEnd = endMs + input.schedule.bufferMinutes * 60_000;
+  const roster = providerList && providerList.length > 0 ? providerList : providerName ? [providerName] : [];
+
+  if (providerName && providerName.trim()) {
+    const isTargetBusy = overlapsBusy(paddedStart, paddedEnd, input.busy, providerName);
+    if (isTargetBusy) {
+      const freeAlternatives = roster
+        .filter((p) => p.trim().toLowerCase() !== providerName.trim().toLowerCase())
+        .filter((p) => !overlapsBusy(paddedStart, paddedEnd, input.busy, p));
+
+      return {
+        verdict: "occupied",
+        startAt: startAt.toISOString(),
+        closeLabel,
+        durationMinutes,
+        sameSlotAlternatives: freeAlternatives
+      };
+    }
+    return {
+      verdict: "available",
+      startAt: startAt.toISOString(),
+      closeLabel,
+      durationMinutes,
+      assignedProvider: providerName.trim()
+    };
+  }
+
+  if (roster.length > 0) {
+    const freeProvider = roster.find((p) => !overlapsBusy(paddedStart, paddedEnd, input.busy, p));
+    if (!freeProvider) {
+      return { verdict: "occupied", startAt: startAt.toISOString(), closeLabel, durationMinutes };
+    }
+    return {
+      verdict: "available",
+      startAt: startAt.toISOString(),
+      closeLabel,
+      durationMinutes,
+      assignedProvider: freeProvider
+    };
+  }
+
   if (overlapsBusy(paddedStart, paddedEnd, input.busy)) {
     return { verdict: "occupied", startAt: startAt.toISOString(), closeLabel, durationMinutes };
   }
@@ -471,12 +585,13 @@ export async function loadTrivenBusyIntervals(input: {
       endAt: { gt: dayStart },
       NOT: { status: { in: ["CANCELLED", "CANCELED"] } }
     },
-    select: { startAt: true, endAt: true }
+    select: { startAt: true, endAt: true, providerName: true }
   });
 
   return appointments.map((appointment) => ({
     start: appointment.startAt.getTime(),
-    end: appointment.endAt.getTime()
+    end: appointment.endAt.getTime(),
+    providerName: appointment.providerName?.trim() || null
   }));
 }
 
@@ -491,11 +606,17 @@ export type CalendarStatus = "connected" | "not_connected" | "needs_reconnect" |
 export async function resolveScheduleForBusiness(input: {
   businessId: string;
   installedAgentId?: string | null;
-}): Promise<{ schedule: AppointmentSchedule; installedAgentId: string | null; ownerUserId: string | null }> {
+}): Promise<{
+  schedule: AppointmentSchedule;
+  installedAgentId: string | null;
+  ownerUserId: string | null;
+  agentConfig: unknown;
+  profile: { hoursJson: unknown; timeZone: unknown; calendarId: unknown; onboardingDataJson?: unknown } | null;
+}> {
   const [business, agent] = await Promise.all([
     prisma.business.findUnique({
       where: { id: input.businessId },
-      select: { ownerId: true, profile: { select: { hoursJson: true, timeZone: true, calendarId: true } } }
+      select: { ownerId: true, profile: { select: { hoursJson: true, timeZone: true, calendarId: true, onboardingDataJson: true } } }
     }),
     input.installedAgentId
       ? prisma.installedAgent.findFirst({
@@ -540,7 +661,13 @@ export async function resolveScheduleForBusiness(input: {
     });
   }
 
-  return { schedule, installedAgentId: agent?.id ?? null, ownerUserId: business?.ownerId ?? null };
+  return {
+    schedule,
+    installedAgentId: agent?.id ?? null,
+    ownerUserId: business?.ownerId ?? null,
+    agentConfig: agent?.configJson ?? null,
+    profile: business?.profile ?? null
+  };
 }
 
 async function loadAllBusyIntervals(input: {
@@ -580,8 +707,6 @@ async function loadAllBusyIntervals(input: {
         : classified.code === "CALENDAR_TOKEN_EXPIRED" || classified.code === "CALENDAR_REAUTH_REQUIRED"
           ? "needs_reconnect"
           : "error";
-    // NEVER fabricate availability on calendar failure — the caller reports
-    // that live availability cannot be confirmed right now.
     return { busy: trivenBusy, calendarStatus };
   }
 }
@@ -597,10 +722,14 @@ export async function computeBusinessAvailability(input: {
   installedAgentId?: string | null;
   date: string;
   serviceName?: string | null;
+  providerName?: string | null;
   now?: Date;
   excludeExternalCalendar?: boolean;
 }): Promise<BusinessDayAvailability> {
-  const { schedule, ownerUserId } = await resolveScheduleForBusiness(input);
+  const { schedule, ownerUserId, agentConfig, profile } = await resolveScheduleForBusiness(input);
+  const providers = resolveBusinessProviders(agentConfig, profile);
+  const providerList = providers.map((p) => p.name);
+
   const { busy, calendarStatus } = await loadAllBusyIntervals({
     businessId: input.businessId,
     ownerUserId,
@@ -613,6 +742,8 @@ export async function computeBusinessAvailability(input: {
     schedule,
     date: input.date,
     serviceName: input.serviceName,
+    providerName: input.providerName,
+    providerList,
     busy,
     now: input.now
   });
@@ -626,7 +757,8 @@ export type BusinessExactTimeResult = {
   closeLabel: string | null;
   durationMinutes: number;
   calendarStatus: CalendarStatus;
-  /** Nearby alternatives when the requested time is not available. */
+  assignedProvider?: string | null;
+  sameSlotAlternatives?: string[];
   alternatives: AvailabilitySlot[];
 };
 
@@ -638,10 +770,14 @@ export async function checkBusinessExactTime(input: {
   hour: number;
   minute: number;
   serviceName?: string | null;
+  providerName?: string | null;
   now?: Date;
   excludeExternalCalendar?: boolean;
 }): Promise<BusinessExactTimeResult> {
-  const { schedule, ownerUserId } = await resolveScheduleForBusiness(input);
+  const { schedule, ownerUserId, agentConfig, profile } = await resolveScheduleForBusiness(input);
+  const providers = resolveBusinessProviders(agentConfig, profile);
+  const providerList = providers.map((p) => p.name);
+
   const { busy, calendarStatus } = await loadAllBusyIntervals({
     businessId: input.businessId,
     ownerUserId,
@@ -656,6 +792,8 @@ export async function checkBusinessExactTime(input: {
     hour: input.hour,
     minute: input.minute,
     serviceName: input.serviceName,
+    providerName: input.providerName,
+    providerList,
     busy,
     now: input.now
   });
@@ -666,10 +804,11 @@ export async function checkBusinessExactTime(input: {
       schedule,
       date: input.date,
       serviceName: input.serviceName,
+      providerName: input.providerName,
+      providerList,
       busy,
       now: input.now
     });
-    // Closest-first alternatives around the requested time.
     const requestedMinutes = input.hour * 60 + input.minute;
     alternatives = [...day.allSlots]
       .sort((a, b) => Math.abs(a.minutes - requestedMinutes) - Math.abs(b.minutes - requestedMinutes))
@@ -687,13 +826,14 @@ export async function revalidateAndReserveSlot<T>(input: {
   hour: number;
   minute: number;
   serviceName?: string | null;
+  providerName?: string | null;
   now?: Date;
   createBooking: () => Promise<T>;
 }): Promise<
-  | { ok: true; booking: T; startAt: string; durationMinutes: number }
+  | { ok: true; booking: T; startAt: string; durationMinutes: number; assignedProvider?: string | null }
   | { ok: false; result: BusinessExactTimeResult }
 > {
-  const lockKey = `booking:${input.businessId}:${input.date}:${input.hour}:${input.minute}`;
+  const lockKey = `booking:${input.businessId}:${input.date}:${input.hour}:${input.minute}:${input.providerName?.trim().toLowerCase() ?? "all"}`;
 
   return prisma.$transaction(
     async (tx) => {
@@ -705,7 +845,7 @@ export async function revalidateAndReserveSlot<T>(input: {
       }
 
       const booking = await input.createBooking();
-      return { ok: true as const, booking, startAt: check.startAt, durationMinutes: check.durationMinutes };
+      return { ok: true as const, booking, startAt: check.startAt, durationMinutes: check.durationMinutes, assignedProvider: check.assignedProvider };
     },
     { timeout: 20_000 }
   );

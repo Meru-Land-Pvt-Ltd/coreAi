@@ -390,3 +390,58 @@ describe("Triven bookings block slots and booking revalidates", () => {
     expect(await prisma.appointment.count({ where: { businessId, startAt: new Date("2099-01-05T19:00:00Z") } })).toBe(1);
   });
 });
+
+describe("Multi-provider availability per time slot", () => {
+  it("allows different providers to be booked in the same time slot and suggests alternatives", () => {
+    const schedule = clinicSchedule();
+    const busy = [
+      {
+        start: new Date("2099-01-05T15:00:00Z").getTime(),
+        end: new Date("2099-01-05T15:30:00Z").getTime(),
+        providerName: "Dr. Smith"
+      }
+    ];
+
+    // Dr. Smith is occupied at 10 AM (15:00 UTC)
+    const smithCheck = checkExactTime({
+      schedule,
+      date: MONDAY,
+      hour: 10,
+      minute: 0,
+      providerName: "Dr. Smith",
+      providerList: ["Dr. Smith", "Dr. Jones"],
+      busy,
+      now: NOW
+    });
+    expect(smithCheck.verdict).toBe("occupied");
+    expect(smithCheck.sameSlotAlternatives).toEqual(["Dr. Jones"]);
+
+    // Dr. Jones is available in the exact same slot
+    const jonesCheck = checkExactTime({
+      schedule,
+      date: MONDAY,
+      hour: 10,
+      minute: 0,
+      providerName: "Dr. Jones",
+      providerList: ["Dr. Smith", "Dr. Jones"],
+      busy,
+      now: NOW
+    });
+    expect(jonesCheck.verdict).toBe("available");
+    expect(jonesCheck.assignedProvider).toBe("Dr. Jones");
+
+    // Unspecified provider ("any") automatically assigns to Dr. Jones
+    const anyCheck = checkExactTime({
+      schedule,
+      date: MONDAY,
+      hour: 10,
+      minute: 0,
+      providerList: ["Dr. Smith", "Dr. Jones"],
+      busy,
+      now: NOW
+    });
+    expect(anyCheck.verdict).toBe("available");
+    expect(anyCheck.assignedProvider).toBe("Dr. Jones");
+  });
+});
+

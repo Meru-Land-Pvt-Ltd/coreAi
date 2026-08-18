@@ -71,6 +71,13 @@ export type ProductSiteProps = {
   contentWidth?: ContentWidth | null;
   /** Replaces the page body. Used by the in-product 404 card. */
   children?: ReactNode;
+  /**
+   * Overrides where a page link lands. The public /a/ routes leave this
+   * absent and get real router navigation; the builder's preview passes a
+   * handler so clicking the site's nav switches the previewed page in place
+   * instead of leaving the builder.
+   */
+  navigate?: (href: string) => void;
 };
 
 function hasBrand(product: ProductSpec): boolean {
@@ -101,7 +108,8 @@ export function ProductSite({
   page,
   renderNode,
   contentWidth,
-  children
+  children,
+  navigate
 }: ProductSiteProps) {
   const router = useRouter();
   const prefetched = useRef<Set<string>>(new Set());
@@ -131,9 +139,13 @@ export function ProductSite({
       const href = softNavHref(anchor);
       if (!href) return;
       event.preventDefault();
+      if (navigate) {
+        navigate(href);
+        return;
+      }
       router.push(href as Route);
     },
-    [router]
+    [router, navigate]
   );
 
   /** Warm the next page the moment a link is pointed at — same as <Link>. */
@@ -144,13 +156,16 @@ export function ProductSite({
       const href = softNavHref(anchor);
       if (!href || prefetched.current.has(href)) return;
       prefetched.current.add(href);
+      // With a navigate override there is no route to warm — page switches
+      // happen in place.
+      if (navigate) return;
       try {
         router.prefetch(href as Route);
       } catch {
         // Prefetching is an optimization; a router without it is not an error.
       }
     },
-    [router]
+    [router, navigate]
   );
 
   const sectionCtx = useMemo<SectionContext>(

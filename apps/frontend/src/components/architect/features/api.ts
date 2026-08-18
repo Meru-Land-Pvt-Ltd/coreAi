@@ -6,6 +6,11 @@ import type {
   AgentPageUpdateBody,
   DesignChatBody,
   DesignChatData,
+  ProductChatBody,
+  ProductChatData,
+  SmartComposeData,
+  SmartDesignerBody,
+  SmartDesignerData,
   ArchitectListing,
   ArchitectProfile,
   ArchitectProject,
@@ -29,6 +34,21 @@ export function getArchitectSummary() {
 
 export function getModelStatusesFromBackend() {
   return apiGet<Record<string, { available: boolean; disabledReason?: string; hasKey: boolean; isQuotaExceeded: boolean }>>("/architect/model-statuses");
+}
+
+export type ArchitectBuilderNodePresentation = {
+  type: string;
+  label: string;
+  group: string;
+  visible: boolean;
+  defaultLabel: string;
+  defaultGroup: string;
+};
+
+export function getArchitectBuilderNodeVisibility() {
+  return apiGet<{ hiddenNodeTypes: string[]; nodes?: ArchitectBuilderNodePresentation[] }>(
+    "/architect/builder-nodes"
+  );
 }
 
 export type ArchitectAgentsStats = {
@@ -1645,4 +1665,33 @@ export function updateAgentPageConfig(workflowId: string, body: AgentPageUpdateB
  */
 export function designChat(workflowId: string, body: DesignChatBody) {
   return apiPost<DesignChatData>(`/agent-pages/manage/${workflowId}/design-chat`, body);
+}
+
+/**
+ * Product Architect: the other half of the Design Brain. Where designChat
+ * restyles the page that exists, this one WRITES the product — pages,
+ * sections, copy and the wires back to the agent — from one sentence.
+ * The backend validates and auto-fixes the whole blueprint before saving.
+ */
+export function productChat(workflowId: string, body: ProductChatBody) {
+  return apiPost<ProductChatData>(`/agent-pages/manage/${workflowId}/product-chat`, body);
+}
+
+/**
+ * AI Composer: reads every node's declarations and generates the minimum
+ * product interface from our pre-built components. No body — the saved
+ * workflow graph IS the brief. The backend validates the composed spec
+ * before saving, so a success here is always a renderable page.
+ */
+export function smartCompose(workflowId: string) {
+  return apiPost<SmartComposeData>(`/agent-pages/manage/${workflowId}/smart-compose`, {});
+}
+
+/**
+ * Smart Designer chat: the feedback loop on the composed interface. Product
+ * UI only — packaging asks (privacy, landing, sell pages) come back with
+ * `boundary: "packaging"` and nothing changed.
+ */
+export function smartDesignerChat(workflowId: string, body: SmartDesignerBody) {
+  return apiPost<SmartDesignerData>(`/agent-pages/manage/${workflowId}/smart-designer`, body);
 }
