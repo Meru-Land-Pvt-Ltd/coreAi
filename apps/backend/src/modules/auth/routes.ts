@@ -128,7 +128,10 @@ authRoutes.post("/send-verification-code", async (c) => {
     // An emailed code can never MAKE an admin. It may only let one in, and
     // only when that account already holds the role — so a stranger typing an
     // address into the admin screen gets nothing, not an account.
-    if (input.role === "ADMIN" && !holdsAdminRole(existingUser)) {
+    // Across ALL rows for this address, not just the resolved one: user rows
+    // are unique per (email, role), so an owner who is both an architect and
+    // an admin has two — and the architect row must not hide the admin one.
+    if (input.role === "ADMIN" && !candidates.some((candidate) => holdsAdminRole(candidate))) {
       return errorResponse(
         c,
         "This email is not an admin account.",
@@ -249,12 +252,11 @@ authRoutes.post("/verify-code", async (c) => {
     // code proves the inbox, never the privilege. Only an account that already
     // holds ADMIN may come in this way, and never as a new account.
     if (input.role === "ADMIN") {
-      const existing = await prisma.user.findFirst({
+      const existing = await prisma.user.findMany({
         where: { email: input.email },
-        select: { role: true, roleMemberships: { select: { role: true } } },
-        orderBy: { createdAt: "asc" }
+        select: { role: true, roleMemberships: { select: { role: true } } }
       });
-      if (!holdsAdminRole(existing)) {
+      if (!existing.some((row) => holdsAdminRole(row))) {
         return errorResponse(c, "This email is not an admin account.", 403, "ADMIN_ACCOUNT_REQUIRED");
       }
     }
