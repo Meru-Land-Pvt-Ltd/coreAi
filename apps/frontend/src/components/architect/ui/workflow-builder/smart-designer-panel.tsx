@@ -74,6 +74,13 @@ export function SmartDesignerPanel({
   const [generating, setGenerating] = useState(false);
   const [progressStage, setProgressStage] = useState(0);
   const [composed, setComposed] = useState(hasComposedSpec);
+  // The saved spec loads AFTER this panel mounts — useState captures only the
+  // first value, so without this sync the chat stays locked behind a
+  // pointless re-Generate whenever the page data arrives a beat late.
+  // One-way: a spec that exists never un-composes the panel.
+  useEffect(() => {
+    if (hasComposedSpec) setComposed(true);
+  }, [hasComposedSpec]);
   const listRef = useRef<HTMLDivElement | null>(null);
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
