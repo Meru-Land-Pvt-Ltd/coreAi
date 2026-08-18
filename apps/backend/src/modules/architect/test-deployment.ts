@@ -4,6 +4,7 @@ import {
   VOICE_NODE_TYPES,
   buildSilencePolicy,
   normalizeTimeZone,
+  OUTBOUND_CALL_NODE_TYPE,
   resolveSalesTuning,
   salesBehaviourPromptFor
 } from "@coreai/shared";
@@ -364,6 +365,12 @@ export async function startArchitectTestDeployment(
     assistant = await deployVapiAssistant({
       recordingEnabled,
       tuning: ai,
+      // On a call WE placed, she waits for their "hello?" before she speaks —
+      // the way a person does. Talking into a ringing line is both robotic and
+      // unreliable: carriers report "answered" before the handset is picked up.
+      ...(nodes.some((n) => n.data?.type === OUTBOUND_CALL_NODE_TYPE)
+        ? { firstMessageMode: "assistant-waits-for-user" }
+        : {}),
       name: `Sandbox Test — ${workflow.name || businessName}`,
       firstMessage,
       systemPrompt,

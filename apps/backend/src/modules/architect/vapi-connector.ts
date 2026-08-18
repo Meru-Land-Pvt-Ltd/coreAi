@@ -450,7 +450,18 @@ export function buildVapiVariableValues({
   const currentDate = dateOnlyInZone(timeZone);
   const tomorrowDate = addDaysToDateStr(currentDate, 1);
 
+  // What a person actually opens with. Nobody says "I am the AI assistant at
+  // Acme and I am calling regarding" — they say "hey, good afternoon". The
+  // hour is read in the CALLER's timezone, so an agent selling into New York
+  // from a server in Frankfurt still greets them correctly.
+  const localHour = Number(
+    new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hour12: false }).format(new Date())
+  );
+  const timeGreeting =
+    localHour < 12 ? "good morning" : localHour < 17 ? "good afternoon" : "good evening";
+
   return {
+    timeGreeting,
     currentDateTime,
     currentDate,
     todayDate: currentDate,
@@ -1386,6 +1397,14 @@ export type DeployVapiAssistantInput = {
   /** End Flow node "Call recording" toggle → Vapi artifactPlan.recordingEnabled (default on). */
   recordingEnabled?: boolean;
   /**
+   * How the call opens. Outbound should be "assistant-waits-for-user": a real
+   * person who rings you does not talk into a ringing line — they wait for
+   * your "hello?" and answer it. Vapi also warns that some carriers report
+   * "answered" while the phone is still ringing, so speaking first can mean
+   * the opening line is never actually heard.
+   */
+  firstMessageMode?: string;
+  /**
    * The behaviour dials saved on the AI node — answer speed, interruption
    * sensitivity, patience after pushback. Anything missing falls back to the
    * researched default, so callers may pass a partial object or nothing.
@@ -1414,7 +1433,8 @@ export async function deployVapiAssistant({
   silenceTimeoutSeconds,
   maxDurationSeconds,
   recordingEnabled,
-  tuning
+  tuning,
+  firstMessageMode
 }: DeployVapiAssistantInput): Promise<{ id: string; created: boolean; pipeline: ResolvedVoicePipeline }> {
   if (!env.VAPI_API_KEY) {
     throw new Error("VAPI_API_KEY is required to deploy the voice assistant.");
@@ -1524,6 +1544,7 @@ export async function deployVapiAssistant({
     compliancePlan: {
       hipaaEnabled: false
     },
+    ...(firstMessageMode ? { firstMessageMode } : {}),
     ...(metadata ? { metadata } : {}),
     ...(silenceTimeoutSeconds ? { silenceTimeoutSeconds } : {}),
     ...(maxDurationSeconds ? { maxDurationSeconds } : {})
@@ -1546,7 +1567,10 @@ export async function deployVapiAssistant({
         // Turbo is the low-latency model. On a sales call the wait before she
         // answers costs more than the last few percent of audio polish, and
         // the caller hears every millisecond of it as a dropped line.
-        model: "eleven_turbo_v2_5",
+        // eleven_turbo_v2_5 is the fast model, and it is noticeably flatter.
+        // The founder heard it immediately: "the 30/100 voice was way better".
+        // On a sales call, feeling beats a couple of hundred milliseconds.
+        model: "eleven_multilingual_v2",
         stability: typeof stability === "number" ? stability : voiceSettings.stability,
         similarityBoost: typeof similarityBoost === "number" ? similarityBoost : 0.75,
         style: typeof style === "number" ? style : voiceSettings.style,

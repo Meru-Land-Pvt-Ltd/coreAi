@@ -75,12 +75,12 @@ export const SALES_TUNING_CONTROLS: SalesTuningControl[] = [
     min: 0,
     max: 3,
     step: 1,
-    default: 2,
+    default: 1,
     lowLabel: "Finishes her point",
     highLabel: "Stops instantly",
     format: scale4(["Finishes her sentence", "Stops after a few words", "Stops quickly", "Stops on your first word"]),
     evidence:
-      "Talking over the customer is robotic, but the maximum setting is worse: on a live test every sound stopped her mid-word and she restarted her sentence over and over. 'Stops quickly' is the setting that reads as a person."
+      "The maximum setting sounds worse than the minimum. On a live test every sound stopped her mid-word and she restarted over and over, saying 'I'm here' five times in one call. A real person finishes the short phrase they are in the middle of and stops for a real interruption — so a single 'yeah' or 'mm-hmm' must not derail her."
   },
   {
     key: "interruptRecovery",
@@ -200,7 +200,7 @@ export const SALES_TUNING_CONTROLS: SalesTuningControl[] = [
     min: 0,
     max: 1,
     step: 0.05,
-    default: 0.55,
+    default: 0.8,
     lowLabel: "Flat and steady",
     highLabel: "Alive",
     format: (value) => `${Math.round(value * 100)}%`,
@@ -271,8 +271,11 @@ export function elevenLabsVoiceSettingsFor(tuning: SalesTuning): {
   return {
     // Kept inside 0.3–0.75: below 0.3 ElevenLabs starts mispronouncing and
     // drifting in accent mid-sentence, which reads as a bad line, not warmth.
-    stability: Number((0.75 - expressiveness * 0.45).toFixed(2)),
-    style: Number((expressiveness * 0.45).toFixed(2)),
+    // Lower stability = more emotional range. The old floor of 0.30 was never
+    // reached at the default and the result sounded flat and even-toned, which
+    // is the single thing a listener names first when a voice feels fake.
+    stability: Number((0.62 - expressiveness * 0.42).toFixed(2)),
+    style: Number((0.15 + expressiveness * 0.5).toFixed(2)),
     useSpeakerBoost: true
   };
 }
