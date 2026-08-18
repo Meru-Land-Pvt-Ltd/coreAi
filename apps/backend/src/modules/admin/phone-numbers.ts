@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { logAdminAction } from "./audit";
+import { listVapiPhoneNumbers, registerNumberWithVapi } from "../architect/vapi-connector";
 import { assignPlatformNumber, unassignPlatformNumber } from "../business/phone-assignment";
 import { addPhoneNumberFeeToPendingInvoiceTx } from "../business/phone-number-invoice";
 import { getPhoneNumberFeeForPlatformNumber } from "../business/phone-provisioning";
@@ -174,6 +175,77 @@ adminPhoneNumberRoutes.get("/assign-options", async (c) => {
 /* -------------------------------- purchase -------------------------------- */
 
 // POST /admin/phone-numbers/purchase — buy on Twilio + auto-configure webhooks + save.
+/**
+ * Teach Vapi about one of our numbers so agents can PLACE calls from it.
+ *
+ * This is the step that had never existed: Vapi refuses to dial from a number
+ * it does not know, and nothing in the platform ever registered one — which is
+ * why every outbound call failed with "Vapi is not configured for this call".
+ *
+ * Registering hands the number's INBOUND webhook to Vapi, so an assigned
+ * number (one a business is answering calls on) is refused here outright.
+ */
+adminPhoneNumberRoutes.post("/:id/register-voice", async (c) => {
+  const authUser = c.get("authUser");
+  const id = c.req.param("id");
+
+  const number = await prisma.platformPhoneNumber.findUnique({
+    where: { id },
+    select: { id: true, e164: true, status: true, businessId: true, vapiPhoneNumberId: true }
+  });
+  if (!number) return errorResponse(c, "Number not found", 404, "NUMBER_NOT_FOUND");
+
+  const e164 = (number.e164 ?? "").trim();
+  if (!e164) return errorResponse(c, "This number has no phone number on file", 409, "NUMBER_INCOMPLETE");
+
+  if (number.vapiPhoneNumberId) {
+    return successResponse(c, { vapiPhoneNumberId: number.vapiPhoneNumberId, alreadyRegistered: true });
+  }
+
+  if (number.businessId || number.status === "ASSIGNED") {
+    return errorResponse(
+      c,
+      "This number is answering calls for a business. Registering it for outbound would take over its incoming calls — pick a free number instead.",
+      409,
+      "NUMBER_IN_USE"
+    );
+  }
+
+  try {
+    // Vapi may already hold it from an earlier attempt; reuse rather than duplicate.
+    const existing = (await listVapiPhoneNumbers()).find((row) => row.number === e164);
+    const registered = existing
+      ? { vapiPhoneNumberId: existing.id, number: existing.number || e164 }
+      : await registerNumberWithVapi({ e164, label: "Triven outbound" });
+
+    await prisma.platformPhoneNumber.update({
+      where: { id: number.id },
+      data: { vapiPhoneNumberId: registered.vapiPhoneNumberId }
+    });
+
+    await logAdminAction({
+      adminUserId: authUser.id,
+      action: "PHONE_NUMBER_REGISTERED_FOR_VOICE",
+      targetType: "PlatformPhoneNumber",
+      targetId: number.id,
+      meta: { e164 }
+    }).catch(() => undefined);
+
+    return successResponse(
+      c,
+      { vapiPhoneNumberId: registered.vapiPhoneNumberId, number: registered.number },
+      "This number can now place calls."
+    );
+  } catch (error) {
+    return errorResponse(
+      c,
+      error instanceof Error ? error.message : "Could not register the number for outbound calls",
+      500,
+      "VAPI_REGISTER_FAILED"
+    );
+  }
+});
+
 adminPhoneNumberRoutes.post("/purchase", async (c) => {
   let input: z.infer<typeof purchaseSchema>;
   try {

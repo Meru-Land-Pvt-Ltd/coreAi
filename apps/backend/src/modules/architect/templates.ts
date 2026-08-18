@@ -4,6 +4,7 @@ import {
   getNodeDefinition,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_PRESENTATION,
+  OUTBOUND_CALL_NODE_TYPE,
   VOICE_NODE_TYPES,
   workflowJsonForTemplate
 } from "@coreai/shared";
@@ -486,7 +487,162 @@ function buildTelegramAppointmentWorkflow(): WorkflowTemplate["workflowJson"] {
   return { nodes, edges };
 }
 
+/**
+ * THE AI SALES EMPLOYEE.
+ *
+ * A person asks to be called — on a website form, a "call me" button, or by
+ * ticking a box when they sign up. That request arrives here as a webhook, and
+ * the agent phones them back within seconds while their interest is still
+ * warm, pitches, answers objections from the knowledge you gave it, and books
+ * the meeting on your calendar.
+ *
+ * It can only ever phone someone who asked. That is not a setting in this
+ * template — the engine refuses any number without a consent record, because
+ * an AI voice is an "artificial voice" under the TCPA and a call without
+ * consent is a $500-to-$1,500 mistake per call. Build the opt-in first; the
+ * agent is useless and harmless without it.
+ *
+ * Everything below is pre-filled for selling Triven's own AI receptionist, so
+ * an architect can import it, press Run, and hear it work — then rewrite the
+ * script for their own product.
+ */
+function buildAiSalesEmployeeWorkflow(): WorkflowTemplate["workflowJson"] {
+  const specs: NodeSpec[] = [
+    {
+      id: "sales-request",
+      type: "trigger.webhook",
+      title: "Someone asked us to call",
+      data: {
+        subtitle:
+          "Your website, form or 'call me' button sends the person's name and number here.",
+        sampleBody:
+          '{\n  "name": "Priya",\n  "phone": "+15551234567",\n  "interested_in": "AI receptionist"\n}'
+      }
+    },
+    {
+      id: "sales-call",
+      type: OUTBOUND_CALL_NODE_TYPE,
+      title: "Call them back now",
+      data: {
+        subtitle: "Phones the person who asked, in seconds, with your AI voice.",
+        callTo: "{{webhook.body.phone}}",
+        firstMessage:
+          "Hi {{webhook.body.name}}, this is Maya calling from Triven — you asked us to give you a call about the AI receptionist. Is now a good time for a couple of minutes?"
+      }
+    },
+    {
+      id: "sales-brain",
+      type: VOICE_NODE_TYPES.voiceConversation,
+      title: "How it sells",
+      data: {
+        subtitle: "The script, the objections, and when to book the meeting.",
+        systemPrompt: SALES_EMPLOYEE_SYSTEM_PROMPT,
+        customInstructions: SALES_EMPLOYEE_KNOWLEDGE
+      }
+    },
+    {
+      id: "sales-availability",
+      type: VOICE_NODE_TYPES.calendarAvailability,
+      title: "Find a meeting slot"
+    },
+    {
+      id: "sales-book",
+      type: VOICE_NODE_TYPES.bookAppointment,
+      title: "Book the meeting"
+    },
+    {
+      id: "sales-save",
+      type: "action.save_lead",
+      title: "Save what happened"
+    },
+    {
+      id: "sales-end",
+      type: VOICE_NODE_TYPES.endFlow,
+      title: "End the call"
+    }
+  ];
+  return workflowJsonForTemplate(flow(specs)) as WorkflowTemplate["workflowJson"];
+}
+
+/** The salesperson's character. Written to sound like a person, not a script. */
+const SALES_EMPLOYEE_SYSTEM_PROMPT = `You are Maya, an inside sales representative for Triven.
+
+You are on the phone with someone who filled in a form asking us to call them. They expect this call.
+
+HOW YOU SPEAK
+- Like a real person on a normal phone call. Short sentences. Contractions.
+- Never read a script at them. Ask, listen, then answer the thing they actually said.
+- One question at a time, then stop and let them talk.
+- If they sound busy, say so and offer to call back — never push.
+- If they ask whether you are a real person, tell the truth immediately and warmly: you are Triven's AI assistant.
+
+WHAT YOU ARE SELLING
+Triven's AI receptionist for service businesses — dental practices, clinics, salons, home services. It answers the calls the business misses, books appointments straight into their calendar, and follows up by text.
+
+YOUR GOAL, IN ORDER
+1. Find out what they do and how they handle calls today.
+2. Find the pain: missed calls, no front-desk staff, empty appointment slots.
+3. Explain only the part of the product that solves THAT pain.
+4. Book a 20-minute demo with a human on the calendar.
+
+OBJECTIONS — answer briefly and honestly
+- "Too expensive": ask what one lost patient is worth to them, then compare.
+- "We already have a receptionist": it is for the calls that come when she is busy, on the phone, or gone home.
+- "Will it sound robotic?": tell them they are talking to it right now, and ask what they think.
+- "Send me an email": agree, and ask for the best address — then still offer a time.
+
+RULES YOU NEVER BREAK
+- Never invent a price, a customer name, or a feature. If you do not know, say you will find out.
+- Never claim to be human.
+- If they ask not to be called again, apologise once, confirm you have removed them, and end the call politely.
+- Keep the whole call under ten minutes unless they want more.`;
+
+/** The facts the salesperson is allowed to use. Anything not here, it must not claim. */
+const SALES_EMPLOYEE_KNOWLEDGE = `WHAT TRIVEN IS
+A marketplace of AI agents for service businesses. The first product is an AI receptionist.
+
+WHAT THE AI RECEPTIONIST DOES
+- Answers calls the business misses, day or night.
+- Books appointments directly into their Google Calendar.
+- Texts the caller back if the call is missed.
+- Answers common questions using the business's own information: services, hours, prices they have given us.
+- Hands over to a human when asked.
+
+HOW IT IS SET UP
+The business gets its own phone number, or forwards its existing one. Setup is a short call with us; they do not touch any technical settings.
+
+WHO IT IS FOR
+Dental practices, medical clinics, salons, gyms, HVAC and home services — anyone who loses money when the phone rings and nobody answers.
+
+WHAT TO SAY ABOUT PRICE
+Say pricing depends on call volume and starts in the low hundreds of dollars a month, and that the demo covers exact numbers. Never quote a specific figure.
+
+PROOF YOU MAY USE
+- The average service business converts only about four in ten of the calls it answers.
+- Only about half of callers to home-services businesses reach a person at all.
+Do not use any other statistic.
+
+WHAT YOU MUST NOT SAY
+- No claims about how many customers Triven has.
+- No security or compliance certifications.
+- No promises about specific revenue increases.`;
+
 const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | "updatedAt">> = [
+  {
+    id: "tpl-ai-sales-employee",
+    slug: "ai-sales-employee",
+    title: "AI Sales Employee",
+    category: "Sales",
+    difficulty: "Intermediate",
+    description:
+      "Someone asks to be called → your AI calls them back in seconds → it pitches, handles objections, books the meeting, and logs the result. Only ever calls people who asked.",
+    forks: 0,
+    rating: 5,
+    reviewCount: 0,
+    tags: ["Sales", "Voice", "Outbound"],
+    recommended: true,
+    workflowJson: buildAiSalesEmployeeWorkflow()
+  },
   {
     id: "tpl-dental-receptionist",
     slug: "dental-ai-receptionist",

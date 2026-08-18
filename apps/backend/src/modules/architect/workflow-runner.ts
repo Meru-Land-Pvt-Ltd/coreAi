@@ -22,6 +22,8 @@ import {
   zonedWallClockToUtc,
   type NodeDoorSpec
 } from "@coreai/shared";
+import { mayCallNumber } from "./call-consent";
+import { maskPhone } from "../compliance/log-redaction";
 import {
   createDoorBudget,
   runEntryDoor,
@@ -285,6 +287,8 @@ type RunnerNodeData = {
   imageSize?: unknown;
   connector?: unknown;
   connectorAction?: unknown;
+  // Outbound call target ("Who to call"), template-friendly.
+  callTo?: unknown;
   // Schedule (timer) trigger config
   cadence?: unknown;
   timeZone?: unknown;
@@ -2321,10 +2325,20 @@ async function runVapiConnectorNode({
   mode: WorkflowRunMode;
 }) {
   const action = asString(node.data?.connectorAction, "start_voice_call");
-  const customerPhone = customerPhoneFromContext(context);
+  // A sales agent dials a person the run knows about; a receptionist calls the
+  // person who just rang. Both land here, so an explicit target wins and the
+  // inbound caller is the fallback.
+  const targetFromNode = renderTemplate(node.data?.callTo, context).trim();
+  const customerPhone = targetFromNode || customerPhoneFromContext(context);
 
   if (!customerPhone) {
-    logs.push(createLog(node, "error", "Vapi call failed because caller phone number is missing."));
+    logs.push(
+      createLog(
+        node,
+        "error",
+        "This call has no number to dial. Set 'Who to call' on the node, or run it after a step that knows the person's number."
+      )
+    );
     return;
   }
 
@@ -2344,6 +2358,26 @@ async function runVapiConnectorNode({
 
   if (action !== "start_voice_call") {
     logs.push(createLog(node, "error", `Unsupported Vapi action: ${action}`));
+    return;
+  }
+
+  // THE LAW, ENFORCED IN CODE. An AI voice is an "artificial voice" under the
+  // TCPA, so this business must hold this person's prior express consent. No
+  // record, no call — an architect cannot switch this off, and it fails closed
+  // on any doubt. See modules/architect/call-consent.ts.
+  const consent = await mayCallNumber({
+    businessId: context.business?.id,
+    phoneNumber: customerPhone
+  });
+  if (!consent.allowed) {
+    logs.push(
+      createLog(
+        node,
+        "error",
+        `No call placed — ${consent.reason}. A person must ask to be called before an AI can phone them.`,
+        { phone: maskPhone(customerPhone) }
+      )
+    );
     return;
   }
 

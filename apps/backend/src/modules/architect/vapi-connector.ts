@@ -291,6 +291,68 @@ export type VapiBusinessContext = {
   timeZone?: string;
 };
 
+/**
+ * Register one of our Twilio numbers with Vapi so it can PLACE calls.
+ *
+ * Outbound has always been impossible on this platform for a reason nobody had
+ * noticed: Vapi will not dial from a number it does not know, and no code here
+ * ever told it about ours. Inbound survives without this because the caller
+ * reaches Twilio first and we hand Vapi the leg; outbound has no such path.
+ *
+ * IMPORTANT: importing a number hands its inbound webhook to Vapi. Never do
+ * this to a number a business is already answering calls on — pick a free one.
+ */
+export async function registerNumberWithVapi(args: {
+  e164: string;
+  label?: string;
+}): Promise<{ vapiPhoneNumberId: string; number: string }> {
+  if (!env.VAPI_API_KEY) throw new Error("VAPI_API_KEY is not configured.");
+  if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN) {
+    throw new Error("Twilio credentials are not configured.");
+  }
+
+  const base = env.VAPI_BASE_URL.replace(/\/$/, "");
+  const response = await fetch(`${base}/phone-number`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.VAPI_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    signal: AbortSignal.timeout(20000),
+    body: JSON.stringify({
+      provider: "twilio",
+      number: args.e164,
+      twilioAccountSid: env.TWILIO_ACCOUNT_SID,
+      twilioAuthToken: env.TWILIO_AUTH_TOKEN,
+      ...(args.label ? { name: args.label } : {})
+    })
+  });
+
+  const json = await readJsonObject(response);
+  if (!response.ok || typeof json?.id !== "string") {
+    const message = typeof json?.message === "string" ? json.message : `HTTP ${response.status}`;
+    throw new Error(`Vapi could not register ${args.e164}: ${message}`);
+  }
+
+  return { vapiPhoneNumberId: json.id, number: String(json.number ?? args.e164) };
+}
+
+/** The numbers Vapi already knows about — used to avoid a double import. */
+export async function listVapiPhoneNumbers(): Promise<Array<{ id: string; number: string }>> {
+  if (!env.VAPI_API_KEY) return [];
+  const base = env.VAPI_BASE_URL.replace(/\/$/, "");
+  const response = await fetch(`${base}/phone-number`, {
+    headers: { Authorization: `Bearer ${env.VAPI_API_KEY}` },
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!response.ok) return [];
+  const body = await response.json().catch(() => null);
+  if (!Array.isArray(body)) return [];
+  return body
+    .filter((row): row is { id: string; number: string } => typeof row?.id === "string")
+    .map((row) => ({ id: row.id, number: String(row.number ?? "") }));
+}
+
 function requireVapiConfig(assistantId?: string | null, phoneNumberId?: string | null) {
   // Assistant ids come from the database (InstalledAgent.configJson), never
   // from a platform-wide env default — two buyers must never share one.

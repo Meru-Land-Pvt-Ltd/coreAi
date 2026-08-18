@@ -25,6 +25,7 @@ import {
   hasNodeDoors,
   nodeDoorsEnabled,
   resolveLlmSelection,
+  OUTBOUND_CALL_NODE_TYPE,
   SCHEDULE_NODE_TYPE,
   WEBHOOK_NODE_TYPE
 } from "@coreai/shared";
@@ -178,6 +179,7 @@ export function NodeInspector({
   } else if (type === VOICE_NODE_TYPES.sendEmail) panel = <SendEmailProps {...base} />;
   else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
   else if (type === "trigger.whatsapp_message_received") panel = <WhatsAppTriggerProps {...base} />;
+  else if (type === OUTBOUND_CALL_NODE_TYPE) panel = <OutboundCallProps {...base} />;
   else if (type === SCHEDULE_NODE_TYPE) panel = <ScheduleTriggerProps {...base} />;
   else if (type === WEBHOOK_NODE_TYPE) panel = <WebhookTriggerProps {...base} />;
   else if (type === CALENDLY_NODE_TYPES.trigger || type.startsWith("trigger.calendly_")) {
@@ -1830,6 +1832,64 @@ function WhatsAppConnectionPicker({
         }}
       />
     </div>
+  );
+}
+
+/**
+ * The outbound call node.
+ *
+ * The consent rule is not a setting here on purpose: it is enforced in the
+ * engine on every single call, and no field in this panel can turn it off. An
+ * architect who tries to dial someone who never asked gets a refusal in the
+ * run log, not a call.
+ */
+function OutboundCallProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="General">
+        <Label>Node name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+        <div className="mt-4">
+          <Label>Description</Label>
+          <TextArea value={str("subtitle")} onChange={set("subtitle")} height="h-16" />
+        </div>
+      </Section>
+
+      <Section title="Who to call" last>
+        <p className="mb-3 text-xs leading-5 text-slate-500" data-testid="outbound-call-consent-note">
+          Your agent only ever phones people who asked to be phoned. If someone
+          has not asked, the call is refused and the reason is written in the
+          run log. That rule is part of the engine and cannot be switched off.
+        </p>
+
+        <Label>Number to call</Label>
+        <TextInput
+          value={str("callTo")}
+          onChange={set("callTo")}
+          placeholder="{{lead.phone}} or +15551234567"
+        />
+        <p className="mt-2 text-xs leading-5 text-slate-500" data-testid="outbound-call-target-hint">
+          Leave this empty to call back whoever just contacted you. Use a
+          variable like{" "}
+          <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-[11px]">
+            {"{{webhook.body.phone}}"}
+          </code>{" "}
+          when the person comes from your own website or form.
+        </p>
+
+        <div className="mt-4">
+          <Label>What the agent says first</Label>
+          <TextArea
+            value={str("firstMessage")}
+            onChange={set("firstMessage")}
+            height="h-20"
+            placeholder="Hi, this is Maya from Triven — you asked us to give you a call about the AI receptionist."
+          />
+        </div>
+      </Section>
+    </>
   );
 }
 
