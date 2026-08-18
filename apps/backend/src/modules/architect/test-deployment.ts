@@ -325,9 +325,23 @@ export async function startArchitectTestDeployment(
   // says it. Appending rather than merging keeps the two separable — an
   // architect can rewrite the whole script without losing the tuned conduct.
   const tuning = resolveSalesTuning(ai);
+
+  // The knowledge the architect wrote lives in customInstructions, and it only
+  // reaches the assistant if their prompt happens to contain the
+  // {{custom_instructions}} token. Write your own prompt without it and your
+  // knowledge is silently dropped — which is exactly how a live sales call
+  // ended up quoting $150 for a $199 product: the price sheet never shipped,
+  // and the model filled the gap. Knowledge is data, not a template variable;
+  // if the prompt does not place it, we append it.
+  const promptBody = str(ai, "systemPrompt", RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE);
+  const knowledgeBlock =
+    customInstructions && !promptBody.includes("custom_instructions")
+      ? `\n\n--- WHAT YOU KNOW (these are the facts you are allowed to state) ---\n${customInstructions}`
+      : "";
+
   const systemPrompt = [
     resolveNodeTemplateVariables(
-      fillTokens(str(ai, "systemPrompt", RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE), tokens),
+      fillTokens(`${promptBody}${knowledgeBlock}`, tokens),
       workflow.workflowJson,
       { assistantName, businessName }
     ),
