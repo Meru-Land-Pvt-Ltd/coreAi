@@ -6,6 +6,7 @@ import {
   BLOCK_NODE_TYPES,
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
+  OUTBOUND_CALL_NODE_TYPE,
   SCHEDULE_NODE_TYPE,
   SCRIPT_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
@@ -56,11 +57,11 @@ describe("library groups (Face / Brain / Hands)", () => {
     ]);
   });
 
-  it("keeps every pre-regroup item plus the API Call, Code, Timer and Webhook nodes (34 total) with its testId", () => {
+  it("keeps every pre-regroup item plus API Call, Code, Timer, Webhook and the outbound call (35 total)", () => {
     const testIds = libraryGroups.flatMap((group) => group.items.map((item) => item.testId));
-    // The two ways IN (timer + webhook) joined the Hands group; the old Design
-    // Brain card left when the Smart Designer took over.
-    expect(testIds).toHaveLength(34);
+    // The two ways IN (timer + webhook) and the outbound call node joined the
+    // Hands group; the old Design Brain card left with the Smart Designer.
+    expect(testIds).toHaveLength(35);
 
     // Face: all block.* — the old Design Brain card is retired (the Smart
     // Designer generates and fixes the interface now).
@@ -105,6 +106,7 @@ describe("library groups (Face / Brain / Hands)", () => {
       tid(CALENDLY_NODE_TYPES.action),
       tid(VOICE_NODE_TYPES.sendEmail),
       tid(VOICE_NODE_TYPES.sendSms),
+      tid(OUTBOUND_CALL_NODE_TYPE),
       tid("action.send_whatsapp"),
       tid(TELEGRAM_NODE_TYPES.sendMessage),
       tid(API_CALL_NODE_TYPE),

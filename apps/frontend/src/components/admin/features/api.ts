@@ -472,6 +472,19 @@ export function configurePhoneNumberWebhooks(id: string) {
   return apiPost<{ number: AdminPhoneNumber }>(`/admin/phone-numbers/${id}/configure-webhooks`, {});
 }
 
+/**
+ * Let this number PLACE calls. Registers it with the voice provider, which is
+ * the step that was missing entirely — agents could answer calls but never
+ * make them. Only offered for free numbers: registering takes over the
+ * number's incoming calls, which would silence a business that uses it.
+ */
+export function enableOutboundCalling(id: string) {
+  return apiPost<{ vapiPhoneNumberId: string; number: string }>(
+    `/admin/phone-numbers/${id}/register-voice`,
+    {}
+  );
+}
+
 export function syncTwilioPhoneNumbers(dryRun: boolean) {
   return apiPost<PhoneSyncResult>(`/admin/phone-numbers/sync-twilio${dryRun ? "?dryRun=true" : ""}`, {});
 }
