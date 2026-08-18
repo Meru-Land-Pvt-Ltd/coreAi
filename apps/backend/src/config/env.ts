@@ -177,6 +177,10 @@ const envSchema = z.object({
 
   /** Platform-wide cap on marketplace demo call starts per day (cost control). */
   MARKETPLACE_DEMO_GLOBAL_DAILY_LIMIT: z.coerce.number().int().positive().default(200),
+  /** Published agent pages: sandboxed uses per IP per page per day. */
+  AGENT_PAGE_DAILY_LIMIT: z.coerce.number().int().positive().default(20),
+  /** Published agent pages: platform-wide cap on sandboxed uses per day (cost control). */
+  AGENT_PAGE_GLOBAL_DAILY_LIMIT: z.coerce.number().int().positive().default(2000),
   /** Pinecone Vector Database configuration */
   PINECONE_API_KEY: z.string().optional(),
   PINECONE_INDEX_NAME: z.string().default("memory"),
@@ -191,6 +195,21 @@ const envSchema = z.object({
   MEMORY_TIMELINE_SNIPPET_WORDS: z.coerce.number().int().positive().default(18),
   MEMORY_CHUNK_TARGET_CHARS: z.coerce.number().int().positive().default(2000),
   MEMORY_CHUNK_MAX_CHARS: z.coerce.number().int().positive().default(2500),
+
+  /**
+   * Ceiling on AI door calls (entry + exit + presentation combined) inside a
+   * single run. Doors are an enhancement, never a dependency — past this the
+   * run continues with no doors and no extra cost.
+   */
+  DOOR_BRAIN_MAX_PER_RUN: z.coerce.number().int().min(0).default(8),
+
+  /**
+   * Total wall-clock milliseconds one run may spend waiting on doors, shared by
+   * every door in it. The per-call timeout alone would let a full allowance of
+   * slow doors add 8 × 12s to a customer's page load; this collapses that to a
+   * single shared ceiling, after which the run finishes with no doors at all.
+   */
+  DOOR_BRAIN_MAX_MS_PER_RUN: z.coerce.number().int().min(0).default(25_000),
 
   /** Meta WhatsApp Cloud API (optional — connections store their own tokens). */
   META_WHATSAPP_APP_ID: z.string().optional(),
@@ -207,6 +226,15 @@ const envSchema = z.object({
    * Used to ensure the app can verify Meta webhooks after automated onboarding.
    */
   META_WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+
+  /**
+   * Platform YouTube Data API key pool. A JSON array of API keys, e.g.
+   * '["AIza...one","AIza...two"]'. The API Call node's "use platform YouTube
+   * key" option rotates over these so a YouTube demo works out of the box
+   * without the architect adding their own key. Optional and empty-safe: when
+   * unset or not a JSON array, getPlatformYouTubeKey() returns null.
+   */
+  YOUTUBE_API_KEY_POOL: z.string().optional(),
 
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),

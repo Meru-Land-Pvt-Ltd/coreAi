@@ -1,0 +1,352 @@
+import { createElement } from "react";
+import type { LucideIcon, LucideProps } from "lucide-react";
+import {
+  Activity,
+  Award,
+  BadgeCheck,
+  BarChart3,
+  Bell,
+  BookOpen,
+  Bot,
+  Brain,
+  Briefcase,
+  Building2,
+  Calendar,
+  Camera,
+  Check,
+  CircleCheck,
+  Clock,
+  Cloud,
+  Code,
+  Compass,
+  CreditCard,
+  Database,
+  DollarSign,
+  Download,
+  Eye,
+  FileText,
+  Filter,
+  Flag,
+  Gauge,
+  Globe,
+  GraduationCap,
+  Headphones,
+  Heart,
+  Home,
+  Image as ImageIcon,
+  Infinity as InfinityIcon,
+  Key,
+  Layers,
+  LifeBuoy,
+  Lightbulb,
+  Link2,
+  LineChart,
+  Lock,
+  Mail,
+  MapPin,
+  MessageSquare,
+  Mic,
+  Monitor,
+  Package,
+  Palette,
+  Phone,
+  PieChart,
+  Play,
+  Plug,
+  Repeat,
+  Rocket,
+  Scale,
+  Search,
+  Send,
+  Server,
+  Settings,
+  Share2,
+  Shield,
+  ShieldCheck,
+  ShoppingCart,
+  Smartphone,
+  Sparkles,
+  Star,
+  Stethoscope,
+  Target,
+  ThumbsUp,
+  Timer,
+  TrendingUp,
+  Truck,
+  Upload,
+  Users,
+  Video,
+  Wallet,
+  Wand2,
+  Workflow,
+  Wrench,
+  Zap
+} from "lucide-react";
+
+/**
+ * The icon vocabulary. The AI writes `{ type:"icon", name:"shield" }` in plain
+ * words; this map turns that into a real, consistent line icon. Anything it
+ * cannot place becomes a sparkle rather than an empty hole, so an invented
+ * icon name never leaves a gap in the layout.
+ *
+ * Names are matched loosely: "shield-check", "shieldCheck" and "SHIELD CHECK"
+ * are the same icon.
+ */
+
+const BASE_ICONS: Record<string, LucideIcon> = {
+  activity: Activity,
+  award: Award,
+  badgecheck: BadgeCheck,
+  barchart: BarChart3,
+  bell: Bell,
+  book: BookOpen,
+  bot: Bot,
+  brain: Brain,
+  briefcase: Briefcase,
+  building: Building2,
+  calendar: Calendar,
+  camera: Camera,
+  check: Check,
+  checkcircle: CircleCheck,
+  clock: Clock,
+  cloud: Cloud,
+  code: Code,
+  compass: Compass,
+  creditcard: CreditCard,
+  database: Database,
+  dollar: DollarSign,
+  download: Download,
+  eye: Eye,
+  file: FileText,
+  filter: Filter,
+  flag: Flag,
+  gauge: Gauge,
+  globe: Globe,
+  graduation: GraduationCap,
+  headphones: Headphones,
+  heart: Heart,
+  home: Home,
+  image: ImageIcon,
+  infinity: InfinityIcon,
+  key: Key,
+  layers: Layers,
+  lifebuoy: LifeBuoy,
+  lightbulb: Lightbulb,
+  link: Link2,
+  linechart: LineChart,
+  lock: Lock,
+  mail: Mail,
+  map: MapPin,
+  message: MessageSquare,
+  mic: Mic,
+  monitor: Monitor,
+  package: Package,
+  palette: Palette,
+  phone: Phone,
+  piechart: PieChart,
+  play: Play,
+  plug: Plug,
+  repeat: Repeat,
+  rocket: Rocket,
+  scale: Scale,
+  search: Search,
+  send: Send,
+  server: Server,
+  settings: Settings,
+  share: Share2,
+  shield: Shield,
+  shieldcheck: ShieldCheck,
+  cart: ShoppingCart,
+  phone_mobile: Smartphone,
+  sparkles: Sparkles,
+  star: Star,
+  stethoscope: Stethoscope,
+  target: Target,
+  thumbsup: ThumbsUp,
+  timer: Timer,
+  trending: TrendingUp,
+  truck: Truck,
+  upload: Upload,
+  users: Users,
+  video: Video,
+  wallet: Wallet,
+  wand: Wand2,
+  workflow: Workflow,
+  wrench: Wrench,
+  zap: Zap
+};
+
+/** Plain-English words the architect is likely to write, pointed at a real icon. */
+const ALIASES: Record<string, string> = {
+  ai: "sparkles",
+  agent: "bot",
+  robot: "bot",
+  automation: "workflow",
+  automate: "workflow",
+  chain: "workflow",
+  flow: "workflow",
+  speed: "zap",
+  fast: "zap",
+  bolt: "zap",
+  lightning: "zap",
+  power: "zap",
+  secure: "shieldcheck",
+  security: "shieldcheck",
+  safe: "shieldcheck",
+  privacy: "lock",
+  private: "lock",
+  people: "users",
+  team: "users",
+  customer: "users",
+  support: "lifebuoy",
+  help: "lifebuoy",
+  chat: "message",
+  messages: "message",
+  email: "mail",
+  call: "phone",
+  voice: "mic",
+  audio: "mic",
+  photo: "image",
+  picture: "image",
+  gallery: "image",
+  money: "dollar",
+  price: "dollar",
+  pricing: "dollar",
+  billing: "creditcard",
+  payment: "creditcard",
+  payments: "creditcard",
+  card: "creditcard",
+  chart: "barchart",
+  analytics: "barchart",
+  report: "barchart",
+  reports: "barchart",
+  growth: "trending",
+  insights: "linechart",
+  data: "database",
+  storage: "database",
+  time: "clock",
+  schedule: "calendar",
+  calendar: "calendar",
+  quality: "badgecheck",
+  verified: "badgecheck",
+  trust: "badgecheck",
+  quick: "timer",
+  goal: "target",
+  goals: "target",
+  idea: "lightbulb",
+  ideas: "lightbulb",
+  simple: "sparkles",
+  magic: "wand",
+  design: "palette",
+  brand: "palette",
+  build: "wrench",
+  tools: "wrench",
+  integration: "plug",
+  integrations: "plug",
+  connect: "plug",
+  api: "code",
+  developer: "code",
+  docs: "file",
+  document: "file",
+  documents: "file",
+  writing: "file",
+  content: "file",
+  learn: "book",
+  guide: "book",
+  course: "graduation",
+  school: "graduation",
+  health: "stethoscope",
+  medical: "stethoscope",
+  legal: "scale",
+  law: "scale",
+  shop: "cart",
+  store: "cart",
+  ecommerce: "cart",
+  shipping: "truck",
+  delivery: "truck",
+  office: "building",
+  company: "building",
+  business: "briefcase",
+  work: "briefcase",
+  mobile: "phone_mobile",
+  desktop: "monitor",
+  web: "globe",
+  world: "globe",
+  language: "globe",
+  unlimited: "infinity",
+  always: "infinity",
+  favourite: "heart",
+  favorite: "heart",
+  love: "heart",
+  rating: "star",
+  reviews: "star",
+  like: "thumbsup",
+  scale_up: "layers",
+  stack: "layers",
+  cloud: "cloud",
+  hosting: "server",
+  uptime: "gauge",
+  performance: "gauge",
+  live: "activity",
+  realtime: "activity",
+  notify: "bell",
+  alerts: "bell",
+  share: "share",
+  publish: "send",
+  launch: "rocket",
+  start: "rocket",
+  location: "map",
+  address: "map"
+};
+
+function normalizeIconName(name: string): string {
+  return String(name ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/** Resolve a spec icon name to a component. Never returns undefined. */
+export function iconComponentFor(name: string): LucideIcon {
+  const key = normalizeIconName(name);
+  if (!key) return Sparkles;
+  const direct = BASE_ICONS[key];
+  if (direct) return direct;
+  const alias = ALIASES[key];
+  if (alias && BASE_ICONS[alias]) return BASE_ICONS[alias];
+  // "shieldchecked" / "usersgroup" — settle for the longest name it starts with.
+  const prefix = Object.keys(BASE_ICONS)
+    .filter((candidate) => key.startsWith(candidate) || candidate.startsWith(key))
+    .sort((a, b) => b.length - a.length)[0];
+  if (prefix) return BASE_ICONS[prefix];
+  return Sparkles;
+}
+
+/** True when the name is in the vocabulary (used by tests and the builder UI). */
+export function isKnownIconName(name: string): boolean {
+  const key = normalizeIconName(name);
+  return Boolean(BASE_ICONS[key] ?? (ALIASES[key] && BASE_ICONS[ALIASES[key]]));
+}
+
+export const ICON_NAMES: readonly string[] = Object.keys(BASE_ICONS).sort();
+
+export function SpecIcon({
+  name,
+  className,
+  strokeWidth = 1.75
+}: {
+  name: string;
+  className?: string;
+  strokeWidth?: number;
+}) {
+  // `createElement` rather than JSX: the component comes out of a static map,
+  // so it is stable across renders even though it is chosen at call time.
+  const props = {
+    className,
+    strokeWidth,
+    "aria-hidden": "true",
+    focusable: "false",
+    // Lucide's prop type does not enumerate data-*; the SVG accepts it fine.
+    "data-icon-name": name
+  } as LucideProps;
+  return createElement(iconComponentFor(name), props);
+}

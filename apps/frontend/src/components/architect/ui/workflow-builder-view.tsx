@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, 
 import { createPortal } from "react-dom";
 import {
   addEdge,
+  ControlButton,
   Controls,
   ReactFlow,
   useEdgesState,
@@ -22,7 +23,6 @@ import {
   BROWSER_CALL_START_MESSAGE,
   GOOGLE_CALENDAR_DISCLOSURE,
   GOOGLE_DISCLOSURE_ACTION_AGREED,
-  VOICE_NODE_TYPES,
   normalizeTimeZone,
   validateConfigureForSubmit
 } from "@coreai/shared";
@@ -44,8 +44,10 @@ import {
   getCalendlyOAuthUrl,
   listWhatsAppConnections,
   postGmailDisclosureConsent,
+  getAgentPageConfig,
   getLatestArchitectTestEvent,
   getWorkflowConfigure,
+  previewRunArchitectWorkflow,
   runArchitectWorkflowTest,
   runArchitectConversationTest,
   startArchitectTestDeployment,
@@ -53,11 +55,13 @@ import {
   stopArchitectTestDeployment,
   submitWorkflowForReview,
   syncArchitectTelegramTestConnection,
+  updateAgentPageConfig,
   updateArchitectWorkflow,
   useArchitectTemplate as instantiateArchitectTemplate
 } from "@/components/architect/features/api";
 import type { ArchitectTelegramTestConnection } from "@/components/architect/features/api";
 import type {
+  AgentPageManageData,
   ArchitectConversationMessage,
   ArchitectConversationToolCall,
   ArchitectTestCalendarEvent,
@@ -66,6 +70,10 @@ import type {
   ArchitectWorkflow,
   WorkflowRunLog,
 } from "@/components/architect/features/types";
+import {
+  AGENT_PAGE_DESIGN_DEFAULTS,
+  type ContentWidth
+} from "@/components/agent-page/types";
 
 /** The architect's browser IANA zone (canonicalized) — the default test timezone. */
 function browserTimeZone(): string {
@@ -84,11 +92,18 @@ import { ConfigurePanel } from "./workflow-builder/configure-panel";
 import { CoreNode } from "./workflow-builder/core-node";
 import { createFlowEdge } from "./workflow-builder/edge-utils";
 import { BuilderIcon } from "./workflow-builder/icons";
+import { applyTidyPositions } from "./workflow-builder/layout-graph";
 import { MobileSheet } from "./workflow-builder/mobile-sheet";
 import { NodeInspector } from "./workflow-builder/node-inspector";
 import { defaultAgentDescription, defaultAgentName, defaultNodeData } from "./workflow-builder/node-defaults";
 import { parseEdges, parseNodes } from "./workflow-builder/parsers";
-import { PreviewModal } from "./workflow-builder/preview-modal";
+import {
+  PreviewPanel,
+  type PreviewChatResult,
+  type PreviewDevice,
+  type PreviewRunResult,
+  type PreviewVoiceResult
+} from "./workflow-builder/preview-panel";
 import { PublishPanel } from "./workflow-builder/publish-panel";
 import {
   TestPanel,
@@ -158,12 +173,158 @@ function telegramTestServices(value: string): string[] {
   ).slice(0, 30);
 }
 
+/**
+ * Keep the current selection only while its node still exists — the reload
+ * contract for server-side graph changes (Design Brain rewires the canvas).
+ */
+export function nextSelectedNodeId(
+  current: string | null,
+  nodes: readonly { id: string }[]
+): string | null {
+  return current && nodes.some((node) => node.id === current) ? current : null;
+}
+
+/**
+ * The four live Faces an empty canvas offers. Slugs match the sidebar
+ * template cards (component-library) — clicking inserts through the exact
+ * same template-import path (onUseTemplate) the sidebar cards use.
+ */
+const FACE_PICKER_CHOICES = [
+  {
+    slug: "chatbot",
+    label: "Chatbot",
+    icon: "message-circle",
+    blurb: "A friendly chat that answers questions"
+  },
+  {
+    slug: "voice-agent",
+    label: "Voice Agent",
+    icon: "phone-call",
+    blurb: "Talks with callers and books appointments"
+  },
+  {
+    slug: "image-studio",
+    label: "Image Studio",
+    icon: "image",
+    blurb: "Turns written ideas into pictures"
+  },
+  {
+    slug: "form-tool",
+    label: "Form Tool",
+    icon: "file",
+    blurb: "Collects details and returns a finished result"
+  }
+] as const;
+
+/**
+ * Empty-canvas Face picker — a centered card over the canvas only (the
+ * palette stays fully usable beside it). Renders nothing the moment any
+ * piece exists. The fade-enter animation is reduced-motion-safe: the
+ * builder's global prefers-reduced-motion rule collapses all animation.
+ */
+export function EmptyCanvasFacePicker({
+  nodeCount,
+  importingSlug,
+  onPick
+}: {
+  /** Live canvas piece count — the picker only exists while it is zero. */
+  nodeCount: number;
+  /** Template slug currently importing (disables the cards), or null. */
+  importingSlug: string | null;
+  /** Same insert path as the sidebar template cards (onUseTemplate). */
+  onPick: (slug: string) => void;
+}) {
+  // "Custom" celebrates the blank canvas: dismiss the picker and let the
+  // architect build anything their way from the left panel.
+  const [dismissed, setDismissed] = useState(false);
+  if (nodeCount > 0 || dismissed) return null;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-4">
+      <div
+        data-testid="canvas-picker"
+        className="fade-enter pointer-events-auto w-full max-w-xl rounded-3xl border border-gray-200 bg-white/95 p-6 shadow-xl backdrop-blur"
+      >
+        <h2 className="text-center text-lg font-black tracking-tight text-slate-900" data-testid="canvas-picker-title">
+          What are you building?
+        </h2>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {FACE_PICKER_CHOICES.map((choice) => (
+            <button
+              key={choice.slug}
+              type="button"
+              data-testid={`canvas-picker-${choice.slug}`}
+              onClick={() => onPick(choice.slug)}
+              disabled={importingSlug !== null}
+              className="group flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 text-left transition hover:border-amber-300 hover:bg-amber-50/60 hover:shadow-md disabled:cursor-wait disabled:opacity-60"
+            >
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-600 transition group-hover:bg-amber-200">
+                <BuilderIcon name={choice.icon} className="h-5 w-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-bold text-slate-900">{choice.label}</span>
+                <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                  {importingSlug === choice.slug ? "Setting things up..." : choice.blurb}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          data-testid="canvas-picker-custom"
+          onClick={() => setDismissed(true)}
+          disabled={importingSlug !== null}
+          className="group mt-3 flex w-full items-start gap-3 rounded-2xl border border-dashed border-rose-300 bg-rose-50/40 p-4 text-left transition hover:border-rose-400 hover:bg-rose-50 hover:shadow-md disabled:cursor-wait disabled:opacity-60"
+        >
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-rose-100 text-rose-600 transition group-hover:bg-rose-200">
+            <BuilderIcon name="edit" className="h-5 w-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-bold text-slate-900">Custom — build anything</span>
+            <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+              A blank canvas and every piece in the left panel. Your idea, your way — unlimited.
+            </span>
+          </span>
+        </button>
+
+        <p
+          className="mt-5 text-center text-xs font-medium text-slate-400"
+          data-testid="canvas-picker-drag-hint"
+        >
+          or drag pieces from the left panel
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: string }) {
   const [workflow, setWorkflow] = useState<ArchitectWorkflow | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<BuilderNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<BuilderTab>("build");
+  // Test tab view: the customer-facing preview by default; "advanced" reveals
+  // the full developer test console. Reset on every Test tab entry.
+  const [testView, setTestView] = useState<"preview" | "advanced">("preview");
+  // Which device the Test preview shows. Lives here — not in the panel — so
+  // the compact switcher in the main header drives the preview stage.
+  const [previewDevice, setPreviewDevice] = useState<PreviewDevice>("desktop");
+  // Arrange mode: drag the preview page's sections anywhere (desktop only).
+  // Owned here so the header pill and the preview stage stay one truth.
+  const [arrangeMode, setArrangeMode] = useState(false);
+  // Saved customer-page design for the Test preview (null until fetched or
+  // when the workflow has never been configured/published).
+  const [previewPageData, setPreviewPageData] = useState<AgentPageManageData | null>(null);
+
+  // Arrange mode only exists on the Preview step's desktop view — leaving
+  // either always turns it off, so it can never linger invisibly.
+  useEffect(() => {
+    if (activeTab !== "test" || previewDevice !== "desktop") setArrangeMode(false);
+  }, [activeTab, previewDevice]);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>(null);
   const [flowGateNotice, setFlowGateNotice] = useState<{
     title: string;
@@ -171,7 +332,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     issue: string | null;
     kind: "graph" | "configure";
   } | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [libraryWidth, setLibraryWidth] = useState(LIBRARY_WIDTH_DEFAULT);
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_WIDTH_DEFAULT);
@@ -443,6 +603,25 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const hasEmailNode = capabilities.hasEmailSend;
   const hasWhatsAppTrigger = capabilities.hasWhatsAppTrigger;
 
+  // Preview Face auto-pick flags, straight from the canvas node types.
+  // Voice: an AI voice conversation node. Media: an image/video GENERATION
+  // node ("generation" required so e.g. send_whatsapp_video doesn't count).
+  const hasVoiceNode = useMemo(
+    () =>
+      nodes.some((node) =>
+        String(node.data?.type ?? node.type ?? "").toLowerCase().includes("voice_conversation")
+      ),
+    [nodes]
+  );
+  const hasMediaNode = useMemo(
+    () =>
+      nodes.some((node) => {
+        const type = String(node.data?.type ?? node.type ?? "").toLowerCase();
+        return type.includes("image_generation") || type.includes("video_generation");
+      }),
+    [nodes]
+  );
+
   const needsGoogleConnection = hasGmailFlow || needsCalendarConnection;
   // Twilio/Vapi cards are for live sandbox only — browser call test does not need them.
   const liveSandboxActive =
@@ -519,6 +698,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     },
     [graphValidation.issue, graphValidation.message, graphValidation.title, isConnectedWorkflowReady]
   );
+
+  // Every entry to the Test tab opens on the customer preview; "Advanced
+  // testing" is a per-visit choice, never sticky.
+  useEffect(() => {
+    if (activeTab === "test") setTestView("preview");
+  }, [activeTab]);
 
   useEffect(() => {
     if (loading) return;
@@ -698,6 +883,184 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     save: saveDraft,
     isMeaningful: meaningfulForSave
   });
+
+  // The saved customer-page design (template, accent, headline, welcome,
+  // suggested prompts) PLUS the product blueprint derived from the graph, so
+  // the preview shows exactly what the customer will see. Refetched on every
+  // Test entry to pick up Publish-tab and canvas edits; a miss simply leaves
+  // the preview on its built-in defaults.
+  //
+  // ORDERING GUARANTEE: the manage endpoint derives the blueprint from the
+  // SAVED workflow, so pending canvas edits are flushed first (awaited) and
+  // the fetch starts only after that save settles — the architect's
+  // just-placed blocks are always in the preview they open. A failed or
+  // empty save still fetches: the preview then shows the last saved state.
+  // (This effect lives below the autosave hook because it awaits `saveNow`.)
+  useEffect(() => {
+    if (activeTab !== "test" || !currentWorkflowId) return;
+
+    let cancelled = false;
+    void (async () => {
+      if (!isUnderReview) {
+        // Same review-lock rule as the run engines: never write while locked.
+        try {
+          await saveNow();
+        } catch {
+          // Fetch proceeds on the last saved state.
+        }
+      }
+      if (cancelled) return;
+
+      try {
+        const result = await getAgentPageConfig(currentWorkflowId);
+        if (!cancelled && result.success && result.data) setPreviewPageData(result.data);
+      } catch {
+        // Preview still works without the saved design.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, currentWorkflowId, isUnderReview, saveNow]);
+
+  /**
+   * Lightweight refetch of the saved page + design for the Test preview —
+   * the Design Brain chat calls this right after a patch lands so the
+   * preview iframe restyles without leaving the Build tab. Reads the id
+   * from the ref so the callback stays stable across renders.
+   */
+  const refreshAgentPageConfig = useCallback(() => {
+    const id = currentWorkflowIdRef.current;
+    if (!id) return;
+
+    void (async () => {
+      try {
+        const result = await getAgentPageConfig(id);
+        if (result.success && result.data) setPreviewPageData(result.data);
+      } catch {
+        // Preview keeps its last data; the Test-entry fetch will catch up.
+      }
+    })();
+  }, []);
+
+  /**
+   * Graph reload contract: refetch the saved workflow row and replace the
+   * canvas nodes/edges with the server's copy — used when the Design Brain
+   * (or any server-side helper) changed the saved graph behind the canvas.
+   * The selection survives only if its node still exists; a failed fetch
+   * leaves the canvas untouched.
+   */
+  const reloadWorkflowFromServer = useCallback(async () => {
+    const id = currentWorkflowIdRef.current;
+    if (!id) return;
+
+    try {
+      const result = await getArchitectWorkflow(id);
+      if (!result.success || !result.data) return;
+
+      const loadedWorkflow = result.data.workflow;
+      const parsedNodes = parseNodes(loadedWorkflow);
+      const parsedEdges = parseEdges(loadedWorkflow);
+
+      setWorkflow(loadedWorkflow);
+      setNodes(parsedNodes);
+      setEdges(parsedEdges);
+      setSelectedNodeId((current) => nextSelectedNodeId(current, parsedNodes));
+    } catch {
+      // Network hiccup — the canvas keeps its current state.
+    }
+  }, [setEdges, setNodes]);
+
+  /**
+   * Design Brain result router: a pure styling change only refetches the
+   * page design; a graph change reloads the canvas from the server first,
+   * then refetches the design (the blueprint derives from the saved graph).
+   */
+  const handleDesignApplied = useCallback(
+    (result?: { graphChanged?: boolean }) => {
+      if (result?.graphChanged) {
+        void (async () => {
+          await reloadWorkflowFromServer();
+          refreshAgentPageConfig();
+        })();
+        return;
+      }
+      refreshAgentPageConfig();
+    },
+    [refreshAgentPageConfig, reloadWorkflowFromServer]
+  );
+
+  /**
+   * The Preview toolbar's width control: how wide the product runs on big
+   * screens. The preview flips immediately (the architect sees the answer
+   * before the network does), the dial is saved through the same manage PATCH
+   * the Arrange Editor uses, and the refetch afterwards makes the server's
+   * copy the truth — so a failed save honestly snaps back. Review-locked
+   * agents never write, same rule as every other builder surface.
+   */
+  const handlePreviewWidthChange = useCallback(
+    (contentWidth: ContentWidth) => {
+      if (isUnderReview) return;
+      const id = currentWorkflowIdRef.current;
+      if (!id) return;
+
+      setPreviewPageData((current) =>
+        current
+          ? { ...current, design: { ...AGENT_PAGE_DESIGN_DEFAULTS, ...current.design, contentWidth } }
+          : current
+      );
+
+      void (async () => {
+        try {
+          await updateAgentPageConfig(id, { design: { contentWidth } });
+        } catch {
+          // The refetch below restores the saved width.
+        }
+        refreshAgentPageConfig();
+      })();
+    },
+    [isUnderReview, refreshAgentPageConfig]
+  );
+
+  /* ---- "Clean up" — tidy the canvas into the layered Face→Brain→Hands→Face grid ---- */
+
+  const [tidiedToastVisible, setTidiedToastVisible] = useState(false);
+  const tidiedToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveAfterTidyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (tidiedToastTimerRef.current) clearTimeout(tidiedToastTimerRef.current);
+      if (saveAfterTidyTimerRef.current) clearTimeout(saveAfterTidyTimerRef.current);
+    };
+  }, []);
+
+  function tidyCanvas() {
+    if (blockIfUnderReview()) return;
+    if (nodes.length === 0) return;
+
+    const tidied = applyTidyPositions(nodes, edges);
+    if (tidied.moved) {
+      setNodes(tidied.nodes);
+      // Persist through the exact same path a manual drag uses: give the
+      // history hook one commit debounce to adopt the moved pieces, then
+      // save that snapshot (autosave would also catch it moments later).
+      if (saveAfterTidyTimerRef.current) clearTimeout(saveAfterTidyTimerRef.current);
+      saveAfterTidyTimerRef.current = setTimeout(() => {
+        void saveAgent(false);
+      }, 700);
+    }
+
+    // Frame the tidied layout after the new positions have rendered.
+    requestAnimationFrame(() => {
+      flowInstanceRef.current?.fitView({ padding: 0.2 });
+    });
+
+    setTidiedToastVisible(true);
+    if (tidiedToastTimerRef.current) clearTimeout(tidiedToastTimerRef.current);
+    tidiedToastTimerRef.current = setTimeout(() => setTidiedToastVisible(false), 1600);
+  }
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -1458,7 +1821,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
    * frontend-safe session, or an error reason so the card can fall back to
    * the local simulation with a clear label.
    */
-  async function startVapiBrowserTest(): Promise<ArchitectVapiBrowserTestSession | { error: string }> {
+  async function startVapiBrowserTest(
+    fallbackBusinessName?: string
+  ): Promise<ArchitectVapiBrowserTestSession | { error: string }> {
     if (blockIfUnderReview()) return { error: REVIEW_LOCK_MESSAGE };
 
     // Single-flight: one click → one save → one browser-test start request.
@@ -1469,13 +1834,15 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     vapiBrowserTestStartRef.current = true;
 
     try {
-      return await startVapiBrowserTestInner();
+      return await startVapiBrowserTestInner(fallbackBusinessName);
     } finally {
       vapiBrowserTestStartRef.current = false;
     }
   }
 
-  async function startVapiBrowserTestInner(): Promise<ArchitectVapiBrowserTestSession | { error: string }> {
+  async function startVapiBrowserTestInner(
+    fallbackBusinessName?: string
+  ): Promise<ArchitectVapiBrowserTestSession | { error: string }> {
     setMessage("Starting Vapi browser call...");
 
     // Flush pending edits so the browser test deploys the latest workflow
@@ -1488,7 +1855,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
     const result = await startArchitectVapiBrowserTest(currentWorkflowIdRef.current, {
       testContext: {
-        businessName: businessName.trim() || "Sample Business",
+        businessName: businessName.trim() || fallbackBusinessName || "Sample Business",
         businessType: businessType.trim() || "Service Business",
         callerName: callerName.trim() || "Test caller",
         callerPhone: callerNumber.trim() || "+15555550100",
@@ -1616,6 +1983,132 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return errorMessage;
     } finally {
       setChatting(false);
+    }
+  }
+
+  /* ---- Preview Test view: engine bridges for the customer-facing Face ---- */
+
+  /**
+   * Chat engine for the preview Face — the same save-then-conversation-test
+   * flow as the advanced console, mapped to the AgentPageRuntime result shape.
+   * The Face owns its own transcript; the developer console's transcript,
+   * logs and status panels are intentionally left untouched.
+   */
+  async function sendPreviewChat(
+    messageText: string,
+    history: { role: "user" | "assistant"; content: string }[],
+    sessionId?: string
+  ): Promise<PreviewChatResult> {
+    if (blockIfUnderReview()) return { error: REVIEW_LOCK_MESSAGE };
+
+    const cleanMessage = messageText.trim();
+    if (!cleanMessage) return { error: "Please type a message." };
+
+    try {
+      // Flush pending edits first — the engine reads the agent from the DB.
+      const saved = await saveAgent(false);
+      if (!saved || !currentWorkflowIdRef.current) {
+        return { error: "We couldn't save your latest changes. Please try again." };
+      }
+
+      // Thread one session id across the whole preview conversation so its
+      // records group exactly like the advanced console's test does.
+      const previewSessionId = sessionId || testSessionIdRef.current;
+      const serviceName = appointmentService.trim();
+
+      const result = await runArchitectConversationTest(currentWorkflowIdRef.current, {
+        message: cleanMessage,
+        history: history.slice(-30),
+        testSessionId: previewSessionId,
+        useTestCalendar,
+        // After-hours simulation ("current" = no override, real behavior).
+        simulateBusinessHoursState: testAfterHoursState,
+        testContext: {
+          // The preview must sound like the architect's product, not a demo:
+          // fall back to the agent's name before the generic sample business.
+          businessName: businessName.trim() || agentName.trim() || "Sample Business",
+          businessType: businessType.trim() || "Service Business",
+          callerName: callerName.trim() || "Test caller",
+          callerPhone: callerNumber.trim() || "+15555550100",
+          calendarId: calendarId.trim() || "primary",
+          timeZone: timeZone.trim() || browserTimeZone(),
+          appointmentService: serviceName || undefined,
+          requestedDate: testDate || undefined,
+          requestedTime: testTime || undefined,
+          services: serviceName
+            ? [serviceName, "General inquiry"]
+            : ["Consultation", "Appointment booking", "General inquiry"],
+          faqs: [
+            "Pricing depends on the selected service.",
+            "Urgent requests should be escalated to the team."
+          ]
+        }
+      });
+
+      if (!result.success || !result.data) {
+        return {
+          error: result.error ?? "This agent had trouble replying. Please try again.",
+          ...(result.code ? { code: result.code } : {})
+        };
+      }
+
+      return { reply: result.data.conversation.reply, sessionId: previewSessionId };
+    } catch (err) {
+      return {
+        error: err instanceof Error ? err.message : "This agent had trouble replying. Please try again."
+      };
+    }
+  }
+
+  /**
+   * Voice engine for the preview Face — the exact advanced-console start flow
+   * (review lock, single-flight, save-first), mapped to the runtime session.
+   */
+  async function startPreviewVoice(): Promise<PreviewVoiceResult> {
+    const result = await startVapiBrowserTest(agentName.trim() || undefined);
+    if ("error" in result) return { error: result.error };
+    return {
+      session: {
+        publicKey: result.publicKey,
+        assistantId: result.assistantId,
+        // The exact metadata the advanced console sends on start — backend
+        // webhook auth recognizes these browser-test calls by it, so preview
+        // calls must carry it too or their webhooks are treated differently.
+        assistantOverrides: {
+          metadata: { businessId: result.businessId, purpose: "ARCHITECT_TEST" }
+        }
+      }
+    };
+  }
+
+  /** One-shot engine for the media/form Faces — sandboxed architect preview run. */
+  async function runPreviewOnce(prompt: string, sessionId?: string): Promise<PreviewRunResult> {
+    if (blockIfUnderReview()) return { error: REVIEW_LOCK_MESSAGE };
+
+    try {
+      // Save first so the one-shot run always exercises the latest canvas.
+      const saved = await saveAgent(false);
+      if (!saved || !currentWorkflowIdRef.current) {
+        return { error: "We couldn't save your latest changes. Please try again." };
+      }
+
+      const result = await previewRunArchitectWorkflow(currentWorkflowIdRef.current, {
+        prompt,
+        ...(sessionId ? { sessionId } : {})
+      });
+
+      if (!result.success || !result.data) {
+        return {
+          error: result.error ?? "This agent had trouble responding. Please try again.",
+          ...(result.code ? { code: result.code } : {})
+        };
+      }
+
+      return { output: result.data.output };
+    } catch (err) {
+      return {
+        error: err instanceof Error ? err.message : "This agent had trouble responding. Please try again."
+      };
     }
   }
 
@@ -1922,68 +2415,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
   }
 
-  const nodeTypeOf = (node: BuilderNode): string => {
-    const data = node.data as Record<string, unknown>;
-    return String(data.type ?? data.kind ?? "");
-  };
-  const previewDisplayName = businessName.trim() || agentName.trim() || "Your business";
-  const previewVoiceData = (
-    nodes.find((node) => nodeTypeOf(node) === VOICE_NODE_TYPES.voiceConversation)?.data ?? {}
-  ) as Record<string, unknown>;
-  const previewAssistantName =
-    typeof previewVoiceData.assistantName === "string" ? previewVoiceData.assistantName.trim() : "";
-  const previewGreetingRaw =
-    typeof previewVoiceData.firstMessage === "string" ? previewVoiceData.firstMessage : "";
-  const previewGreeting = previewGreetingRaw
-    .replace(/\{\{\s*assistantName\s*\}\}/gi, previewAssistantName || "our assistant")
-    .replace(/\{\{\s*business[_]?name\s*\}\}/gi, previewDisplayName)
-    .replace(/\{\{\s*business\.name\s*\}\}/gi, previewDisplayName)
-    .replace(/\{\{[^}]*\}\}/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const previewCanBook = nodes.some((node) => {
-    const type = nodeTypeOf(node);
-    return type === VOICE_NODE_TYPES.bookAppointment || type.includes("book_appointment");
-  });
-  const previewCanText = nodes.some((node) => {
-    const type = nodeTypeOf(node);
-    return (
-      type === VOICE_NODE_TYPES.sendSms ||
-      type === "action.send_sms" ||
-      type === "trigger.twilio_inbound_sms" ||
-      type === "trigger.twilio_missed_call" ||
-      type.includes("send_sms")
-    );
-  });
-  const previewSmsData = (
-    nodes.find((node) => {
-      const type = nodeTypeOf(node);
-      return type === VOICE_NODE_TYPES.sendSms || type === "action.send_sms" || type.includes("send_sms");
-    })?.data ?? {}
-  ) as Record<string, unknown>;
-  const previewSmsBodyRaw =
-    typeof previewSmsData.smsBody === "string"
-      ? previewSmsData.smsBody
-      : typeof previewSmsData.message === "string"
-        ? previewSmsData.message
-        : "";
-  const previewSmsBody = previewSmsBodyRaw
-    .replace(/\{\{\s*assistantName\s*\}\}/gi, previewAssistantName || "our assistant")
-    .replace(/\{\{\s*business[_]?name\s*\}\}/gi, previewDisplayName)
-    .replace(/\{\{\s*business\.name\s*\}\}/gi, previewDisplayName)
-    .replace(/\{\{\s*contact\.name\s*\}\}/gi, "there")
-    .replace(/\{\{[^}]*\}\}/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const previewBookingSlots = (() => {
-    const availability = runContext.calendarAvailability as { slots?: unknown } | undefined;
-    if (!availability || !Array.isArray(availability.slots)) return [];
-    return availability.slots
-      .map((slot) => (typeof slot === "string" ? slot.trim() : ""))
-      .filter(Boolean)
-      .slice(0, 2);
-  })();
-
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
@@ -2024,6 +2455,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       onDeleteNode={deleteSelectedNode}
       connectorOwnership="architect"
       variableNodePrefixes={variableNodePrefixes}
+      workflowId={currentWorkflowId || null}
+      previewVisible={activeTab === "test"}
+      onDesignApplied={handleDesignApplied}
     />
   );
 
@@ -2060,13 +2494,20 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         publishLocked={isPublishLocked}
         canUndo={canUndo}
         canRedo={canRedo}
+        previewDevice={previewDevice}
+        onPreviewDeviceChange={setPreviewDevice}
+        previewWidth={previewPageData?.design?.contentWidth ?? "standard"}
+        onPreviewWidthChange={handlePreviewWidthChange}
+        showPreviewControls={activeTab === "test"}
+        arrangeMode={arrangeMode}
+        onArrangeModeChange={setArrangeMode}
+        onOpenAdvanced={() => setTestView("advanced")}
         onUndo={undo}
         onRedo={redo}
         onAgentNameChange={setAgentName}
         onTabChange={requestTabChange}
         onRunTest={() => requestTabChange("test")}
         onSave={() => void saveAgent()}
-        onPreview={() => setPreviewOpen(true)}
       />
 
       {isLive && !isUnderReview ? (
@@ -2281,8 +2722,36 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 className="bg-transparent"
                 proOptions={{ hideAttribution: true }}
               >
-                <Controls showInteractive={false} />
+                <Controls showInteractive={false}>
+                  <ControlButton
+                    onClick={tidyCanvas}
+                    disabled={nodes.length === 0}
+                    title="Tidy my canvas"
+                    aria-label="Tidy my canvas"
+                    data-testid="canvas-cleanup"
+                  >
+                    {/* Wand sweep — one click tidies the whole canvas. */}
+                    <BuilderIcon name="wand" className="h-3 w-3" />
+                  </ControlButton>
+                </Controls>
               </ReactFlow>
+
+              <EmptyCanvasFacePicker
+                nodeCount={nodes.length}
+                importingSlug={importingSlug}
+                onPick={(slug) => void importTemplate(slug)}
+              />
+
+              {tidiedToastVisible ? (
+                <div
+                  data-testid="canvas-cleanup-toast"
+                  role="status"
+                  aria-live="polite"
+                  className="fade-enter pointer-events-none absolute bottom-6 left-1/2 z-20 -translate-x-1/2 rounded-full bg-slate-900/90 px-4 py-1.5 text-xs font-semibold text-white shadow-lg"
+                >
+                  Tidied.
+                </div>
+              ) : null}
 
               <div className="absolute right-2 top-2 z-10 hidden max-w-[calc(100%-1rem)] items-center gap-2 overflow-hidden rounded-xl border border-gray-200 bg-white/90 px-2.5 py-1.5 text-[11px] text-slate-500 shadow-sm backdrop-blur md:right-4 md:top-4 md:flex md:gap-3 md:px-3 md:py-2">
                 <span className="flex items-center gap-1" data-testid="architect-ui-workflow-builder-view-scroll-zoom-text">
@@ -2338,7 +2807,45 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           </section>
         ) : null}
 
-        {activeTab === "test" ? (
+        {activeTab === "test" && testView === "preview" ? (
+          <PreviewPanel
+            workflowId={currentWorkflowId}
+            workflowName={agentName}
+            hasVoiceNode={hasVoiceNode}
+            hasMediaNode={hasMediaNode}
+            device={previewDevice}
+            page={previewPageData?.page ?? null}
+            defaultTemplate={previewPageData?.defaultTemplate}
+            blueprint={previewPageData?.blueprint ?? null}
+            product={previewPageData?.product ?? null}
+            design={previewPageData?.design ?? null}
+            architectName={architectName}
+            underReview={isUnderReview}
+            arrangeMode={arrangeMode}
+            onArrangeExit={() => setArrangeMode(false)}
+            onSendChat={sendPreviewChat}
+            onStartVoice={startPreviewVoice}
+            onRunOnce={runPreviewOnce}
+            onOpenAdvanced={() => setTestView("advanced")}
+            onDesignApplied={handleDesignApplied}
+          />
+        ) : null}
+
+        {activeTab === "test" && testView === "advanced" ? (
+          <div className="absolute inset-0 flex flex-col">
+            <div className="flex flex-none items-center border-b border-gray-100 bg-white px-4 py-1.5">
+              <button
+                type="button"
+                onClick={() => setTestView("preview")}
+                data-testid="preview-panel-back-to-preview"
+                className="text-xs font-medium text-slate-500 underline-offset-4 transition hover:text-slate-900 hover:underline"
+              >
+                &larr; Simple preview
+              </button>
+            </div>
+            {/* Positioned so the TestPanel's absolute-inset root fills exactly
+                the space under the back bar — its own markup is untouched. */}
+            <div className="relative min-h-0 flex-1">
           <TestPanel
             hasGmailFlow={hasGmailFlow}
             hasEmailNode={hasEmailNode}
@@ -2481,6 +2988,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onTelegramCommandChange={updateTelegramCommand}
             onTelegramCustomCommandsChange={updateTelegramCustomCommands}
           />
+            </div>
+          </div>
         ) : null}
 
         {activeTab === "configure" ? (
@@ -2552,20 +3061,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         nodesCount={nodes.length}
         edgesCount={edges.length}
         editedLabel={message === "Unsaved changes" ? "unsaved changes" : "last edited just now"}
-      />
-
-      <PreviewModal
-        open={previewOpen}
-        onClose={() => setPreviewOpen(false)}
-        workflowId={currentWorkflowId}
-        businessName={previewDisplayName}
-        assistantName={previewAssistantName}
-        greeting={previewGreeting}
-        smsBody={previewSmsBody}
-        agentPurpose={tagline.trim()}
-        canBook={previewCanBook}
-        canText={previewCanText}
-        bookingSlots={previewBookingSlots}
       />
 
       {typeof document !== "undefined" && publishSuccessName

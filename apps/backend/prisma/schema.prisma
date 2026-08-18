@@ -41,6 +41,7 @@ model User {
   whatsappConnections  WhatsAppConnection[]
   platformApiSettings  PlatformApiSetting[]
   teamMemberships      BusinessTeamMember[]
+  architectSecrets     ArchitectSecret[]
 
   @@unique([email, role])
   @@index([role])
@@ -160,11 +161,44 @@ model AgentListing {
   workflow               WorkflowDefinition?  @relation(fields: [workflowId], references: [id])
   installedAgents        InstalledAgent[]
   payments               Payment[]
+  publishedPage          PublishedAgentPage?
 
   @@index([architectUserId])
   @@index([workflowId])
   @@index([status])
   @@index([status, createdAt])
+}
+
+/// Public hosted page for a published agent (triven.ai/a/<slug>): customers
+/// try the agent in sandboxed demo mode and follow the CTA into the purchase
+/// funnel. One page per approved listing; the architect customizes template
+/// and copy from the workflow's manage screen.
+model PublishedAgentPage {
+  id               String       @id @default(cuid())
+  slug             String       @unique
+  listingId        String       @unique
+  workflowId       String
+  architectUserId  String
+  template         String       @default("chat")
+  headline         String?
+  welcomeMessage   String?
+  suggestedPrompts String[]
+  accentColor      String?
+  /// Design Brain dials (theme, composer position, density, bubble style,
+  /// history sidebar). Null = all defaults; always read through resolveDesign.
+  designJson       Json?
+  /// Product Spec (packages/shared/src/product-spec.ts): the multi-page site
+  /// the AI architect designed, wires included. Null = no spec yet; the page
+  /// still renders from a spec synthesized off the Face Blueprint. Always read
+  /// through getProductSpec / resolveProductForPublic, never raw.
+  productJson      Json?
+  status           String       @default("LIVE")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  listing          AgentListing @relation(fields: [listingId], references: [id])
+
+  @@index([workflowId])
+  @@index([architectUserId])
 }
 
 model Project {
@@ -2222,6 +2256,30 @@ model WhatsAppWebhookLog {
 /// Manage API instead of .env, so a key can be rotated without a redeploy.
 /// A key absent here falls back to the matching environment variable, which
 /// keeps every existing deployment working until an admin fills the form in.
+/// Per-architect encrypted secret ("My Keys" locker). Each row is one named
+/// key an architect stores once and references by name from an API Call node.
+/// The value is AES-256-GCM encrypted with ENCRYPTION_KEY using the shared
+/// crypto helper — iv, auth tag and ciphertext are bundled into the single
+/// `valueEncrypted` string (same encoding as PlatformApiSetting and the
+/// Telegram/Calendly token columns). Plaintext is NEVER stored or returned to
+/// the browser; the API only ever exposes a mask.
+model ArchitectSecret {
+  id              String   @id @default(cuid())
+  architectUserId String
+  /// Human label the architect chose, e.g. "My Weather API key". Referenced by
+  /// name from the API Call node. Unique per architect.
+  name            String
+  /// AES-256-GCM(iv.authTag.ciphertext) — never returned in plaintext.
+  valueEncrypted  String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  architect User @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+
+  @@unique([architectUserId, name])
+  @@index([architectUserId])
+}
+
 model PlatformApiSetting {
   id              String   @id @default(cuid())
   /// Environment-variable name, e.g. "OPENAI_API_KEY". Unique.

@@ -54,7 +54,7 @@ function telegramSendMessageNode(): BuilderNode {
 
 describe("Telegram trigger architect setup", () => {
   it("is available in the trigger library with isolated-business defaults", () => {
-    const triggerGroup = libraryGroups.find((group) => group.title === "Triggers");
+    const triggerGroup = libraryGroups.find((group) => group.title === "Hands");
     const item = triggerGroup?.items.find(
       (candidate) => candidate.overrides?.type === "trigger.telegram_message"
     );
@@ -70,7 +70,7 @@ describe("Telegram trigger architect setup", () => {
      only an appointment bot. Booking commands and contact collection are opt-in
      so a new bot starts as a plain message trigger the workflow answers. */
   it("defaults to a general-purpose bot, with booking features opt-in", () => {
-    const triggerGroup = libraryGroups.find((group) => group.title === "Triggers");
+    const triggerGroup = libraryGroups.find((group) => group.title === "Hands");
     const item = triggerGroup?.items.find(
       (candidate) => candidate.overrides?.type === "trigger.telegram_message"
     );
@@ -100,9 +100,13 @@ describe("Telegram trigger architect setup", () => {
   });
 
   it("exposes the Telegram Send Message action for confirmations", () => {
-    const telegramGroup = libraryGroups.find((group) => group.title === "Telegram Features");
-    expect(telegramGroup?.items.map((item) => item.overrides?.type)).toContain("action.telegram_send_message");
-    expect(telegramGroup?.items).toHaveLength(1);
+    const handsGroup = libraryGroups.find((group) => group.title === "Hands");
+    expect(handsGroup?.items.map((item) => item.overrides?.type)).toContain("action.telegram_send_message");
+    // Only the common reply action is visible; advanced Telegram actions stay hidden.
+    const telegramActions = handsGroup?.items.filter(
+      (item) => String(item.overrides?.type ?? "").startsWith("action.telegram_")
+    );
+    expect(telegramActions).toHaveLength(1);
   });
 
   it("uses one mandatory catch-all output connection", () => {

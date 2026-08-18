@@ -15,6 +15,7 @@ import {
   KeyRound,
   Mail,
   MessageSquareText,
+  Paintbrush,
   Phone,
   ShieldCheck,
   Tags,
@@ -53,7 +54,8 @@ const NAV_GROUPS: Array<{ label: string; items: AdminNavItem[] }> = [
       { label: "Pricing", href: "/admin/pricing" as Route, icon: Tags },
       { label: "Phone numbers", href: "/admin/phone-numbers" as Route, icon: Phone },
       { label: "Mail", href: "/admin/mail" as Route, icon: Mail },
-      { label: "Manage API", href: "/admin/manage-api" as Route, icon: KeyRound }
+      { label: "Manage API", href: "/admin/manage-api" as Route, icon: KeyRound },
+      { label: "Design Brain rules", href: "/admin/design-rules" as Route, icon: Paintbrush }
     ]
   },
   {

@@ -91,7 +91,17 @@ fi
 echo "running ($telegram_worker_redis)"
 
 echo -n "  backend health:  "
-curl -fsS http://127.0.0.1:8787/health || fail "backend health check failed"
+# The container needs a few seconds to boot — a check fired instantly after
+# `up -d` fails on a perfectly healthy deploy. Retry for up to 60s.
+backend_ok=""
+for _ in $(seq 1 30); do
+  if curl -fsS -m 2 http://127.0.0.1:8787/health 2>/dev/null; then
+    backend_ok=1
+    break
+  fi
+  sleep 2
+done
+[ -n "$backend_ok" ] || fail "backend health check failed (no response within 60s)"
 echo
 
 echo -n "  frontend:        "

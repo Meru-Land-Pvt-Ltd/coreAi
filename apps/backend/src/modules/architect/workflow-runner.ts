@@ -1,18 +1,34 @@
 import {
+  API_CALL_DEFAULT_OUTPUT_KEY,
+  API_CALL_MAX_PER_RUN,
+  API_CALL_NODE_TYPE,
   CALENDLY_LEGACY_TRIGGER_TYPES,
   CALENDLY_NODE_TYPES,
   CORE_CONNECTOR_ACTIONS,
   DEEPGRAM_NODE_TYPES,
+  getNodeDoors,
+  isBlockNodeType,
+  isDesignBrainNodeType,
+  nodeDoorsEnabled,
   resolveDeepgramMode,
   MAX_WORKFLOW_CHAIN_DEPTH,
-  SCRIPT_NODE_TYPE,
+  NODE_DOORS_DISABLED_KEY,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_TYPES,
   calendlyActionPaidPlanNote,
   normalizeTimeZone,
-  zonedWallClockToUtc
+  zonedWallClockToUtc,
+  type NodeDoorSpec
 } from "@coreai/shared";
-import { executeScript } from "../agent-runtime/script-executor";
+import {
+  createDoorBudget,
+  runEntryDoor,
+  runExitDoor,
+  type DoorBudget,
+  type DoorContext
+} from "../agent-runtime/node-doors";
+import { safeFetch, SafeFetchError, type SafeFetchErrorCode } from "../../lib/safe-fetch";
+import { getArchitectSecretValue, getPlatformYouTubeKey } from "./architect-secrets";
 import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
 import { transcribeWithDeepgram, speakWithDeepgram } from "../ai-provider-engine/deepgram-stt";
 import { createTestCalendarEvent } from "./test-calendar-events";
@@ -93,6 +109,12 @@ type WorkflowChain = {
   depth: number;
   visited: string[];
   workflowId: string;
+  /**
+   * The door allowance this whole chain shares. It rides on the chain because
+   * the chain is the one thing already threaded to every place a run can spawn
+   * another one — so a child workflow can never quietly start a fresh budget.
+   */
+  doorBudget: DoorBudget;
 };
 
 export type WorkflowRunLog = {
@@ -232,6 +254,17 @@ type RunnerNodeData = {
   imageSize?: unknown;
   connector?: unknown;
   connectorAction?: unknown;
+  // API Call node config
+  apiMethod?: unknown;
+  apiUrl?: unknown;
+  apiHeaders?: unknown;
+  apiBody?: unknown;
+  apiKeySource?: unknown;
+  apiKeyName?: unknown;
+  apiKeyInjection?: unknown;
+  apiKeyParam?: unknown;
+  apiKeyPrefix?: unknown;
+  apiOutputKey?: unknown;
   gmailQuery?: unknown;
   gmailTo?: unknown;
   gmailSubject?: unknown;
@@ -1070,6 +1103,12 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
     ? existingLlmContext
     : [existingLlmContext, businessContextSummary].filter(Boolean).join("\n\n");
 
+  // The customer's own words this run (one-shot Face runs, Telegram, SMS…).
+  // Carried separately so the provider mapping can present them as the
+  // authoritative user turn instead of leaving them buried — or dropped —
+  // inside the workflow author's prompt template.
+  const customerMessage = asString(context.latestMessage);
+
   const data = isLlmCall
     ? {
         ...node.data,
@@ -1083,6 +1122,7 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
         llmPrompt: renderTemplate(node.data?.llmPrompt, context),
         llmRequirements: renderTemplate(node.data?.llmRequirements, context) || telegramDefaultTask,
         llmContext: combinedLlmContext,
+        llmCustomerMessage: customerMessage,
         temperature: node.data?.llmTemperature ?? node.data?.temperature,
         maxTokens: finalMaxTokens,
         outputFormat: node.data?.llmOutputFormat ?? node.data?.outputFormat,
@@ -1090,6 +1130,7 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
     : {
         ...node.data,
         prompt: renderTemplate(node.data?.prompt, context),
+        llmCustomerMessage: customerMessage,
         maxTokens: finalMaxTokens,
       };
 
@@ -1360,6 +1401,12 @@ function seedMissedCallContext(
   if (optionalString(input?.installedAgentId)) context.installedAgentId = optionalString(input?.installedAgentId);
   if (optionalString(input?.listingId)) context.listingId = optionalString(input?.listingId);
   if (optionalString(input?.latestMessage)) context.latestMessage = optionalString(input?.latestMessage);
+  // One-shot Face runs (/agent-pages/:slug/run and the builder's preview-run)
+  // send the customer's words as `message`. Thread it into the slot templates
+  // and AI nodes already read, so provided input is never silently dropped.
+  if (!asString(context.latestMessage) && optionalString(input?.message)) {
+    context.latestMessage = optionalString(input?.message);
+  }
   if (optionalString(input?.testEmail)) context.testEmail = optionalString(input?.testEmail);
   if (input?.useTestCalendar === true) context.useTestCalendar = true;
   if (optionalString(input?.testSessionId)) context.testSessionId = optionalString(input?.testSessionId);
@@ -3405,7 +3452,9 @@ async function runTriggerNextWorkflowNode({
     input: forwardInputFromContext(context),
     mode,
     chainDepth: chain.depth + 1,
-    chainVisited: [...chain.visited, chain.workflowId]
+    chainVisited: [...chain.visited, chain.workflowId],
+    // One customer request, one door allowance — however many workflows it runs.
+    doorBudget: chain.doorBudget
   });
 
   for (const childLog of childRun.logs) {
@@ -4054,7 +4103,272 @@ async function runConnectorNode({
     return;
   }
 
+  // API Call — the universal "connect to a service" action. One node reaches
+  // any service on the internet through the SSRF-hardened safeFetch. Matched by
+  // type too, so a hand-written/Design-Brain graph that omits `connector` still
+  // routes here instead of falling through to SMS.
+  if (
+    nodeType === API_CALL_NODE_TYPE ||
+    connector === "api call" ||
+    connector === "http" ||
+    connector === "api"
+  ) {
+    await executeApiCallNode({ userId, node, context, logs });
+    return;
+  }
+
   logs.push(createLog(node, "error", `Unsupported connector: ${connector}`));
+}
+
+/* ------------------------------------------------------------------------ */
+/* API Call node runtime                                                     */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Per-run counter of API Call executions, keyed by the run's context object.
+ * A WeakMap (not a context key) so workflow-controlled template writes can
+ * never reset the counter to dodge the per-run cap.
+ */
+const apiCallCountByContext = new WeakMap<object, number>();
+
+/** Turn a multi-line "Name: Value" block into a header map, rendering templates. */
+function parseApiHeaderLines(raw: string, context: RunnerContext): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const idx = trimmed.indexOf(":");
+    if (idx <= 0) continue;
+    const name = trimmed.slice(0, idx).trim();
+    if (!name) continue;
+    headers[name] = renderTemplate(trimmed.slice(idx + 1).trim(), context);
+  }
+  return headers;
+}
+
+/**
+ * Path segments that could reach an object's prototype chain. The API Call
+ * output key is architect-controlled (typed free-form in the Build inspector),
+ * so a value like "__proto__.polluted" must never be walked — it would let a
+ * single published page pollute a prototype shared by every tenant's run.
+ */
+const UNSAFE_CONTEXT_SEGMENTS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
+ * Write `value` at a possibly-dotted context path, creating intermediate
+ * objects. "api.response" -> context.api.response = value. Never clobbers a
+ * sibling branch. Refuses the entire write when any segment could reach the
+ * prototype chain (prototype-pollution guard).
+ */
+function setNestedContextValue(context: RunnerContext, path: string, value: unknown) {
+  const parts = path.split(".").filter(Boolean);
+  if (parts.length === 0) return;
+  if (parts.some((seg) => UNSAFE_CONTEXT_SEGMENTS.has(seg))) return;
+  if (parts.length === 1) {
+    (context as Record<string, unknown>)[parts[0]] = value;
+    return;
+  }
+  let cursor: Record<string, unknown> = context as Record<string, unknown>;
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    const seg = parts[i];
+    const next = cursor[seg];
+    if (typeof next !== "object" || next === null) cursor[seg] = {};
+    cursor = cursor[seg] as Record<string, unknown>;
+  }
+  cursor[parts[parts.length - 1]] = value;
+}
+
+/** Jargon-free message for each safeFetch block/failure. Never leaks the key. */
+function friendlyApiCallError(code: SafeFetchErrorCode, label: string): string {
+  switch (code) {
+    case "BLOCKED_HOST":
+    case "BLOCKED_SCHEME":
+    case "BLOCKED_PORT":
+    case "REDIRECT_INVALID":
+      return `That web address isn't allowed for safety reasons (${label}).`;
+    case "DNS_ERROR":
+      return `Couldn't find that web address (${label}).`;
+    case "TIMEOUT":
+      return `The service took too long to respond (${label}).`;
+    case "TOO_LARGE":
+      return "The service's reply was too large to handle.";
+    case "TOO_MANY_REDIRECTS":
+      return `That web address redirected too many times (${label}).`;
+    case "INVALID_URL":
+      return "That doesn't look like a valid web address.";
+    case "NETWORK_ERROR":
+    default:
+      return `Couldn't connect to the service (${label}).`;
+  }
+}
+
+/**
+ * Execute an API Call node: resolve templated url/headers/body, inject the
+ * referenced key (an architect secret by name, or the platform YouTube key),
+ * call safeFetch, parse the reply, and store it at the output key so a
+ * downstream AI Brain can read it. Never throws — every failure is recorded
+ * as a run log plus `<outputKey>_error` in context, keeping the run alive.
+ */
+export async function executeApiCallNode({
+  userId,
+  node,
+  context,
+  logs
+}: {
+  userId: string;
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+}): Promise<void> {
+  const outputKey =
+    firstNonEmptyString(asString(node.data?.apiOutputKey)) || API_CALL_DEFAULT_OUTPUT_KEY;
+  const errorKey = `${outputKey}_error`;
+
+  const fail = (message: string) => {
+    (context as Record<string, unknown>)[errorKey] = message;
+    logs.push(createLog(node, "error", message));
+  };
+
+  // Per-run cap: count every execution, block once over the ceiling.
+  const count = (apiCallCountByContext.get(context as object) ?? 0) + 1;
+  apiCallCountByContext.set(context as object, count);
+  if (count > API_CALL_MAX_PER_RUN) {
+    fail(
+      `This run already made ${API_CALL_MAX_PER_RUN} live data requests — skipping this one to keep the run safe.`
+    );
+    return;
+  }
+
+  const method = asString(node.data?.apiMethod, "GET").toUpperCase() === "POST" ? "POST" : "GET";
+  const rawUrl = renderTemplate(node.data?.apiUrl, context).trim();
+  if (!rawUrl) {
+    fail("Add the web address (URL) this step should call.");
+    return;
+  }
+
+  const headers = parseApiHeaderLines(asString(node.data?.apiHeaders), context);
+  const keySource = asString(node.data?.apiKeySource, "none");
+  const keyInjection = asString(node.data?.apiKeyInjection, "query") === "header" ? "header" : "query";
+  const keyParam = asString(node.data?.apiKeyParam).trim();
+  const keyPrefix = asString(node.data?.apiKeyPrefix);
+
+  // Resolve the key value at call time — decrypt here, never log or persist it.
+  let keyValue: string | null = null;
+  if (keySource === "my_key") {
+    const keyName = asString(node.data?.apiKeyName).trim();
+    if (!keyName) {
+      fail("Choose which of your saved keys this step should use.");
+      return;
+    }
+    try {
+      keyValue = await getArchitectSecretValue(userId, keyName);
+    } catch {
+      keyValue = null;
+    }
+    if (!keyValue) {
+      fail(`Couldn't find a saved key named "${keyName}" in My Keys.`);
+      return;
+    }
+  } else if (keySource === "platform_youtube") {
+    keyValue = getPlatformYouTubeKey();
+    if (!keyValue) {
+      fail("The platform YouTube key isn't set up yet — add your own key in My Keys instead.");
+      return;
+    }
+  }
+
+  // Build the request URL, injecting a query-param key when asked.
+  let urlString = rawUrl;
+  if (keyValue && keyInjection === "query") {
+    try {
+      const built = new URL(rawUrl);
+      built.searchParams.set(keyParam || "key", keyValue);
+      urlString = built.toString();
+    } catch {
+      // Invalid URL — leave as-is so safeFetch reports INVALID_URL cleanly.
+      urlString = rawUrl;
+    }
+  }
+  if (keyValue && keyInjection === "header") {
+    const headerName = keyParam || "Authorization";
+    headers[headerName] = keyPrefix ? `${keyPrefix}${keyValue}` : keyValue;
+  }
+
+  // Log/label only the origin + path — never the query (a key may live there)
+  // and never the headers.
+  let safeLabel = rawUrl;
+  try {
+    const parsedUrl = new URL(rawUrl);
+    safeLabel = `${parsedUrl.origin}${parsedUrl.pathname}`;
+  } catch {
+    /* keep rawUrl for the label */
+  }
+
+  const body = method === "POST" ? renderTemplate(node.data?.apiBody, context) : undefined;
+  const requestHeaders: Record<string, string> = { ...headers };
+  if (body && !Object.keys(requestHeaders).some((h) => h.toLowerCase() === "content-type")) {
+    requestHeaders["Content-Type"] = "application/json";
+  }
+
+  // If the key rides in a header, name it sensitive so safeFetch drops it when
+  // a redirect crosses to a different origin — the referenced key must never be
+  // forwarded to a host the architect didn't point at.
+  const sensitiveHeaders =
+    keyValue && keyInjection === "header" ? [keyParam || "Authorization"] : undefined;
+
+  let result;
+  try {
+    result = await safeFetch(urlString, { method, headers: requestHeaders, body, sensitiveHeaders });
+  } catch (err) {
+    if (err instanceof SafeFetchError) {
+      fail(friendlyApiCallError(err.code, safeLabel));
+    } else {
+      fail(`Couldn't reach ${safeLabel}. Please try again.`);
+    }
+    return;
+  }
+
+  // Parse JSON when the reply looks like JSON; otherwise keep it as text.
+  let parsed: unknown = result.bodyText;
+  const contentType = (result.headers["content-type"] || "").toLowerCase();
+  const looksJson = contentType.includes("json") || /^\s*[[{]/.test(result.bodyText);
+  if (looksJson) {
+    try {
+      parsed = JSON.parse(result.bodyText);
+    } catch {
+      parsed = result.bodyText;
+    }
+  }
+
+  // Store two views: the structured value (nested, for deep field refs and the
+  // Result Viewer) and a string mirror at the literal dotted key so a plain
+  // {{api.response}} reference in an AI Brain reads back usable text.
+  setNestedContextValue(context, outputKey, parsed);
+  (context as Record<string, unknown>)[outputKey] =
+    typeof parsed === "string" ? parsed : JSON.stringify(parsed);
+
+  if (!result.ok) {
+    (context as Record<string, unknown>)[errorKey] =
+      `The service replied with ${result.status} ${result.statusText}.`.trim();
+    logs.push(
+      createLog(
+        node,
+        "error",
+        `${safeLabel} replied ${result.status} ${result.statusText}. Saved the reply as ${outputKey}.`,
+        { status: result.status, ok: result.ok, outputKey, bytes: result.bytesRead }
+      )
+    );
+    return;
+  }
+
+  logs.push(
+    createLog(
+      node,
+      "success",
+      `Fetched live data from ${safeLabel} (${result.status}). Saved as ${outputKey}.`,
+      { status: result.status, ok: result.ok, outputKey, bytes: result.bytesRead, data: parsed }
+    )
+  );
 }
 
 async function runWhatsAppConnectorNode({
@@ -4560,6 +4874,428 @@ async function runMemoryNodeInRunner({
   );
 }
 
+/* ------------------------------------------------------------------------ */
+/* THE TWO DOORS — runtime wiring                                            */
+/*                                                                           */
+/* A node that talks to the outside world has an AI entry door and an AI     */
+/* exit door built inside it. The entry door turns the customer's words and   */
+/* the run so far into the exact request this step needs; the exit door       */
+/* cleans the raw reply into the smallest useful thing later steps can read.  */
+/* Neither is a canvas node: they run here, inside the node's own execution,  */
+/* and show up only as a quiet sub-line on that node's log entry.             */
+/*                                                                           */
+/* Doors are an ENHANCEMENT, never a dependency. Every failure, timeout or    */
+/* nonsense reply leaves the node running exactly as it does today, on the    */
+/* config the architect saved.                                                */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Node data keys an entry door may never rewrite. These decide WHICH node this
+ * is and how the runner dispatches it (type/nodeKind/connector), what it is
+ * called, and whether its doors run at all. A door fills in the request — it
+ * never re-points the step at a different action, workflow or provider.
+ * (Credential/connection fields are stripped a second time inside node-doors.)
+ */
+const DOOR_STRUCTURAL_NODE_DATA_KEYS = new Set<string>([
+  "id",
+  "type",
+  "nodeKind",
+  "connector",
+  "connectorAction",
+  "kind",
+  "label",
+  "title",
+  "subtitle",
+  "icon",
+  "accent",
+  "position",
+  "backlinkNodeIds",
+  "nextWorkflowId",
+  "provider",
+  "llmProvider",
+  "llmModel",
+  NODE_DOORS_DISABLED_KEY
+]);
+
+/**
+ * Run values a door is never shown: binary blobs and pipelines that would
+ * blow up the prompt, and the internal ids that mean nothing to a translator.
+ */
+const DOOR_CONTEXT_SKIP_KEYS = new Set<string>([
+  "node",
+  "audio",
+  "audioData",
+  "audioBase64",
+  "audioMimeType",
+  "audio_url",
+  "image",
+  "image_url",
+  "attachments",
+  "sttPipeline",
+  "ttsPipeline",
+  "imagePipeline",
+  "llmPipeline",
+  "workflowRunId",
+  "testSessionId",
+  "installedAgentId",
+  "listingId",
+  "conversationId",
+  "leadId",
+  "useTestCalendar"
+]);
+
+/** Run values whose NAME suggests a credential — never sent to a door. */
+const DOOR_CONTEXT_SECRET_PATTERN = /(key|secret|token|credential|password|auth)/i;
+
+/** Bounds on the run picture a door is shown, so prompts stay small. */
+const DOOR_CONTEXT_MAX_VARIABLES = 40;
+const DOOR_CONTEXT_MAX_VALUE_CHARS = 2000;
+
+/**
+ * Where each door-bearing node type leaves the reply the exit door cleans.
+ * First key that exists in the run wins.
+ *
+ * Send WhatsApp is deliberately absent: its send receipt (`status`/`wamid`) is
+ * merged INTO the shared `whatsapp` trigger object that holds the contact and
+ * the inbound message, so replacing that key would destroy input later steps
+ * read. The receipt is already the smallest useful thing, so an exit door
+ * would skip it anyway — the entry door (composing the message) is the one
+ * that earns its keep there.
+ */
+const DOOR_EXIT_OUTPUT_KEYS_BY_TYPE: Record<string, string[]> = {
+  [VOICE_NODE_TYPES.sendEmail]: ["sentEmail"],
+  [VOICE_NODE_TYPES.sendSms]: ["sentSms", "queuedSms"],
+  [VOICE_NODE_TYPES.calendarAvailability]: ["calendarAvailability"],
+  [VOICE_NODE_TYPES.bookAppointment]: ["calendarAppointment"],
+  [TELEGRAM_NODE_TYPES.sendMessage]: ["telegramAction"],
+  [CALENDLY_NODE_TYPES.action]: ["calendly.result"]
+};
+
+/**
+ * The doors built into this node, or null when it has none, when the architect
+ * turned them off ("Smart input & output"), or when the node is not engine work
+ * at all. Product blocks are skipped here on purpose: the Result Viewer's entry
+ * door is the presentation door, which runs where the result is rendered, not
+ * as a canvas step.
+ */
+function doorsForNode(node: RunnerNode): { nodeType: string; spec: NodeDoorSpec } | null {
+  const nodeType = asString(node.data?.type);
+  const spec = getNodeDoors(nodeType);
+  if (!spec) return null;
+  if (!nodeDoorsEnabled(node.data)) return null;
+
+  const nodeKind = asString(node.data?.nodeKind);
+  if (nodeKind === "trigger" || nodeKind === "block") return null;
+  if (isBlockNodeType(nodeType) || isDesignBrainNodeType(nodeType)) return null;
+
+  return { nodeType, spec };
+}
+
+/** The node's settings a door may read and fill in — never its identity. */
+function doorConfigFromNodeData(data: RunnerNodeData | undefined): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data ?? {})) {
+    if (DOOR_STRUCTURAL_NODE_DATA_KEYS.has(key)) continue;
+    config[key] = value;
+  }
+  return config;
+}
+
+/** What the customer actually said, in their own words. */
+function doorUserMessage(context: RunnerContext, input?: WorkflowRunInput): string {
+  return firstNonEmptyString(
+    context.latestMessage,
+    input?.latestMessage,
+    context.inboundSms?.body,
+    context.telegram?.text,
+    context.message?.text,
+    context.whatsapp?.message?.text
+  );
+}
+
+/** Suffix the exit door parks an uncleaned reply under, for debugging only. */
+const DOOR_RAW_OUTPUT_SUFFIX = "_raw";
+
+/**
+ * Drop the `<key>_raw` copies an exit door parked for debugging.
+ *
+ * Without this, the very payload one door just paid to clean is handed back to
+ * the NEXT door in full, one level down — the run pays twice for the same
+ * bytes and the noise the cleaning removed comes straight back. The raw copy
+ * stays in the run context for debugging; it just never reaches a prompt.
+ */
+function stripRawDoorCopies(value: unknown, depth = 0): unknown {
+  if (depth >= 6 || typeof value !== "object" || value === null) return value;
+  if (Array.isArray(value)) return value.map((item) => stripRawDoorCopies(item, depth + 1));
+
+  const pruned: Record<string, unknown> = {};
+  for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+    if (key.endsWith(DOOR_RAW_OUTPUT_SUFFIX)) continue;
+    pruned[key] = stripRawDoorCopies(inner, depth + 1);
+  }
+  return pruned;
+}
+
+/** The run so far, trimmed to what a translator can use and nothing more. */
+function doorContextForRun(context: RunnerContext, input?: WorkflowRunInput): DoorContext {
+  const variables: Record<string, unknown> = {};
+  let count = 0;
+
+  for (const [key, value] of Object.entries(context as Record<string, unknown>)) {
+    if (count >= DOOR_CONTEXT_MAX_VARIABLES) break;
+    if (value === undefined || value === null || typeof value === "function") continue;
+    if (DOOR_CONTEXT_SKIP_KEYS.has(key)) continue;
+    if (DOOR_CONTEXT_SECRET_PATTERN.test(key)) continue;
+    if (key.endsWith(DOOR_RAW_OUTPUT_SUFFIX)) continue;
+
+    variables[key] =
+      typeof value === "string" && value.length > DOOR_CONTEXT_MAX_VALUE_CHARS
+        ? `${value.slice(0, DOOR_CONTEXT_MAX_VALUE_CHARS)}…`
+        : stripRawDoorCopies(value);
+    count += 1;
+  }
+
+  const userMessage = doorUserMessage(context, input);
+  return {
+    ...(userMessage ? { userMessage } : {}),
+    ...(context.business?.name ? { businessName: context.business.name } : {}),
+    variables
+  };
+}
+
+/** Where this node leaves the reply an exit door would clean. */
+function exitDoorOutputKeys(node: RunnerNode, nodeType: string): string[] {
+  if (nodeType === API_CALL_NODE_TYPE) {
+    return [firstNonEmptyString(asString(node.data?.apiOutputKey)) || API_CALL_DEFAULT_OUTPUT_KEY];
+  }
+  // Legacy Calendly slugs from older canvases run the same action node.
+  if (nodeType.startsWith("action.calendly")) return DOOR_EXIT_OUTPUT_KEYS_BY_TYPE[CALENDLY_NODE_TYPES.action];
+  return DOOR_EXIT_OUTPUT_KEYS_BY_TYPE[nodeType] ?? [];
+}
+
+/** JSON that can never throw, for the string mirror of a dotted output key. */
+function stringifyForContext(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** Read a node's output — the structured value first, the string mirror after. */
+function readDoorOutput(context: RunnerContext, key: string): unknown {
+  const parts = key.split(".").filter(Boolean);
+  let cursor: unknown = context;
+  for (const part of parts) {
+    if (typeof cursor !== "object" || cursor === null) {
+      cursor = undefined;
+      break;
+    }
+    cursor = (cursor as Record<string, unknown>)[part];
+  }
+  if (cursor !== undefined && cursor !== null) return cursor;
+  return (context as Record<string, unknown>)[key];
+}
+
+/**
+ * Write a node's output back the way the node itself does: the structured value
+ * at the (possibly dotted) path, plus the string mirror at the literal key so a
+ * plain {{api.response}} reference still reads back usable text.
+ */
+function writeDoorOutput(context: RunnerContext, key: string, value: unknown): void {
+  const parts = key.split(".").filter(Boolean);
+  if (parts.length === 0) return;
+  if (parts.some((segment) => UNSAFE_CONTEXT_SEGMENTS.has(segment))) return;
+
+  setNestedContextValue(context, key, value);
+  // Only for dotted keys: for a single segment the literal key IS the nested
+  // one, and the string mirror would replace the structured value.
+  if (parts.length > 1) {
+    (context as Record<string, unknown>)[key] = stringifyForContext(value);
+  }
+}
+
+/** The origin of a saved address, ignoring any {{...}} still left inside it. */
+function savedRequestOrigin(rawUrl: string): string | null {
+  const withoutSlots = rawUrl.replace(/\{\{[^}]*\}\}/g, "").trim();
+  if (!withoutSlots) return null;
+  try {
+    return new URL(withoutSlots).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A door fills in the request. It never changes WHO the request is sent to.
+ *
+ * This is the one door rule that protects a credential rather than a setting.
+ * An API Call step attaches the architect's saved key — or the platform's own
+ * YouTube key — to whatever address it is pointed at, and it attaches it AFTER
+ * the entry door has run. So an address the door was free to rewrite from
+ * scratch would be an address a stranger's words could steer, and the very next
+ * thing the runner does is post the platform's key to it.
+ *
+ * The saved address therefore pins the origin: a door may rewrite the path, the
+ * query and every parameter, but the scheme, host and port stay exactly where
+ * the architect put them. When the architect saved no usable address at all,
+ * the door may choose one only if this step carries no key — nothing to leak,
+ * and safeFetch still refuses anything internal.
+ */
+function doorMayCallThisAddress(node: RunnerNode, candidate: string): boolean {
+  const proposed = (() => {
+    try {
+      return new URL(candidate);
+    } catch {
+      // Not an address at all — the saved value is strictly better.
+      return null;
+    }
+  })();
+  if (!proposed) return false;
+
+  const savedOrigin = savedRequestOrigin(asString(node.data?.apiUrl));
+  if (savedOrigin) return proposed.origin === savedOrigin;
+
+  // Nothing saved to pin to: allowed only when there is no key to carry away.
+  return asString(node.data?.apiKeySource, "none") === "none";
+}
+
+/**
+ * Strip any override this node type must not accept, whatever the model said.
+ * Field NAMES are already filtered by the registry whitelist inside the door
+ * engine; this is about a VALUE that would change the meaning of the step.
+ */
+function refuseUnsafeDoorOverrides(
+  node: RunnerNode,
+  nodeType: string,
+  applied: Record<string, string>
+): Record<string, string> {
+  if (nodeType !== API_CALL_NODE_TYPE) return applied;
+  if (!applied.apiUrl || doorMayCallThisAddress(node, applied.apiUrl)) return applied;
+
+  const { apiUrl: _refused, ...rest } = applied;
+  console.warn("[node-doors] entry no-change:address-outside-saved-origin", {
+    nodeId: node.id,
+    nodeType
+  });
+  return rest;
+}
+
+/**
+ * Run the entry door and return the node this execution should use: a SHALLOW
+ * COPY carrying the resolved settings, or the saved node untouched. The saved
+ * graph is never mutated — the overrides live for this execution only.
+ */
+async function openNodeEntryDoor(params: {
+  node: RunnerNode;
+  doors: { nodeType: string; spec: NodeDoorSpec };
+  context: RunnerContext;
+  input?: WorkflowRunInput;
+  budget: DoorBudget;
+}): Promise<{ node: RunnerNode; opened: boolean }> {
+  const { node, doors, context, input, budget } = params;
+  if (!doors.spec.entry) return { node, opened: false };
+
+  try {
+    const { overrides } = await runEntryDoor({
+      node: {
+        id: node.id,
+        label: asString(node.data?.title ?? node.data?.label, node.id),
+        config: doorConfigFromNodeData(node.data)
+      },
+      nodeType: doors.nodeType,
+      context: doorContextForRun(context, input),
+      doorSpec: doors.spec,
+      budget
+    });
+
+    const applied: Record<string, string> = {};
+    for (const [field, value] of Object.entries(overrides)) {
+      if (DOOR_STRUCTURAL_NODE_DATA_KEYS.has(field)) continue;
+      applied[field] = value;
+    }
+
+    const safe = refuseUnsafeDoorOverrides(node, doors.nodeType, applied);
+    if (Object.keys(safe).length === 0) return { node, opened: false };
+
+    return { node: { ...node, data: { ...node.data, ...safe } }, opened: true };
+  } catch {
+    // A door can never break a node. Run on the saved config, as today.
+    return { node, opened: false };
+  }
+}
+
+/**
+ * Run the exit door on what the node just produced. On a real cleaning the tidy
+ * value replaces the node's output and the raw reply is kept at
+ * `<key>_raw` for debugging — never shown to a customer.
+ */
+async function closeNodeExitDoor(params: {
+  node: RunnerNode;
+  doors: { nodeType: string; spec: NodeDoorSpec };
+  context: RunnerContext;
+  input?: WorkflowRunInput;
+  budget: DoorBudget;
+  /** The output keys as they stood BEFORE this node ran. */
+  before: Map<string, unknown>;
+}): Promise<boolean> {
+  const { node, doors, context, input, budget, before } = params;
+  if (!doors.spec.exit) return false;
+
+  try {
+    // Only what THIS node just wrote. A step that waited or wrote nothing must
+    // never clean an earlier step's reply that happens to share the key.
+    const key = exitDoorOutputKeys(node, doors.nodeType).find((candidate) => {
+      const after = readDoorOutput(context, candidate);
+      return after !== undefined && !Object.is(after, before.get(candidate));
+    });
+    if (!key) return false;
+
+    const rawOutput = readDoorOutput(context, key);
+    if (rawOutput === undefined || rawOutput === null) return false;
+
+    const { value, changed } = await runExitDoor({
+      node: {
+        id: node.id,
+        label: asString(node.data?.title ?? node.data?.label, node.id),
+        config: doorConfigFromNodeData(node.data)
+      },
+      nodeType: doors.nodeType,
+      rawOutput,
+      context: doorContextForRun(context, input),
+      doorSpec: doors.spec,
+      budget
+    });
+    if (!changed) return false;
+
+    // A door tidies a value, it never changes its kind: a step that produced
+    // text still produces text, so a plain {{api.response}} reference keeps
+    // reading back as words instead of "[object Object]".
+    const cleaned =
+      typeof rawOutput === "string" && typeof value !== "string" ? stringifyForContext(value) : value;
+
+    writeDoorOutput(context, `${key}_raw`, rawOutput);
+    writeDoorOutput(context, key, cleaned);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Door work is a sub-line of the node it belongs to — never its own log entry
+ * and never its own node. Appended to that node's last line in plain words.
+ */
+function appendDoorNote(logs: WorkflowRunLog[], nodeId: string, notes: string[]): void {
+  if (notes.length === 0) return;
+  for (let index = logs.length - 1; index >= 0; index -= 1) {
+    if (logs[index].nodeId !== nodeId) continue;
+    logs[index] = { ...logs[index], message: `${logs[index].message} · ${notes.join(" · ")}` };
+    return;
+  }
+}
+
 export async function runWorkflowTest({
   userId,
   workflowId,
@@ -4570,7 +5306,8 @@ export async function runWorkflowTest({
   callProvider,
   externalCallId,
   chainDepth = 0,
-  chainVisited = []
+  chainVisited = [],
+  doorBudget: inheritedDoorBudget
 }: {
   userId: string;
   workflowId: string;
@@ -4585,12 +5322,22 @@ export async function runWorkflowTest({
   externalCallId?: string;
   chainDepth?: number;
   chainVisited?: string[];
+  /**
+   * The door allowance to spend. A chained workflow INHERITS its parent's so
+   * that one thing a customer asked for costs one allowance, however many
+   * workflows it happens to be wired across — a "Next Workflow" node must never
+   * be a way to mint 8 more door calls. Only the top-level run creates one.
+   */
+  doorBudget?: DoorBudget;
 }) {
   const parsedWorkflow = parseRunnerWorkflowJson(workflowJson);
   const logs: WorkflowRunLog[] = [];
   const context: RunnerContext = seedMissedCallContext(input, parsedWorkflow.nodes, mode);
   const isTelegramWorkflow = Boolean(context.telegram);
-  const chain: WorkflowChain = { depth: chainDepth, visited: chainVisited, workflowId };
+  // ONE door allowance for the whole request, shared by every door in this run
+  // AND by every workflow this run chains into. Only a top-level run mints one.
+  const doorBudget = inheritedDoorBudget ?? createDoorBudget();
+  const chain: WorkflowChain = { depth: chainDepth, visited: chainVisited, workflowId, doorBudget };
 
   // Set assistantName on context.business if not set
   const voiceNode = parsedWorkflow.nodes.find((n) => asString(n.data?.type) === VOICE_NODE_TYPES.voiceConversation);
@@ -4663,7 +5410,8 @@ export async function runWorkflowTest({
             workflowRunId,
             workflowId,
             threadId,
-            executionOrder: currentExecutionOrder
+            executionOrder: currentExecutionOrder,
+            doorBudget
           });
         })
       );
@@ -4701,11 +5449,70 @@ export async function runWorkflowTest({
     workflowId,
     workflowRunId,
     logs,
-    context
+    context,
+    // What this run has LEFT to spend on doors. The presentation door runs
+    // after the engine returns (in resolveRunOutput), so it has to inherit the
+    // same allowance the entry and exit doors have been spending — otherwise a
+    // run that already used all 8 door calls would quietly get a 9th.
+    doorBudget
   };
 }
 
+/**
+ * Execute one node WITH its doors: the entry door resolves the request before
+ * the node runs, the exit door cleans the reply after it. Both are optional,
+ * both are silent about failure, and neither can add a step to the run — their
+ * work shows up only as a sub-line on this node's own log entry.
+ */
 async function executeSingleNodeInRunner(params: {
+  node: RunnerNode;
+  context: RunnerContext;
+  userId: string;
+  input?: WorkflowRunInput;
+  mode: WorkflowRunMode;
+  chain: WorkflowChain;
+  workflowRunId: string;
+  workflowId: string;
+  threadId?: string;
+  executionOrder: number;
+  /** The run's shared door allowance. */
+  doorBudget: DoorBudget;
+}): Promise<{ logs: WorkflowRunLog[]; runFailed: boolean }> {
+  const { node, context, input, doorBudget } = params;
+  const doors = doorsForNode(node);
+  if (!doors) return executeNodeOnConfig(params);
+
+  const entry = await openNodeEntryDoor({ node, doors, context, input, budget: doorBudget });
+
+  // What the output keys held before this step ran, so the exit door can tell
+  // this node's reply from one an earlier node left at the same key.
+  const before = new Map<string, unknown>();
+  if (doors.spec.exit) {
+    for (const key of exitDoorOutputKeys(entry.node, doors.nodeType)) {
+      before.set(key, readDoorOutput(context, key));
+    }
+  }
+
+  const result = await executeNodeOnConfig({ ...params, node: entry.node });
+
+  // Only a step that actually delivered has a reply worth cleaning. One that
+  // failed or is still waiting for input produced nothing of its own, and its
+  // log line should carry that, not a door note.
+  const ownLogs = result.logs.filter((log) => log.nodeId === node.id);
+  const nodeDelivered = ownLogs.length > 0 && ownLogs.every((log) => log.status === "success");
+  const cleaned = nodeDelivered
+    ? await closeNodeExitDoor({ node: entry.node, doors, context, input, budget: doorBudget, before })
+    : false;
+
+  appendDoorNote(result.logs, node.id, [
+    ...(entry.opened ? ["understood the request"] : []),
+    ...(cleaned ? ["cleaned the response"] : [])
+  ]);
+
+  return result;
+}
+
+async function executeNodeOnConfig(params: {
   node: RunnerNode;
   context: RunnerContext;
   userId: string;
@@ -4724,30 +5531,25 @@ async function executeSingleNodeInRunner(params: {
   const nodeKind = asString(node.data?.nodeKind);
 
   try {
-    // Dispatched on type, ahead of the kind branches: a Code node is its own
-    // execution model, not a variant of the logic kind it is grouped under.
-    if (asString(node.data?.type) === SCRIPT_NODE_TYPE) {
-      await runScriptNode(node, context, nodeLogs);
-      const scriptFailed = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
-      await memoryBroker.saveNodeMemory({
-        workflowRunId,
-        nodeId: node.id,
-        nodeType: SCRIPT_NODE_TYPE,
-        nodeLabel: asString(node.data?.title ?? node.data?.label),
-        status: scriptFailed ? "error" : "success",
-        executionOrder,
-        threadId,
-        /* Wrapped: a script may return a string or an array, and NodeRun.outputJson
-           is read back as an object elsewhere. */
-        output: {
-          outputKey: asString(node.data?.scriptOutputKey, "script.output"),
-          value: context[asString(node.data?.scriptOutputKey, "script.output")] ?? null
-        },
-        summary: scriptFailed ? "Code node failed" : "Code node ran",
-        startedAt: new Date(nodeStart).toISOString(),
-        finishedAt: new Date().toISOString()
-      });
-      return { logs: nodeLogs, runFailed: scriptFailed };
+    // Design Brain styles the customer page (via the design-chat endpoint) —
+    // never engine work. Its own skip line keeps the run log friendly even on
+    // hand-written graphs that lack nodeKind (the "block." prefix check below
+    // would miss "design.brain").
+    if (isDesignBrainNodeType(asString(node.data?.type))) {
+      nodeLogs.push(
+        createLog(node, "success", "Design Brain — it styles your page, nothing to run")
+      );
+      return { logs: nodeLogs, runFailed: false };
+    }
+
+    // Product blocks (block.*) are sections of the customer-facing page, not
+    // engine work — skip them cleanly so a graph that mixes product sections
+    // with AI nodes still runs its AI nodes without erroring.
+    if (nodeKind === "block" || isBlockNodeType(asString(node.data?.type))) {
+      nodeLogs.push(
+        createLog(node, "success", "Product section — shown to your customer, nothing to run")
+      );
+      return { logs: nodeLogs, runFailed: false };
     }
 
     if (nodeKind === "trigger") {

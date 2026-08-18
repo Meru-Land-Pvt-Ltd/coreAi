@@ -1,3 +1,6 @@
+import type { ProductSpec } from "@coreai/shared";
+import type { ContentWidth, DesignConfig, FaceBlueprint, FaceLayoutMap } from "@/components/agent-page/types";
+
 export type ArchitectProfile = {
   id: string;
   userId: string;
@@ -256,4 +259,148 @@ export type ArchitectTestDeploymentInput = {
   services?: string[];
   faqs?: string[];
   knowledge?: string[];
+};
+export type AgentPageTemplate = "chat" | "voice" | "media" | "form";
+
+export type AgentPageConfig = {
+  slug: string;
+  template: AgentPageTemplate;
+  headline: string | null;
+  welcomeMessage: string | null;
+  suggestedPrompts: string[];
+  accentColor: string | null;
+  status: "LIVE";
+};
+
+export type AgentPageManageData = {
+  page: AgentPageConfig | null;
+  url: string | null;
+  defaultTemplate: AgentPageTemplate;
+  /**
+   * Non-null only when the workflow's canvas contains product blocks — the
+   * Test preview (and the live page) then assemble the customer interface
+   * from these blocks instead of a built-in template. Optional so older
+   * fixtures without the field keep compiling; absent reads as null.
+   */
+  blueprint?: FaceBlueprint | null;
+  /**
+   * The saved Design Brain config, resolved to a full DesignConfig by the
+   * backend. Optional so older fixtures keep compiling; absent reads as the
+   * design defaults.
+   */
+  design?: DesignConfig | null;
+  /**
+   * The saved ProductSpec — the whole product the Design Brain's Build mode
+   * wrote (pages, sections, copy, wires). Optional so older fixtures keep
+   * compiling; absent reads as null (no product built yet).
+   */
+  product?: ProductSpec | null;
+};
+
+export type AgentPageUpdateBody = {
+  template?: AgentPageTemplate;
+  headline?: string;
+  welcomeMessage?: string;
+  suggestedPrompts?: string[];
+  /** null clears the accent back to the default; omitting leaves it unchanged. */
+  accentColor?: string | null;
+  /**
+   * Design dial patches riding the manage PATCH (additive). The Arrange
+   * Editor sends the FULL layout map on every drop ({} clears it); the
+   * Preview toolbar sends `contentWidth`; other saved dials are preserved
+   * server-side.
+   */
+  design?: {
+    layout?: FaceLayoutMap;
+    contentWidth?: ContentWidth;
+  };
+};
+
+/** One turn of the Design Brain conversation, oldest first. */
+export type DesignChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type DesignChatBody = {
+  instruction: string;
+  /** Up to the last 10 turns, for follow-ups like "a bit darker". */
+  history?: DesignChatMessage[];
+};
+
+/**
+ * POST /agent-pages/manage/:workflowId/product-chat — the Product Architect.
+ * Longer instructions than the styling chat allows (800 vs 500) because this
+ * one is given a whole brief, not a single dial to turn.
+ */
+export type ProductChatBody = {
+  instruction: string;
+  history?: DesignChatMessage[];
+};
+
+export type ProductChatData = {
+  reply: string;
+  /** The saved blueprint. Shape is validated server-side before it is stored. */
+  product: unknown;
+  /** Ids of pages this instruction created — empty when it only edited. */
+  pagesCreated: string[];
+  /** Set when legal pages were generated and need the architect's eye. */
+  legalNote: string | null;
+};
+
+/**
+ * POST /agent-pages/manage/:workflowId/design-chat result. `patch` is the
+ * validated set of dials the Design Brain just turned — empty when the ask
+ * was impossible; `design` is the full post-patch DesignConfig.
+ */
+export type DesignChatData = {
+  reply: string;
+  patch: Record<string, unknown>;
+  design: DesignConfig;
+  page: Partial<AgentPageConfig> | null;
+  /**
+   * True when the Design Brain also changed the saved canvas graph (added or
+   * rewired pieces), so the builder must reload nodes/edges from the server —
+   * not just refetch the page design. Additive: older backends omit it.
+   */
+  graphChanged?: boolean;
+};
+
+/**
+ * POST /agent-pages/manage/:workflowId/smart-compose — the AI Composer.
+ * Reads every node's declarations and writes the MINIMUM interface out of
+ * our pre-built components. No request body: the workflow graph is the brief.
+ */
+export type SmartComposeData = {
+  reply: string;
+  /** The composed Product Spec. Validated server-side before it is stored. */
+  product: unknown;
+  /** False when the workflow declared nothing worth composing. */
+  composed: boolean;
+  /** How many asks the composer placed on the page. */
+  asksPlaced: number;
+  /** How many duplicate node inputs collapsed into shared fields — merging is the composer's core job. */
+  merged: number;
+};
+
+/**
+ * POST /agent-pages/manage/:workflowId/smart-designer — the feedback loop.
+ * The architect says what the composed interface got wrong ("this box isn't
+ * capturing email separately") and the Smart Designer fixes the spec.
+ */
+export type SmartDesignerBody = {
+  instruction: string;
+  /** Up to the last 10 turns, for follow-ups like "actually make it optional". */
+  history?: DesignChatMessage[];
+};
+
+export type SmartDesignerData = {
+  reply: string;
+  /** The updated Product Spec after this instruction (unchanged on a redirect). */
+  product: unknown;
+  /**
+   * "packaging" when the ask was outside the product interface (privacy page,
+   * landing page, sell page) and was redirected to Packaging — not a failure.
+   */
+  boundary: "packaging" | null;
 };

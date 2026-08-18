@@ -48,6 +48,15 @@ button:disabled {
   outline-offset: 2px;
 }
 
+/*
+ * Text fields that sit inside a card which already lights up on focus: the
+ * card's own border is the focus signal, so a second outline around the field
+ * reads as a stray rectangle. Keyboard users still see the card react.
+ */
+:where(textarea, input):focus-visible {
+  outline: none;
+}
+
 .tnum {
   font-variant-numeric: tabular-nums;
 }
@@ -223,4 +232,123 @@ button:disabled {
 .markdown-content img {
   max-width: 100%;
   height: auto;
+}
+
+/*
+ * Word-by-word reveal for AI answers on agent pages (RichText). The complete
+ * text is in the DOM from the first frame — only opacity animates — so layout
+ * never jumps and aria-live regions announce the reply once, complete.
+ */
+@keyframes agent-word-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.agent-reveal-word {
+  animation: agent-word-reveal 0.35s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-reveal-word {
+    /* The global 0.001ms rule leaves animation-delay intact — kill the
+       animation entirely so every word is visible instantly. */
+    animation: none;
+  }
+}
+
+/*
+ * Visual Results (Result Viewer + generated product pages) — the two things
+ * inline styles cannot do: keyframes, and :hover on a table row.
+ *
+ * The entrance is deliberately small — a 6px rise and a bar growing off its
+ * own baseline. It reads as the numbers settling into place, not as an
+ * animation, and it is gone before anyone could call it slow.
+ */
+@keyframes agent-visual-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes agent-visual-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes agent-visual-draw {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes agent-visual-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.agent-visual-enter {
+  animation: agent-visual-rise 0.42s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.agent-visual-bar {
+  transform-origin: 50% 100%;
+  animation: agent-visual-grow 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.agent-visual-line {
+  stroke-dasharray: 100;
+  animation: agent-visual-draw 0.85s ease-out both;
+}
+
+.agent-visual-dot,
+.agent-visual-slice {
+  animation: agent-visual-fade 0.4s ease-out both;
+}
+
+.agent-visual-row {
+  transition: background-color 0.15s ease;
+}
+
+.agent-visual-row:hover {
+  background-color: var(--visual-row-hover, rgba(15, 23, 42, 0.04));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The global 0.001ms rule leaves animation-delay intact — a staggered card
+     would still flash in late. Drop the animations outright instead. */
+  .agent-visual-enter,
+  .agent-visual-bar,
+  .agent-visual-line,
+  .agent-visual-dot,
+  .agent-visual-slice {
+    animation: none;
+  }
+
+  .agent-visual-line {
+    stroke-dasharray: none;
+  }
+
+  .agent-visual-row {
+    transition: none;
+  }
 }

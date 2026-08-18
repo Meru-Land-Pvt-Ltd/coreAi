@@ -1,6 +1,16 @@
 import { apiClient, apiDelete, apiGet, apiPatch, apiPost, apiPut } from "@/lib/api";
-import type { AgentConfigureData, AgentMarketplacePreview } from "@coreai/shared";
+import type { AgentConfigureData, AgentMarketplacePreview, VisualResultsPayload } from "@coreai/shared";
 import type {
+  AgentPageConfig,
+  AgentPageManageData,
+  AgentPageUpdateBody,
+  DesignChatBody,
+  DesignChatData,
+  ProductChatBody,
+  ProductChatData,
+  SmartComposeData,
+  SmartDesignerBody,
+  SmartDesignerData,
   ArchitectListing,
   ArchitectProfile,
   ArchitectProject,
@@ -412,6 +422,30 @@ export function deleteArchitectListing(listingId: string, reason?: string) {
     `/architect/listings/${listingId}`,
     reason ? { reason } : undefined
   );
+}
+
+/**
+ * "My Keys" locker — a stored API key as it is safe to show an architect. The
+ * real value is NEVER returned; `maskedValue` is always a fixed mask.
+ */
+export type ArchitectSecret = {
+  id: string;
+  name: string;
+  maskedValue: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function getArchitectSecrets() {
+  return apiGet<{ secrets: ArchitectSecret[] }>("/architect/secrets");
+}
+
+export function addArchitectSecret(body: { name: string; value: string }) {
+  return apiPost<{ secret: ArchitectSecret }>("/architect/secrets", body);
+}
+
+export function deleteArchitectSecret(id: string) {
+  return apiDelete<{ deleted: boolean }>(`/architect/secrets/${id}`);
 }
 
 export type ArchitectPayoutMethod = {
@@ -898,6 +932,24 @@ export function runArchitectWorkflowTest(
     `/architect/workflows/${workflowId}/run-test`,
     body
   );
+}
+
+/**
+ * One sandboxed one-shot run for the builder's Test tab preview (media/form
+ * Faces). Same engine + output extraction as the public page's run endpoint,
+ * but architect-authed — never counted against the public page limiter.
+ */
+export function previewRunArchitectWorkflow(
+  workflowId: string,
+  body: { prompt: string; sessionId?: string }
+) {
+  return apiPost<{
+    output: {
+      text: string | null;
+      mediaUrls: string[];
+      structured?: VisualResultsPayload | null;
+    };
+  }>(`/architect/workflows/${workflowId}/preview-run`, body);
 }
 
 export function runArchitectWorkflowLive(
@@ -1505,6 +1557,25 @@ export function listWhatsAppConnections() {
   return apiGet<{ connections: WhatsAppConnection[] }>("/architect/whatsapp/connections");
 }
 
+/** One saved key in the architect's "My Keys" locker — the value is always masked. */
+export type ArchitectSecretSummary = {
+  id: string;
+  name: string;
+  maskedValue: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * List the architect's saved key NAMES for the API Call node's "My key"
+ * picker. Values are never returned by the backend — only masked. Degrades
+ * gracefully (empty list) when the locker endpoint is unavailable so the
+ * inspector still lets the architect type a name.
+ */
+export function listArchitectSecrets() {
+  return apiGet<{ secrets: ArchitectSecretSummary[] }>("/architect/secrets");
+}
+
 export function listWhatsAppConnectionsOwnerView() {
   return apiGet<{ connections: WhatsAppConnectionOwnerView[] }>("/architect/whatsapp/connections?view=owner");
 }
@@ -1562,4 +1633,50 @@ export function callbackWhatsAppEmbeddedSignup(params: {
     phoneNumber: params.phoneNumber
   });
   return apiGet<{ connection: WhatsAppConnection }>(`/integrations/whatsapp/callback?${qs.toString()}`);
+}
+
+export function getAgentPageConfig(workflowId: string) {
+  return apiGet<AgentPageManageData>(`/agent-pages/manage/${workflowId}`);
+}
+
+export function updateAgentPageConfig(workflowId: string, body: AgentPageUpdateBody) {
+  return apiPatch<{ page: AgentPageConfig; url: string }>(`/agent-pages/manage/${workflowId}`, body);
+}
+
+/**
+ * Design Brain chat: one styling instruction in the architect's own words,
+ * with up to the last 10 turns for context. The backend validates the LLM's
+ * patch against the dial schema before anything is saved.
+ */
+export function designChat(workflowId: string, body: DesignChatBody) {
+  return apiPost<DesignChatData>(`/agent-pages/manage/${workflowId}/design-chat`, body);
+}
+
+/**
+ * Product Architect: the other half of the Design Brain. Where designChat
+ * restyles the page that exists, this one WRITES the product — pages,
+ * sections, copy and the wires back to the agent — from one sentence.
+ * The backend validates and auto-fixes the whole blueprint before saving.
+ */
+export function productChat(workflowId: string, body: ProductChatBody) {
+  return apiPost<ProductChatData>(`/agent-pages/manage/${workflowId}/product-chat`, body);
+}
+
+/**
+ * AI Composer: reads every node's declarations and generates the minimum
+ * product interface from our pre-built components. No body — the saved
+ * workflow graph IS the brief. The backend validates the composed spec
+ * before saving, so a success here is always a renderable page.
+ */
+export function smartCompose(workflowId: string) {
+  return apiPost<SmartComposeData>(`/agent-pages/manage/${workflowId}/smart-compose`, {});
+}
+
+/**
+ * Smart Designer chat: the feedback loop on the composed interface. Product
+ * UI only — packaging asks (privacy, landing, sell pages) come back with
+ * `boundary: "packaging"` and nothing changed.
+ */
+export function smartDesignerChat(workflowId: string, body: SmartDesignerBody) {
+  return apiPost<SmartDesignerData>(`/agent-pages/manage/${workflowId}/smart-designer`, body);
 }

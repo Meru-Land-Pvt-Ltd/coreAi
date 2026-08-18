@@ -21,6 +21,7 @@ import { memoryRoutes } from "./modules/memory/routes";
 import { emailRoutes } from "./modules/email/routes";
 import { legalRoutes } from "./modules/legal/routes";
 import { publicBookingRoutes } from "./modules/public/booking-routes";
+import { agentPagesRoutes } from "./modules/agent-pages/routes";
 import { chatbotRoutes } from "./modules/chatbot/routes";
 import { supportRoutes } from "./modules/support/routes";
 import { integrationsRoutes } from "./modules/integrations/routes";
@@ -83,6 +84,9 @@ app.route("/api/legal", legalRoutes);
 // Public customer-facing booking/service-request endpoints (slug-addressed).
 app.route("/public", publicBookingRoutes);
 app.route("/api/public", publicBookingRoutes);
+// Published agent pages (triven.ai/a/<slug>) — public by design; /manage/* guarded per-route.
+app.route("/agent-pages", agentPagesRoutes);
+app.route("/api/agent-pages", agentPagesRoutes);
 app.route("/chatbot", chatbotRoutes);
 app.route("/api/chatbot", chatbotRoutes);
 

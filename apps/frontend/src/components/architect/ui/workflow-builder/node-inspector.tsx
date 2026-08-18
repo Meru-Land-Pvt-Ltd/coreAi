@@ -1,20 +1,28 @@
 import {
+  API_CALL_NODE_TYPE,
+  API_CALL_DEFAULT_OUTPUT_KEY,
+  API_CALL_YOUTUBE_PRESET,
+  BLOCK_NODE_TYPES,
   CALENDLY_ACTION_OPTIONS,
   CALENDLY_NODE_TYPES,
   CALENDLY_TRIGGER_EVENTS,
   calendlyActionPaidPlanNote,
   DEEPGRAM_NODE_TYPES,
+  DESIGN_BRAIN_NODE_TYPE,
   EMAIL_TEMPLATE_VARIABLES,
   LLM_PROVIDERS,
-  SCRIPT_NODE_TYPE,
+  NODE_DOORS_DISABLED_KEY,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_TYPES,
+  isBlockNodeType,
   defaultLlmModelForProvider,
   findUnknownPromptVariables,
   getCalendlyActionIo,
   getCalendlyVariableGuide,
   getLlmModelsForProvider,
   getNodeDefinition,
+  hasNodeDoors,
+  nodeDoorsEnabled,
   resolveLlmSelection
 } from "@coreai/shared";
 import { useState, useEffect, type ReactNode } from "react";
@@ -23,13 +31,15 @@ import {
   disconnectCalendlyConnector,
   getCalendlyConnectorStatus,
   getCalendlyOAuthUrl,
+  listArchitectSecrets,
   listWhatsAppConnections,
   type WhatsAppConnection
 } from "@/components/architect/features/api";
 import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
 import { WhatsAppIcon } from "@/components/architect/features/whatsapp/WhatsAppIcon";
 import { BuilderIcon } from "./icons";
-import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
+import type { BuilderNode, BuilderNodeData, AIAttachment, BlockPreset, BlockModelOption } from "./types";
+import { DesignBrainPanel } from "./design-brain-panel";
 import { LlmNodeInspector } from "./llm-node-inspector";
 import { DeepgramNodeInspector } from "./deepgram-node-inspector";
 import { DeepgramTtsNodeInspector } from "./deepgram-tts-node-inspector";
@@ -106,7 +116,10 @@ export function NodeInspector({
   calendarEmail = null,
   connectingCalendar = false,
   onConnectCalendar,
-  variableNodePrefixes
+  variableNodePrefixes,
+  workflowId = null,
+  previewVisible = false,
+  onDesignApplied
 }: {
   selectedNode: BuilderNode | null;
   onClearSelection: () => void;
@@ -120,6 +133,16 @@ export function NodeInspector({
   onConnectCalendar?: () => void;
   /** Node ids/labels from the graph — whitelists {{node.prop}}-style tokens in warnings. */
   variableNodePrefixes?: string[];
+  /** Saved workflow id — lets the Design Brain chat talk to the backend. */
+  workflowId?: string | null;
+  /** True while the Test preview is on screen (Design Brain skips its "check the Test tab" note). */
+  previewVisible?: boolean;
+  /**
+   * Design Brain applied a patch — the builder refetches the Test preview
+   * data; `graphChanged` true means the saved canvas graph changed too and
+   * the builder reloads nodes/edges from the server.
+   */
+  onDesignApplied?: (result: { graphChanged?: boolean }) => void;
 }) {
   if (!selectedNode) return <EmptyProperties />;
 
@@ -132,11 +155,28 @@ export function NodeInspector({
 
   const ownership = connectorOwnership;
   const type = String(selectedNode.data.type ?? "");
+  // Product blocks live in the customer's world: the frame drops builder
+  // jargon ("Node properties", "Delete Node") and the variable-mapping drawer
+  // — an architect fills in words and choices here, nothing more technical.
+  const isProductBlock =
+    isBlockNodeType(type) || String(selectedNode.data.nodeKind ?? "") === "block";
+  // The Design Brain is a chat, not a form — it gets the block-style frame
+  // (no jargon, no variable drawer) but its own header and no step overview.
+  const isDesignBrain = type === DESIGN_BRAIN_NODE_TYPE;
   const base: NodePropsPanel = { selectedNode, onUpdateNodeData, variableNodePrefixes };
 
   let panel: ReactNode;
 
-  if (type === "ai.image_generation") panel = <ImageGenNodeProps {...base} />;
+  if (isDesignBrain) {
+    panel = (
+      <DesignBrainPanel
+        workflowId={workflowId}
+        previewVisible={previewVisible}
+        onDesignApplied={onDesignApplied}
+      />
+    );
+  }
+  else if (type === "ai.image_generation") panel = <ImageGenNodeProps {...base} />;
   else if (type === DEEPGRAM_NODE_TYPES.stt || (type === DEEPGRAM_NODE_TYPES.speech && String(selectedNode.data.mode ?? "stt") !== "tts")) {
     panel = <DeepgramNodeInspector {...base} />;
   } else if (type === DEEPGRAM_NODE_TYPES.tts || (type === DEEPGRAM_NODE_TYPES.speech && String(selectedNode.data.mode ?? "") === "tts")) {
@@ -166,7 +206,15 @@ export function NodeInspector({
   }
   else if (type === "action.send_whatsapp" || type === "communication.send_whatsapp") {
     panel = <WhatsAppSendProps {...base} />;
-  } else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
+  } else if (type === API_CALL_NODE_TYPE) panel = <ApiCallProps {...base} />;
+  else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
+  else if (type === BLOCK_NODE_TYPES.promptComposer) panel = <PromptBoxBlockProps {...base} />;
+  else if (type === BLOCK_NODE_TYPES.presetGallery) panel = <StylesGalleryBlockProps {...base} />;
+  else if (type === BLOCK_NODE_TYPES.modelPicker) panel = <ModelPickerBlockProps {...base} />;
+  else if (type === BLOCK_NODE_TYPES.actionButton) panel = <ActionButtonBlockProps {...base} />;
+  else if (type === BLOCK_NODE_TYPES.outputStage) panel = <ResultViewerBlockProps {...base} />;
+  else if (type === BLOCK_NODE_TYPES.continueChain) panel = <ContinueButtonBlockProps {...base} />;
+  else if (type === BLOCK_NODE_TYPES.historyShelf) panel = <HistoryShelfBlockProps {...base} />;
   else if (selectedNode.data.nodeKind === "trigger") panel = <TriggerProps {...base} />;
   else if (selectedNode.data.nodeKind === "ai") panel = <AiProps {...base} />;
   else if (selectedNode.data.nodeKind === "condition") panel = <ConditionProps {...base} />;
@@ -185,7 +233,7 @@ export function NodeInspector({
             className="font-bold text-slate-900"
             data-testid="architect-ui-workflow-builder-node-inspector-node-properties-text"
           >
-            Node properties
+            {isDesignBrain ? "Design Brain" : isProductBlock ? "Product section" : "Node properties"}
           </span>
         </div>
 
@@ -194,7 +242,7 @@ export function NodeInspector({
           onClick={onClearSelection}
           data-testid="node-inspector-clear"
           className="rounded-lg p-1 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
-          aria-label="Deselect node"
+          aria-label={isProductBlock ? "Close" : "Deselect node"}
         >
           <BuilderIcon name="x" className="h-4 w-4" />
         </button>
@@ -202,9 +250,18 @@ export function NodeInspector({
 
       {panel}
 
-      <NodeOverviewPanel node={selectedNode} />
+      {/* The Design Brain explains itself in chat — no step overview card. */}
+      {isDesignBrain ? null : <NodeOverviewPanel node={selectedNode} />}
 
-      <NodeAdvancedSettingsPanel node={selectedNode} />
+      {/* The variable-mapping drawer is engine territory — never for blocks. A
+          product section that carries doors still gets the one quiet switch. */}
+      {isProductBlock ? (
+        hasNodeDoors(type) ? (
+          <NodeAdvancedSettingsPanel node={selectedNode} onUpdateNodeData={onUpdateNodeData} doorsOnly />
+        ) : null
+      ) : (
+        <NodeAdvancedSettingsPanel node={selectedNode} onUpdateNodeData={onUpdateNodeData} />
+      )}
 
       <div className="border-t border-gray-100 p-5">
         <button
@@ -213,7 +270,7 @@ export function NodeInspector({
           data-testid="node-inspector-delete"
           className="w-full rounded-xl border border-red-100 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-100"
         >
-          Delete Node
+          {isProductBlock ? "Remove section" : "Delete Node"}
         </button>
       </div>
     </div>
@@ -701,7 +758,7 @@ function CalendarConnector({
 }
 
 type StepOverview = {
-  tone: "amber" | "violet" | "blue" | "green" | "orange" | "slate";
+  tone: "amber" | "violet" | "blue" | "green" | "orange" | "slate" | "rose";
   summary: string;
   needs: string[];
   creates: string[];
@@ -749,6 +806,12 @@ const TONE_CLASSNAMES: Record<StepOverview["tone"], {
     icon: "bg-slate-700 text-white",
     title: "text-slate-800",
     chip: "border-slate-200 bg-white text-slate-600"
+  },
+  rose: {
+    card: "border-rose-100 bg-rose-50/70",
+    icon: "bg-rose-600 text-white",
+    title: "text-rose-800",
+    chip: "border-rose-100 bg-white/80 text-rose-700"
   }
 };
 
@@ -896,6 +959,16 @@ function nodeOverview(node: BuilderNode): StepOverview {
       needs: required.length ? required : [connector ? `${connector} configuration` : "Connector configuration"],
       creates: produced.length ? produced : ["Action result"],
       setup: [connector ? `${connector} access is resolved during buyer setup or deployment` : "Connection setup depends on this action"]
+    };
+  }
+
+  if (nodeKind === "block" || type.startsWith("block.")) {
+    return {
+      tone: "rose",
+      summary: definition?.description ?? "A pre-designed section of your customer's page.",
+      needs: ["Your words and choices"],
+      creates: ["A section your customer sees"],
+      setup: ["Design is handled by Triven — you only fill in the content"]
     };
   }
 
@@ -1089,7 +1162,64 @@ function FriendlyVariableGroup({
   );
 }
 
-function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
+/**
+ * The quiet switch for the doors built inside a step.
+ *
+ * Steps that carry doors read what arrives and tidy what they return without
+ * anyone placing an AI node for it. That is on from the start and stays out of
+ * sight — this switch exists only so an architect who wants the raw, literal
+ * behaviour can have it. Off stores `doorsDisabled: "true"`, the one key the
+ * runtime looks at.
+ */
+function NodeDoorsToggle({
+  node,
+  onUpdateNodeData
+}: {
+  node: BuilderNode;
+  onUpdateNodeData: NodePropsPanel["onUpdateNodeData"];
+}) {
+  const enabled = nodeDoorsEnabled(node.data);
+
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="text-[12px] font-semibold text-slate-700">Smart input &amp; output</p>
+        <p className="mt-0.5 text-[11px] leading-4 text-slate-400">
+          Lets this step understand what arrives and tidy what it returns.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label="Smart input & output"
+        data-testid="node-doors-toggle"
+        onClick={() => onUpdateNodeData(NODE_DOORS_DISABLED_KEY, enabled ? "true" : "false")}
+        className={`mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${
+          enabled ? "bg-amber-500" : "bg-gray-300"
+        }`}
+      >
+        <span
+          className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${
+            enabled ? "translate-x-[18px]" : "translate-x-[2px]"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
+function NodeAdvancedSettingsPanel({
+  node,
+  onUpdateNodeData,
+  doorsOnly = false
+}: {
+  node: BuilderNode;
+  onUpdateNodeData: NodePropsPanel["onUpdateNodeData"];
+  /** Product sections get the switch alone — never the variable-mapping drawer. */
+  doorsOnly?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -1156,7 +1286,11 @@ function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
 
       {open ? (
         <div className="mt-3 space-y-4" data-testid="node-advanced-settings">
-          {isCalendlyAction ? (
+          {hasNodeDoors(type) ? (
+            <NodeDoorsToggle node={node} onUpdateNodeData={onUpdateNodeData} />
+          ) : null}
+
+          {doorsOnly ? null : isCalendlyAction ? (
             <>
               <FriendlyVariableGroup
                 title="Input mapping"
@@ -1201,27 +1335,31 @@ function NodeAdvancedSettingsPanel({ node }: { node: BuilderNode }) {
             </>
           )}
 
-          <AdvancedVariableGroup
-            title="Variables"
-            testId="node-advanced-variables"
-            emptyText="No variables are used in this step yet."
-            helper="Variables referenced by this step's fields. Click one to copy it, then paste it into any text field."
-            keys={usedKeys}
-            copiedKey={copiedKey}
-            onCopy={handleCopy}
-          />
+          {doorsOnly ? null : (
+            <AdvancedVariableGroup
+              title="Variables"
+              testId="node-advanced-variables"
+              emptyText="No variables are used in this step yet."
+              helper="Variables referenced by this step's fields. Click one to copy it, then paste it into any text field."
+              keys={usedKeys}
+              copiedKey={copiedKey}
+              onCopy={handleCopy}
+            />
+          )}
 
-          <div data-testid="node-advanced-developer">
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Developer options</p>
-            <div className="space-y-1 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-[11px] leading-5 text-slate-500">
-              <p>id: {node.id}</p>
-              <p>type: {type || "—"}</p>
-              <p>kind: {String(node.data.nodeKind ?? "—")}</p>
-              {connector ? <p>connector: {connector}</p> : null}
-              {connectorAction ? <p>action: {connectorAction}</p> : null}
-              {definition?.capability ? <p>capability: {definition.capability}</p> : null}
+          {doorsOnly ? null : (
+            <div data-testid="node-advanced-developer">
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Developer options</p>
+              <div className="space-y-1 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-[11px] leading-5 text-slate-500">
+                <p>id: {node.id}</p>
+                <p>type: {type || "—"}</p>
+                <p>kind: {String(node.data.nodeKind ?? "—")}</p>
+                {connector ? <p>connector: {connector}</p> : null}
+                {connectorAction ? <p>action: {connectorAction}</p> : null}
+                {definition?.capability ? <p>capability: {definition.capability}</p> : null}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       ) : null}
     </div>
@@ -1971,6 +2109,235 @@ function SendSmsProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   );
 }
 
+/**
+ * Fetch the architect's saved key NAMES for the "My key" picker. Best-effort:
+ * an empty list (locker route missing, offline, no keys) is fine — the
+ * inspector falls back to a plain name field so the node stays usable.
+ */
+function useArchitectSecretNames(): string[] {
+  const [names, setNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listArchitectSecrets()
+      .then((res) => {
+        if (cancelled) return;
+        const secrets = res.success && res.data ? res.data.secrets : [];
+        setNames(secrets.map((secret) => secret.name).filter(Boolean));
+      })
+      .catch(() => {
+        if (!cancelled) setNames([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return names;
+}
+
+/**
+ * API Call node — the universal "connect to a service" action. Plain fields the
+ * architect can always open and read: method, URL, optional headers/body, which
+ * stored key to use and how it rides on the request, and where the reply lands.
+ */
+function ApiCallProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const secretNames = useArchitectSecretNames();
+
+  const method = str("apiMethod", "GET").toUpperCase() === "POST" ? "POST" : "GET";
+  const keySource = str("apiKeySource", "none");
+  const keyInjection = str("apiKeyInjection", "query") === "header" ? "header" : "query";
+  const outputKey = str("apiOutputKey", API_CALL_DEFAULT_OUTPUT_KEY);
+
+  const applyYouTubePreset = () => {
+    for (const [key, value] of Object.entries(API_CALL_YOUTUBE_PRESET)) {
+      onUpdateNodeData(key as keyof BuilderNodeData, value);
+    }
+  };
+
+  return (
+    <>
+      <Section title="Quick start">
+        <p className="mb-3 text-[11px] leading-5 text-slate-500">
+          One step that fetches live data from any service on the internet — a channel’s
+          stats, today’s weather, a stock price. Fill the fields below, or start from a
+          working example.
+        </p>
+        <button
+          type="button"
+          onClick={applyYouTubePreset}
+          data-testid="node-inspector-api-youtube-preset"
+          className="w-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+        >
+          Use “YouTube channel stats” example
+        </button>
+      </Section>
+
+      <Section title="The request">
+        <Label>Method</Label>
+        <SelectBox
+          value={method}
+          onChange={set("apiMethod")}
+          options={[
+            { value: "GET", label: "GET — read data" },
+            { value: "POST", label: "POST — send data" }
+          ]}
+          testId="node-inspector-api-method"
+        />
+
+        <div className="mt-4">
+          <Label>Web address (URL)</Label>
+          <TextInput
+            value={str("apiUrl")}
+            onChange={set("apiUrl")}
+            mono
+            placeholder="https://api.example.com/data"
+            testId="node-inspector-api-url"
+          />
+          <p className="mt-2 text-[11px] leading-5 text-slate-400">
+            Insert values from earlier steps with double braces, e.g.{" "}
+            <span className="font-mono text-slate-500">{"{{latestMessage}}"}</span> or{" "}
+            <span className="font-mono text-slate-500">{"{{business.name}}"}</span>.
+          </p>
+        </div>
+
+        <div className="mt-4">
+          <Label>Headers (optional)</Label>
+          <TextArea
+            height="h-16"
+            mono
+            value={str("apiHeaders")}
+            onChange={set("apiHeaders")}
+            placeholder={"One per line, e.g.\nAccept: application/json"}
+            testId="node-inspector-api-headers"
+          />
+        </div>
+
+        {method === "POST" ? (
+          <div className="mt-4">
+            <Label>Body (JSON, optional)</Label>
+            <TextArea
+              height="h-20"
+              mono
+              value={str("apiBody")}
+              onChange={set("apiBody")}
+              placeholder={'{\n  "query": "{{latestMessage}}"\n}'}
+              testId="node-inspector-api-body"
+            />
+          </div>
+        ) : null}
+      </Section>
+
+      <Section title="Your key">
+        <Label>Which key to use</Label>
+        <SelectBox
+          value={keySource}
+          onChange={set("apiKeySource")}
+          options={[
+            { value: "none", label: "No key needed" },
+            { value: "my_key", label: "One of my saved keys" },
+            { value: "platform_youtube", label: "Platform YouTube key (no setup)" }
+          ]}
+          testId="node-inspector-api-key-source"
+        />
+
+        {keySource === "my_key" ? (
+          <div className="mt-4">
+            <Label>Key name</Label>
+            {secretNames.length > 0 ? (
+              <SelectBox
+                value={str("apiKeyName")}
+                onChange={set("apiKeyName")}
+                options={[
+                  { value: "", label: "Choose a saved key…" },
+                  ...secretNames.map((name) => ({ value: name, label: name }))
+                ]}
+                testId="node-inspector-api-key-name"
+              />
+            ) : (
+              <TextInput
+                value={str("apiKeyName")}
+                onChange={set("apiKeyName")}
+                placeholder="The name you gave it in My Keys"
+                testId="node-inspector-api-key-name"
+              />
+            )}
+            <p className="mt-2 text-[11px] leading-5 text-slate-400">
+              Add and manage keys in My Keys. Your key is used only for this request and
+              is never shown to your customer.
+            </p>
+          </div>
+        ) : null}
+
+        {keySource === "platform_youtube" ? (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">
+            Uses Triven’s shared YouTube key so the example works right away — no key
+            setup needed.
+          </p>
+        ) : null}
+
+        {keySource !== "none" ? (
+          <>
+            <div className="mt-4">
+              <Label>Where the key goes</Label>
+              <SelectBox
+                value={keyInjection}
+                onChange={set("apiKeyInjection")}
+                options={[
+                  { value: "query", label: "In the web address (query parameter)" },
+                  { value: "header", label: "In a header" }
+                ]}
+                testId="node-inspector-api-key-injection"
+              />
+            </div>
+
+            <div className="mt-4">
+              <Label>{keyInjection === "header" ? "Header name" : "Parameter name"}</Label>
+              <TextInput
+                value={str("apiKeyParam")}
+                onChange={set("apiKeyParam")}
+                mono
+                placeholder={keyInjection === "header" ? "Authorization" : "key"}
+                testId="node-inspector-api-key-param"
+              />
+            </div>
+
+            {keyInjection === "header" ? (
+              <div className="mt-4">
+                <Label>Value prefix (optional)</Label>
+                <TextInput
+                  value={str("apiKeyPrefix")}
+                  onChange={set("apiKeyPrefix")}
+                  mono
+                  placeholder="Bearer "
+                  testId="node-inspector-api-key-prefix"
+                />
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </Section>
+
+      <Section title="The reply" last>
+        <Label>Save the reply as</Label>
+        <TextInput
+          value={outputKey}
+          onChange={set("apiOutputKey")}
+          mono
+          placeholder={API_CALL_DEFAULT_OUTPUT_KEY}
+          testId="node-inspector-api-output-key"
+        />
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          A later AI Brain step can read it with{" "}
+          <span className="font-mono text-slate-500">{`{{${outputKey || API_CALL_DEFAULT_OUTPUT_KEY}}}`}</span>.
+          Up to 5 service calls run per session.
+        </p>
+      </Section>
+    </>
+  );
+}
+
 function EndFlowProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
 
@@ -1988,6 +2355,348 @@ function EndFlowProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
         <div className="mt-4">
           <BoolField label="Call recording" value={flag("callRecording", true)} onChange={set("callRecording")} />
         </div>
+      </Section>
+    </>
+  );
+}
+
+/* ------------- "Your Product" block panels (customer page sections) ------------- */
+
+/** Stable id for a new gallery card / model choice row. */
+function newBlockRowId(prefix: string): string {
+  return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+const MAX_GALLERY_PRESETS = 8;
+const MAX_MODEL_OPTIONS = 6;
+const BLOCK_TEXT_MAX = 120;
+
+function PromptBoxBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="General">
+        <Label>Section name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+      </Section>
+
+      <Section title="Prompt Box" last>
+        <Label>Hint text</Label>
+        <TextInput
+          value={str("placeholder", "Describe what you want…")}
+          onChange={set("placeholder")}
+          placeholder="Describe what you want…"
+          maxLength={BLOCK_TEXT_MAX}
+          testId="block-prompt-placeholder-input"
+        />
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          Shown faintly inside the box until your customer starts typing.
+        </p>
+      </Section>
+    </>
+  );
+}
+
+function StylesGalleryBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { set } = fields(selectedNode, onUpdateNodeData);
+  const presets: BlockPreset[] = Array.isArray(selectedNode.data.presets)
+    ? (selectedNode.data.presets as BlockPreset[])
+    : [];
+
+  const updatePresets = (next: BlockPreset[]) => onUpdateNodeData("presets", next);
+
+  return (
+    <>
+      <Section title="General">
+        <Label>Section name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+      </Section>
+
+      <Section title="Style cards" last>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <p className="text-xs leading-5 text-slate-500">
+            Each card is one tap for your customer — an emoji, a name, and your hidden style instructions.
+          </p>
+          <button
+            type="button"
+            onClick={() =>
+              updatePresets([
+                ...presets,
+                { id: newBlockRowId("style"), title: "", emoji: "", promptFragment: "" }
+              ])
+            }
+            disabled={presets.length >= MAX_GALLERY_PRESETS}
+            data-testid="block-preset-add"
+            className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
+          >
+            Add style
+          </button>
+        </div>
+
+        {presets.length ? (
+          <div className="mt-3 space-y-3">
+            {presets.map((preset, index) => {
+              const updatePreset = (patch: Partial<BlockPreset>) => {
+                updatePresets(
+                  presets.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item))
+                );
+              };
+
+              return (
+                <div
+                  key={preset.id}
+                  className="rounded-xl border border-rose-100 bg-white p-3"
+                  data-testid="block-preset-row"
+                >
+                  <div className="flex gap-2">
+                    <div className="w-16 shrink-0">
+                      <Label>Emoji</Label>
+                      <TextInput
+                        value={preset.emoji}
+                        onChange={(value) => updatePreset({ emoji: value.slice(0, 4) })}
+                        placeholder="🎨"
+                        maxLength={4}
+                        testId="block-preset-emoji-input"
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <Label>Style name</Label>
+                      <TextInput
+                        value={preset.title}
+                        onChange={(value) => updatePreset({ title: value })}
+                        placeholder="e.g. Watercolor"
+                        maxLength={BLOCK_TEXT_MAX}
+                        testId="block-preset-title-input"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <Label>Hidden style instructions (your customer never sees this)</Label>
+                    <TextArea
+                      value={preset.promptFragment}
+                      onChange={(value) => updatePreset({ promptFragment: value })}
+                      height="h-16"
+                      placeholder="e.g. soft watercolor wash, pastel palette, textured paper"
+                      maxLength={BLOCK_TEXT_MAX}
+                      testId="block-preset-instructions-textarea"
+                    />
+                  </div>
+
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => updatePresets(presets.filter((_, itemIndex) => itemIndex !== index))}
+                      data-testid="block-preset-remove"
+                      className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-slate-500" data-testid="block-preset-empty">
+            No styles yet. Add up to {MAX_GALLERY_PRESETS}.
+          </p>
+        )}
+
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          Cards need a name to appear on your customer&apos;s page.
+        </p>
+      </Section>
+    </>
+  );
+}
+
+function ModelPickerBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { set } = fields(selectedNode, onUpdateNodeData);
+  const options: BlockModelOption[] = Array.isArray(selectedNode.data.options)
+    ? (selectedNode.data.options as BlockModelOption[])
+    : [];
+
+  const updateOptions = (next: BlockModelOption[]) => onUpdateNodeData("options", next);
+
+  return (
+    <>
+      <Section title="General">
+        <Label>Section name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+      </Section>
+
+      <Section title="Choices" last>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <p className="text-xs leading-5 text-slate-500">
+            Your customer picks one of these before they generate.
+          </p>
+          <button
+            type="button"
+            onClick={() => updateOptions([...options, { id: newBlockRowId("model"), label: "" }])}
+            disabled={options.length >= MAX_MODEL_OPTIONS}
+            data-testid="block-model-option-add"
+            className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
+          >
+            Add choice
+          </button>
+        </div>
+
+        {options.length ? (
+          <div className="mt-3 space-y-2">
+            {options.map((option, index) => (
+              <div
+                key={option.id}
+                className="flex items-end gap-2 rounded-xl border border-rose-100 bg-white p-3"
+                data-testid="block-model-option-row"
+              >
+                <div className="min-w-0 flex-1">
+                  <Label>Shown as</Label>
+                  <TextInput
+                    value={option.label}
+                    onChange={(value) =>
+                      updateOptions(
+                        options.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, label: value } : item
+                        )
+                      )
+                    }
+                    placeholder="e.g. Fast & playful"
+                    maxLength={BLOCK_TEXT_MAX}
+                    testId="block-model-option-label-input"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => updateOptions(options.filter((_, itemIndex) => itemIndex !== index))}
+                  data-testid="block-model-option-remove"
+                  className="rounded-lg px-2.5 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-slate-500" data-testid="block-model-option-empty">
+            No choices yet. Add up to {MAX_MODEL_OPTIONS}.
+          </p>
+        )}
+      </Section>
+    </>
+  );
+}
+
+const BUTTON_LABEL_MAX = 40;
+
+function ActionButtonBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const label = str("label", "Go");
+
+  return (
+    <>
+      <Section title="General">
+        <Label>Section name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+      </Section>
+
+      <Section title="Button" last>
+        <Label>Button text</Label>
+        <TextInput
+          value={label}
+          onChange={set("label")}
+          placeholder="Go"
+          maxLength={BUTTON_LABEL_MAX}
+          testId="block-action-button-label-input"
+        />
+        <p
+          className="mt-1 text-right text-[11px] text-slate-400"
+          data-testid="block-action-button-label-count"
+        >
+          {label.length}/{BUTTON_LABEL_MAX}
+        </p>
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          Your customer presses this. Connect it to the steps it should run.
+        </p>
+      </Section>
+    </>
+  );
+}
+
+function ResultViewerBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="General">
+        <Label>Section name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+      </Section>
+
+      <Section title="Result Viewer" last>
+        <Label>What it shows</Label>
+        <SelectBox
+          value={str("kind", "auto")}
+          onChange={set("kind")}
+          options={[
+            { value: "auto", label: "Auto — match what comes back" },
+            { value: "image", label: "Image" },
+            { value: "video", label: "Video" },
+            { value: "text", label: "Words" }
+          ]}
+          testId="block-result-kind-select"
+        />
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          Auto is right for most products — it shows whatever the result is.
+        </p>
+      </Section>
+    </>
+  );
+}
+
+function ContinueButtonBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="General">
+        <Label>Section name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+      </Section>
+
+      <Section title="Continue Button" last>
+        <Label>Button words</Label>
+        <TextInput
+          value={str("label", "Continue")}
+          onChange={set("label")}
+          placeholder="Continue"
+          maxLength={BLOCK_TEXT_MAX}
+          testId="block-continue-label-input"
+        />
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          Appears after a result, so your customer can keep going with one tap.
+        </p>
+      </Section>
+    </>
+  );
+}
+
+function HistoryShelfBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="General">
+        <Label>Section name</Label>
+        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+      </Section>
+
+      <Section title="History Shelf" last>
+        <p className="text-xs leading-5 text-slate-500" data-testid="block-history-note">
+          Nothing to set up. The shelf automatically collects everything your customer makes during
+          their visit, so they can bring any of it back with a tap.
+        </p>
       </Section>
     </>
   );

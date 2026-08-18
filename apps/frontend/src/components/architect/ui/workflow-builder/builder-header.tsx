@@ -1,16 +1,42 @@
 import type { Route } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { ChevronDown, Monitor, Move, Smartphone, Tablet } from "lucide-react";
 import { cn } from "@/components/architect/ui/architect-ui";
+import type { ContentWidth } from "@/components/agent-page/types";
 import { BuilderIcon } from "./icons";
+import type { PreviewDevice } from "./preview-panel";
 import type { BuilderTab } from "./types";
 
 const BUILDER_STEPS: Array<{ id: BuilderTab; label: string; step: number }> = [
   { id: "build", label: "Build", step: 1 },
-  { id: "test", label: "Test", step: 2 },
+  { id: "test", label: "Preview", step: 2 },
   { id: "configure", label: "Configure", step: 3 },
   { id: "publish", label: "Publish", step: 4 }
 ];
+
+/** The three ways to look at the customer page — shown on the Preview step. */
+const PREVIEW_DEVICES: Array<{ id: PreviewDevice; label: string; icon: typeof Monitor }> = [
+  { id: "desktop", label: "Desktop", icon: Monitor },
+  { id: "tablet", label: "Tablet", icon: Tablet },
+  { id: "phone", label: "Phone", icon: Smartphone }
+];
+
+/**
+ * How wide the architect's product runs on big screens. Plain words, widest
+ * last. The rule this control cannot break — phones and tablets always use
+ * the whole screen — is spelled out in its tooltip, so nobody has to guess
+ * why the phone frame ignores it.
+ */
+const PREVIEW_WIDTHS: Array<{ id: ContentWidth; label: string }> = [
+  { id: "compact", label: "Compact" },
+  { id: "standard", label: "Standard" },
+  { id: "wide", label: "Wide" },
+  { id: "full", label: "Full screen" }
+];
+
+const PREVIEW_WIDTH_HINT =
+  "How wide your product runs on big screens. Phones and tablets always use the whole screen.";
 
 function HeaderButton({
   children,
@@ -52,13 +78,20 @@ export function BuilderHeader({
   publishLocked = false,
   canUndo = false,
   canRedo = false,
+  previewDevice = "desktop",
+  onPreviewDeviceChange,
+  previewWidth = "standard",
+  onPreviewWidthChange,
+  showPreviewControls = false,
+  arrangeMode = false,
+  onArrangeModeChange,
+  onOpenAdvanced,
   onUndo,
   onRedo,
   onAgentNameChange,
   onTabChange,
   onRunTest,
-  onSave,
-  onPreview
+  onSave
 }: {
   agentName: string;
   message: string;
@@ -71,13 +104,29 @@ export function BuilderHeader({
   publishLocked?: boolean;
   canUndo?: boolean;
   canRedo?: boolean;
+  /** Device the Test preview shows; only read while showPreviewControls. */
+  previewDevice?: PreviewDevice;
+  onPreviewDeviceChange?: (device: PreviewDevice) => void;
+  /**
+   * The saved `contentWidth` design dial; only read while showPreviewControls.
+   * Changing it saves the design — that is why the control is disabled while
+   * the agent is review-locked, like every other builder write.
+   */
+  previewWidth?: ContentWidth;
+  onPreviewWidthChange?: (width: ContentWidth) => void;
+  /** True only on the Preview step — renders the compact device switcher. */
+  showPreviewControls?: boolean;
+  /** Arrange mode (drag blocks on the preview page); desktop view only. */
+  arrangeMode?: boolean;
+  onArrangeModeChange?: (on: boolean) => void;
+  /** Opens the full testing console (the quiet "Advanced testing" link). */
+  onOpenAdvanced?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
   onAgentNameChange: (value: string) => void;
   onTabChange: (tab: BuilderTab) => void;
   onRunTest: () => void;
   onSave: () => void;
-  onPreview?: () => void;
 }) {
   void message;
   void hasGmailFlow;
@@ -145,6 +194,101 @@ export function BuilderHeader({
         </div>
 
         <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] sm:gap-2 [&::-webkit-scrollbar]:hidden">
+          {showPreviewControls ? (
+            <>
+              {/* Compact device switcher — same height family as the header
+                  buttons, zero extra chrome. The tooltip carries the promise
+                  the old caption used to spell out. */}
+              <div
+                data-testid="preview-device-switcher"
+                title="This is exactly what your customer will see."
+                className="flex h-8 flex-none items-center rounded-full border border-slate-200 bg-white p-0.5"
+              >
+                {PREVIEW_DEVICES.map(({ id, label, icon: Icon }) => {
+                  const active = previewDevice === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => onPreviewDeviceChange?.(id)}
+                      aria-label={label}
+                      title={label}
+                      aria-pressed={active}
+                      data-testid={`preview-device-${id}`}
+                      className={cn(
+                        "grid h-7 w-8 place-items-center rounded-full transition",
+                        active ? "bg-amber-500 text-white" : "text-slate-500 hover:bg-amber-50 hover:text-amber-700"
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Width: how wide the product runs on big screens. Same pill
+                  family and same 32px height as the device switcher, so the
+                  toolbar never grows a second row. */}
+              <label
+                data-testid="preview-width-control"
+                title={PREVIEW_WIDTH_HINT}
+                className="flex h-8 flex-none items-center gap-1.5 rounded-full border border-slate-200 bg-white pl-3 pr-2"
+              >
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  Width
+                </span>
+                <span className="relative flex items-center">
+                  <select
+                    data-testid="preview-width-select"
+                    value={previewWidth}
+                    disabled={locked}
+                    onChange={(event) =>
+                      onPreviewWidthChange?.(event.target.value as ContentWidth)
+                    }
+                    aria-label="Content width"
+                    className="cursor-pointer appearance-none rounded-full bg-transparent py-0.5 pl-1 pr-5 text-xs font-semibold text-slate-600 transition hover:text-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {PREVIEW_WIDTHS.map(({ id, label }) => (
+                      <option key={id} value={id} data-testid={`preview-width-${id}`}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    className="pointer-events-none absolute right-0 h-3.5 w-3.5 text-slate-400"
+                    aria-hidden="true"
+                  />
+                </span>
+              </label>
+              {previewDevice === "desktop" ? (
+                // Arrange: drag the page's sections anywhere (desktop view
+                // only — small screens always keep the clean stacked flow).
+                <button
+                  type="button"
+                  onClick={() => onArrangeModeChange?.(!arrangeMode)}
+                  aria-pressed={arrangeMode}
+                  title="Drag to arrange"
+                  data-testid="preview-arrange-toggle"
+                  className={cn(
+                    "flex h-8 flex-none items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition",
+                    arrangeMode
+                      ? "border-amber-500 bg-amber-500 text-white"
+                      : "border-slate-200 bg-white text-slate-500 hover:bg-amber-50 hover:text-amber-700"
+                  )}
+                >
+                  <Move className="h-3.5 w-3.5" aria-hidden="true" />
+                  Arrange
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={onOpenAdvanced}
+                data-testid="preview-panel-advanced-toggle"
+                className="hidden flex-none text-[11px] font-medium text-slate-400 underline-offset-4 transition hover:text-slate-600 hover:underline sm:block"
+              >
+                Advanced testing
+              </button>
+            </>
+          ) : null}
           <div className="hidden items-center gap-1 md:flex">
             <button
               type="button"
@@ -177,24 +321,14 @@ export function BuilderHeader({
           </div>
           <button
             type="button"
-            onClick={onPreview}
-            disabled={running || saving}
-            data-testid="builder-preview"
-            className="hidden items-center gap-2 rounded-xl border border-gray-200 px-3.5 py-2 text-sm text-slate-600 transition hover:border-amber-300 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:flex"
-          >
-            <BuilderIcon name="eye" className="h-4 w-4" />
-            <span className="hidden lg:inline">Preview</span>
-          </button>
-          <button
-            type="button"
             onClick={onRunTest}
             disabled={running || saving || locked}
             data-testid="builder-run-test"
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 sm:gap-2 sm:rounded-xl sm:px-3.5 sm:py-2 sm:text-sm"
           >
             <BuilderIcon name="play" className="h-3.5 w-3.5 shrink-0" />
-            <span className="sm:hidden">{running ? "…" : "Test"}</span>
-            <span className="hidden sm:inline">{running ? "Running..." : "Test Workflow"}</span>
+            <span className="sm:hidden">{running ? "…" : "Run"}</span>
+            <span className="hidden sm:inline">{running ? "Running..." : "Run"}</span>
           </button>
           <button
             type="button"
