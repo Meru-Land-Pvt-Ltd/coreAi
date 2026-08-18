@@ -435,7 +435,16 @@ export default function AdminPhoneNumbersPage() {
                           {busy === `webhooks-${row.id}` ? "Configuring…" : "Configure webhooks"}
                         </button>
                       ) : null}
-                      {row.twilioSid && !row.business && row.status === "AVAILABLE" ? (
+                      {row.vapiPhoneNumberId ? (
+                        <span
+                          data-testid={`admin-phone-outbound-ready-${row.phoneNumber}`}
+                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700"
+                          title="This number is registered with the voice provider and can place calls."
+                        >
+                          Can place calls
+                        </span>
+                      ) : null}
+                      {row.twilioSid && !row.business && row.status === "AVAILABLE" && !row.vapiPhoneNumberId ? (
                         <button
                           type="button"
                           data-testid={`admin-phone-outbound-${row.phoneNumber}`}

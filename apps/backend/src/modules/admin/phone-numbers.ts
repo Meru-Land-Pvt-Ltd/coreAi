@@ -97,6 +97,10 @@ adminPhoneNumberRoutes.get("/", async (c) => {
       provider: n.provider,
       status: n.status,
       twilioSid: n.twilioSid,
+      // Set once the number is registered with the voice provider, which is
+      // what lets an agent place calls from it. The admin screen reads this to
+      // show a badge instead of offering the action a second time.
+      vapiPhoneNumberId: n.vapiPhoneNumberId,
       country: n.country,
       region: n.region,
       locality: n.locality,

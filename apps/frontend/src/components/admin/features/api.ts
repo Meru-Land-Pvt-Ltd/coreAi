@@ -379,6 +379,8 @@ export type AdminPhoneNumber = {
   provider: string;
   status: PhoneNumberStatus;
   twilioSid: string | null;
+  /** Present once this number can place outbound calls. */
+  vapiPhoneNumberId?: string | null;
   country: string | null;
   region: string | null;
   locality: string | null;
