@@ -42,6 +42,36 @@ export function buildCostEstimate(
   };
 }
 
+/**
+ * Strict JSON mode for the OpenAI-compatible providers (OpenAI, Groq,
+ * DeepSeek, Mistral).
+ *
+ * `outputFormat: "json"` used to be a parse-time hint only: we asked for JSON
+ * in words and hoped. Roughly one reply in five came back with a misplaced
+ * bracket, which every JSON gate on the platform correctly rejected — the
+ * Smart Designer, its Eyes, packaging, design chat, the AI doors and quality
+ * scoring all paid that tax. Sending `response_format` makes the API itself
+ * guarantee syntactically valid JSON.
+ *
+ * The guard matters: OpenAI REJECTS the request outright unless the word
+ * "json" appears somewhere in the prompt, so a caller that asks for JSON
+ * without saying so keeps its old, lenient behavior instead of hard-failing.
+ */
+export function jsonResponseFormat(
+  request: AIExecuteRequest
+): { response_format: { type: "json_object" } } | Record<string, never> {
+  if (request.outputFormat !== "json") return {};
+
+  const prompt = [
+    request.systemPrompt ?? "",
+    ...(request.conversationHistory ?? []).map((m) => m.content),
+    ...(request.messages ?? []).map((m) => m.content),
+  ].join("\n");
+
+  if (!/json/i.test(prompt)) return {};
+  return { response_format: { type: "json_object" } };
+}
+
 // strips markdown code fences before JSON.parse
 export function parseJsonFromText(text: string): unknown | null {
   if (!text) return null;
