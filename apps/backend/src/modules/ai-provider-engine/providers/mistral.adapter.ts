@@ -15,6 +15,7 @@ import {
   buildCostEstimate,
   retryOnTransient,
   parseJsonFromText,
+  jsonResponseFormat,
   errorResponse,
   enrichContinueRequest,
   type PricingTable,
@@ -68,6 +69,7 @@ class MistralAdapter implements AIProviderAdapter {
             messages,
             temperature: request.temperature ?? 0.7,
             max_tokens: request.maxTokens,
+            ...jsonResponseFormat(request),
           }),
         });
 

@@ -7,6 +7,7 @@ import { preloadPlatformApiSettings } from "./modules/admin/platform-api-setting
 import { attachDeepgramLiveProxy } from "./modules/ai-provider-engine/deepgram-live-proxy";
 import { startBillingScheduler, stopBillingScheduler } from "./modules/business/billing-cycle";
 import { startEarningReleaseWorker, stopEarningReleaseWorker } from "./modules/payouts/release-worker";
+import { startScheduleWorker, stopScheduleWorker } from "./modules/architect/schedule-trigger";
 // [DISABLED:non-handoff] worker imports for the commented starts below.
 // import { startReminderWorker, stopReminderWorker } from "./modules/business/reminders/reminder-worker";
 // import {
@@ -34,6 +35,9 @@ const server = serve(
     await initProviderEngine();
     startBillingScheduler();
     startEarningReleaseWorker();
+    // The clock behind every scheduled agent. Ticks once a minute, claims the
+    // rows that are due, and runs them for the business that installed them.
+    startScheduleWorker();
     // [DISABLED:non-handoff] reminder + retention workers and quality sweep.
     // startReminderWorker();
     // startRetentionSweepWorker();
@@ -71,6 +75,7 @@ async function shutdown(signal: string) {
 
   stopBillingScheduler();
   stopEarningReleaseWorker();
+  stopScheduleWorker();
   // [DISABLED:non-handoff]
   // stopReminderWorker();
   // stopRetentionSweepWorker();

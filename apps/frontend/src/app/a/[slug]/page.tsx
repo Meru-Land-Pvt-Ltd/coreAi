@@ -24,15 +24,23 @@ import { buildProductMetadata } from "./product-metadata";
  * The sub-pages live in ./[page]; this route is only ever the home page.
  */
 
-type HomeRouteProps = { params: Promise<{ slug: string }> };
+type HomeRouteProps = {
+  params: Promise<{ slug: string }>;
+  /**
+   * `?embed=1` means this page is inside a business's own website. Optional:
+   * Next always passes it, but the route stays callable without it.
+   */
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
 
 export async function generateMetadata({ params }: HomeRouteProps): Promise<Metadata> {
   const { slug } = await params;
   return buildProductMetadata({ slug, path: "" });
 }
 
-export default async function PublishedProductHomePage({ params }: HomeRouteProps) {
+export default async function PublishedProductHomePage({ params, searchParams }: HomeRouteProps) {
   const { slug } = await params;
+  const embed = (await searchParams)?.embed === "1";
 
   const resolved = await loadPublicProduct(slug);
   if (!resolved || resolved.source !== "spec") {
@@ -51,6 +59,7 @@ export default async function PublishedProductHomePage({ params }: HomeRouteProp
       page={page}
       listingName={resolved.listing.name}
       contentWidth={resolved.contentWidth}
+      embed={embed}
     />
   );
 }

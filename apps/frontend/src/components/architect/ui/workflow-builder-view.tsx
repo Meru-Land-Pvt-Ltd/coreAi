@@ -319,6 +319,13 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   // Saved customer-page design for the Test preview (null until fetched or
   // when the workflow has never been configured/published).
   const [previewPageData, setPreviewPageData] = useState<AgentPageManageData | null>(null);
+  /**
+   * False until the saved page/product has been fetched at least once for this
+   * agent. Without it the preview paints the built-in chat Face for a few
+   * hundred milliseconds and then swaps to the architect's real product — a
+   * flash of a page they never designed.
+   */
+  const [previewConfigLoaded, setPreviewConfigLoaded] = useState(false);
 
   // Arrange mode only exists on the Preview step's desktop view — leaving
   // either always turns it off, so it can never linger invisibly.
@@ -916,6 +923,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         if (!cancelled && result.success && result.data) setPreviewPageData(result.data);
       } catch {
         // Preview still works without the saved design.
+      } finally {
+        // Loaded either way: a failed fetch must not leave the stage blank
+        // forever — the built-in Face is the honest fallback at that point.
+        if (!cancelled) setPreviewConfigLoaded(true);
       }
     })();
 
@@ -2815,6 +2826,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             defaultTemplate={previewPageData?.defaultTemplate}
             blueprint={previewPageData?.blueprint ?? null}
             product={previewPageData?.product ?? null}
+            configLoading={!previewConfigLoaded}
             design={previewPageData?.design ?? null}
             architectName={architectName}
             underReview={isUnderReview}

@@ -255,6 +255,29 @@ export function isDesignBrainNodeType(type: string | null | undefined): boolean 
 /** Stable registry slug for the API Call action node. */
 export const API_CALL_NODE_TYPE = "action.api_call";
 
+/* ------------------------------------------------------------------------ */
+/* The two ways IN. Everything else on the canvas is what an agent DOES once  */
+/* something starts it; these two decide WHEN it starts without a human       */
+/* typing. The schedule node fires on its own clock; the webhook node hands    */
+/* out a private link another app posts to.                                    */
+/* ------------------------------------------------------------------------ */
+
+/** Stable registry slug for the schedule (timer) trigger node. */
+export const SCHEDULE_NODE_TYPE = "trigger.schedule";
+
+/** Stable registry slug for the inbound-webhook trigger node. */
+export const WEBHOOK_NODE_TYPE = "trigger.webhook";
+
+/** How often a scheduled agent runs. Kept small on purpose — v1 clarity. */
+export const SCHEDULE_CADENCES = ["hourly", "daily", "weekly"] as const;
+export type ScheduleCadence = (typeof SCHEDULE_CADENCES)[number];
+
+/**
+ * The floor between two scheduled runs. A tighter clock multiplies model spend
+ * with no human watching, so the smallest step we sell is one hour.
+ */
+export const SCHEDULE_MIN_INTERVAL_MINUTES = 60;
+
 /** Registry connector name the runner dispatches on (case/separator-insensitive). */
 export const API_CALL_CONNECTOR = "API Call";
 
@@ -2543,8 +2566,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
 
   // ---- B. Near-term marketplace nodes (coming soon) ----
   def({ type: "trigger.manual", label: "Start here", category: "trigger", description: "Start a workflow manually.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
-  def({ type: "trigger.webhook", label: "Webhook Trigger", category: "trigger", description: "Start from an inbound webhook.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
-  def({ type: "trigger.schedule", label: "Schedule Trigger", category: "trigger", description: "Start on a schedule.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
+  // Two ways IN, both real. Until these shipped, an agent could only start when a
+  // human typed on a page — the ceiling on every product the platform could make.
+  def({ type: "trigger.webhook", label: "When another app sends data", category: "trigger", description: "Starts when another app or website sends its data to this agent's private link.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
+  def({ type: "trigger.schedule", label: "On a schedule", category: "trigger", description: "Runs by itself — every hour, every day, or every week.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
   def({ type: "trigger.gmail_new_email", label: "Gmail New Email", category: "trigger", description: "Start when a new email arrives.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
   def({ type: "action.google_calendar_availability", label: "Calendar Availability", category: "action", description: "Check open slots before booking.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "connector", connector: "Google Calendar", connectorAction: "check_availability" } }),
   def({ type: "action.http_request", label: "HTTP Request", category: "action", description: "Call an external API.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "connector", connector: "HTTP", connectorAction: "request" } }),

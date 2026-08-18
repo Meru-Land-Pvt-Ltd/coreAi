@@ -13,7 +13,9 @@ import {
   resolveDeepgramMode,
   MAX_WORKFLOW_CHAIN_DEPTH,
   NODE_DOORS_DISABLED_KEY,
+  SCHEDULE_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
+  WEBHOOK_NODE_TYPE,
   VOICE_NODE_TYPES,
   calendlyActionPaidPlanNote,
   normalizeTimeZone,
@@ -209,6 +211,26 @@ export type WorkflowRunInput = {
     };
     timestamp: string;
   };
+  /**
+   * An inbound delivery from the public /webhook/in/<token> route. The body is
+   * whatever the other app sent; templates read it as {{webhook.body.x}}.
+   */
+  webhook?: {
+    endpointId: string;
+    deliveryId: string;
+    receivedAt: string;
+    headers: Record<string, string>;
+    body: unknown;
+  };
+  /** A tick from the schedule (timer) trigger — no human, no caller. */
+  schedule?: {
+    scheduleId: string;
+    nodeId: string;
+    cadence: string;
+    timeZone: string;
+    /** The slot this run belongs to, not the moment the sweep noticed it. */
+    dueAt: string;
+  };
   /** Free-form trigger message for manual / webhook-started runs. */
   message?: string;
   /** Calendly webhook event type mapped to a trigger node slug. */
@@ -255,6 +277,12 @@ type RunnerNodeData = {
   imageSize?: unknown;
   connector?: unknown;
   connectorAction?: unknown;
+  // Schedule (timer) trigger config
+  cadence?: unknown;
+  timeZone?: unknown;
+  hour?: unknown;
+  minute?: unknown;
+  weekday?: unknown;
   // API Call node config
   apiMethod?: unknown;
   apiUrl?: unknown;
@@ -482,6 +510,22 @@ type RunnerContext = {
     status?: string;
     timestamp?: string;
     reason?: string;
+  };
+  /** Set when the run came in through the public webhook link. */
+  webhook?: {
+    endpointId: string;
+    deliveryId: string;
+    receivedAt: string;
+    headers: Record<string, string>;
+    body: unknown;
+  };
+  /** Set when the run came from the timer, not a person. */
+  schedule?: {
+    scheduleId: string;
+    nodeId: string;
+    cadence: string;
+    timeZone: string;
+    dueAt: string;
   };
   telegram?: {
     chat_id: string;
@@ -1605,11 +1649,67 @@ function seedMissedCallContext(
     }
   }
 
+  if (input?.webhook) {
+    context.webhook = input.webhook;
+    // Templates reach the payload as {{webhook.body.<field>}}. The renderer's
+    // token regex allows letters, digits, underscore and dot only, so a key
+    // with a dash or a space is simply not addressable — that is the contract
+    // we tell architects, not a bug to paper over here.
+    const body = input.webhook.body;
+    if (body !== null && body !== undefined) {
+      // A plain text-ish payload doubles as the customer's words, so an AI
+      // Brain wired to {{latestMessage}} works with zero extra mapping.
+      const spoken =
+        typeof body === "string"
+          ? body
+          : asString((body as Record<string, unknown>)?.message) ||
+            asString((body as Record<string, unknown>)?.text) ||
+            "";
+      if (spoken) {
+        context.latestMessage = spoken;
+        context.text = spoken;
+        context.lastOutput = spoken;
+      }
+    }
+  }
+
+  if (input?.schedule) {
+    context.schedule = input.schedule;
+  }
+
   context._mode = mode;
   return context;
 }
 
 function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
+  // The two ways in that need no human. Both must answer here: every trigger
+  // type that falls through this function lands on the missed-call branch at
+  // the bottom and logs a red "Missing caller phone number" on a run that was
+  // in fact perfectly fine.
+  if (asString(node.data?.type) === SCHEDULE_NODE_TYPE) {
+    logs.push(
+      createLog(node, "success", "Timer fired.", {
+        cadence: context.schedule?.cadence ?? asString(node.data?.cadence, "daily"),
+        timeZone: context.schedule?.timeZone ?? asString(node.data?.timeZone, ""),
+        dueAt: context.schedule?.dueAt ?? new Date().toISOString()
+      })
+    );
+    return;
+  }
+
+  if (asString(node.data?.type) === WEBHOOK_NODE_TYPE) {
+    const delivery = context.webhook;
+    logs.push(
+      createLog(node, "success", "Data received from another app.", {
+        receivedAt: delivery?.receivedAt ?? new Date().toISOString(),
+        // The body itself is the architect's material — show it, so the Test
+        // panel teaches them exactly which {{webhook.body.x}} names exist.
+        body: delivery?.body ?? null
+      })
+    );
+    return;
+  }
+
   if (asString(node.data?.type) === "trigger.telegram_message") {
     if (!context.telegram?.chat_id || !context.telegram.message_id) {
       logs.push(createLog(node, "error", "Telegram trigger is missing a chat ID or message ID."));

@@ -35,6 +35,11 @@ export function WorkflowBuilderStyles() {
       .fade-enter { animation: viewFade .28s ease both; }
       @keyframes viewFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
+      /* The preview's quiet hold: the spinner exists from the first frame but
+         stays invisible for a third of a second, so a fast load shows nothing
+         at all and only a genuinely slow one explains itself. */
+      @keyframes preview-hold-fade { to { opacity: 1; } }
+
       /* Important: never animate transform on .react-flow__node-coreNode.
          React Flow uses transform: translate(x, y) on that wrapper for positioning.
          Animating it makes nodes collapse to the top-left while edges stay in place. */

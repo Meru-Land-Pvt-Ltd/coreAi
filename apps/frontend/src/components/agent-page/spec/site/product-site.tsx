@@ -72,6 +72,11 @@ export type ProductSiteProps = {
   /** Replaces the page body. Used by the in-product 404 card. */
   children?: ReactNode;
   /**
+   * Rendered inside a third-party site's iframe. Drops our own header and
+   * footer (their page already has chrome) and the full-viewport floor.
+   */
+  embed?: boolean;
+  /**
    * Overrides where a page link lands. The public /a/ routes leave this
    * absent and get real router navigation; the builder's preview passes a
    * handler so clicking the site's nav switches the previewed page in place
@@ -109,7 +114,8 @@ export function ProductSite({
   renderNode,
   contentWidth,
   children,
-  navigate
+  navigate,
+  embed = false
 }: ProductSiteProps) {
   const router = useRouter();
   const prefetched = useRef<Set<string>>(new Set());
@@ -218,12 +224,16 @@ export function ProductSite({
     return renderNode ? found : null;
   }, [page, product, renderNode]);
 
-  const showHeader = product.nav.links.length > 0 || hasBrand(product);
+  // Embedded on someone else's website, the product is a widget inside THEIR
+  // page: their header is above it and their footer below it, so ours would be
+  // a second set of chrome nobody asked for.
+  const showHeader = !embed && (product.nav.links.length > 0 || hasBrand(product));
   const showFooter =
-    product.nav.footerLinks.length > 0 ||
-    product.nav.links.length > 0 ||
-    Boolean(product.nav.footerNote) ||
-    hasBrand(product);
+    !embed &&
+    (product.nav.footerLinks.length > 0 ||
+      product.nav.links.length > 0 ||
+      Boolean(product.nav.footerNote) ||
+      hasBrand(product));
 
   return (
     <div
@@ -233,7 +243,14 @@ export function ProductSite({
       onClickCapture={handleClickCapture}
       onPointerOver={handlePointerOver}
       data-product-width={contentWidth ?? "standard"}
-      className="flex min-h-[100dvh] w-full flex-col overflow-x-clip antialiased"
+      // In a frame, a 100dvh floor means the widget can grow but can never
+      // shrink again — the measured height would always include the height the
+      // frame already has.
+      className={
+        embed
+          ? "flex w-full flex-col overflow-x-clip antialiased"
+          : "flex min-h-[100dvh] w-full flex-col overflow-x-clip antialiased"
+      }
       // The page's measure sits on the site root, not just on the spec root,
       // so the header and the footer line up with the bands between them.
       style={{

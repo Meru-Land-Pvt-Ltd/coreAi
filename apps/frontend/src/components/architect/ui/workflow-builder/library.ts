@@ -4,8 +4,10 @@ import {
   BLOCK_NODE_TYPES,
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
+  SCHEDULE_NODE_TYPE,
   SCRIPT_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
+  WEBHOOK_NODE_TYPE,
   VOICE_NODE_PRESENTATION,
   VOICE_NODE_TYPES
 } from "@coreai/shared";
@@ -122,6 +124,15 @@ export const libraryGroups: LibraryGroup[] = [
         badge: "POPULAR"
       },
       paletteItem(CALENDLY_NODE_TYPES.trigger, { icon: "calendly", accent: "blue", kind: "CALENDLY" }),
+      // The two ways in that need no human at all.
+      {
+        ...paletteItem(SCHEDULE_NODE_TYPE, { icon: "clock", accent: "amber", kind: "TIMER" }),
+        badge: "NEW"
+      },
+      {
+        ...paletteItem(WEBHOOK_NODE_TYPE, { icon: "globe", accent: "amber", kind: "WEBHOOK" }),
+        badge: "NEW"
+      },
       paletteItem("trigger.manual", { icon: "play", accent: "amber" }),
       // Acts
       paletteItem(VOICE_NODE_TYPES.calendarAvailability, { icon: "calendar", accent: "blue" }),

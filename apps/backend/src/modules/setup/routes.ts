@@ -18,6 +18,8 @@ import { canBusinessAccessListing, findActiveListingPurchase } from "../business
 import { grantRole } from "../../lib/roles";
 import { deriveSetupVisibility } from "@coreai/shared";
 import type { InstallSource } from "@prisma/client";
+import { syncSchedulesForInstalledAgent } from "../architect/schedule-trigger";
+import { syncWebhookEndpointsForInstalledAgent } from "../webhooks/inbound-webhook";
 
 export const setupRoutes = new Hono();
 
@@ -769,7 +771,24 @@ setupRoutes.post("/go-live", async (c) => {
 
     await mergeAgentSetup(agent.id, { live: true });
 
-    return successResponse(c, { live: true, installedAgentId: agent.id }, "Agent is live");
+    // Going live is what starts the ways IN: the agent's clocks begin ticking
+    // and its private links begin accepting deliveries. Both are derived from
+    // the saved graph, so an agent with neither node simply gets nothing.
+    const [, webhookLinks] = await Promise.all([
+      syncSchedulesForInstalledAgent(agent.id).catch((error) => {
+        console.error("[setup] schedule sync failed", { installedAgentId: agent.id, error: String(error) });
+      }),
+      syncWebhookEndpointsForInstalledAgent(agent.id).catch((error) => {
+        console.error("[setup] webhook sync failed", { installedAgentId: agent.id, error: String(error) });
+        return [] as Array<{ nodeId: string; url: string }>;
+      })
+    ]);
+
+    return successResponse(
+      c,
+      { live: true, installedAgentId: agent.id, webhookLinks: webhookLinks ?? [] },
+      "Agent is live"
+    );
   } catch (error) {
     return errorResponse(
       c,

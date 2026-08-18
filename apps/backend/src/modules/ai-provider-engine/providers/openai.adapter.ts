@@ -16,6 +16,7 @@ import {
   buildCostEstimate,
   retryOnTransient,
   parseJsonFromText,
+  jsonResponseFormat,
   errorResponse,
   enrichContinueRequest,
   ensureDataUri,
@@ -70,6 +71,7 @@ class OpenAIAdapter implements AIProviderAdapter {
           model,
           messages,
           max_completion_tokens: request.maxTokens,
+          ...jsonResponseFormat(request),
         })
       );
 
