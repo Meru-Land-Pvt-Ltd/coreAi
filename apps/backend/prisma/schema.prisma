@@ -195,6 +195,11 @@ model PublishedAgentPage {
   /// still renders from a spec synthesized off the Face Blueprint. Always read
   /// through getProductSpec / resolveProductForPublic, never raw.
   productJson      Json?
+  /// The BUYER's daily dashboard, composed by Smart Designer from the same
+  /// graph (business-dashboard-composer.ts). Numbers are stored as
+  /// {{metric.key}} tokens and filled with live figures on every open, so one
+  /// stored spec always shows today's results.
+  dashboardJson    Json?
   status           String       @default("LIVE")
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt

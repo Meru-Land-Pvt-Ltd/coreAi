@@ -24,6 +24,7 @@ import {
 import { getProviderEngine } from "../ai-provider-engine/provider-engine";
 import type { AIExecuteRequest, AIMessage } from "../ai-provider-engine/types";
 import { describeProductSpecContract } from "./product-chat";
+import { checkDashboard, dashboardBriefFor } from "./business-dashboard-composer";
 import { getProductSpec, saveProductSpec, starterProductSpec } from "./product-spec-service";
 import { verifyDesignChange } from "./designer-eyes";
 import { deriveFaceBlueprint } from "./blueprint";
@@ -719,6 +720,92 @@ function mergedCount(declarations: WorkflowDeclarations): number {
 // ---------------------------------------------------------------------------
 
 export function registerSmartDesignerRoutes(routes: Hono) {
+  /**
+   * THE BUSINESS DASHBOARD: the screen the BUYER opens every day.
+   *
+   * The second thing Smart Designer designs. Where smart-compose builds the
+   * surface an agent's end customer touches, this builds the one its paying
+   * business touches — and that is the more valuable of the two, because a
+   * business fills the setup form once and then judges the whole subscription
+   * on what this screen shows them.
+   *
+   * Nothing here is hand-drawn: deriveBusinessSurface reads the architect's
+   * own nodes and says WHAT must appear, the composer decides how it looks,
+   * and numbers are stored as {{metric.key}} tokens so one saved design shows
+   * today's real figures on every open.
+   */
+  routes.post(
+    "/manage/:workflowId/compose-dashboard",
+    requireAuth,
+    requireRole(["ARCHITECT"]),
+    async (c) => {
+      const authUser = c.get("authUser");
+      const workflowId = c.req.param("workflowId") ?? "";
+
+      const workflow = await prisma.workflowDefinition.findFirst({
+        where: { id: workflowId, architectUserId: authUser.id },
+        select: { id: true, name: true, architectUserId: true, workflowJson: true }
+      });
+      if (!workflow) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+
+      const context = await loadComposerContext(workflow);
+      const brief = dashboardBriefFor(workflow.workflowJson, context.agent);
+
+      if (!brief.surface.hasDashboard) {
+        return successResponse(c, {
+          composed: false,
+          reply:
+            "This agent doesn't do anything measurable yet, so there's nothing worth showing a business daily. Add a step that calls, books or saves someone."
+        });
+      }
+
+      const brain = resolveBrainSlot(await getSmartDesignerBrainConfig());
+      if (!brain) return errorResponse(c, MISSING_LLM_CREDENTIALS_MESSAGE, 503, "LLM_NOT_CONFIGURED");
+
+      const outcome = await runComposerBrain({
+        brain,
+        systemPrompt: brief.prompt,
+        conversationHistory: [],
+        userMessage:
+          "Design the daily dashboard for the business that pays for this agent. Lead with the number that proves it is earning them money.",
+        declarations: context.declarations,
+        graphNodeIds: context.graphNodeIds,
+        allowBoundary: false,
+        task: "agent-page-compose-dashboard",
+        workflowId
+      });
+
+      if (outcome.kind !== "composed") {
+        return successResponse(c, { composed: false, reply: SMART_COMPOSER_FALLBACK_REPLY });
+      }
+
+      // A dashboard that references a number we cannot fill shows a dash
+      // forever, and the business concludes the product does not work. Better
+      // to keep the old design than to store a broken one.
+      const check = checkDashboard(outcome.product, brief.surface);
+      if (!check.ok) {
+        console.warn("[smart-composer] dashboard rejected", { workflowId, problems: check.problems });
+        return successResponse(c, {
+          composed: false,
+          reply: SMART_COMPOSER_FALLBACK_REPLY,
+          problems: check.problems
+        });
+      }
+
+      await prisma.publishedAgentPage.update({
+        where: { id: context.page.id },
+        data: { dashboardJson: outcome.product as never }
+      });
+
+      return successResponse(c, {
+        composed: true,
+        reply: outcome.reply,
+        dashboard: outcome.product,
+        metrics: brief.surface.metrics.map((metric) => metric.key)
+      });
+    }
+  );
+
   /** THE AI COMPOSER: declarations in, the minimum interface out. */
   routes.post(
     "/manage/:workflowId/smart-compose",

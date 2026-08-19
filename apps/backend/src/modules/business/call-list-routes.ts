@@ -12,11 +12,14 @@ import { z } from "zod";
 import {
   CALL_LIST_STATUSES,
   clampCallWindow,
+  deriveBusinessSurface,
   normalizeCallPhone,
+  sanitizeProductSpec,
   summariseList
 } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
 import { errorResponse, successResponse } from "../../lib/api-response";
+import { fillDashboardSpec, loadDashboardData, type DashboardWindow } from "./dashboard-metrics";
 import {
   getListReport,
   importPeopleIntoList,
@@ -285,3 +288,50 @@ callListRoutes.post("/call-suppressions", async (c) => {
 });
 
 export { CALL_LIST_STATUSES };
+
+/**
+ * THE DAILY SCREEN.
+ *
+ * Returns the dashboard Smart Designer composed for this agent, with today's
+ * real numbers filled into it. The design is stored once; the figures are
+ * resolved on every open, so a business that logs in twice a day sees the
+ * truth twice a day rather than a snapshot from install time.
+ */
+callListRoutes.get("/agents/:installedAgentId/dashboard", async (c) => {
+  const authUser = c.get("authUser");
+  const installedAgentId = c.req.param("installedAgentId");
+  const window = (c.req.query("window") ?? "month") as DashboardWindow;
+
+  const agent = await prisma.installedAgent.findFirst({
+    where: { id: installedAgentId, business: { ownerId: authUser.id } },
+    select: {
+      id: true,
+      businessId: true,
+      workflowId: true,
+      workflow: { select: { name: true, workflowJson: true } }
+    }
+  });
+  if (!agent) return errorResponse(c, "Agent not found", 404, "AGENT_NOT_FOUND");
+
+  const data = await loadDashboardData(agent.id, agent.businessId, window);
+  const surface = deriveBusinessSurface(agent.workflow?.workflowJson);
+
+  const page = await prisma.publishedAgentPage.findFirst({
+    where: { workflowId: agent.workflowId ?? "" },
+    select: { dashboardJson: true }
+  });
+
+  const designed = sanitizeProductSpec(page?.dashboardJson);
+
+  return successResponse(c, {
+    agentName: agent.workflow?.name ?? "Your agent",
+    window,
+    // Null means Smart Designer has not composed one yet — the client shows
+    // the plain numbers rather than an empty screen.
+    dashboard: designed ? fillDashboardSpec(designed, data.values) : null,
+    surface,
+    values: data.values,
+    tables: data.tables,
+    lists: data.lists
+  });
+});
