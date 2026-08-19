@@ -1,6 +1,7 @@
 import {
   elevenLabsVoiceSettingsFor,
   normalizeTimeZone,
+  timeZoneForPhone,
   resolveSalesTuning,
   vapiSpeechPlansFor,
   VOICE_TOOL_NAMES
@@ -451,11 +452,15 @@ export function buildVapiVariableValues({
   const tomorrowDate = addDaysToDateStr(currentDate, 1);
 
   // What a person actually opens with. Nobody says "I am the AI assistant at
-  // Acme and I am calling regarding" — they say "hey, good afternoon". The
-  // hour is read in the CALLER's timezone, so an agent selling into New York
-  // from a server in Frankfurt still greets them correctly.
+  // Acme and I am calling regarding" — they say "hey, good afternoon".
+  //
+  // The hour must be read where the PERSON WE ARE CALLING is, not where the
+  // business or the server is. On a live buyer call this greeted an Indian
+  // number with "good evening" at 8am, because the business profile still had
+  // a US timezone: correct for the clinic, absurd to the person answering.
+  const greetingZone = timeZoneForPhone(customerPhone) ?? timeZone;
   const localHour = Number(
-    new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hour12: false }).format(new Date())
+    new Intl.DateTimeFormat("en-US", { timeZone: greetingZone, hour: "numeric", hour12: false }).format(new Date())
   );
   const timeGreeting =
     localHour < 12 ? "good morning" : localHour < 17 ? "good afternoon" : "good evening";
