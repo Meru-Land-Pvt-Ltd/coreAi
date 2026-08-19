@@ -2868,8 +2868,18 @@ businessRoutes.post("/setup/workflows/:workflowId/run-test", async (c) => {
     return errorResponse(c, "Create your business profile first (Configure step of setup).", 404, "BUSINESS_NOT_FOUND");
   }
 
+  // A BUSINESS MAY ONLY RUN WHAT IT INSTALLED.
+  //
+  // This looked up the workflow by id alone, so any signed-in business could
+  // pass any architect's workflow id and execute it — spending that
+  // architect's model budget and reading the step-by-step output of every
+  // node, which is the build itself. Scoped to this business's own installed
+  // agents now.
   const workflow = await prisma.workflowDefinition.findFirst({
-    where: { id: workflowId }
+    where: {
+      id: workflowId,
+      installedAgents: { some: { businessId: business.id } }
+    }
   });
 
   if (!workflow) {

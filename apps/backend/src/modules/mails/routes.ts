@@ -1,3 +1,4 @@
+import { getClientIp } from "../../lib/client-ip";
 import { Hono } from "hono";
 import { env } from "../../config/env";
 import { sendFreeAssignmentEmail, sendPaymentFailedEmail } from "../../lib/mailer";
@@ -130,7 +131,11 @@ mailRoutes.post("/send-free-assignment-mail", async (c) => {
       );
     }
 
-    if (!(await allowFreeAssignmentSend(clientIp(c.req.header("x-forwarded-for")), to.toLowerCase()))) {
+    // The per-address limit was keyed on the LEFTMOST x-forwarded-for entry,
+    // which our nginx appends to rather than replaces — so the sender chose
+    // their own key and the limit never applied. Anyone could make this
+    // platform email any address they liked, from our domain, at any rate.
+    if (!(await allowFreeAssignmentSend(getClientIp(c), to.toLowerCase()))) {
       return c.json(
         {
           success: false,

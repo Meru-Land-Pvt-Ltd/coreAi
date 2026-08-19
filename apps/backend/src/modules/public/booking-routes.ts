@@ -2,6 +2,9 @@ import { normalizeTimeZone, zonedWallClockToUtc } from "@coreai/shared";
 import { Hono } from "hono";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
+import { bodyLimit } from "hono/body-limit";
+import { getClientIp } from "../../lib/client-ip";
+import { consumeAll, DAY, HOUR } from "../../lib/rate-limit";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { validateSmsRecipientE164 } from "../architect/twilio-connector";
 import { maskPhone, recordWebFormSmsConsent } from "../notifications/sms-consent";
@@ -97,7 +100,13 @@ function parseRequestedStart(dateStr: string | undefined, timeStr: string | unde
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-publicBookingRoutes.post("/booking/:slug", async (c) => {
+/** A booking form is a few short fields — anything larger is not a booking. */
+const publicBookingBodyLimit = bodyLimit({
+  maxSize: 32 * 1024,
+  onError: (c) => errorResponse(c, "That request is too large.", 413, "PAYLOAD_TOO_LARGE")
+});
+
+publicBookingRoutes.post("/booking/:slug", publicBookingBodyLimit, async (c) => {
   const business = await findBusinessBySlug(c.req.param("slug"));
   if (!business) {
     return errorResponse(c, "Booking page not found", 404, "BOOKING_PAGE_NOT_FOUND");
@@ -121,6 +130,37 @@ publicBookingRoutes.post("/booking/:slug", async (c) => {
   const phone = validateSmsRecipientE164(input.customerPhone);
   if (!phone.ok) {
     return errorResponse(c, phone.error, 422, "INVALID_PHONE");
+  }
+
+  // THIS ENDPOINT SENDS A TEXT MESSAGE AND HAD NO LIMIT OF ANY KIND.
+  //
+  // Anyone could post to it in a loop with a stranger's phone number and the
+  // business's Twilio account would text that person, over and over, with the
+  // business's name on it. Three separate rules, because one is never enough:
+  // the sender, the target, and the business whose bill it is.
+  const clientIp = getClientIp(c);
+  const limited = await consumeAll([
+    {
+      key: `booking:ip:${clientIp}`,
+      limit: 5,
+      windowMs: HOUR,
+      message: "You've sent a few requests already. Please try again in a little while."
+    },
+    {
+      key: `booking:phone:${phone.e164}`,
+      limit: 3,
+      windowMs: DAY,
+      message: "We already have a request for this number today. The team will be in touch."
+    },
+    {
+      key: `booking:business:${business.id}`,
+      limit: 200,
+      windowMs: DAY,
+      message: "This booking page is busy right now. Please try again shortly."
+    }
+  ]);
+  if (!limited.allowed) {
+    return errorResponse(c, limited.message, 429, "RATE_LIMITED");
   }
 
   const bookingTimeZone = normalizeTimeZone(business.profile?.timeZone);
@@ -172,10 +212,10 @@ publicBookingRoutes.post("/booking/:slug", async (c) => {
   let consentStatus: "OPTED_IN" | "NOT_REQUESTED" | "FAILED" = "NOT_REQUESTED";
   if (input.smsConsent === true) {
     try {
-      const ipAddress =
-        (c.req.header("x-forwarded-for") ?? "").split(",")[0]?.trim() ||
-        c.req.header("x-real-ip") ||
-        null;
+      // The address is the evidence that this consent was real. Reading it
+      // from a header the caller controls let them write their own alibi into
+      // the record we would rely on if the person ever complained.
+      const ipAddress = clientIp === "unknown" ? null : clientIp;
       const userAgent = (c.req.header("user-agent") ?? "").slice(0, 500) || null;
       const consent = await recordWebFormSmsConsent({
         businessId: business.id,

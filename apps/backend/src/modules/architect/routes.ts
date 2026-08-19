@@ -12,6 +12,7 @@ import { resolveRunOutput } from "../agent-pages/run-output";
 import { MarketplaceDemoError, normalizeDemoCallCustomInfo, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import { verifyAuthToken } from "../../lib/jwt";
+import { getClientIp } from "../../lib/client-ip";
 import {
   isImageUploadConfigured,
   uploadListingImage,
@@ -313,7 +314,19 @@ async function optionalViewerId(c: Context): Promise<string | null> {
   if (!token) return null;
   try {
     const payload = await verifyAuthToken(token);
-    return typeof payload?.sub === "string" ? payload.sub : null;
+    const userId = typeof payload?.sub === "string" ? payload.sub : null;
+    if (!userId) return null;
+
+    // A valid signature is not a valid session. Without this, a token from a
+    // suspended account — or one whose session was revoked — still counted as
+    // the owner and unlocked the full record. Cheap check, and it only runs
+    // when a token was actually sent.
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, isSuspended: true }
+    });
+    if (!user || user.isSuspended) return null;
+    return user.id;
   } catch {
     return null;
   }
@@ -354,12 +367,23 @@ async function getPublicMarketplaceListingById(c: Context) {
       ...(ownsIt ? {} : { status: "APPROVED" })
     },
     include: {
-      workflow: true,
+      // NEVER `workflow: true` HERE.
+      //
+      // This endpoint is public — the marketplace has to work signed out — and
+      // including the whole workflow record handed anyone the complete build of
+      // every published agent: the node graph, the settings, the buyer setup
+      // form, the publish checklist and the system prompts. That IS the thing
+      // an architect is selling, and it was downloadable from the open internet
+      // in a single request (4.3 MB, verified). Only the few fields a shopper
+      // needs to decide are selected now.
+      workflow: {
+        select: { id: true, name: true, description: true }
+      },
       architect: {
         select: {
           id: true,
           fullName: true,
-          email: true,
+          // The architect's email address is not part of a shop window.
           architectProfile: {
             select: {
               title: true,
@@ -383,9 +407,17 @@ async function getPublicMarketplaceListingById(c: Context) {
   const { _count, ...rest } = listing;
   const installCountByListing = await countSalesByListingIds([listing.id]);
 
+  // The owner — the architect who built it, or a business that already
+  // installed it — gets the full record. Everyone else gets the shop window.
+  const isOwner = viewerId === listing.architectUserId || ownsIt;
+  const fullWorkflow = isOwner
+    ? await prisma.workflowDefinition.findUnique({ where: { id: listing.workflowId ?? "" } })
+    : null;
+
   return successResponse(c, {
     listing: {
       ...rest,
+      ...(fullWorkflow ? { workflow: fullWorkflow } : {}),
       installCount: installCountByListing.get(listing.id) ?? 0
     }
   });
@@ -416,12 +448,12 @@ architectRoutes.post("/listings/public/:id/demo-call", async (c) => {
     return errorResponse(c, "Listing id is required", 422, "LISTING_ID_REQUIRED");
   }
 
-  const forwarded = c.req.header("x-forwarded-for");
-  const clientIp =
-    forwarded?.split(",")[0]?.trim() ||
-    c.req.header("x-real-ip") ||
-    c.req.header("cf-connecting-ip") ||
-    "127.0.0.1";
+  // The LEFTMOST x-forwarded-for entry used to be trusted here. Our nginx uses
+  // $proxy_add_x_forwarded_for, which appends the real address to whatever the
+  // caller already sent — so that value was the attacker's own invention, and
+  // rotating it bought unlimited free Vapi voice minutes against the two-a-day
+  // demo cap. One resolver now, and it reads nothing a client can set.
+  const clientIp = getClientIp(c);
 
   let body: Record<string, unknown> = {};
   try {

@@ -5690,9 +5690,19 @@ export function authorizeVapiWebhook(
 
   if (!isProduction) return { authorized: true, reason: "non-production" };
 
+  // NO SECRET, NO ENTRY — even for a test.
+  //
+  // This used to accept any request whose BODY said purpose:"ARCHITECT_TEST",
+  // which is a field the sender writes. Anyone could post a forged end-of-call
+  // report and have the platform settle usage, write transcripts and trigger
+  // downstream actions against a real business, simply by labelling their
+  // request a test. The sandbox re-check that follows is a second gate, not a
+  // substitute for proving who is calling.
   const metadata = getVapiMetadata(body);
-  if (metadata.purpose === "ARCHITECT_TEST") {
-    return { authorized: true, reason: "architect test session (sandbox check pending)", requiresArchitectSandbox: true };
+  if (metadata.purpose === "ARCHITECT_TEST" && !secret) {
+    console.error(
+      "[vapi-webhook] architect-test webhook rejected in production: VAPI_WEBHOOK_SECRET is not configured"
+    );
   }
 
   if (!secret) {

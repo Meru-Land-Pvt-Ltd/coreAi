@@ -571,6 +571,22 @@ authRoutes.post("/login", async (c) => {
       );
     }
 
+    // A PASSWORD PROVES THE ACCOUNT, NEVER THE PRIVILEGE.
+    //
+    // This line used to grant whatever role the login form asked for, with no
+    // check that the account was entitled to it — so anyone holding a password
+    // could post role:"ADMIN", be granted it permanently, and walk into
+    // platform pricing, payouts, the number pool, every business record and
+    // the power to suspend users. The emailed-code paths have always checked
+    // this (see :134 and :259); the password path did not.
+    //
+    // Checked across ALL rows for this address, because user rows are unique
+    // per (email, role): an owner who is both an architect and an admin has
+    // two, and the architect row must not hide the admin one.
+    if (input.role === "ADMIN" && !candidates.some((candidate) => holdsAdminRole(candidate))) {
+      return errorResponse(c, "This email is not an admin account.", 403, "ADMIN_ACCOUNT_REQUIRED");
+    }
+
     // Authenticated entry into this role's workspace — grant the capability
     // (idempotent) instead of requiring a separate User row per role.
     await grantRole(user.id, input.role);

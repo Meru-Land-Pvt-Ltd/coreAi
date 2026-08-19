@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { presentationDoorEnabled } from "@coreai/shared";
+import { getClientIp } from "../../lib/client-ip";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { prisma } from "../../lib/prisma";
 import { resolveEmbedLive } from "./embed-live";
@@ -43,22 +44,10 @@ function normalizeTemplate(template: string): AgentPageTemplate {
     : "chat";
 }
 
-/**
- * Client IP for rate limiting. Only proxy-set headers are trusted:
- * cf-connecting-ip (set by Cloudflare, never client-forwardable through it)
- * first, then the RIGHTMOST x-forwarded-for hop — the one appended by our own
- * proxy. The leftmost entries are client-controlled and would let a caller
- * rotate identities per request, so they are deliberately ignored here even
- * though older routes read them.
- */
-function getClientIp(c: Context): string {
-  const cloudflare = c.req.header("cf-connecting-ip")?.trim();
-  if (cloudflare) return cloudflare;
-
-  const forwarded = c.req.header("x-forwarded-for");
-  const lastHop = forwarded?.split(",").at(-1)?.trim();
-  return lastHop || c.req.header("x-real-ip")?.trim() || "127.0.0.1";
-}
+// The caller's real address comes from ONE place now (lib/client-ip.ts). The
+// version that used to live here trusted `cf-connecting-ip`, and we do not sit
+// behind Cloudflare — so anyone could set that header themselves, change it per
+// request, and use the free preview forever.
 
 /** Public POST bodies are small JSON — reject anything oversized before parsing. */
 const publicBodyLimit = bodyLimit({

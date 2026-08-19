@@ -1,3 +1,4 @@
+import { getClientIp } from "./client-ip";
 import { randomUUID } from "crypto";
 import type { Context } from "hono";
 import type { LoginHistoryStatus } from "@prisma/client";
@@ -49,12 +50,10 @@ export function parseDeviceLabel(userAgent: string) {
 
 export function getRequestMeta(c: Context) {
   const userAgent = c.req.header("user-agent") ?? "Unknown";
-  const forwarded = c.req.header("x-forwarded-for");
-  const ip =
-    forwarded?.split(",")[0]?.trim() ??
-    c.req.header("x-real-ip") ??
-    c.req.header("cf-connecting-ip") ??
-    "127.0.0.1";
+  // This address ends up in the login history a user reads to spot a break-in.
+  // Reading a client-controlled header let an attacker write whatever address
+  // they liked into that record — the one place a person looks to catch them.
+  const ip = getClientIp(c);
 
   return {
     userAgent,

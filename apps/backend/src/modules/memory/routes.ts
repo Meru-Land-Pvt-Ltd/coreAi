@@ -24,6 +24,58 @@ memoryRoutes.use("*", requireAuth);
 memoryRoutes.use("*", requireRole(["ARCHITECT", "ADMIN"]));
 
 /**
+ * MAY THIS PERSON SEE THIS RUN?
+ *
+ * Every route below is behind a valid login, which is why this looked safe —
+ * but a login is not ownership. Any architect could pass any run id and read
+ * another tenant's full step-by-step output: prompts, customer messages,
+ * results. Runs are addressed by cuid, so this is not a brute-force problem;
+ * a run id appears in logs, screenshots and support threads.
+ *
+ * An admin sees everything. An architect sees runs of workflows they wrote, or
+ * runs they triggered themselves.
+ */
+async function runVisibleTo(
+  runId: string,
+  user: { id: string; role?: string | null }
+): Promise<boolean> {
+  if (!runId) return false;
+  if (user.role === "ADMIN") return true;
+
+  const run = await prisma.workflowRun.findUnique({
+    where: { id: runId },
+    select: {
+      triggeredByUserId: true,
+      workflow: { select: { architectUserId: true } },
+      business: { select: { ownerId: true } }
+    }
+  });
+  if (!run) return false;
+
+  return (
+    run.workflow?.architectUserId === user.id ||
+    run.triggeredByUserId === user.id ||
+    run.business?.ownerId === user.id
+  );
+}
+
+/** The same question for a single node row, answered through its parent run. */
+async function nodeRunVisibleTo(
+  nodeRunId: string,
+  user: { id: string; role?: string | null }
+): Promise<boolean> {
+  if (!nodeRunId) return false;
+  if (user.role === "ADMIN") return true;
+
+  const node = await prisma.nodeRun.findUnique({
+    where: { id: nodeRunId },
+    select: { workflowRunId: true }
+  });
+  if (!node?.workflowRunId) return false;
+  return runVisibleTo(node.workflowRunId, user);
+}
+
+/**
  * GET /memory/test
  * One-click smoke test — creates a temp workflow run, saves nodes, links them,
  * and returns every broker result. Use this in Postman before testing individual routes.
@@ -67,7 +119,13 @@ function handleMemoryRouteError(
  */
 memoryRoutes.post("/node", async (c) => {
   try {
+    const authUser = c.get("authUser");
     const body = saveNodeMemorySchema.parse(await c.req.json());
+    // Writing into someone else's run is worse than reading it: it puts your
+    // text inside their agent's memory, which their next AI step will read.
+    if (!(await runVisibleTo(body.workflowRunId, authUser))) {
+      return errorResponse(c, "Workflow run not found", 404, "NOT_FOUND");
+    }
     const result = await memoryBroker.saveNodeMemory(body);
     return successResponse(c, result, "Node memory saved", 201);
   } catch (error) {
@@ -78,7 +136,12 @@ memoryRoutes.post("/node", async (c) => {
 /** GET /memory/node/:nodeRunId — load one saved node row by its database id. */
 memoryRoutes.get("/node/:nodeRunId", async (c) => {
   try {
-    const memory = await memoryBroker.loadNodeMemory(c.req.param("nodeRunId"));
+    const authUser = c.get("authUser");
+    const nodeRunId = c.req.param("nodeRunId");
+    if (!(await nodeRunVisibleTo(nodeRunId, authUser))) {
+      return errorResponse(c, "Node memory not found", 404, "NOT_FOUND");
+    }
+    const memory = await memoryBroker.loadNodeMemory(nodeRunId);
     if (!memory) {
       return errorResponse(c, "Node memory not found", 404, "NOT_FOUND");
     }
@@ -94,8 +157,15 @@ memoryRoutes.get("/node/:nodeRunId", async (c) => {
  */
 memoryRoutes.get("/workflow/:workflowRunId", async (c) => {
   try {
+    const authUser = c.get("authUser");
+    const runId = c.req.param("workflowRunId");
+    // Deliberately 404, not 403: telling a stranger the run exists is itself
+    // a leak.
+    if (!(await runVisibleTo(runId, authUser))) {
+      return errorResponse(c, "Workflow run not found", 404, "NOT_FOUND");
+    }
     const run = await prisma.workflowRun.findUnique({
-      where: { id: c.req.param("workflowRunId") },
+      where: { id: runId },
       include: {
         nodeRuns: { orderBy: { executionOrder: "asc" } },
         contextLinks: true,
@@ -121,8 +191,13 @@ memoryRoutes.get("/workflow/:workflowRunId", async (c) => {
 /** GET /memory/workflow/:workflowRunId/history — node runs only, ordered by execution. */
 memoryRoutes.get("/workflow/:workflowRunId/history", async (c) => {
   try {
+    const authUser = c.get("authUser");
+    const runId = c.req.param("workflowRunId");
+    if (!(await runVisibleTo(runId, authUser))) {
+      return errorResponse(c, "Workflow run not found", 404, "NOT_FOUND");
+    }
     const rows = await prisma.nodeRun.findMany({
-      where: { workflowRunId: c.req.param("workflowRunId") },
+      where: { workflowRunId: runId },
       orderBy: { executionOrder: "asc" },
     });
     return successResponse(c, rows.map(mapNodeRunToRecord));
@@ -138,7 +213,11 @@ memoryRoutes.get("/workflow/:workflowRunId/history", async (c) => {
  */
 memoryRoutes.post("/context/build", async (c) => {
   try {
+    const authUser = c.get("authUser");
     const body = buildContextBundleSchema.parse(await c.req.json());
+    if (!(await runVisibleTo(body.workflowRunId, authUser))) {
+      return errorResponse(c, "Workflow run not found", 404, "NOT_FOUND");
+    }
     const bundle = await memoryBroker.buildContextBundle(body);
     return successResponse(c, bundle);
   } catch (error) {
@@ -153,10 +232,15 @@ memoryRoutes.post("/context/build", async (c) => {
  */
 memoryRoutes.get("/context/backlink/:workflowRunId/:nodeId", async (c) => {
   try {
+    const authUser = c.get("authUser");
     const nodeId = c.req.param("nodeId");
+    const runId = c.req.param("workflowRunId");
+    if (!(await runVisibleTo(runId, authUser))) {
+      return errorResponse(c, "Workflow run not found", 404, "NOT_FOUND");
+    }
     const selected = c.req.query("nodeIds")?.split(",").filter(Boolean);
     const memories = await memoryBroker.getBackLinkedMemory(
-      c.req.param("workflowRunId"),
+      runId,
       nodeId,
       selected
     );

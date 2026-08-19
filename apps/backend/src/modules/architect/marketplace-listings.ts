@@ -185,8 +185,29 @@ export function toMarketplaceCard<
   const resolvedInstallCount = installCount ?? _count?.installedAgents ?? 0;
   const capabilities = (listing.includedFeatures ?? []).map((feature) => feature.trim()).filter(Boolean);
 
+  // A shop window shows the product, not the shopkeeper's paperwork. Spreading
+  // the whole row leaked Stripe product and price ids, review rejection
+  // reasons and internal workflow ids to anyone browsing the marketplace
+  // signed out. Strip them by name so a new internal column cannot quietly
+  // join them later.
+  const shopWindow = rest as Record<string, unknown>;
+  for (const internal of [
+    "stripeProductId",
+    "stripePriceId",
+    "stripePriceCents",
+    "reviewNotes",
+    "rejectionReason",
+    "reviewedById",
+    "reviewedAt",
+    "publishChecklist",
+    "workflowId",
+    "architectUserId"
+  ]) {
+    delete shopWindow[internal];
+  }
+
   return {
-    ...rest,
+    ...(shopWindow as typeof rest),
     workflow: workflow
       ? { id: workflow.id, name: workflow.name, description: workflow.description }
       : null,
