@@ -144,19 +144,6 @@ export function analyzeWorkflowGraph(
     };
   }
 
-  if (triggerNodeIds.length > 1) {
-    return {
-      ok: false,
-      issue: "multiple_triggers",
-      title: hasProductBlocks ? "One starting point only" : "One workflow only",
-      message: hasProductBlocks
-        ? "Keep a single trigger for now. Remove the extra ones so your agent has one clear starting point."
-        : "Keep a single trigger for now. Remove extra triggers so all steps belong to one connected flow.",
-      orphanNodeIds: [],
-      triggerNodeIds
-    };
-  }
-
   const adjacency = new Map<string, string[]>();
   for (const edge of edges) {
     const source = edge.source ? String(edge.source) : "";
@@ -165,6 +152,45 @@ export function analyzeWorkflowGraph(
     const list = adjacency.get(source) ?? [];
     list.push(target);
     adjacency.set(source, list);
+  }
+
+  // MORE THAN ONE WAY IN IS ALLOWED — as long as they lead to the same agent.
+  //
+  // This used to reject any second trigger outright, which contradicted the
+  // product: a webhook ("someone asked us to call") and a call list ("work
+  // through these people") are two doors into ONE salesperson, and the runtime
+  // has always supported both. The real defect is not two doors; it is two
+  // unrelated flows sharing a canvas and pretending to be one agent.
+  //
+  // So the test is convergence, not count: every trigger must eventually reach
+  // something another trigger also reaches.
+  if (triggerNodeIds.length > 1) {
+    const reach = new Map(triggerNodeIds.map((id) => [id, reachableFrom([id], adjacency)]));
+    const stranded = triggerNodeIds.filter((id) => {
+      const mine = reach.get(id);
+      if (!mine) return true;
+      return !triggerNodeIds.some((other) => {
+        if (other === id) return false;
+        const theirs = reach.get(other);
+        if (!theirs) return false;
+        for (const node of mine) {
+          if (node !== id && node !== other && theirs.has(node)) return true;
+        }
+        return false;
+      });
+    });
+
+    if (stranded.length > 0) {
+      return {
+        ok: false,
+        issue: "multiple_triggers",
+        title: "These don't lead anywhere together",
+        message:
+          "You can have more than one way in — a form, a timer, a list — but they must all feed the same agent. Connect them to a shared step, or move the extra one to its own agent.",
+        orphanNodeIds: [],
+        triggerNodeIds: stranded
+      };
+    }
   }
 
   // Blocks join the trigger as reachability roots: anything your product
