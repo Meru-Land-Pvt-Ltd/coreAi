@@ -4,6 +4,7 @@ export * from "./industry-browse";
 export * from "./agent-configure";
 export * from "./business-hours";
 export * from "./business-surface";
+export * from "./buyer-contract";
 export * from "./call-list";
 export * from "./execution-mode";
 export * from "./google-disclosure";
