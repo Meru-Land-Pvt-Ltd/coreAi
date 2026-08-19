@@ -6,7 +6,6 @@ import {
   DEEPGRAM_NODE_TYPES,
   OUTBOUND_CALL_NODE_TYPE,
   SCHEDULE_NODE_TYPE,
-  SCRIPT_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
   WEBHOOK_NODE_TYPE,
   VOICE_NODE_PRESENTATION,
@@ -153,10 +152,16 @@ export const libraryGroups: LibraryGroup[] = [
         ...paletteItem(API_CALL_NODE_TYPE, { icon: "globe", accent: "amber", kind: "API CALL" }),
         badge: "NEW"
       },
-      {
-        ...paletteItem(SCRIPT_NODE_TYPE, { icon: "code", accent: "slate", kind: "CODE" }),
-        badge: "NEW"
-      },
+      /* The Code node is deliberately NOT here.
+         It shipped with a JavaScript/Python editor and a NEW badge, and the
+         function that would run the code was never called from anywhere — a
+         dropped Code node ran a business-hours check and reported a green
+         success. Running an architect's arbitrary code in our own process is
+         also the single most dangerous thing this platform could offer: it is
+         remote code execution on the machine that holds every business's
+         credentials. It comes back when it can run inside a real sandbox with
+         no network and no filesystem, and not before. Nothing fake stays on
+         the palette. */
       paletteItem(VOICE_NODE_TYPES.endFlow, { icon: "capture", accent: "slate" })
     ]
   },

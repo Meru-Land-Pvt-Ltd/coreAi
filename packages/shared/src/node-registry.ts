@@ -2176,36 +2176,21 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     type: "logic.condition",
     label: "Condition",
     category: "logic",
-    description: "Evaluates a condition (e.g. business hours) and records the decision.",
+    description: "Send the flow down one path or the other, based on a rule you choose.",
     requiredConfig: ["condition"],
     backendExecutable: true,
     launchCritical: true,
     comingSoon: false,
-    runtime: { nodeKind: "condition" }
-  }),
-  def({
-    type: SCRIPT_NODE_TYPE,
-    label: "Code",
-    category: "logic",
-    description: "Run your own JavaScript or Python on the workflow context and return a result.",
-    requiredConfig: ["scriptCode"],
-    backendExecutable: true,
-    launchCritical: false,
-    comingSoon: false,
-    /* Dispatched by type in both runners. "condition" only decides how the
-       builder groups it and what a runner does if the type ever goes unmatched
-       — a read-only pass-through rather than an output/connector side effect. */
     runtime: { nodeKind: "condition" },
-    /* Explicit so the agent-runtime resolves this to its own handler instead of
-       falling through the structural classifier to "logic.condition". */
-    capability: SCRIPT_NODE_TYPE,
+    /* The rule is now three fields instead of a sentence. A free-text box was
+       what let this node pretend: whatever an architect typed was used as a
+       label and the engine always asked the same question underneath. */
     defaultConfig: {
-      scriptLanguage: "javascript",
-      scriptCode: SCRIPT_STARTER_CODE.javascript,
-      scriptOutputKey: "script.output",
-      scriptTimeoutMs: String(SCRIPT_DEFAULT_TIMEOUT_MS)
-    },
-    producedVariables: ["script.output"]
+      condition: "Business hours",
+      conditionOperator: "business_hours",
+      conditionField: "",
+      conditionValue: ""
+    }
   }),
   def({
     type: "output.result",
@@ -2575,26 +2560,8 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   def({ type: "trigger.webhook", label: "When another app sends data", category: "trigger", description: "Starts when another app or website sends its data to this agent's private link.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
   def({ type: "trigger.call_list", label: "Call this list", category: "trigger", description: "Works through a list of people one at a time — rings them, waits, tries again, and remembers who picked up.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
   def({ type: "trigger.schedule", label: "On a schedule", category: "trigger", description: "Runs by itself — every hour, every day, or every week.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
-  def({ type: "trigger.gmail_new_email", label: "Gmail New Email", category: "trigger", description: "Start when a new email arrives.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
-  def({ type: "action.google_calendar_availability", label: "Calendar Availability", category: "action", description: "Check open slots before booking.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "connector", connector: "Google Calendar", connectorAction: "check_availability" } }),
-  def({ type: "action.http_request", label: "HTTP Request", category: "action", description: "Call an external API.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "connector", connector: "HTTP", connectorAction: "request" } }),
-  def({ type: "action.delay", label: "Delay / Wait", category: "logic", description: "Wait before the next step.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "condition" } }),
-  def({ type: "action.data_transform", label: "Data Transform", category: "data", description: "Map/transform data between steps.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "condition" } }),
-  def({ type: "logic.switch", label: "Switch / Router", category: "logic", description: "Route to multiple branches.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "condition" } }),
-  def({ type: "action.update_lead", label: "Update Lead", category: "data", description: "Update an existing lead's fields.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "connector", connector: CORE_CONNECTOR, connectorAction: "update_lead" } }),
-  def({ type: "action.create_task", label: "Create Task", category: "action", description: "Create a task/reminder.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "connector", connector: CORE_CONNECTOR, connectorAction: "create_task" } }),
-  def({ type: "action.slack_notify", label: "Slack Notification", category: "integration", description: "Notify a Slack channel.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "connector", connector: "Slack", connectorAction: "notify" } }),
 
   // ---- C. Later advanced nodes (coming soon) ----
-  def({ type: "trigger.stripe_payment", label: "Stripe Payment", category: "trigger", description: "Start on a Stripe payment event.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
-  def({ type: "trigger.subscription_status", label: "Subscription Status", category: "trigger", description: "Start on a subscription change.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "trigger" } }),
-  def({ type: "integration.crm", label: "CRM Connector", category: "integration", description: "Sync with an external CRM.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "connector", connector: "CRM", connectorAction: "sync" } }),
-  def({ type: "ai.knowledge_base_search", label: "Knowledge Base Search", category: "ai", description: "RAG search over the knowledge base.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "ai" } }),
-  def({ type: "action.file_parse", label: "File Upload / Parse", category: "data", description: "Parse an uploaded file.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "connector", connector: "Files", connectorAction: "parse" } }),
-  def({ type: "action.multi_agent_handoff", label: "Multi-Agent Handoff", category: "action", description: "Hand off to another agent.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "connector", connector: CORE_CONNECTOR, connectorAction: "multi_agent_handoff" } }),
-  def({ type: "action.analytics_event", label: "Analytics Event", category: "data", description: "Track an analytics event.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "connector", connector: "Analytics", connectorAction: "track" } }),
-  def({ type: "logic.error_handler", label: "Error Handler", category: "logic", description: "Fallback workflow on error.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "condition" } }),
-  def({ type: "logic.ab_test", label: "A/B Test", category: "logic", description: "Split traffic between variants.", requiredConfig: [], backendExecutable: false, launchCritical: false, comingSoon: true, runtime: { nodeKind: "condition" } })
 ];
 
 /** Template variables allowed in Send Email subject/body templates (shared by builder UI and send-time rendering). */

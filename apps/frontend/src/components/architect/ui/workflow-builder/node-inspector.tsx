@@ -3740,10 +3740,62 @@ function ConditionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
         <TextInput value={selectedNode.data.title} onChange={set("title")} />
       </Section>
 
-      <Section title="Condition" last>
-        <Label>Rule</Label>
-        <TextInput value={str("condition")} onChange={set("condition")} placeholder="e.g. after hours, urgent request, booking intent" />
-        <p className="mt-2 text-[11px] text-slate-400">Routes to connected nodes based on this rule.</p>
+      <Section title="The rule" last>
+        <Label>What is this decision called?</Label>
+        <TextInput value={str("condition", "Business hours")} onChange={set("condition")} placeholder="e.g. Is it after hours?" />
+        <p className="mt-1 text-[11px] text-slate-400">Just a name, so you can read the flow later.</p>
+
+        <div className="mt-4">
+          <Label>What to check</Label>
+          <SelectBox
+            value={str("conditionOperator", "business_hours")}
+            onChange={set("conditionOperator")}
+            options={[
+              { value: "business_hours", label: "Are we open right now?" },
+              { value: "contains", label: "Something contains…" },
+              { value: "not_contains", label: "Something does not contain…" },
+              { value: "equals", label: "Something is exactly…" },
+              { value: "not_equals", label: "Something is not…" },
+              { value: "is_empty", label: "Something is empty" },
+              { value: "is_not_empty", label: "Something has a value" },
+              { value: "greater_than", label: "A number is more than…" },
+              { value: "less_than", label: "A number is less than…" }
+            ]}
+          />
+        </div>
+
+        {str("conditionOperator", "business_hours") !== "business_hours" ? (
+          <>
+            <div className="mt-4">
+              <Label>Which value?</Label>
+              <TextInput
+                value={str("conditionField")}
+                onChange={set("conditionField")}
+                placeholder="latestMessage"
+              />
+              <p className="mt-1 text-[11px] text-slate-400">
+                What the customer said is <code>latestMessage</code>. Their number is{" "}
+                <code>customer.phone</code>. An AI step&apos;s answer is <code>ai.output</code>.
+              </p>
+            </div>
+
+            {!["is_empty", "is_not_empty"].includes(str("conditionOperator", "business_hours")) ? (
+              <div className="mt-4">
+                <Label>Compared to</Label>
+                <TextInput
+                  value={str("conditionValue")}
+                  onChange={set("conditionValue")}
+                  placeholder="e.g. cancel"
+                />
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
+        <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
+          Steps on the <strong>Yes</strong> line run only when the rule is true. Steps on the{" "}
+          <strong>No</strong> line run only when it is false. A line you leave unlabelled always runs.
+        </p>
       </Section>
     </>
   );

@@ -125,7 +125,12 @@ type WorkflowChain = {
 export type WorkflowRunLog = {
   nodeId: string;
   label: string;
-  status: "success" | "waiting" | "error";
+  /**
+   * "skipped" exists because a flow with branches has a third outcome: the
+   * step was fine, it simply was not on the path taken. Reporting that as
+   * success would tell an architect a message went out when it did not.
+   */
+  status: "success" | "waiting" | "error" | "skipped";
   message: string;
   output?: unknown;
 };
@@ -634,6 +639,8 @@ type RunnerContext = {
     passed: boolean;
     label: string;
   };
+  /** Which way EACH condition went, keyed by node id — the wave builder reads this. */
+  conditionResults?: Record<string, boolean>;
   sentEmail?: {
     id: string | null;
     to: string;
@@ -937,6 +944,77 @@ export function groupNodesIntoExecutionWaves(
   return waves;
 }
 
+/**
+ * WHICH NODES DOES A DECISION SWITCH OFF?
+ *
+ * The canvas draws a green Yes line and a red No line out of every condition,
+ * and until now the engine ignored both: it sorted every node top to bottom
+ * and ran all of them, so both branches always executed. An architect who
+ * built "if after hours → text them, otherwise → do nothing" got the text sent
+ * every time, including at 2pm.
+ *
+ * Given how each condition actually answered, this returns every node that is
+ * only reachable through a branch that was NOT taken. A node that can also be
+ * reached another way still runs — joining two branches back together is a
+ * normal thing to draw, and it must not be switched off by one of them.
+ */
+export function nodesSwitchedOffByConditions(
+  nodes: RunnerNode[],
+  edges: RunnerEdge[],
+  conditionResults: Record<string, boolean>
+): Set<string> {
+  const decided = Object.keys(conditionResults);
+  if (decided.length === 0) return new Set();
+
+  const isYes = (handle: string | null | undefined): boolean | null => {
+    const value = (handle ?? "").trim().toLowerCase();
+    if (!value) return null;
+    if (["yes", "true", "pass", "passed", "then", "a"].includes(value)) return true;
+    if (["no", "false", "fail", "failed", "else", "otherwise", "b"].includes(value)) return false;
+    return null;
+  };
+
+  // Edges the decision closed off.
+  const closed = new Set<string>();
+  for (const edge of edges) {
+    const outcome = conditionResults[edge.source];
+    if (outcome === undefined) continue;
+    const branch = isYes(edge.sourceHandle);
+    // An unlabelled line out of a condition always runs — the architect drew
+    // it without choosing a side, and guessing which side they meant is worse
+    // than running it.
+    if (branch === null) continue;
+    if (branch !== outcome) closed.add(edge.id || `${edge.source}->${edge.target}:${edge.sourceHandle}`);
+  }
+  if (closed.size === 0) return new Set();
+
+  const open = edges.filter(
+    (edge) => !closed.has(edge.id || `${edge.source}->${edge.target}:${edge.sourceHandle}`)
+  );
+
+  // Anything still reachable from a starting point through open lines lives.
+  const hasIncoming = new Set(edges.map((edge) => edge.target));
+  const roots = nodes.filter((node) => !hasIncoming.has(node.id)).map((node) => node.id);
+  const alive = new Set<string>(roots);
+  const queue = [...roots];
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (!id) continue;
+    for (const edge of open) {
+      if (edge.source !== id || alive.has(edge.target)) continue;
+      alive.add(edge.target);
+      queue.push(edge.target);
+    }
+  }
+
+  // A node nothing points at was never part of the branch — leave it alone.
+  return new Set(
+    nodes
+      .filter((node) => hasIncoming.has(node.id) && !alive.has(node.id))
+      .map((node) => node.id)
+  );
+}
+
 function telegramRouteCandidates(context: RunnerContext): Set<string> {
   const event = context.telegramEvent && typeof context.telegramEvent === "object"
     ? (context.telegramEvent as Record<string, unknown>)
@@ -1210,7 +1288,12 @@ function shouldUseProviderEngine(node: RunnerNode, mode: WorkflowRunMode): boole
   if (type === DEEPGRAM_NODE_TYPES.speech) return false;
   if (type === DEEPGRAM_NODE_TYPES.stt) return false;
   if (type === DEEPGRAM_NODE_TYPES.tts) return false;
-  if (type === "ai.context_reply") return mode === "test";
+  // AI Text Reply used real AI in Test and hand-written template strings when
+  // it ran for real — so an architect tuned a reply they would never ship, and
+  // a customer got a string-concatenated answer from two regexes. It is an AI
+  // node; it uses the AI in both. (This check also sat BEFORE the provider
+  // check below, so even explicitly choosing a model was ignored live.)
+  if (type === "ai.context_reply") return true;
   if (Boolean(asString(node.data?.provider))) return true;
   return false;
 }
@@ -2065,23 +2148,124 @@ function evaluateBusinessHours(context: RunnerContext): boolean {
   return isWeekday && minutes >= 8 * 60 && minutes < 18 * 60;
 }
 
+/**
+ * Read a dotted path out of the run context: "customer.phone", "ai.reply".
+ *
+ * Missing is missing — never an empty string, so "is empty" can tell the
+ * difference between a value that was blank and one that never arrived.
+ */
+function readContextPath(context: RunnerContext, path: string): unknown {
+  const parts = path.split(".").map((part) => part.trim()).filter(Boolean);
+  let cursor: unknown = context as unknown;
+  for (const part of parts) {
+    if (cursor === null || cursor === undefined) return undefined;
+    if (typeof cursor !== "object") return undefined;
+    cursor = (cursor as Record<string, unknown>)[part];
+  }
+  return cursor;
+}
+
+export const CONDITION_OPERATORS = [
+  "contains",
+  "not_contains",
+  "equals",
+  "not_equals",
+  "is_empty",
+  "is_not_empty",
+  "greater_than",
+  "less_than",
+  "business_hours"
+] as const;
+
+/**
+ * Decide a branch, honestly.
+ *
+ * The old version read the architect's rule ONLY as a label and then always
+ * asked the same question — are we inside business hours — with a hardcoded
+ * Mon-Fri 8-6 fallback. Whatever an architect typed ("urgent request",
+ * "booking intent") had no effect whatsoever, and the answer was never read
+ * again because the scheduler ignored which line an arrow left from. Both
+ * halves are fixed: this evaluates a real rule, and the wave builder below
+ * follows the branch that was taken.
+ */
+export function evaluateCondition(
+  node: RunnerNode,
+  context: RunnerContext
+): { passed: boolean; label: string; explain: string } {
+  const data = (node.data ?? {}) as Record<string, unknown>;
+  const label = asString(data.condition, "Condition");
+  const operator = asString(data.conditionOperator, "business_hours");
+  const field = asString(data.conditionField, "");
+  const expected = asString(data.conditionValue, "");
+
+  if (operator === "business_hours" || !field) {
+    const open = evaluateBusinessHours(context);
+    return {
+      passed: open,
+      label,
+      explain: open ? "we are inside business hours" : "we are outside business hours"
+    };
+  }
+
+  const raw = readContextPath(context, field);
+  const actual = raw === undefined || raw === null ? "" : String(raw);
+  const lowerActual = actual.toLowerCase();
+  const lowerExpected = expected.toLowerCase();
+  const numericActual = Number(actual);
+  const numericExpected = Number(expected);
+
+  const decide = (): { passed: boolean; explain: string } => {
+    switch (operator) {
+      case "contains":
+        return { passed: lowerActual.includes(lowerExpected), explain: `"${field}" ${lowerActual.includes(lowerExpected) ? "contains" : "does not contain"} "${expected}"` };
+      case "not_contains":
+        return { passed: !lowerActual.includes(lowerExpected), explain: `"${field}" ${lowerActual.includes(lowerExpected) ? "contains" : "does not contain"} "${expected}"` };
+      case "equals":
+        return { passed: lowerActual === lowerExpected, explain: `"${field}" is "${actual}"` };
+      case "not_equals":
+        return { passed: lowerActual !== lowerExpected, explain: `"${field}" is "${actual}"` };
+      case "is_empty":
+        return { passed: actual.trim() === "", explain: actual.trim() === "" ? `"${field}" is empty` : `"${field}" has a value` };
+      case "is_not_empty":
+        return { passed: actual.trim() !== "", explain: actual.trim() !== "" ? `"${field}" has a value` : `"${field}" is empty` };
+      case "greater_than":
+        return {
+          passed: Number.isFinite(numericActual) && Number.isFinite(numericExpected) && numericActual > numericExpected,
+          explain: `"${field}" is ${actual}`
+        };
+      case "less_than":
+        return {
+          passed: Number.isFinite(numericActual) && Number.isFinite(numericExpected) && numericActual < numericExpected,
+          explain: `"${field}" is ${actual}`
+        };
+      default:
+        // An operator we do not recognise must not quietly pass. Failing shut
+        // sends the flow down the "no" branch, which an architect will see.
+        return { passed: false, explain: `the rule "${operator}" is not one this platform knows` };
+    }
+  };
+
+  const outcome = decide();
+  return { passed: outcome.passed, label, explain: outcome.explain };
+}
+
 function runConditionNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
-  const condition = asString(node.data?.condition, "Business hours check");
-  const isBusinessHours = evaluateBusinessHours(context);
+  const verdict = evaluateCondition(node, context);
 
   context.condition = {
-    passed: isBusinessHours,
-    label: condition
+    passed: verdict.passed,
+    label: verdict.label
   };
+  // Remembered per node, because a flow may have several conditions and the
+  // wave builder needs to know which way EACH of them went.
+  context.conditionResults = { ...(context.conditionResults ?? {}), [node.id]: verdict.passed };
 
   logs.push(
     createLog(
       node,
       "success",
-      isBusinessHours
-        ? `Condition passed: ${condition}`
-        : `Condition failed: ${condition}`,
-      context.condition
+      `${verdict.passed ? "Yes" : "No"} — ${verdict.explain}. Following the ${verdict.passed ? "Yes" : "No"} branch.`,
+      { ...context.condition, explain: verdict.explain }
     )
   );
 }
@@ -2140,6 +2324,22 @@ async function runScriptNode(node: RunnerNode, context: RunnerContext, logs: Wor
   );
 }
 
+/** What we say to a customer when the architect left the template blank. */
+function defaultBookingText(context: RunnerContext): string {
+  const business = context.business?.name ?? "the team";
+  const when = (context.selectedSlot as string | undefined) ?? (context.appointment as { time?: string } | undefined)?.time;
+  return when
+    ? `You're booked with ${business} for ${when}. Reply STOP to opt out.`
+    : `Thanks for getting in touch with ${business}. We'll be in contact shortly. Reply STOP to opt out.`;
+}
+
+/** And what the team gets, so a booking never sits unseen. */
+function defaultTeamText(context: RunnerContext): string {
+  const who = (context.caller_name as string | undefined) ?? "A customer";
+  const phone = customerPhoneFromContext(context) ?? "no number given";
+  return `${who} just booked through your AI agent. Contact: ${phone}.`;
+}
+
 async function runSmsConnectorNode({
   node,
   context,
@@ -2168,20 +2368,86 @@ async function runSmsConnectorNode({
       dentistTemplate: asString(data.teamTemplate ?? data.dentistTemplate),
       mode
     };
-    if (mode === "live") {
-      logs.push(
-        createLog(node, "success", `SMS notification will be sent live to ${targets.join(" and ") || "no one"}.`, context.smsNotification)
-      );
-    } else {
+    if (!outboundSendsAllowed(context, mode)) {
       logs.push(
         createLog(
           node,
           "success",
-          `Dry run passed. SMS would be sent to ${targets.join(" and ") || "no recipients"}.`,
+          `Test run — nothing was sent. Live, this would text ${targets.join(" and ") || "no one"}.`,
           context.smsNotification
         )
       );
+      return;
     }
+
+    // IT SAID "will be sent live" AND SENT NOTHING.
+    //
+    // The log read like a success and no message ever left the building: the
+    // node wrote context.smsNotification and returned, and nothing downstream
+    // read it to send anything. A business watching a green tick believed
+    // their customer had been texted. It sends now.
+    const customerTemplate = asString(data.customerTemplate ?? data.patientTemplate);
+    const teamTemplate = asString(data.teamTemplate ?? data.dentistTemplate);
+    const customerPhone = customerPhoneFromContext(context);
+    const sent: Array<{ who: string; ok: boolean; detail?: string }> = [];
+
+    if (sendToPatient) {
+      const body = renderTemplate(customerTemplate, context) || defaultBookingText(context);
+      if (!customerPhone) {
+        sent.push({ who: "customer", ok: false, detail: "no phone number for the customer" });
+      } else {
+        const outcome = await sendTrackedSms({
+          to: customerPhone,
+          body,
+          messageType: "WORKFLOW_SMS",
+          businessId: context.business?.id ?? null,
+          businessName: context.business?.name ?? null,
+          smsPurpose: "BOOKING_ACKNOWLEDGEMENT",
+          installedAgentId: context.installedAgentId ?? null
+        }).catch((error) => ({ sent: false, error: String(error) }) as never);
+        sent.push({
+          who: "customer",
+          ok: Boolean((outcome as { sent?: boolean }).sent),
+          detail: (outcome as { error?: string }).error
+        });
+      }
+    }
+
+    if (sendToDentist && dentistPhone) {
+      const body = renderTemplate(teamTemplate, context) || defaultTeamText(context);
+      const outcome = await sendTrackedSms({
+        to: dentistPhone,
+        body,
+        messageType: "WORKFLOW_SMS",
+        businessId: context.business?.id ?? null,
+        businessName: context.business?.name ?? null,
+        smsPurpose: "SERVICE_UPDATE",
+        installedAgentId: context.installedAgentId ?? null
+      }).catch((error) => ({ sent: false, error: String(error) }) as never);
+      sent.push({
+        who: "team",
+        ok: Boolean((outcome as { sent?: boolean }).sent),
+        detail: (outcome as { error?: string }).error
+      });
+    }
+
+    context.smsNotification = {
+      ...(context.smsNotification as Record<string, unknown>),
+      delivered: sent
+    };
+    const failures = sent.filter((entry) => !entry.ok);
+    logs.push(
+      createLog(
+        node,
+        failures.length === 0 ? "success" : sent.some((entry) => entry.ok) ? "waiting" : "error",
+        sent.length === 0
+          ? "Nobody was set to receive a text, so none was sent."
+          : failures.length === 0
+            ? `Texted ${sent.map((entry) => entry.who).join(" and ")}.`
+            : `Texted ${sent.filter((entry) => entry.ok).map((entry) => entry.who).join(" and ") || "no one"}. Could not text ${failures.map((entry) => `${entry.who} (${entry.detail ?? "unknown reason"})`).join(", ")}.`,
+        context.smsNotification
+      )
+    );
     return;
   }
 
@@ -2452,21 +2718,45 @@ async function runGoogleCalendarConnectorNode({
     const timeZoneAvail = context.business?.timeZone || env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE;
     const date = asString(node.data?.date) || new Date().toISOString().slice(0, 10);
     const slotsToOffer = Number(node.data?.slotsToOffer) || 3;
-    const demoSlots = ["10:00 AM", "2:00 PM", "4:30 PM"].slice(0, slotsToOffer);
 
+    // NO INVENTED TIMES. EVER.
+    //
+    // This used to answer "10:00 AM, 2:00 PM, 4:30 PM" whenever the calendar
+    // was not connected, the token had expired, or Google threw — and log it
+    // as a SUCCESS. On a live call that is an agent telling a real customer
+    // they are booked for two o'clock at a business that has never heard of
+    // them. A calendar we cannot read is an error, and the steps after it do
+    // not run.
     const ownerId = context.business?.ownerId;
-    if (mode !== "live" || !ownerId) {
+
+    // A rehearsal is allowed to show example times, but it says so plainly and
+    // marks itself as an example so nothing downstream treats it as real.
+    if (mode !== "live") {
+      const exampleSlots = ["10:00 AM", "2:00 PM", "4:30 PM"].slice(0, slotsToOffer);
       context.calendarAvailability = {
         date,
-        slots: demoSlots,
-        source: "demo",
-        calendar_status: ownerId ? undefined : "not_connected"
+        slots: exampleSlots,
+        source: "example",
+        calendar_status: "test_mode"
       };
       logs.push(
         createLog(
           node,
           "success",
-          `Calendar not connected. Demo slots returned: ${demoSlots.join(", ")}.`,
+          `Test run — these are example times, not your real diary: ${exampleSlots.join(", ")}. Run it live to read the real calendar.`,
+          context.calendarAvailability
+        )
+      );
+      return;
+    }
+
+    if (!ownerId) {
+      context.calendarAvailability = { date, slots: [], source: "none", calendar_status: "not_connected" };
+      logs.push(
+        createLog(
+          node,
+          "error",
+          "No calendar is connected to this business, so there are no times to offer. Connect a Google Calendar in setup.",
           context.calendarAvailability
         )
       );
@@ -2482,23 +2772,31 @@ async function runGoogleCalendarConnectorNode({
         bufferMinutes: Number(node.data?.bufferMinutes) || 10,
         maxSlots: slotsToOffer
       });
-      const slots = availability.slots.length ? availability.slots : demoSlots;
+      // A genuinely full day is a real answer — and it is NOT the same as a
+      // broken calendar. Both are reported truthfully and differently.
       context.calendarAvailability = {
         date,
-        slots,
-        source: availability.slots.length ? "calendar" : "demo"
+        slots: availability.slots,
+        source: "calendar"
       };
-      logs.push(
-        createLog(node, "success", `Calendar checked. Available slots: ${slots.join(", ")}.`, context.calendarAvailability)
-      );
-    } catch (error) {
-      context.calendarAvailability = { date, slots: demoSlots, source: "demo", calendar_status: "needs_reconnect" };
       logs.push(
         createLog(
           node,
           "success",
-          `Calendar not connected. Demo slots returned: ${demoSlots.join(", ")}.`,
-          { date, slots: demoSlots, source: "demo", calendar_status: "needs_reconnect", error: error instanceof Error ? error.message : String(error) }
+          availability.slots.length
+            ? `Calendar checked. Free: ${availability.slots.join(", ")}.`
+            : `Calendar checked. Nothing free on ${date}.`,
+          context.calendarAvailability
+        )
+      );
+    } catch (error) {
+      context.calendarAvailability = { date, slots: [], source: "none", calendar_status: "needs_reconnect" };
+      logs.push(
+        createLog(
+          node,
+          "error",
+          "Could not read the calendar, so no times were offered. Reconnect Google Calendar in setup.",
+          { date, slots: [], source: "none", calendar_status: "needs_reconnect", error: error instanceof Error ? error.message : String(error) }
         )
       );
     }
@@ -3696,6 +3994,22 @@ function emailDateParts(iso: string, timeZone?: string): { date: string; time: s
   }
 }
 
+/** The business's address as one readable line, from whatever parts exist. */
+function businessAddressLine(business: RunnerContext["business"]): string {
+  if (!business) return "";
+  const record = business as unknown as Record<string, unknown>;
+  const parts = [
+    record.addressLine1,
+    record.addressLine2,
+    record.addressCity,
+    record.addressState,
+    record.addressPostalCode
+  ]
+    .map((part) => (typeof part === "string" ? part.trim() : ""))
+    .filter(Boolean);
+  return parts.join(", ");
+}
+
 async function runEmailConnectorNode({
   node,
   context,
@@ -3719,15 +4033,27 @@ async function runEmailConnectorNode({
     context.calendarAppointment?.startAt || asString(context.appointmentStartAt) || "";
   const when = appointmentIso ? emailDateParts(appointmentIso, business?.timeZone) : { date: "", time: "" };
 
+  // These three were hardcoded to empty strings, so any template using them
+  // sent a blank where a customer's email, the business's address or the call
+  // summary should have been — and the email still went out marked success.
+  // The live phone path fills them properly; the same node behaved differently
+  // depending on which runner reached it.
   const templateVars: EmailTemplateVariables = {
     customerName: context.caller_name ?? "",
-    customerEmail: "",
+    customerEmail:
+      asString(context.customerEmail) ||
+      asString((context.lead as { email?: string } | undefined)?.email) ||
+      "",
     businessName: business?.name ?? "",
     appointmentDate: when.date,
     appointmentTime: when.time,
     businessPhone: business?.phoneNumber ?? business?.teamPhone ?? "",
-    businessAddress: "",
-    callSummary: "",
+    businessAddress: businessAddressLine(business),
+    callSummary:
+      asString(context.callSummary) ||
+      asString((context.conversation as { summary?: string } | undefined)?.summary) ||
+      asString(context.latestMessage) ||
+      "",
     serviceName: asString(context.appointmentService) || context.calendarAppointment?.summary || ""
   };
 
@@ -5564,11 +5890,27 @@ export async function runWorkflowTest({
       const wave = waves[waveIdx];
       if (runFailed) break;
 
+      // Recomputed each wave, because the conditions that decide it ran in an
+      // earlier one. A branch the flow did not take never executes.
+      const switchedOff = nodesSwitchedOffByConditions(
+        parsedWorkflow.nodes,
+        parsedWorkflow.edges,
+        context.conditionResults ?? {}
+      );
+      const liveWave = wave.filter((node) => !switchedOff.has(node.id));
+      for (const node of wave) {
+        if (!switchedOff.has(node.id)) continue;
+        logs.push(
+          createLog(node, "skipped", "Skipped — the flow went the other way at the step before this.")
+        );
+      }
+      if (liveWave.length === 0) continue;
+
       const waveStart = Date.now();
-      console.log(`[WORKFLOW_PERF] [Wave ${waveIdx + 1}/${waves.length} START] nodes (${wave.length}): [${wave.map(n => `"${asString(n.data?.title ?? n.data?.label, n.id)}"`).join(", ")}]`);
+      console.log(`[WORKFLOW_PERF] [Wave ${waveIdx + 1}/${waves.length} START] nodes (${liveWave.length}): [${liveWave.map(n => `"${asString(n.data?.title ?? n.data?.label, n.id)}"`).join(", ")}]`);
 
       const waveResults = await Promise.all(
-        wave.map((node) => {
+        liveWave.map((node) => {
           const currentExecutionOrder = executionOrder++;
           return executeSingleNodeInRunner({
             node,
