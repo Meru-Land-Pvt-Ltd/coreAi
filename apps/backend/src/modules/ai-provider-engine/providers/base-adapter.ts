@@ -1,11 +1,23 @@
 import type { AIExecuteRequest, AIContinueRequest, AIExecuteResponse, AITokenUsage, CostEstimate, ValidationResult, ProviderCapability } from "../types";
 import pRetry from "p-retry";
+import { env } from "../../../config/env";
 import { errorMessage } from "../../../lib/error-utils";
 
 export type PricingTable = Record<string, { input: number; output: number }>; // rates per 1M tokens
 
+/**
+ * Is this provider's key present?
+ *
+ * Read process.env directly and the answer is a lie: a key an admin saved in
+ * the dashboard lives in the database, and `env` is a proxy that checks there
+ * first. So the Claude adapter made working calls with an admin-saved key
+ * while its own health check reported "ANTHROPIC_API_KEY is not set" — the
+ * screen said broken, the product worked, and nobody could tell which to
+ * believe. Same source for both now.
+ */
 export function checkEnvKey(envVar: string): ValidationResult {
-  return process.env[envVar]?.trim()
+  const value = (env as unknown as Record<string, unknown>)[envVar];
+  return typeof value === "string" && value.trim()
     ? { valid: true, message: `${envVar} is present.` }
     : { valid: false, message: `${envVar} is not set.` };
 }

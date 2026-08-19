@@ -44,7 +44,7 @@ class GroqAdapter implements AIProviderAdapter {
   private _client: OpenAI | null = null;
   private get client(): OpenAI {
     if (!this._client) {
-      const apiKey = process.env.GROQ_API_KEY ?? env.OPENAI_API_KEY ?? "";
+      const apiKey = env.GROQ_API_KEY ?? env.OPENAI_API_KEY ?? "";
       this._client = new OpenAI({
         apiKey,
         baseURL: "https://api.groq.com/openai/v1",
@@ -58,7 +58,7 @@ class GroqAdapter implements AIProviderAdapter {
   }
 
   async validate(): Promise<ValidationResult> {
-    if (process.env.GROQ_API_KEY) {
+    if (env.GROQ_API_KEY) {
       return { valid: true, message: "GROQ_API_KEY set" };
     }
     return checkEnvKey("OPENAI_API_KEY");

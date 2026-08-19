@@ -7,6 +7,7 @@
  * Auth         : Authorization: Token <DEEPGRAM_API_KEY>
  */
 
+import { env } from "../../../config/env";
 import {
   DEEPGRAM_STT_MODELS,
   DEEPGRAM_TTS_VOICES,
@@ -178,7 +179,7 @@ class DeepgramAdapter implements AIProviderAdapter {
         throw new Error("No audioData provided. Pass Buffer or base64 audio for STT.");
       }
 
-      const apiKey = process.env["DEEPGRAM_API_KEY"]?.trim();
+      const apiKey = env.DEEPGRAM_API_KEY?.trim();
       if (!apiKey) {
         throw new Error("DEEPGRAM_API_KEY is not set.");
       }
@@ -275,7 +276,7 @@ class DeepgramAdapter implements AIProviderAdapter {
         throw new Error("No inputText provided for Deepgram TTS.");
       }
 
-      const apiKey = process.env["DEEPGRAM_API_KEY"]?.trim();
+      const apiKey = env.DEEPGRAM_API_KEY?.trim();
       if (!apiKey) {
         throw new Error("DEEPGRAM_API_KEY is not set.");
       }

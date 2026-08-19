@@ -44,7 +44,7 @@ class DeepSeekAdapter implements AIProviderAdapter {
   private _client: OpenAI | null = null;
   private get client(): OpenAI {
     if (!this._client) {
-      const apiKey = process.env.DEEPSEEK_API_KEY ?? env.OPENAI_API_KEY ?? "";
+      const apiKey = env.DEEPSEEK_API_KEY ?? env.OPENAI_API_KEY ?? "";
       this._client = new OpenAI({
         apiKey,
         baseURL: "https://api.deepseek.com",
@@ -58,7 +58,7 @@ class DeepSeekAdapter implements AIProviderAdapter {
   }
 
   async validate(): Promise<ValidationResult> {
-    if (process.env.DEEPSEEK_API_KEY) {
+    if (env.DEEPSEEK_API_KEY) {
       return { valid: true, message: "DEEPSEEK_API_KEY set" };
     }
     return checkEnvKey("OPENAI_API_KEY");

@@ -51,6 +51,7 @@ import {
   type EmailTemplateVariables
 } from "../email/email-node-config";
 import { enqueueEmail } from "../email/email-queue";
+import { getGmailConnectionStatus, sendGmailEmail } from "./gmail-connector";
 import { isValidEmailAddress, TEAM_RECIPIENT } from "../email/ses-mail-service";
 import { isPlatformMailConfigured, sendPlatformEmail } from "../../lib/mailer";
 import {
@@ -711,6 +712,8 @@ type RunnerContext = {
   handoff?: {
     reason: string;
     teamPhone?: string;
+    /** Whether the team was actually reached — not merely that a row was written. */
+    notified?: boolean;
   };
   nextWorkflow?: {
     workflowId: string;
@@ -3827,13 +3830,44 @@ async function runHumanHandoffNode({
     context.conversationId = conversation.id;
   }
 
-  context.handoff = { reason, teamPhone };
+  // A HANDOFF NOBODY IS TOLD ABOUT IS NOT A HANDOFF.
+  //
+  // This wrote three database rows and logged "Human handoff recorded to
+  // +1..." — and never contacted that number. A customer was told a person
+  // would call, the row sat in a table nobody watches, and the call never
+  // came. Now the team is actually told, and the log says plainly whether
+  // anyone was reached.
+  let notified = false;
+  let notifyDetail = "";
+
+  if (!teamPhone) {
+    notifyDetail = "no team number is set on this business";
+  } else if (!outboundSendsAllowed(context, mode)) {
+    notifyDetail = "test run — nobody was messaged";
+  } else {
+    const who = context.caller_name ? `${context.caller_name} (${phoneNumber ?? "no number"})` : phoneNumber ?? "A customer";
+    const outcome = await sendTrackedSms({
+      to: teamPhone,
+      body: `${who} needs a person. Reason: ${reason}. Sent by your AI agent.`,
+      messageType: "WORKFLOW_SMS",
+      businessId: context.business?.id ?? null,
+      businessName: context.business?.name ?? null,
+      smsPurpose: "SERVICE_UPDATE",
+      installedAgentId: context.installedAgentId ?? null
+    }).catch((error) => ({ sent: false, error: String(error) }) as never);
+    notified = Boolean((outcome as { sent?: boolean }).sent);
+    if (!notified) notifyDetail = (outcome as { error?: string }).error ?? "the message could not be sent";
+  }
+
+  context.handoff = { reason, teamPhone, notified };
 
   logs.push(
     createLog(
       node,
-      "success",
-      `Human handoff recorded${teamPhone ? ` to ${teamPhone}` : ""}.`,
+      notified || !teamPhone ? "success" : "waiting",
+      notified
+        ? `Your team was texted on ${teamPhone} — ${reason}`
+        : `Handoff saved, but nobody was contacted: ${notifyDetail}.`,
       context.handoff
     )
   );
@@ -4191,6 +4225,54 @@ async function runEmailConnectorNode({
       : emailConfig.recipientType === "team"
         ? "INTERNAL_NOTIFICATION"
         : "CUSTOMER_FOLLOW_UP";
+
+  // SEND FROM THE BUSINESS'S OWN GMAIL WHEN THEY HAVE CONNECTED ONE.
+  //
+  // A dentist's confirmation should arrive from their address, not from a
+  // platform domain their patient has never heard of — that is the difference
+  // between an email that lands in the inbox and one that lands in spam. The
+  // Gmail send function has existed all along with no caller; it has one now.
+  // Nothing changes for a business that has not connected Gmail: they keep the
+  // platform sender, which is the reliable default.
+  const gmailOwnerId = business.ownerId ?? null;
+  if (gmailOwnerId && asString((node.data as Record<string, unknown>)?.sendFrom, "auto") !== "platform") {
+    const gmail = await getGmailConnectionStatus(gmailOwnerId).catch(() => null);
+    if (gmail?.connected) {
+      try {
+        const sentViaGmail = await sendGmailEmail({
+          userId: gmailOwnerId,
+          to,
+          subject,
+          body: textBody || subject,
+          cc: Array.isArray(emailConfig.cc) ? emailConfig.cc.join(", ") : emailConfig.cc,
+          bcc: Array.isArray(emailConfig.bcc) ? emailConfig.bcc.join(", ") : emailConfig.bcc
+        });
+        context.sentEmail = {
+          id: sentViaGmail.id,
+          to,
+          subject,
+          body: textBody || subject
+        };
+        logs.push(
+          createLog(node, "success", `Emailed ${to} from ${gmail.email ?? "the business's Gmail"}.`, {
+            ...context.sentEmail,
+            via: "gmail"
+          })
+        );
+        return;
+      } catch (error) {
+        // Fall through to the platform sender rather than losing the email.
+        // A revoked Google token must not silently stop a business's mail.
+        logs.push(
+          createLog(
+            node,
+            "waiting",
+            `Could not send from the business's Gmail (${error instanceof Error ? error.message : String(error)}). Sending from the platform address instead — reconnect Gmail in setup.`
+          )
+        );
+      }
+    }
+  }
 
   const result = await enqueueEmail(
     {

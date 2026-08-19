@@ -44,9 +44,16 @@ class OpenAIAdapter implements AIProviderAdapter {
   }
 
   private _client: OpenAI | null = null;
+  private _clientKey: string | null = null;
+  /* The client is cached, so the key it was built with is remembered next to
+     it. Without this, an admin who rotates a key in the dashboard keeps
+     talking to the old one until someone restarts the server — which is
+     exactly what the rotation feature exists to avoid. */
   private get client(): OpenAI {
-    if (!this._client) {
-      this._client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+    const apiKey = env.OPENAI_API_KEY ?? "";
+    if (!this._client || this._clientKey !== apiKey) {
+      this._client = new OpenAI({ apiKey });
+      this._clientKey = apiKey;
     }
     return this._client;
   }

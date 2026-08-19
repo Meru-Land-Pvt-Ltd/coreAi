@@ -59,8 +59,8 @@ import { checkUsageCapAndNotify } from "../business/usage-cap";
 //   classifyCallOutcome,
 //   classifySentiment
 // } from "../business/conversation-understanding/classify";
-// [DISABLED] import { detectHumanRequest, generateSmsAiReply } from "../business/sms-ai/sms-ai";
-// [DISABLED] import { isAiPausedForConversation } from "../business/inbox/inbox-service";
+import { detectHumanRequest } from "../business/sms-ai/sms-ai";
+import { isAiPausedForConversation, requestHumanTakeover } from "../business/inbox/inbox-service";
 import {
   checkBusinessExactTime,
   reserveSlotForInstant,
@@ -2359,26 +2359,52 @@ export async function handleTwilioInboundSms(c: Context) {
     providerId: readBodyString(body, ["MessageSid", "SmsSid"])
   });
 
-  /* [DISABLED] shared-inbox AI pause gate.
+  // WHEN A PERSON TAKES OVER, THE AI STOPS TALKING.
+  //
+  // This gate was live for WhatsApp and email and switched off for text
+  // messages, so the same customer got different behaviour depending on which
+  // app they used — and a staff member typing a reply in the inbox found the
+  // AI answering over the top of them.
   if (conversation && isAiPausedForConversation(conversation)) {
-    console.log("[inbound-sms] AI paused for conversation (human active/waiting)", {
+    console.log("[inbound-sms] AI paused — a person is handling this conversation", {
       conversationId: conversation.id
     });
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
-  */
 
   const history = conversation?.id ? await loadConversationHistory(conversation.id) : [];
   let replyBody: string;
   let bookedEventId: string | null = null;
   let bookedAppointmentId: string | null = null;
 
-  /* [DISABLED] explicit human-request → inbox takeover on SMS.
-  if (agent.business?.businessId && detectHumanRequest(incomingBody)) {
-    const takeover = await generateSmsAiReply({ ... });
-    if (takeover.humanRequested && takeover.reply) { ...ack + record...; return; }
+  // "CAN I TALK TO SOMEONE?" — the one sentence an AI must never argue with.
+  //
+  // Also live on WhatsApp and email and off for SMS. A customer asking for a
+  // person got an AI reply instead, every time, with no one on the team ever
+  // told they had asked.
+  if (agent.business?.businessId && conversation?.id && detectHumanRequest(incomingBody)) {
+    await requestHumanTakeover({
+      conversationId: conversation.id,
+      businessId: agent.business.businessId,
+      reason: "The customer asked to speak to a person.",
+      requestedBy: "customer"
+    }).catch((error) => {
+      console.error("[inbound-sms] could not flag a human takeover", error);
+    });
+
+    await sendTrackedSms({
+      to: customerPhone,
+      body: `${smsAttributionPrefix(agent.business.businessName)}Of course — I'm passing you to someone on the team now. They'll reply here shortly.`,
+      messageType: "WORKFLOW_SMS",
+      businessId: agent.business.businessId,
+      businessName: agent.business.businessName ?? null,
+      smsPurpose: "SUPPORT_RESPONSE"
+    }).catch((error) => {
+      console.error("[inbound-sms] handover acknowledgement failed", error);
+    });
+
+    return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
   }
-  */
 
   const smsWorkflowCanBook = workflowCapabilities(agent.workflowJson, "sms").canBook;
 

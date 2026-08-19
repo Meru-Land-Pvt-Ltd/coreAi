@@ -2205,39 +2205,6 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
 
   // ---- Executable integrations (not launch-critical) ----
-  def({
-    type: "integration.gmail_read_emails",
-    label: "Read Gmail Emails",
-    category: "integration",
-    description: "Reads the latest email matching a Gmail query.",
-    requiredConfig: ["gmailQuery"],
-    backendExecutable: true,
-    launchCritical: false,
-    comingSoon: false,
-    runtime: { nodeKind: "connector", connector: "Gmail", connectorAction: "read_emails" }
-  }),
-  def({
-    type: "integration.gmail_send_email",
-    label: "Send Gmail Email",
-    category: "integration",
-    description: "Sends an email from the connected Gmail account.",
-    requiredConfig: ["gmailTo", "gmailSubject", "gmailBody"],
-    backendExecutable: true,
-    launchCritical: false,
-    comingSoon: false,
-    runtime: { nodeKind: "connector", connector: "Gmail", connectorAction: "send_email" }
-  }),
-  def({
-    type: "integration.gmail_create_draft",
-    label: "Create Gmail Draft",
-    category: "integration",
-    description: "Creates a Gmail draft reply.",
-    requiredConfig: ["gmailTo", "gmailSubject", "gmailBody"],
-    backendExecutable: true,
-    launchCritical: false,
-    comingSoon: false,
-    runtime: { nodeKind: "connector", connector: "Gmail", connectorAction: "draft_reply" }
-  }),
 
   // ---- Calendly connector (one trigger + one action; options in node props) ----
   def({
