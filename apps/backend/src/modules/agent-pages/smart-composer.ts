@@ -24,7 +24,13 @@ import {
 import { getProviderEngine } from "../ai-provider-engine/provider-engine";
 import type { AIExecuteRequest, AIMessage } from "../ai-provider-engine/types";
 import { describeProductSpecContract } from "./product-chat";
-import { checkDashboard, dashboardBriefFor } from "./business-dashboard-composer";
+import {
+  buildDashboardPrompt,
+  buildSetupPrompt,
+  checkDashboardSurface,
+  checkSetup
+} from "./buyer-surface-composer";
+import { deriveBuyerContract, fillContractTokens } from "@coreai/shared";
 import { getProductSpec, saveProductSpec, starterProductSpec } from "./product-spec-service";
 import { verifyDesignChange } from "./designer-eyes";
 import { deriveFaceBlueprint } from "./blueprint";
@@ -741,21 +747,69 @@ function mergedCount(declarations: WorkflowDeclarations): number {
 
 export function registerSmartDesignerRoutes(routes: Hono) {
   /**
-   * THE BUSINESS DASHBOARD: the screen the BUYER opens every day.
+   * WHAT THE BUSINESS WILL SEE — for the architect, before anyone buys it.
    *
-   * The second thing Smart Designer designs. Where smart-compose builds the
-   * surface an agent's end customer touches, this builds the one its paying
-   * business touches — and that is the more valuable of the two, because a
-   * business fills the setup form once and then judges the whole subscription
-   * on what this screen shows them.
+   * The architect's preview is not a mock-up of the buyer's screens; it IS the
+   * buyer's screens, rendered from the same stored designs by the same
+   * component. The only difference is the mode: this comes back with the test
+   * limits attached, so an architect can see at a glance that testing can
+   * reach nobody but themselves.
+   */
+  routes.get(
+    "/manage/:workflowId/buyer-preview",
+    requireAuth,
+    requireRole(["ARCHITECT"]),
+    async (c) => {
+      const authUser = c.get("authUser");
+      const workflowId = c.req.param("workflowId") ?? "";
+
+      const workflow = await prisma.workflowDefinition.findFirst({
+        where: { id: workflowId, architectUserId: authUser.id },
+        select: { id: true, name: true, workflowJson: true }
+      });
+      if (!workflow) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+
+      const page = await prisma.publishedAgentPage.findFirst({
+        where: { workflowId: workflow.id },
+        select: { setupJson: true, dashboardJson: true }
+      });
+
+      const contract = deriveBuyerContract(workflow.workflowJson);
+
+      // Zeroes, not invented numbers. An architect shown a dashboard of
+      // flattering fake figures learns nothing about what their customer will
+      // actually open on day one.
+      const values: Record<string, string> = {};
+      for (const metric of contract.metrics) {
+        values[metric.key] =
+          metric.format === "percent" ? "0%" : metric.format === "money" ? "$0.00" : metric.format === "duration" ? "0 min" : "0";
+      }
+
+      const dashboard = sanitizeProductSpec(page?.dashboardJson);
+
+      return successResponse(c, {
+        agentName: workflow.name,
+        contract,
+        setup: sanitizeProductSpec(page?.setupJson),
+        dashboard: dashboard
+          ? sanitizeProductSpec(JSON.parse(fillContractTokens(JSON.stringify(dashboard), values)))
+          : null,
+        values
+      });
+    }
+  );
+
+  /**
+   * THE WHOLE BUSINESS SIDE, designed by Smart Designer.
    *
-   * Nothing here is hand-drawn: deriveBusinessSurface reads the architect's
-   * own nodes and says WHAT must appear, the composer decides how it looks,
-   * and numbers are stored as {{metric.key}} tokens so one saved design shows
-   * today's real figures on every open.
+   * Two surfaces from one contract: the setup form that asks the business for
+   * what the agent needs, and the daily screen that shows them what it did.
+   * Neither is hand-written anywhere. deriveBuyerContract reads the
+   * architect's own nodes — including node types this platform has never seen
+   * — and says WHAT must appear; the composer decides how it looks.
    */
   routes.post(
-    "/manage/:workflowId/compose-dashboard",
+    "/manage/:workflowId/compose-buyer-surfaces",
     requireAuth,
     requireRole(["ARCHITECT"]),
     async (c) => {
@@ -769,53 +823,68 @@ export function registerSmartDesignerRoutes(routes: Hono) {
       if (!workflow) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
 
       const context = await loadComposerContext(workflow);
-      const brief = dashboardBriefFor(workflow.workflowJson, context.agent);
-
-      if (!brief.surface.hasDashboard) {
-        return successResponse(c, {
-          composed: false,
-          reply:
-            "This agent doesn't do anything measurable yet, so there's nothing worth showing a business daily. Add a step that calls, books or saves someone."
-        });
-      }
+      const contract = deriveBuyerContract(workflow.workflowJson);
 
       const brain = resolveBrainSlot(await getSmartDesignerBrainConfig());
       if (!brain) return errorResponse(c, MISSING_LLM_CREDENTIALS_MESSAGE, 503, "LLM_NOT_CONFIGURED");
 
-      const outcome = await runComposerBrain({
+      const shared = {
         brain,
-        systemPrompt: brief.prompt,
         conversationHistory: [],
-        userMessage:
-          "Design the daily dashboard for the business that pays for this agent. Lead with the number that proves it is earning them money.",
         declarations: context.declarations,
         graphNodeIds: context.graphNodeIds,
         allowBoundary: false,
-        // The dashboard's own gate: real metrics only, one page, controls
-        // present. A violation is fed back to the model verbatim so its retry
-        // fixes the actual problem instead of guessing.
-        validate: (spec) => {
-          const verdict = checkDashboard(spec, brief.surface);
-          return { product: verdict.ok ? spec : null, violations: verdict.problems };
-        },
-        task: "agent-page-compose-dashboard",
         workflowId
-      });
+      };
 
-      if (outcome.kind !== "composed") {
-        return successResponse(c, { composed: false, reply: SMART_COMPOSER_FALLBACK_REPLY });
+      // Both at once: surfaces composed at different times can disagree about
+      // what the agent even does, and the business is the one who finds out.
+      const [setup, dashboard] = await Promise.all([
+        contract.inputs.length || contract.connections.length
+          ? runComposerBrain({
+              ...shared,
+              systemPrompt: buildSetupPrompt({ agent: context.agent, contract }),
+              userMessage:
+                "Design the setup screen. Ask only what is listed, in the order a business owner would naturally answer it.",
+              validate: (spec) => {
+                const verdict = checkSetup(spec, contract);
+                return { product: verdict.ok ? spec : null, violations: verdict.problems };
+              },
+              task: "agent-page-compose-setup"
+            })
+          : Promise.resolve({ kind: "failed" as const }),
+        contract.hasDashboard
+          ? runComposerBrain({
+              ...shared,
+              systemPrompt: buildDashboardPrompt({ agent: context.agent, contract }),
+              userMessage:
+                "Design the daily screen. Lead with the number that proves this agent is earning them money.",
+              validate: (spec) => {
+                const verdict = checkDashboardSurface(spec, contract);
+                return { product: verdict.ok ? spec : null, violations: verdict.problems };
+              },
+              task: "agent-page-compose-dashboard"
+            })
+          : Promise.resolve({ kind: "failed" as const })
+      ]);
+
+      const data: Record<string, unknown> = {};
+      if (setup.kind === "composed") data.setupJson = setup.product as never;
+      if (dashboard.kind === "composed") data.dashboardJson = dashboard.product as never;
+      if (Object.keys(data).length) {
+        await prisma.publishedAgentPage.update({ where: { id: context.page.id }, data });
       }
 
-      await prisma.publishedAgentPage.update({
-        where: { id: context.page.id },
-        data: { dashboardJson: outcome.product as never }
-      });
-
       return successResponse(c, {
-        composed: true,
-        reply: outcome.reply,
-        dashboard: outcome.product,
-        metrics: brief.surface.metrics.map((metric) => metric.key)
+        setup: setup.kind === "composed" ? setup.product : null,
+        dashboard: dashboard.kind === "composed" ? dashboard.product : null,
+        contract,
+        reply:
+          setup.kind === "composed"
+            ? setup.reply
+            : dashboard.kind === "composed"
+              ? dashboard.reply
+              : SMART_COMPOSER_FALLBACK_REPLY
       });
     }
   );

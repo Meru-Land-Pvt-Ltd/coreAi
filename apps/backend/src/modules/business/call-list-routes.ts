@@ -12,7 +12,7 @@ import { z } from "zod";
 import {
   CALL_LIST_STATUSES,
   clampCallWindow,
-  deriveBusinessSurface,
+  deriveBuyerContract,
   normalizeCallPhone,
   sanitizeProductSpec,
   summariseList
@@ -290,14 +290,17 @@ callListRoutes.post("/call-suppressions", async (c) => {
 export { CALL_LIST_STATUSES };
 
 /**
- * THE DAILY SCREEN.
+ * THE BUSINESS SIDE OF ONE AGENT — both surfaces, as Smart Designer designed them.
  *
- * Returns the dashboard Smart Designer composed for this agent, with today's
- * real numbers filled into it. The design is stored once; the figures are
- * resolved on every open, so a business that logs in twice a day sees the
- * truth twice a day rather than a snapshot from install time.
+ * The setup form and the daily screen come back together with today's real
+ * numbers already in them. The design is stored once; the figures are resolved
+ * on every open, so a business that logs in twice a day sees the truth twice a
+ * day rather than a snapshot from install time.
+ *
+ * The same payload drives the architect's preview, so what an architect signs
+ * off is literally what their customer gets.
  */
-callListRoutes.get("/agents/:installedAgentId/dashboard", async (c) => {
+callListRoutes.get("/agents/:installedAgentId/surfaces", async (c) => {
   const authUser = c.get("authUser");
   const installedAgentId = c.req.param("installedAgentId");
   const window = (c.req.query("window") ?? "month") as DashboardWindow;
@@ -308,30 +311,88 @@ callListRoutes.get("/agents/:installedAgentId/dashboard", async (c) => {
       id: true,
       businessId: true,
       workflowId: true,
+      configJson: true,
       workflow: { select: { name: true, workflowJson: true } }
     }
   });
   if (!agent) return errorResponse(c, "Agent not found", 404, "AGENT_NOT_FOUND");
 
-  const data = await loadDashboardData(agent.id, agent.businessId, window);
-  const surface = deriveBusinessSurface(agent.workflow?.workflowJson);
+  const [data, page] = await Promise.all([
+    loadDashboardData(agent.id, agent.businessId, window),
+    prisma.publishedAgentPage.findFirst({
+      where: { workflowId: agent.workflowId ?? "" },
+      select: { setupJson: true, dashboardJson: true }
+    })
+  ]);
 
-  const page = await prisma.publishedAgentPage.findFirst({
-    where: { workflowId: agent.workflowId ?? "" },
-    select: { dashboardJson: true }
-  });
-
-  const designed = sanitizeProductSpec(page?.dashboardJson);
+  const contract = deriveBuyerContract(agent.workflow?.workflowJson);
+  const dashboard = sanitizeProductSpec(page?.dashboardJson);
+  const setup = sanitizeProductSpec(page?.setupJson);
 
   return successResponse(c, {
     agentName: agent.workflow?.name ?? "Your agent",
     window,
-    // Null means Smart Designer has not composed one yet — the client shows
-    // the plain numbers rather than an empty screen.
-    dashboard: designed ? fillDashboardSpec(designed, data.values) : null,
-    surface,
+    contract,
+    // Null means Smart Designer has not composed that surface yet.
+    setup,
+    dashboard: dashboard ? fillDashboardSpec(dashboard, data.values) : null,
+    answers: buyerAnswersOf(agent.configJson),
     values: data.values,
     tables: data.tables,
     lists: data.lists
   });
+});
+
+/** The answers this business has already given, so the form comes back filled. */
+function buyerAnswersOf(configJson: unknown): Record<string, unknown> {
+  if (!configJson || typeof configJson !== "object") return {};
+  const answers = (configJson as Record<string, unknown>).buyerAnswers;
+  return answers && typeof answers === "object" ? (answers as Record<string, unknown>) : {};
+}
+
+/**
+ * Save what the business typed.
+ *
+ * Only keys the agent's own contract asked for are stored — a form is a public
+ * surface, and accepting arbitrary keys into an agent's config is how a
+ * setup page becomes a way to rewrite someone's agent.
+ */
+callListRoutes.post("/agents/:installedAgentId/setup-answers", async (c) => {
+  const authUser = c.get("authUser");
+  const installedAgentId = c.req.param("installedAgentId");
+
+  const agent = await prisma.installedAgent.findFirst({
+    where: { id: installedAgentId, business: { ownerId: authUser.id } },
+    select: { id: true, configJson: true, workflow: { select: { workflowJson: true } } }
+  });
+  if (!agent) return errorResponse(c, "Agent not found", 404, "AGENT_NOT_FOUND");
+
+  const body = await c.req.json().catch(() => ({}));
+  const submitted = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+
+  const contract = deriveBuyerContract(agent.workflow?.workflowJson);
+  const allowed = new Set(contract.inputs.map((input) => input.key));
+
+  const answers: Record<string, unknown> = { ...buyerAnswersOf(agent.configJson) };
+  let saved = 0;
+  for (const [key, value] of Object.entries(submitted)) {
+    if (!allowed.has(key)) continue;
+    answers[key] = typeof value === "string" ? value.slice(0, 5000) : value;
+    saved += 1;
+  }
+
+  const config = (agent.configJson && typeof agent.configJson === "object" ? agent.configJson : {}) as Record<
+    string,
+    unknown
+  >;
+  await prisma.installedAgent.update({
+    where: { id: agent.id },
+    data: { configJson: { ...config, buyerAnswers: answers } as never }
+  });
+
+  const missing = contract.inputs
+    .filter((input) => input.required && !String(answers[input.key] ?? "").trim())
+    .map((input) => input.label);
+
+  return successResponse(c, { saved, missing }, missing.length ? "Saved — a few things still needed." : "Saved.");
 });

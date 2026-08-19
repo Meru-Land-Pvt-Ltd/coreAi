@@ -200,6 +200,10 @@ model PublishedAgentPage {
   /// {{metric.key}} tokens and filled with live figures on every open, so one
   /// stored spec always shows today's results.
   dashboardJson    Json?
+  /// The BUYER's setup form, composed by Smart Designer from the same graph.
+  /// Paired with dashboardJson: one asks the business for what the agent needs,
+  /// the other shows them what it did. Neither is hand-written anywhere.
+  setupJson        Json?
   status           String       @default("LIVE")
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt

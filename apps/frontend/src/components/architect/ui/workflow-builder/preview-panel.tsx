@@ -18,6 +18,8 @@ import { FaceRenderer } from "@/components/agent-page/face-renderer";
 import type { ProductSpec } from "@coreai/shared";
 import { SpecRunProvider, buildSpecTheme, useWiredNodeRenderer } from "@/components/agent-page/spec";
 import { ProductSite, productHomePage, productPathForPageId } from "@/components/agent-page/spec/site";
+import { BuyerSurface, type BuyerContractLite, type SurfaceSpec } from "@/components/buyer-surface/buyer-surface";
+import { apiGet } from "@/lib/api";
 import type {
   AgentPageData,
   AgentPageRuntime,
@@ -262,6 +264,34 @@ export function PreviewPanel({
     () => (productSpec ? buildSpecTheme(productSpec.theme).accent : undefined),
     [productSpec]
   );
+  // WHAT THE BUSINESS WILL SEE.
+  //
+  // The preview is no longer a website preview. An architect builds a brain;
+  // the people who pay for it never see a marketing page, they see a short
+  // setup form and a daily screen of results. Previewing anything else taught
+  // architects to design the wrong thing.
+  const [buyerView, setBuyerView] = useState<{
+    contract: BuyerContractLite;
+    setup: SurfaceSpec;
+    dashboard: SurfaceSpec;
+  } | null>(null);
+  const [buyerTab, setBuyerTab] = useState<"setup" | "results">("setup");
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const response = await apiGet<{
+        contract: BuyerContractLite;
+        setup: SurfaceSpec;
+        dashboard: SurfaceSpec;
+      }>(`/agent-pages/manage/${workflowId}/buyer-preview`);
+      if (alive && response.success && response.data) setBuyerView(response.data);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [workflowId, product]);
+
   const renderWiredNode = useWiredNodeRenderer();
   // The same slug the page config renders under — the spec runtime keys its
   // session on it, and product hrefs are built from it.
@@ -432,6 +462,40 @@ export function PreviewPanel({
                 className="h-6 w-6 animate-spin rounded-full border-2 border-amber-200 border-t-amber-500 opacity-0 [animation-delay:0ms] motion-reduce:animate-none"
                 style={{ animation: "spin 0.7s linear infinite, preview-hold-fade 0.2s ease-out 0.33s forwards" }}
               />
+            </div>
+          ) : buyerView && (buyerView.setup || buyerView.dashboard) ? (
+            // The buyer's own screens, rendered by the buyer's own component.
+            // Not a mock-up of them — the same code, the same stored design,
+            // in test mode. What an architect signs off here is exactly what
+            // their customer opens.
+            <div className="h-full w-full overflow-y-auto bg-white" data-testid="preview-panel-buyer-surfaces">
+              <div className="mx-auto max-w-3xl px-6 py-6">
+                <div className="mb-4 flex w-fit gap-1 rounded-lg border border-gray-200 bg-white p-1">
+                  {(["setup", "results"] as const).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setBuyerTab(option)}
+                      data-testid={`preview-buyer-tab-${option}`}
+                      className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                        buyerTab === option ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      {option === "setup" ? "What the business fills in" : "What the business sees"}
+                    </button>
+                  ))}
+                </div>
+                <BuyerSurface
+                  spec={buyerTab === "setup" ? buyerView.setup : buyerView.dashboard}
+                  contract={buyerView.contract}
+                  mode="test"
+                  emptyMessage={
+                    buyerTab === "setup"
+                      ? "This agent doesn't need anything from the business yet."
+                      : "Nothing measurable yet — add a step that calls, books or saves someone."
+                  }
+                />
+              </div>
             </div>
           ) : productSpec && productPage ? (
             // The architect BUILT a product — the preview shows the real
