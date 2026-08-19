@@ -232,10 +232,40 @@ export async function createCheckoutSession(c: Context) {
       // The env price remains only as a fallback for legacy listings that
       // predate per-agent pricing.
       line_items: [{ price: listingPrice?.priceId ?? env.STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY, quantity: 1 }],
+      // TAX, AND WHO OWES IT.
+      //
+      // Switching Stripe Tax on in the Dashboard does nothing on its own —
+      // a session that never asks for tax never gets any. `liability: self`
+      // says Triven is the merchant of record, which is not a choice we get to
+      // make: EU Implementing Regulation 282/2011 Article 9a makes the
+      // platform the deemed supplier of electronically supplied services once
+      // it authorises the charge and sets the terms, and we do both. Renting a
+      // merchant of record would not remove that; it would only add a party.
+      automatic_tax: { enabled: true, liability: { type: "self" } },
+
+      // Business buyers with a VAT or GST number get the reverse charge, which
+      // is what a European company expects and what stops us collecting tax we
+      // should not. Stripe validates EU numbers against VIES and UK against
+      // HMRC — but it applies the reverse charge on FORMAT alone, so a
+      // well-formed fake zeroes the tax and leaves the liability with us. The
+      // async validation result is worth an alert once volume justifies it.
+      tax_id_collection: { enabled: true, required: "if_supported" },
+
+      // The address the tax is calculated from. Without it Stripe cannot work
+      // out which country's rate applies and quietly charges none.
+      billing_address_collection: "required",
+      customer_update: { address: "auto", name: "auto" },
+
       success_url: `${env.FRONTEND_URL}/business/billing/success?session_id={CHECKOUT_SESSION_ID}${listingSuffix}`,
       cancel_url: `${env.FRONTEND_URL}/business/billing/cancel${cancelSuffix}`,
       metadata,
-      subscription_data: { metadata }
+      subscription_data: {
+        metadata,
+        // In the EU the invoice PDF is the tax instrument, and the issuer on
+        // it must match the entity that owes the tax. Mismatched, the invoice
+        // is not valid evidence for the buyer's own VAT return.
+        invoice_settings: { issuer: { type: "self" } }
+      }
     });
 
     return successResponse(c, { url: session.url, sessionId: session.id }, "Checkout session created");
