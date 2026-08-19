@@ -79,7 +79,7 @@ export const MARKET_RULES: MarketRule[] = [
   { currency: "chf", rate: 0.88, step: 1, ending: 0, symbol: "CHF ", locale: "de-CH" },
   { currency: "dkk", rate: 6.9, step: 100, ending: 95, symbol: "kr ", locale: "da-DK" },
   { currency: "aed", rate: 3.67, step: 1, ending: 0, symbol: "AED ", locale: "en-AE" },
-  { currency: "inr", rate: 84, step: 100, ending: 900, symbol: "₹", locale: "en-IN" },
+  { currency: "inr", rate: 84, step: 1000, ending: 900, symbol: "₹", locale: "en-IN" },
   { currency: "cad", rate: 1.37, step: 1, ending: 0, symbol: "C$", locale: "en-CA" },
   { currency: "aud", rate: 1.52, step: 1, ending: 0, symbol: "A$", locale: "en-AU" },
   { currency: "sgd", rate: 1.34, step: 1, ending: 0, symbol: "S$", locale: "en-SG" }
@@ -101,11 +101,35 @@ function snap(value: number, rule: MarketRule): number {
  * `baseUsdCents` is what the architect set. The result is ready to hand to
  * Stripe as `currency_options[<currency>][unit_amount]`.
  */
+/**
+ * MARKETS PRICED ON THEIR OWN TERMS.
+ *
+ * Apple lets a developer set a base price and then override individual
+ * storefronts, because a straight conversion is not always the right business
+ * answer. India is ours: converting the $199 plan lands at about ₹16,700,
+ * which is over the ₹15,000 line where RBI makes the customer re-authorise
+ * every single month — the subscription stops being automatic and the market
+ * is effectively closed. The founder's decision is to sell there at $149,
+ * which lands at ₹12,900: comfortably under the line, and the difference
+ * between selling in India and not.
+ *
+ * A currency listed here is priced from ITS OWN anchor, not from the base.
+ */
+export const MARKET_USD_ANCHORS: Record<string, number> = {
+  inr: 14_900
+};
+
 export function priceForMarket(baseUsdCents: number, currency: string): MarketPrice | null {
   const rule = MARKET_RULES.find((entry) => entry.currency === currency.toLowerCase());
   if (!rule || baseUsdCents <= 0) return null;
 
-  const whole = (baseUsdCents / 100) * rule.rate;
+  const anchor = MARKET_USD_ANCHORS[rule.currency];
+  // An override only ever LOWERS the price. If an architect prices their agent
+  // below the India anchor, India pays the lower number — a market override
+  // must never quietly charge someone more than the headline price.
+  const effectiveUsdCents = anchor ? Math.min(anchor, baseUsdCents) : baseUsdCents;
+
+  const whole = (effectiveUsdCents / 100) * rule.rate;
   let major = snap(whole, rule);
   let adjusted = major !== Math.round(whole);
   let note: string | undefined;
@@ -143,9 +167,10 @@ export function priceForMarket(baseUsdCents: number, currency: string): MarketPr
 export function marketWarnings(baseUsdCents: number): string[] {
   const warnings: string[] = [];
   const inr = MARKET_RULES.find((rule) => rule.currency === "inr");
-  if (inr && (baseUsdCents / 100) * inr.rate >= INR_EMANDATE_CEILING) {
+  const inrUsd = Math.min(MARKET_USD_ANCHORS.inr ?? baseUsdCents, baseUsdCents);
+  if (inr && (inrUsd / 100) * inr.rate >= INR_EMANDATE_CEILING) {
     warnings.push(
-      `At this price an Indian subscription would be about ₹${Math.round((baseUsdCents / 100) * inr.rate).toLocaleString("en-IN")} a month, which is over India's ₹15,000 automatic-payment limit. Indian customers would have to re-authorise every single month. Price the plan lower, or sell it in India as a manual invoice.`
+      `At this price an Indian subscription would be about ₹${Math.round((inrUsd / 100) * inr.rate).toLocaleString("en-IN")} a month, which is over India's ₹15,000 automatic-payment limit. Indian customers would have to re-authorise every single month. Price the plan lower, or sell it in India as a manual invoice.`
     );
   }
   return warnings;
