@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
+import { recordCallOutcome } from "../architect/call-list";
 import { resolvePrimaryBusinessId } from "./primary-business";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import {
@@ -755,6 +756,20 @@ export async function recordVapiCallUsage({
       });
   }
 
+  // WHAT HAPPENED ON THE CALL. Until now nothing read Vapi's endedReason —
+  // the code that did was commented out — so all 159 calls on this platform
+  // had an empty outcome. An empty outcome column does not look broken; it
+  // looks like every call went fine. This runs for EVERY call, not just calls
+  // that came from a list, so ordinary calls get their outcome too.
+  await recordCallOutcome({
+    callId,
+    endedReason: typeof message.endedReason === "string" ? message.endedReason : null,
+    transcript: extractCallTranscript(message),
+    costCents: vapiCostMicroUsd ? Math.round(vapiCostMicroUsd / 10_000) : null
+  }).catch((error) => {
+    console.error("[usage-billing] outcome write failed (non-fatal)", { callId, error });
+  });
+
   console.log("[usage-billing] recorded call usage", {
     businessId,
     callId,
@@ -762,6 +777,16 @@ export async function recordVapiCallUsage({
     billedUsd: microUsdToUsd(totals.billedCostMicroUsd),
     vapiCostUsd: vapiCostMicroUsd ? microUsdToUsd(vapiCostMicroUsd) : null
   });
+}
+
+/** The transcript, wherever Vapi put it on this payload shape. */
+function extractCallTranscript(message: Record<string, unknown>): string | null {
+  const artifact = message.artifact;
+  if (artifact && typeof artifact === "object") {
+    const value = (artifact as Record<string, unknown>).transcript;
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return typeof message.transcript === "string" && message.transcript.trim() ? message.transcript : null;
 }
 
 function rollupLineItems(

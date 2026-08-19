@@ -34,6 +34,7 @@ import { apiErrorStatus, errorMessage, isRecord } from "../../lib/error-utils";
 // import { requireBusinessPermission } from "./team/membership";
 // import { attachConnectionToBusiness } from "../whatsapp/buyer-runtime";
 // import { logBusinessActivity } from "./activity-log";
+import { callListRoutes } from "./call-list-routes";
 // import { callsRoutes } from "./calls-routes";
 import { analyticsRoutes } from "./analytics/routes";
 import {
@@ -437,6 +438,10 @@ businessRoutes.use("*", requireRole(["BUSINESS"]));
 // businessRoutes.route("/knowledge-v2", knowledgeV2Routes);
 // businessRoutes.route("/calls", callsRoutes);
 businessRoutes.route("/analytics", analyticsRoutes);
+// The buyer's own call lists: their people, their Start/Stop, their numbers.
+// Mounted flat rather than under a prefix so the paths read as
+// /business/agents/:id/call-lists and /business/call-lists/:id.
+businessRoutes.route("/", callListRoutes);
 
 // [DISABLED:non-handoff] WhatsApp buyer scoping — disabled with the buyer
 // runtime; re-enable both together by uncommenting this block.

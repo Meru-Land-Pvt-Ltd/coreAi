@@ -1535,6 +1535,16 @@ export async function deployVapiAssistant({
     compliancePlan: {
       hipaaEnabled: false
     },
+    // VOICEMAIL. Roughly half of outbound calls reach a machine. Without this
+    // she delivers the full pitch to a beep, burns one of six attempts, and it
+    // is logged as a call that happened. Vapi detects the machine and leaves a
+    // short human message instead.
+    voicemailDetection: {
+      provider: "vapi",
+      backoffPlan: { startAtSeconds: 5, frequencySeconds: 5, maxRetries: 6 }
+    },
+    voicemailMessage:
+      "Hi, it's Maya from Triven — sorry I missed you. I'll try again another time, or you can call us back on this number. Thanks!",
     ...(firstMessageMode ? { firstMessageMode } : {}),
     ...(metadata ? { metadata } : {}),
     ...(silenceTimeoutSeconds ? { silenceTimeoutSeconds } : {}),

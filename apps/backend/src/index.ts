@@ -8,6 +8,7 @@ import { attachDeepgramLiveProxy } from "./modules/ai-provider-engine/deepgram-l
 import { startBillingScheduler, stopBillingScheduler } from "./modules/business/billing-cycle";
 import { startEarningReleaseWorker, stopEarningReleaseWorker } from "./modules/payouts/release-worker";
 import { startScheduleWorker, stopScheduleWorker } from "./modules/architect/schedule-trigger";
+import { startCallListWorker } from "./modules/architect/call-list";
 // [DISABLED:non-handoff] worker imports for the commented starts below.
 // import { startReminderWorker, stopReminderWorker } from "./modules/business/reminders/reminder-worker";
 // import {
@@ -38,6 +39,7 @@ const server = serve(
     // The clock behind every scheduled agent. Ticks once a minute, claims the
     // rows that are due, and runs them for the business that installed them.
     startScheduleWorker();
+    startCallListWorker();
     // [DISABLED:non-handoff] reminder + retention workers and quality sweep.
     // startReminderWorker();
     // startRetentionSweepWorker();

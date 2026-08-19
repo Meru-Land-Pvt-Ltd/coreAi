@@ -19,6 +19,7 @@ import { grantRole } from "../../lib/roles";
 import { deriveSetupVisibility } from "@coreai/shared";
 import type { InstallSource } from "@prisma/client";
 import { syncSchedulesForInstalledAgent } from "../architect/schedule-trigger";
+import { syncCallListsForInstalledAgent } from "../architect/call-list";
 import { syncWebhookEndpointsForInstalledAgent } from "../webhooks/inbound-webhook";
 
 export const setupRoutes = new Hono();
@@ -781,6 +782,11 @@ setupRoutes.post("/go-live", async (c) => {
       syncWebhookEndpointsForInstalledAgent(agent.id).catch((error) => {
         console.error("[setup] webhook sync failed", { installedAgentId: agent.id, error: String(error) });
         return [] as Array<{ nodeId: string; url: string }>;
+      }),
+      // Call lists are created empty and DRAFT. Going live must never start
+      // dialling anyone — a person presses Start, or nothing happens.
+      syncCallListsForInstalledAgent(agent.id).catch((error) => {
+        console.error("[setup] call list sync failed", { installedAgentId: agent.id, error: String(error) });
       })
     ]);
 

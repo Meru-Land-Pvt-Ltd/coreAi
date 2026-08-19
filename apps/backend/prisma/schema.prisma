@@ -112,6 +112,7 @@ model WorkflowDefinition {
   workflowRuns         WorkflowRun[]
   memoryRecords        MemoryRecord[]
   scheduledRuns        ScheduledAgentRun[]
+  callLists           CallList[]
   webhookEndpoints     AgentWebhookEndpoint[]
   architect            User                 @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
@@ -339,6 +340,8 @@ model Business {
   scheduledRuns       ScheduledAgentRun[]
   webhookEndpoints    AgentWebhookEndpoint[]
   callConsents        CallConsent[]
+  callLists           CallList[]
+  callSuppressions    CallSuppression[]
   teamMembers         BusinessTeamMember[]
   memberInvites       BusinessMemberInvite[]
   activityLogs        BusinessActivityLog[]
@@ -483,6 +486,7 @@ model InstalledAgent {
   telegramActions           TelegramMessageExecution[]
   businessServices          BusinessService[]
   appointments              Appointment[]
+  callLists                 CallList[]
   scheduledRuns             ScheduledAgentRun[]
   webhookEndpoints          AgentWebhookEndpoint[]
 
@@ -2926,4 +2930,112 @@ model CrmWebhookEvent {
 
   @@index([status, createdAt])
   @@index([businessId])
+}
+
+/// A batch of people one installed agent should phone, one at a time.
+///
+/// The list belongs to the BUSINESS, not to the architect who built the agent.
+/// That is deliberate and it is the whole compliance story: the people on it
+/// consented to be called by THIS business, and consent does not transfer
+/// between companies. The architect never sees these numbers.
+model CallList {
+  id               String  @id @default(cuid())
+  businessId       String
+  installedAgentId String
+  workflowId       String
+  /// node.id of the trigger.call_list node this list feeds.
+  nodeId           String
+  name             String  @default("My list")
+
+  /// DRAFT | RUNNING | PAUSED | DONE | STOPPED_BUDGET
+  status String @default("DRAFT")
+
+  /// Six is the ceiling: 93% of leads that ever convert are reached by the
+  /// sixth attempt, and leads needing 7+ are 45% LESS likely to convert.
+  maxAttempts Int @default(6)
+  /// Local hours in the CALLED PARTY's zone. 47 CFR 64.1200(c)(1) forbids
+  /// calls before 8am or after 9pm there — these may narrow that, never widen.
+  windowStartHour Int @default(9)
+  windowEndHour   Int @default(20)
+  /// Ten simultaneous AI calls is ten times the burn per minute, and past the
+  /// point where carriers start failing calls in ways that look like silence.
+  maxConcurrentCalls      Int @default(3)
+  maxCallsPerPersonPerDay Int @default(1)
+  /// Hard spend ceiling in whole dollars. 0 disables the cap.
+  budgetUsd    Int @default(50)
+  spentCents   Int @default(0)
+
+  lastSweptAt DateTime?
+  startedAt   DateTime?
+  stoppedAt   DateTime?
+  stoppedBy   String?
+  lastError   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business       Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  installedAgent InstalledAgent     @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
+  workflow       WorkflowDefinition @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  people         CallListPerson[]
+
+  @@index([status, lastSweptAt])
+  @@index([businessId])
+  @@index([installedAgentId])
+}
+
+/// One person on a list, and everything that ever happened to them.
+model CallListPerson {
+  id     String @id @default(cuid())
+  listId String
+  name   String?
+  /// Strict E.164. Unique per list so the same number cannot be queued twice.
+  phone  String
+  /// IANA zone when we can work it out from the number; null means the engine
+  /// must fall back to the conservative window rather than guess.
+  timeZone String?
+  notes    String?
+
+  /// WAITING | CALLING | RETRY | ANSWERED | BOOKED | NO_ANSWER | VOICEMAIL |
+  /// BUSY | FAILED | BAD_NUMBER | OPTED_OUT | SUPPRESSED | DONE
+  status       String    @default("WAITING")
+  attempts     Int       @default(0)
+  lastAttemptAt DateTime?
+  nextAttemptAt DateTime?
+  /// Guards "max calls per person per day" across restarts.
+  attemptsToday Int      @default(0)
+  attemptsDay   String?
+  lastOutcome   String?
+  lastCallId    String?
+  lastError     String?
+  bookedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  list CallList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, phone])
+  @@index([listId, status, nextAttemptAt])
+  @@index([phone])
+}
+
+/// Numbers this business must never call again, whatever list they appear on.
+///
+/// Per-person opt-out on a single list is not enough: the same person turns up
+/// in next month's export, and rings again. Suppression is per BUSINESS and is
+/// checked before every dial.
+model CallSuppression {
+  id         String   @id @default(cuid())
+  businessId String
+  phone      String
+  reason     String?
+  /// Where it came from: a call, a manual add, an import.
+  source     String   @default("call")
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, phone])
+  @@index([phone])
 }
