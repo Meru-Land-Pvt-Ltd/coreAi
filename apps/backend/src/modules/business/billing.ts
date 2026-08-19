@@ -54,6 +54,75 @@ async function applySubscriptionState(params: {
 }
 
 // POST /business/billing/checkout — create a Stripe Checkout Session (subscription).
+/**
+ * The Stripe price for ONE agent, minted on demand.
+ *
+ * Until now every subscription charged the same hardcoded amount from an env
+ * var, so an architect setting $49 or $499 changed nothing — the buyer paid
+ * whatever that one price said. On a marketplace that is not a bug, it is a
+ * broken promise to every architect who ever sets a price.
+ *
+ * Stripe prices are immutable by design. Changing an agent's price therefore
+ * mints a NEW price and repoints the listing at it: people who already
+ * subscribed keep the price they agreed to, and only new buyers see the new
+ * one. That is the correct behaviour, not an accident of the API.
+ *
+ * Nothing is created until someone actually buys — a draft agent nobody has
+ * purchased leaves no trace in the Stripe account.
+ */
+async function resolveListingPrice(
+  stripe: StripeNS,
+  listingId: string
+): Promise<{ priceId: string; amountCents: number } | null> {
+  const listing = await prisma.agentListing.findUnique({
+    where: { id: listingId },
+    select: {
+      id: true,
+      name: true,
+      priceCents: true,
+      pricingModel: true,
+      stripeProductId: true,
+      stripePriceId: true,
+      stripePriceCents: true
+    }
+  });
+  if (!listing) return null;
+  if (listing.pricingModel !== "SUBSCRIPTION" || listing.priceCents <= 0) return null;
+
+  // Still current? Use it. This is the common path on every repeat purchase.
+  if (listing.stripePriceId && listing.stripePriceCents === listing.priceCents) {
+    return { priceId: listing.stripePriceId, amountCents: listing.priceCents };
+  }
+
+  const productId =
+    listing.stripeProductId ??
+    (
+      await stripe.products.create({
+        name: listing.name,
+        metadata: { listingId: listing.id }
+      })
+    ).id;
+
+  const price = await stripe.prices.create({
+    product: productId,
+    currency: "usd",
+    unit_amount: listing.priceCents,
+    recurring: { interval: "month" },
+    metadata: { listingId: listing.id }
+  });
+
+  await prisma.agentListing.update({
+    where: { id: listing.id },
+    data: {
+      stripeProductId: productId,
+      stripePriceId: price.id,
+      stripePriceCents: listing.priceCents
+    }
+  });
+
+  return { priceId: price.id, amountCents: listing.priceCents };
+}
+
 export async function createCheckoutSession(c: Context) {
   try {
     const authUser = c.get("authUser");
@@ -107,14 +176,26 @@ export async function createCheckoutSession(c: Context) {
       });
     }
 
-    const metadata = { ownerId: authUser.id, businessId: business.id, listingId };
+    const listingPrice = listingId ? await resolveListingPrice(stripe, listingId) : null;
+
+    const metadata = {
+      ownerId: authUser.id,
+      businessId: business.id,
+      listingId,
+      // The amount actually agreed, so the 70/30 split and any later dispute
+      // read the same number the buyer saw.
+      priceCents: String(listingPrice?.amountCents ?? "")
+    };
     const listingSuffix = listingId ? `&listingId=${encodeURIComponent(listingId)}` : "";
     const cancelSuffix = listingId ? `?listingId=${encodeURIComponent(listingId)}` : "";
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
-      line_items: [{ price: env.STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY, quantity: 1 }],
+      // The architect's own price, not one price for the whole marketplace.
+      // The env price remains only as a fallback for legacy listings that
+      // predate per-agent pricing.
+      line_items: [{ price: listingPrice?.priceId ?? env.STRIPE_PRICE_ID_AI_RECEPTIONIST_MONTHLY, quantity: 1 }],
       success_url: `${env.FRONTEND_URL}/business/billing/success?session_id={CHECKOUT_SESSION_ID}${listingSuffix}`,
       cancel_url: `${env.FRONTEND_URL}/business/billing/cancel${cancelSuffix}`,
       metadata,

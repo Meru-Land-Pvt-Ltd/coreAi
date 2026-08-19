@@ -126,6 +126,15 @@ model AgentListing {
   shortDescription       String
   description            String?
   priceCents             Int                  @default(0)
+  /// The Stripe Product for this agent, created once on its first sale.
+  stripeProductId        String?
+  /// The Stripe Price the buyer is actually charged. Stripe prices are
+  /// immutable, so changing priceCents mints a NEW price and repoints this —
+  /// existing subscribers keep the price they agreed to, which is both the
+  /// law in most places and the only decent way to treat a customer.
+  stripePriceId          String?
+  /// The amount stripePriceId represents, so price drift is detectable.
+  stripePriceCents       Int?
   status                 ListingStatus        @default(DRAFT)
   featuredAt             DateTime?
   requiredConnectors     String[]
