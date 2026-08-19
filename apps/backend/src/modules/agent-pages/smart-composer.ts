@@ -527,6 +527,14 @@ async function runComposerBrain(args: {
   graphNodeIds: Set<string>;
   /** Only the designer chat may answer with a boundary redirect. */
   allowBoundary: boolean;
+  /**
+   * A different gate for a different job. The default check enforces the
+   * CUSTOMER-facing contract — every ask placed, every wire pointing at a real
+   * node — which a business dashboard cannot satisfy: it has no asks, it shows
+   * results. Without this the composer designs a perfectly good dashboard and
+   * then throws it away.
+   */
+  validate?: (spec: ProductSpec) => { product: ProductSpec | null; violations: string[] };
   task: string;
   workflowId: string;
 }): Promise<ComposerOutcome> {
@@ -592,7 +600,9 @@ async function runComposerBrain(args: {
         feedback =
           'product: nothing in it could be rendered. Return the COMPLETE product: { "version": 1, "pages": [ { "id": "home", "title": …, "path": "", "blocks": [ … ] } ], "nav": { "links": [], "footerLinks": [] } }.';
       } else {
-        const check = checkComposition(clean, args.declarations, args.graphNodeIds);
+        const check = args.validate
+          ? { ...args.validate(clean), asksPlaced: 0 }
+          : checkComposition(clean, args.declarations, args.graphNodeIds);
         if (check.product) {
           return {
             kind: "composed",
@@ -771,25 +781,19 @@ export function registerSmartDesignerRoutes(routes: Hono) {
         declarations: context.declarations,
         graphNodeIds: context.graphNodeIds,
         allowBoundary: false,
+        // The dashboard's own gate: real metrics only, one page, controls
+        // present. A violation is fed back to the model verbatim so its retry
+        // fixes the actual problem instead of guessing.
+        validate: (spec) => {
+          const verdict = checkDashboard(spec, brief.surface);
+          return { product: verdict.ok ? spec : null, violations: verdict.problems };
+        },
         task: "agent-page-compose-dashboard",
         workflowId
       });
 
       if (outcome.kind !== "composed") {
         return successResponse(c, { composed: false, reply: SMART_COMPOSER_FALLBACK_REPLY });
-      }
-
-      // A dashboard that references a number we cannot fill shows a dash
-      // forever, and the business concludes the product does not work. Better
-      // to keep the old design than to store a broken one.
-      const check = checkDashboard(outcome.product, brief.surface);
-      if (!check.ok) {
-        console.warn("[smart-composer] dashboard rejected", { workflowId, problems: check.problems });
-        return successResponse(c, {
-          composed: false,
-          reply: SMART_COMPOSER_FALLBACK_REPLY,
-          problems: check.problems
-        });
       }
 
       await prisma.publishedAgentPage.update({
