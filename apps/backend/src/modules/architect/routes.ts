@@ -11,6 +11,7 @@ import { prisma } from "../../lib/prisma";
 import { resolveRunOutput } from "../agent-pages/run-output";
 import { MarketplaceDemoError, normalizeDemoCallCustomInfo, startPublicMarketplaceDemoCall } from "../business/marketplace-demo";
 import { requireAuth, requireRole } from "../../middleware/auth";
+import { verifyAuthToken } from "../../lib/jwt";
 import {
   isImageUploadConfigured,
   uploadListingImage,
@@ -298,6 +299,26 @@ async function listPublicMarketplaceListings(c: Context) {
   return successResponse(c, { listings, nextCursor: page.nextCursor, hasMore: page.hasMore });
 }
 
+/**
+ * Who is asking, when asking is optional.
+ *
+ * This route is public — the marketplace has to work signed-out — so it cannot
+ * use requireAuth. But when a token IS present we need to know whose it is, to
+ * decide whether this person already owns the listing they are opening.
+ * A bad or missing token simply means "a stranger", never an error.
+ */
+async function optionalViewerId(c: Context): Promise<string | null> {
+  const header = c.req.header("Authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) return null;
+  try {
+    const payload = await verifyAuthToken(token);
+    return typeof payload?.sub === "string" ? payload.sub : null;
+  } catch {
+    return null;
+  }
+}
+
 async function getPublicMarketplaceListingById(c: Context) {
   const id = c.req.param("id");
 
@@ -305,10 +326,32 @@ async function getPublicMarketplaceListingById(c: Context) {
     return errorResponse(c, "Listing id is required", 400);
   }
 
+  // A buyer who already has this agent must be able to open it even when the
+  // listing is not APPROVED — a draft, an unpublished one, or one pulled from
+  // the marketplace later. Without this, an architect unpublishing a listing
+  // silently locks every existing customer out of the agent they are paying
+  // for, and the buyer sees "Listing not found" for something on their own
+  // shelf. Browsing strangers still only ever see APPROVED listings.
+  const viewerId = await optionalViewerId(c);
+  const ownsIt = viewerId
+    ? Boolean(
+        await prisma.installedAgent.findFirst({
+          where: { listingId: id, business: { ownerId: viewerId } },
+          select: { id: true }
+        })
+      ) ||
+      Boolean(
+        await prisma.payment.findFirst({
+          where: { listingId: id, userId: viewerId },
+          select: { id: true }
+        })
+      )
+    : false;
+
   const listing = await prisma.agentListing.findFirst({
     where: {
       id,
-      status: "APPROVED"
+      ...(ownsIt ? {} : { status: "APPROVED" })
     },
     include: {
       workflow: true,
