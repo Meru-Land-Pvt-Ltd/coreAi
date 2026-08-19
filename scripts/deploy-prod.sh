@@ -105,7 +105,20 @@ done
 echo
 
 echo -n "  frontend:        "
-curl -fsS -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:3000/ || fail "frontend not responding"
+# Next.js needs a moment after the container reports Up, so this retries the
+# same way the backend check does. A single immediate curl reported a healthy
+# deploy as FAILED — worse than a slow check, because it teaches you to ignore
+# the one line that would tell you a deploy really broke.
+frontend_ok=""
+for _ in $(seq 1 30); do
+  if curl -fsS -o /dev/null -m 2 http://127.0.0.1:3000/ 2>/dev/null; then
+    frontend_ok=1
+    break
+  fi
+  sleep 2
+done
+[ -n "$frontend_ok" ] || fail "frontend health check failed (no response within 60s)"
+curl -fsS -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:3000/
 
 echo
 echo "  email-worker (last 20 lines):"
