@@ -478,7 +478,7 @@ export function PreviewPanel({
                       onClick={() => setBuyerTab(option)}
                       data-testid={`preview-buyer-tab-${option}`}
                       className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                        buyerTab === option ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-800"
+                        buyerTab === option ? "bg-amber-500 text-white shadow-sm shadow-amber-500/30" : "text-slate-500 hover:text-slate-800"
                       }`}
                     >
                       {option === "setup" ? "What the business fills in" : "What the business sees"}

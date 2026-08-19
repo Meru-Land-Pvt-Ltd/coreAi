@@ -127,7 +127,7 @@ export default function BusinessAgentSurfacesPage() {
               onClick={() => setTab(option)}
               data-testid={`surfaces-tab-${option}`}
               className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                tab === option ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-800"
+                tab === option ? "bg-amber-500 text-white shadow-sm shadow-amber-500/30" : "text-slate-500 hover:text-slate-800"
               }`}
             >
               {option === "results" ? "What it did" : "Settings"}
@@ -145,7 +145,7 @@ export default function BusinessAgentSurfacesPage() {
               onClick={() => setWindow(option.key)}
               data-testid={`surfaces-window-${option.key}`}
               className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                window === option.key ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"
+                window === option.key ? "bg-amber-50 text-amber-700" : "text-slate-500 hover:text-slate-800"
               }`}
             >
               {option.label}
@@ -155,7 +155,7 @@ export default function BusinessAgentSurfacesPage() {
       ) : null}
 
       {notice ? (
-        <p className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white" data-testid="surfaces-notice">
+        <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800" data-testid="surfaces-notice">
           {notice}
         </p>
       ) : null}
@@ -174,6 +174,11 @@ export default function BusinessAgentSurfacesPage() {
         mode="live"
         onAnswer={(key, value) => setPending((current) => ({ ...current, [key]: value }))}
         onAction={runAction}
+        actionState={{
+          startStop: running
+            ? { label: "Stop calling", danger: true }
+            : { label: "Start calling" }
+        }}
         emptyMessage={
           tab === "results"
             ? "Your results screen hasn't been designed yet."

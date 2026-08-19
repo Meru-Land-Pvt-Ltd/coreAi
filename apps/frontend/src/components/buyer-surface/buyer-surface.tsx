@@ -56,6 +56,15 @@ export type BuyerSurfaceProps = {
   onConnect?: (connector: string) => void;
   /** Whether each connector is already connected. */
   connected?: Record<string, boolean>;
+  /**
+   * Live state for a control the composer placed.
+   *
+   * The design says "there is a start/stop control here"; only the page knows
+   * whether the list is running right now. Without this the button reads
+   * "Start calling" while it is already calling, which is how someone presses
+   * it twice.
+   */
+  actionState?: Record<string, { label?: string; danger?: boolean }>;
   emptyMessage?: string;
 };
 
@@ -89,6 +98,7 @@ export function BuyerSurface({
   onAction,
   onConnect,
   connected = {},
+  actionState = {},
   emptyMessage = "This screen hasn't been designed yet."
 }: BuyerSurfaceProps) {
   const [local, setLocal] = useState<Record<string, string>>({});
@@ -142,7 +152,7 @@ export function BuyerSurface({
             data-testid={`surface-stat-${block.id}`}
             className="rounded-2xl border border-gray-200 bg-white p-5"
           >
-            <div className="text-3xl font-bold tabular-nums text-slate-900">{block.value}</div>
+            <div className="text-3xl font-bold tabular-nums text-amber-600">{block.value}</div>
             <div className="mt-1 text-sm font-medium text-slate-600">{block.label}</div>
             {helpFor(block.id) ? (
               <div className="mt-0.5 text-[11px] leading-4 text-slate-400">{helpFor(block.id)}</div>
@@ -165,7 +175,7 @@ export function BuyerSurface({
                 onChange={(event) => setValue(block.id, event.target.value)}
                 placeholder={block.placeholder}
                 data-testid={`surface-input-${block.id}`}
-                className="h-28 w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-400/40"
+                className="h-28 w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
               />
             ) : (
               <input
@@ -175,7 +185,7 @@ export function BuyerSurface({
                 onChange={(event) => setValue(block.id, event.target.value)}
                 placeholder={block.placeholder}
                 data-testid={`surface-input-${block.id}`}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-400/40"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-400/40"
               />
             )}
             {helpFor(block.id) ? <p className="mt-1 text-[11px] text-slate-400">{helpFor(block.id)}</p> : null}
@@ -191,7 +201,7 @@ export function BuyerSurface({
               value={valueOf(block.id)}
               onChange={(event) => setValue(block.id, event.target.value)}
               data-testid={`surface-input-${block.id}`}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-violet-300"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-amber-300"
             >
               <option value="">Choose…</option>
               {(block.options ?? []).map((option) => (
@@ -213,13 +223,13 @@ export function BuyerSurface({
               onChange={(event) => setValue(block.id, event.target.value)}
               placeholder={"Priya, +15551234567\nSam, +15559876543"}
               data-testid={`surface-upload-input-${block.id}`}
-              className="mt-3 h-32 w-full resize-y rounded-lg border border-gray-200 px-3 py-2 font-mono text-xs outline-none focus:border-violet-300"
+              className="mt-3 h-32 w-full resize-y rounded-lg border border-gray-200 px-3 py-2 font-mono text-xs outline-none focus:border-amber-300"
             />
             <button
               type="button"
               onClick={() => onAction?.(block.id)}
               data-testid={`surface-upload-submit-${block.id}`}
-              className="mt-3 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+              className="mt-3 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-amber-500/25 transition hover:-translate-y-0.5 hover:bg-amber-600"
             >
               Add them
             </button>
@@ -248,7 +258,7 @@ export function BuyerSurface({
                 className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
                   isConnected
                     ? "bg-emerald-50 text-emerald-700"
-                    : "bg-amber-500 text-white hover:bg-amber-600"
+                    : "bg-amber-500 text-white shadow-lg shadow-amber-500/25 hover:-translate-y-0.5 hover:bg-amber-600"
                 }`}
               >
                 {isConnected ? "Connected" : "Connect"}
@@ -256,15 +266,24 @@ export function BuyerSurface({
             </div>
           );
         }
+        const state = actionState[block.id];
         return (
           <button
             key={block.id}
             type="button"
             onClick={() => onAction?.(block.id)}
             data-testid={`surface-action-${block.id}`}
-            className="mt-4 w-full rounded-xl bg-slate-900 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+            className={`mt-4 w-full rounded-xl py-2.5 text-sm font-semibold text-white shadow-lg transition hover:-translate-y-0.5 ${
+              state?.danger
+                ? // Stopping stays red on purpose. It is the one control where
+                  // the brand colour would be wrong: a stop button that looks
+                  // like every other button gets pressed by mistake, and on a
+                  // dialler that means calls nobody meant to make.
+                  "bg-rose-600 shadow-rose-600/25 hover:bg-rose-500"
+                : "bg-amber-500 shadow-amber-500/25 hover:bg-amber-600"
+            }`}
           >
-            {block.label}
+            {state?.label ?? block.label}
           </button>
         );
       }
@@ -351,11 +370,11 @@ export function BuyerSurface({
     <div data-testid={`buyer-surface-${mode}`}>
       {mode === "test" && contract.verification.length > 0 ? (
         <div
-          className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4"
+          className="mb-4 rounded-xl border border-sky-200 bg-sky-50 p-4"
           data-testid="surface-test-limits"
         >
-          <p className="text-sm font-semibold text-amber-900">This is a test, so it can only reach you</p>
-          <ul className="mt-1 space-y-0.5 text-[12px] leading-5 text-amber-800">
+          <p className="text-sm font-semibold text-sky-900">This is a test, so it can only reach you</p>
+          <ul className="mt-1 space-y-0.5 text-[12px] leading-5 text-sky-800">
             {contract.verification.map((entry) => (
               <li key={entry.channel} data-testid={`surface-test-limit-${entry.channel}`}>
                 • {entry.requirement}
