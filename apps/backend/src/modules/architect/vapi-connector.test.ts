@@ -282,12 +282,20 @@ describe("deployVapiAssistant payload", () => {
       stopSpeakingPlan: { backoffSeconds: number; numWords: number; voiceSeconds: number };
     };
 
+    /* These numbers were all changed by live calls, not by preference.
+       numWords 0 meant ANY sound cut her off — a breath, a door — so she
+       restarted her sentence over and over and said "I'm here" five times in
+       one call. She now finishes a short phrase and stops for a real
+       interruption. Being cut off inside your own opening line is the most
+       machine-like thing a voice can do, so the greeting is protected. And a
+       zero backoff meant she resumed the instant the caller paused, talking
+       over them. */
     expect(body.interruptionsEnabled).toBe(true);
-    expect(body.firstMessageInterruptionsEnabled).toBe(true);
+    expect(body.firstMessageInterruptionsEnabled).toBe(false);
     expect(body.stopSpeakingPlan).toMatchObject({
-      numWords: 0,
-      voiceSeconds: 0.2,
-      backoffSeconds: 0
+      numWords: 2,
+      voiceSeconds: 0.3,
+      backoffSeconds: 1
     });
   });
 });

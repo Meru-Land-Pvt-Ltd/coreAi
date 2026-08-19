@@ -486,10 +486,10 @@ async function buildInstalledAgentAssistantPlan(
       canCheckAvailability: capabilities.canCheckAvailability,
       canBook: capabilities.canBook,
       canText: capabilities.canText,
-      canEmail: capabilities.canEmail
-      // [DISABLED] canTransfer: Boolean(deployTokenValues.teamPhone) && agentDetails.transferEnabled !== false
+      canEmail: capabilities.canEmail,
+      canTransfer: Boolean(deployTokenValues.teamPhone) && agentDetails.transferEnabled !== false
     },
-    // [DISABLED] transferConditions: cleanString(agentDetails.transferConditions as string | undefined) || undefined,
+    transferConditions: cleanString(agentDetails.transferConditions as string | undefined) || undefined,
     nodeInstructions: nodeInstructions
       ? fillDeployTemplate(
           sanitizeLegacyFallbacks(
@@ -575,6 +575,8 @@ export async function deployInstalledAgentVoiceAssistant(
     existingAssistantId,
     metadata: { businessId: plan.businessId, installedAgentId: plan.installedAgentId },
     recordingEnabled: workflowCallRecordingEnabled(plan.workflowJson),
+    // Only when the buyer gave us a number AND left transfer switched on.
+    ...(plan.teamPhone && plan.transferEnabled ? { transferPhoneNumber: plan.teamPhone } : {}),
     maxDurationSeconds: LIVE_MAX_CALL_DURATION_SECONDS,
     includeTools: {
       checkAvailability: plan.capabilities.canCheckAvailability,

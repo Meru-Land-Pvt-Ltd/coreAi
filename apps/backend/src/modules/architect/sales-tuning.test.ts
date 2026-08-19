@@ -41,10 +41,15 @@ describe("sales tuning", () => {
     expect(patient.stopSpeakingPlan.numWords).toBe(4);
   });
 
-  it("keeps ElevenLabs stability inside the range where it does not drift mid-sentence", () => {
+  /* The floor was 0.3 until a live call proved it too high: the founder heard
+     "your voice seems extremely constant in terms of level", which is exactly
+     what stability means — sameness. It reaches 0.15 now so the voice can move
+     between sentences, and stays above 0.1 where ElevenLabs starts drifting in
+     accent mid-word. */
+  it("keeps ElevenLabs stability low enough to carry emotion and high enough not to drift", () => {
     for (const value of [0, 0.5, 1]) {
       const settings = elevenLabsVoiceSettingsFor(resolveSalesTuning({ expressiveness: value }));
-      expect(settings.stability).toBeGreaterThanOrEqual(0.3);
+      expect(settings.stability).toBeGreaterThanOrEqual(0.1);
       expect(settings.stability).toBeLessThanOrEqual(0.75);
     }
   });

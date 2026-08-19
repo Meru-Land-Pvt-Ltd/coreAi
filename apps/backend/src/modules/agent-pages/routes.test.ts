@@ -335,12 +335,26 @@ describe("client IP resolution", () => {
     expect(remainingTodayMock).toHaveBeenCalledWith("203.0.113.9", SLUG);
   });
 
-  it("prefers cf-connecting-ip over x-forwarded-for", async () => {
+  /* This used to assert the opposite — that cf-connecting-ip wins — which was
+     the bug: we are not behind Cloudflare, so nothing strips that header from
+     an inbound request and any caller could set it, change it per request, and
+     use the free preview forever. Only what our own nginx guarantees counts. */
+  it("ignores cf-connecting-ip, which a caller can set themselves", async () => {
     await buildApp().request(`/agent-pages/${SLUG}`, {
       headers: {
-        "cf-connecting-ip": "198.51.100.4",
+        "cf-connecting-ip": "1.2.3.4",
+        "x-real-ip": "203.0.113.9",
         "x-forwarded-for": "6.6.6.6, 203.0.113.9"
       }
+    });
+
+    expect(remainingTodayMock).toHaveBeenCalledWith("203.0.113.9", SLUG);
+  });
+
+  it("uses the rightmost forwarded hop when x-real-ip is absent", async () => {
+    remainingTodayMock.mockClear();
+    await buildApp().request(`/agent-pages/${SLUG}`, {
+      headers: { "x-forwarded-for": "6.6.6.6, 198.51.100.4" }
     });
 
     expect(remainingTodayMock).toHaveBeenCalledWith("198.51.100.4", SLUG);
@@ -486,7 +500,7 @@ describe("POST /agent-pages/:slug/chat", () => {
     expect(json.code).toBe("AGENT_PAGE_CHAT_FAILED");
     expect(json.error).toBe("This agent had trouble replying. Please try again.");
     expect(json.error).not.toContain("boom");
-    expect(refundLimitMock).toHaveBeenCalledWith("127.0.0.1", SLUG);
+    expect(refundLimitMock).toHaveBeenCalledWith("unknown", SLUG);
   });
 
   it("hides architect-facing config errors and refunds the use", async () => {
@@ -689,6 +703,6 @@ describe("POST /agent-pages/:slug/run", () => {
     const json = (await response.json()) as { code: string; error: string };
     expect(json.code).toBe("AGENT_PAGE_RUN_FAILED");
     expect(json.error).not.toContain("exploded");
-    expect(refundLimitMock).toHaveBeenCalledWith("127.0.0.1", SLUG);
+    expect(refundLimitMock).toHaveBeenCalledWith("unknown", SLUG);
   });
 });

@@ -1402,6 +1402,11 @@ export type DeployVapiAssistantInput = {
   /** End Flow node "Call recording" toggle → Vapi artifactPlan.recordingEnabled (default on). */
   recordingEnabled?: boolean;
   /**
+   * Where to put a caller who asks for a person. Absent means the agent
+   * genuinely cannot transfer, and it is never told that it can.
+   */
+  transferPhoneNumber?: string;
+  /**
    * How the call opens. Outbound should be "assistant-waits-for-user": a real
    * person who rings you does not talk into a ringing line — they wait for
    * your "hello?" and answer it. Vapi also warns that some carriers report
@@ -1439,7 +1444,8 @@ export async function deployVapiAssistant({
   maxDurationSeconds,
   recordingEnabled,
   tuning,
-  firstMessageMode
+  firstMessageMode,
+  transferPhoneNumber
 }: DeployVapiAssistantInput): Promise<{ id: string; created: boolean; pipeline: ResolvedVoicePipeline }> {
   if (!env.VAPI_API_KEY) {
     throw new Error("VAPI_API_KEY is required to deploy the voice assistant.");
@@ -1484,6 +1490,33 @@ export async function deployVapiAssistant({
       // PDF retrieval must never be silently disabled by an unrelated env
       // toggle while the prompt still advertises the tool.
       tools: [
+        // REACHING A PERSON.
+        //
+        // Transfer was switched off end to end: the tool commented out, the
+        // attachment hardcoded to false, the prompt section wrapped in
+        // `if (false && ...)`. Nobody on a call could ever reach a human, and
+        // a receptionist that cannot pass you to the practice is not a
+        // receptionist.
+        //
+        // This uses Vapi's OWN transferCall tool rather than a custom function
+        // that would need our webhook to answer mid-call: fewer moving parts
+        // between a frustrated caller and a real person. It is attached ONLY
+        // when the business has actually given us a number, so the agent is
+        // never told it can do something it cannot.
+        ...(clean(transferPhoneNumber)
+          ? [
+              {
+                type: "transferCall",
+                destinations: [
+                  {
+                    type: "number",
+                    number: clean(transferPhoneNumber),
+                    message: "Of course — connecting you to the team now. Please stay on the line."
+                  }
+                ]
+              }
+            ]
+          : []),
         // HANGING UP. This used to be the assistant-level flag
         // `endCallFunctionEnabled`, which Vapi has removed from the Create
         // Assistant API — so the agent had no way to end a call at all. Told

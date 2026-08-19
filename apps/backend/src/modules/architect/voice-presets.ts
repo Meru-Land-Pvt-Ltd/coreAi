@@ -37,6 +37,16 @@ function allVoicePresets(): AgentVoicePreset[] {
   return [TRIVEN_DEFAULT_VOICE_PRESET, ...rest];
 }
 
+/**
+ * Admin-set voice ids, by preset name.
+ *
+ * The six ELEVENLABS_VOICE_* settings had an admin panel and were read by
+ * nothing at all: every preset in the registry is a Cartesia voice with a
+ * hardcoded id, so those boxes did nothing whichever value was typed into
+ * them. They are wired in here, next to the Cartesia ones, so an operator who
+ * prefers an ElevenLabs voice for a named preset gets it — and so a settings
+ * screen stops lying about what it controls.
+ */
 const ENV_VOICE_OVERRIDES: Record<string, string | undefined> = {
   [PLATFORM_DEFAULT_VOICE_ID]: env.CARTESIA_DEFAULT_VOICE_ID,
   default: env.CARTESIA_DEFAULT_VOICE_ID,
@@ -44,7 +54,13 @@ const ENV_VOICE_OVERRIDES: Record<string, string | undefined> = {
   ella: env.CARTESIA_VOICE_ELLA_ID,
   jacqueline: env.CARTESIA_VOICE_JACQUELINE_ID,
   blake: env.CARTESIA_VOICE_BLAKE_ID,
-  ronald: env.CARTESIA_VOICE_RONALD_ID
+  ronald: env.CARTESIA_VOICE_RONALD_ID,
+  ruby: env.ELEVENLABS_VOICE_RUBY_ID,
+  sarah: env.ELEVENLABS_VOICE_SARAH_ID,
+  aria: env.ELEVENLABS_VOICE_ARIA_ID,
+  adam: env.ELEVENLABS_VOICE_ADAM_ID,
+  priya: env.ELEVENLABS_VOICE_PRIYA_ID,
+  rachel: env.ELEVENLABS_VOICE_RACHEL_ID
 };
 
 /** Which TTS provider a preset id belongs to. */
@@ -186,6 +202,13 @@ export function resolvePresetVoiceId(presetId?: string | null): string {
     return presetVoiceId;
   }
 
+  // A preset we do not recognise used to fall back to the platform default in
+  // silence, so an architect who picked a voice heard a different one and had
+  // no way to find out why. Still falls back — a call must not fail over a
+  // voice — but it says so now.
+  console.warn("[voice-presets] unknown voice preset, using the platform default instead", {
+    requested: presetId
+  });
   return defaultCartesiaVoiceId();
 }
 

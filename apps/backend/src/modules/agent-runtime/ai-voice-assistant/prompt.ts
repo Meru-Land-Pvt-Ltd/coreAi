@@ -242,8 +242,9 @@ Tool-result truthfulness:
 - Say "Your confirmation text has been submitted" only when the tool confirms provider acceptance and the backend stored a provider message identifier. Provider acceptance is not delivery; never claim "delivered" without an actual delivery event.
 - When a tool returns a required sentence or disclosure, follow it exactly once. Do not add a contradictory generic success statement.`.trim());
 
-  // [DISABLED] human handoff rules section (canTransfer is never set now).
-  if (false && capabilities.canTransfer) {
+  // The agent is told it can transfer ONLY when a real destination exists —
+  // capabilities.canTransfer is set from the business's own team phone.
+  if (capabilities.canTransfer) {
     const ownerConditions = sanitizeOwnerTransferConditions(input.transferConditions);
     sections.push(`
 Human handoff rules:

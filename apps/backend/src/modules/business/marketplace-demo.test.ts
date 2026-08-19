@@ -207,7 +207,7 @@ describe("startMarketplaceDemoCall (DB)", () => {
     };
 
     // The demo must give away the experience, not the product.
-    expect(body.model.tools).toEqual([]);
+    expect(body.model.tools).toEqual([expect.objectContaining({ type: "endCall" })]);
     expect(body.maxDurationSeconds).toBe(DEMO_MAX_DURATION_SECONDS);
     expect(body.artifactPlan.recordingEnabled).toBe(false);
     expect(body.metadata.purpose).toBe(MARKETPLACE_DEMO_PURPOSE);

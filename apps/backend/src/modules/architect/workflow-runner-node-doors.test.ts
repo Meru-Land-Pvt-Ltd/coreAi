@@ -362,7 +362,7 @@ describe("node doors in the workflow runner", () => {
     expect(mockExitDoor).toHaveBeenCalledTimes(1);
     expect(mockExitDoor.mock.calls[0][0].nodeType).toBe("calendar.availability");
     expect(context.calendarAvailability).toEqual(cleaned);
-    expect(context.calendarAvailability_raw).toMatchObject({ source: "demo" });
+    expect(context.calendarAvailability_raw).toMatchObject({ source: "example" });
     expect(result.logs).toHaveLength(1);
     expect(result.logs[0].message).toContain("· cleaned the response");
   });

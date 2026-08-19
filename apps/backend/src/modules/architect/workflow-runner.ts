@@ -2010,20 +2010,30 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
 function runAiNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
   // Voice booking: AI Voice Conversation previews the assistant config (not an SMS reply).
   if (asString(node.data?.type) === VOICE_NODE_TYPES.voiceConversation) {
+    // THIS STEP DOES NOT PLACE A CALL, AND NOW SAYS SO.
+    //
+    // It reported "Voice assistant prompt generated" as a plain success with
+    // three hardcoded fallbacks — a model, a voice and a greeting the
+    // architect never chose — which reads like the voice agent ran. It never
+    // did: the real assistant is built on the deploy path. Showing exactly
+    // what WILL be deployed is genuinely useful; implying a call happened is
+    // not. Anything the architect has not set is reported as unset rather than
+    // filled in with a plausible default.
+    const unset = "— not set —";
     const voicePreview = {
-      firstMessage: asString(node.data?.firstMessage, "Thanks for calling. How can I help you today?"),
-      practiceName: asString(node.data?.practiceName),
-      doctorName: asString(node.data?.doctorName),
-      voice: asString(node.data?.voice, "triven-default"),
-      model: asString(node.data?.model, "gpt-4o-mini"),
-      language: asString(node.data?.language, "en-US")
+      firstMessage: asString(node.data?.firstMessage, unset),
+      practiceName: asString(node.data?.practiceName, unset),
+      doctorName: asString(node.data?.doctorName, unset),
+      voice: asString(node.data?.voice, unset),
+      model: asString(node.data?.model, unset),
+      language: asString(node.data?.language, unset)
     };
     context.voiceConversation = voicePreview;
     logs.push(
       createLog(
         node,
         "success",
-        "Voice assistant prompt generated from AI Voice Conversation node config.",
+        "No call was placed — this shows the settings your live voice agent will use. Use Test call to hear it for real.",
         voicePreview
       )
     );
