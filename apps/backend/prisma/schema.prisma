@@ -1038,6 +1038,15 @@ model Payment {
   installedAgentId                 String?
   amountCents                      Int                    @default(0)
   currency                         String                 @default("usd")
+  /// WHAT THE BUYER ACTUALLY SAW AND PAID.
+  ///
+  /// Our Stripe objects always report the integration currency — USD — even
+  /// when a customer in Zurich paid in francs. Without these two columns the
+  /// dashboard, the receipt and the support conversation all disagree with the
+  /// buyer's bank statement, and nothing can be reconciled. Null means the
+  /// buyer paid in our own currency.
+  presentmentAmountCents           Int?
+  presentmentCurrency              String?
   status                           PaymentStatus          @default(PENDING)
   architectEarningStatus           ArchitectEarningStatus @default(PENDING)
   architectEarningReviewedAt       DateTime?

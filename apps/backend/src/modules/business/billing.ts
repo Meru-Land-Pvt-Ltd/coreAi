@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type StripeNS from "stripe";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
+import { marketWarnings, priceGrid } from "@coreai/shared";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { getStripe, isBillingEnabled } from "../../lib/stripe";
 import { getStripeClient } from "../payments/stripe";
@@ -103,11 +104,37 @@ async function resolveListingPrice(
       })
     ).id;
 
+  // ONE PRICE, A REAL NUMBER IN EVERY MARKET.
+  //
+  // currency_options carries a designed local price per currency — €183, not
+  // €182.74 — generated from the base price and snapped onto the ending each
+  // market expects, the way Apple's storefront matrix works. Two things this
+  // buys that a converted display price cannot: the number on our page is the
+  // number Stripe charges, and a local charge unlocks the local way to pay.
+  // That second one is why an Indian clinic can pay at all — their debit card
+  // fails on international rails, and UPI needs the charge in rupees.
+  //
+  // tax_behavior is set explicitly on every currency, forever. Stripe's
+  // recommended default would make these VAT-INCLUSIVE, which in Spain
+  // silently turns 21% of every euro into tax instead of revenue — and the
+  // field cannot be changed after the price is created.
+  const currencyOptions: Record<string, { unit_amount: number; tax_behavior: "exclusive" }> = {};
+  for (const market of priceGrid(listing.priceCents)) {
+    if (market.currency === "usd") continue;
+    currencyOptions[market.currency] = { unit_amount: market.unitAmount, tax_behavior: "exclusive" };
+  }
+
+  for (const warning of marketWarnings(listing.priceCents)) {
+    console.warn("[billing] market not priced", { listingId: listing.id, warning });
+  }
+
   const price = await stripe.prices.create({
     product: productId,
     currency: "usd",
     unit_amount: listing.priceCents,
+    tax_behavior: "exclusive",
     recurring: { interval: "month" },
+    currency_options: currencyOptions,
     metadata: { listingId: listing.id }
   });
 
@@ -192,6 +219,15 @@ export async function createCheckoutSession(c: Context) {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
+      // Deliberately NOT passing `currency`: doing so pins the session to one
+      // currency and switches off local pricing entirely. Letting Stripe pick
+      // from currency_options is what shows a Swiss buyer francs.
+      //
+      // Payment methods are left unset on purpose. Checkout then offers every
+      // method enabled in the Dashboard that fits the buyer's country and the
+      // presented currency — UPI for an Indian customer, iDEAL for a Dutch
+      // one. Naming payment_method_types here would freeze that list to cards
+      // and undo the reason for having a local price at all.
       // The architect's own price, not one price for the whole marketplace.
       // The env price remains only as a fallback for legacy listings that
       // predate per-agent pricing.
@@ -239,6 +275,48 @@ export async function getBillingStatus(c: Context) {
 }
 
 // POST /business/billing/webhook — PUBLIC, raw body, signature-verified.
+/**
+ * WHAT THE BUYER SAW, next to what we settled.
+ *
+ * With local-currency pricing on, Stripe keeps reporting our integration
+ * currency — a Swiss customer's subscription still says USD everywhere — and
+ * puts the amount they actually saw in `presentment_details`. Storing only our
+ * side means the dashboard, the receipt and their bank statement disagree, and
+ * a support conversation about "I was charged 279 francs" has nothing to match
+ * against. This runs on the events that carry it and is silent when they do
+ * not: a domestic buyer has no presentment details and needs none.
+ */
+async function recordPresentmentAmount(input: {
+  stripeSessionId?: string | null;
+  stripePaymentId?: string | null;
+  stripeSubscriptionId?: string | null;
+  details?: { presentment_amount?: number | null; presentment_currency?: string | null } | null;
+}): Promise<void> {
+  const amount = input.details?.presentment_amount;
+  const currency = input.details?.presentment_currency;
+  if (typeof amount !== "number" || !currency) return;
+
+  const where = input.stripeSessionId
+    ? { stripeSessionId: input.stripeSessionId }
+    : input.stripePaymentId
+      ? { stripePaymentId: input.stripePaymentId }
+      : input.stripeSubscriptionId
+        ? { stripeSubscriptionId: input.stripeSubscriptionId }
+        : null;
+  if (!where) return;
+
+  await prisma.payment
+    .updateMany({
+      where,
+      data: { presentmentAmountCents: amount, presentmentCurrency: currency.toLowerCase() }
+    })
+    .catch((error) => {
+      // Never fail a webhook over bookkeeping — Stripe would retry the whole
+      // event and re-run everything else in it.
+      console.error("[billing] could not store the presentment amount", error);
+    });
+}
+
 export async function handleStripeWebhook(c: Context) {
   const stripe = getStripeClient() ?? (isBillingEnabled() ? getStripe() : null);
   if (!stripe || !env.STRIPE_WEBHOOK_SECRET) {
@@ -268,6 +346,14 @@ export async function handleStripeWebhook(c: Context) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as StripeNS.Checkout.Session;
+        await recordPresentmentAmount({
+          stripeSessionId: session.id,
+          stripeSubscriptionId:
+            typeof session.subscription === "string" ? session.subscription : session.subscription?.id,
+          details: (session as unknown as {
+            presentment_details?: { presentment_amount?: number; presentment_currency?: string };
+          }).presentment_details
+        });
         await applySubscriptionState({
           customerId: typeof session.customer === "string" ? session.customer : session.customer?.id,
           subscriptionId:
@@ -279,7 +365,16 @@ export async function handleStripeWebhook(c: Context) {
         break;
       }
       case "payment_intent.succeeded": {
-        await recordAgentPurchaseFromIntent(event.data.object as StripeNS.PaymentIntent);
+        const intent = event.data.object as StripeNS.PaymentIntent;
+        await recordAgentPurchaseFromIntent(intent);
+        // Every renewal comes through here too, so a subscription's local
+        // amount stays current month after month rather than only at signup.
+        await recordPresentmentAmount({
+          stripePaymentId: intent.id,
+          details: (intent as unknown as {
+            presentment_details?: { presentment_amount?: number; presentment_currency?: string };
+          }).presentment_details
+        });
         break;
       }
       case "charge.refunded": {

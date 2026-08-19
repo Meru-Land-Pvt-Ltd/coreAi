@@ -9,6 +9,7 @@ export * from "./call-list";
 export * from "./execution-mode";
 export * from "./google-disclosure";
 export * from "./llm-models";
+export * from "./local-pricing";
 export * from "./node-declarations";
 export * from "./node-registry";
 export * from "./architect-node-catalog";
