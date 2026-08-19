@@ -615,6 +615,16 @@ async function runComposerBrain(args: {
       }
     }
 
+    // Why a composition was rejected is the single most useful line in this
+    // file when something stops working — without it a failure is invisible
+    // and looks like the model being unavailable.
+    console.warn("[smart-composer] rejected", {
+      workflowId: args.workflowId,
+      task: args.task,
+      attempt,
+      feedback: feedback.slice(0, 600)
+    });
+
     // Single retry: the exact violations go back to the model.
     messages.push(
       { role: "assistant", content: response.text ?? "" },
