@@ -247,8 +247,16 @@ export type ConnectorRules = {
   blockedCountries?: string[];
   /** The most this may do for one business in a day, whatever they set. */
   hardDailyCap?: number;
-  /** Testing may only reach an identity the architect has proven is theirs. */
-  testOnlyToVerifiedIdentity?: boolean;
+  /*
+   * There used to be a `testOnlyToVerifiedIdentity` rule here.
+   *
+   * It is gone because it became redundant, not because it stopped mattering.
+   * The engine now answers a rehearsal itself, from each output's declared
+   * `sample`, and never calls the heart — so a test cannot reach a real person
+   * whatever the connector does. A structural guarantee beats a rule that has
+   * to be declared, and a rule that can never fire is exactly the thing this
+   * file refuses to carry.
+   */
 
   /**
    * Config keys whose text must contain a way out, when requiresUnsubscribe is set.
@@ -281,14 +289,6 @@ export type ConnectorRules = {
 export type RuleContext = {
   config: Record<string, unknown>;
   isTest: boolean;
-  /**
-   * Identities the architect has proved they own — their own phone, their own
-   * inbox. Empty means none proved, and a connector that may only reach a
-   * proved identity therefore refuses. Failing closed is the entire point: an
-   * unproved rehearsal that goes out to real strangers is not a test, it is an
-   * unconsented campaign with nobody's name on it.
-   */
-  verifiedIdentities?: string[];
 };
 
 export type RuleVerdict = { ok: true } | { ok: false; rule: string; message: string };
@@ -414,21 +414,6 @@ export function checkConnectorRules(contract: ConnectorContract, context: RuleCo
     }
   }
 
-  // ---- A rehearsal must not reach a stranger ------------------------------
-  if (rules.testOnlyToVerifiedIdentity && context.isTest) {
-    const proved = new Set((context.verifiedIdentities ?? []).map((entry) => entry.trim().toLowerCase()));
-    const targets = targetsAt(context.config, rules.reaches ?? []);
-    const unproved = targets.filter((target) => !proved.has(target.toLowerCase()));
-    if (unproved.length > 0) {
-      return {
-        ok: false,
-        rule: "testOnlyToVerifiedIdentity",
-        message:
-          "A test can only reach a phone number or inbox you have proved is yours. Nothing was sent. Add and verify your own details, then test again."
-      };
-    }
-  }
-
   return { ok: true };
 }
 
@@ -551,16 +536,105 @@ export type InboundResult = {
 /* -------------------------------------------------------------------------- */
 
 /** What the engine hands the heart. Everything already resolved and checked. */
+/* -------------------------------------------------------------------------- */
+/* The one way a heart reaches the outside world                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * An error from a provider, carrying the status the engine needs.
+ *
+ * The status is not decoration. It is the single fact that decides whether
+ * trying again is sensible: a 429 should back off and retry, a 401 will still
+ * be wrong on the fourth attempt, and a 402 means retrying is just four times
+ * the bill. A heart that throws a plain Error hides that, and the engine then
+ * retries everything — including the things it must never retry.
+ *
+ * You do not construct this. `context.http` throws it for you.
+ */
+export class HttpError extends Error {
+  /**
+   * The status the engine reads to decide whether trying again is sensible.
+   * A 429 backs off and retries; a 401 will still be wrong on the fourth
+   * attempt; a 402 means retrying is just four times the bill.
+   */
+  readonly status: number;
+  /** The provider's own error body, parsed when it was JSON. */
+  readonly body: unknown;
+
+  constructor(message: string, status: number, body: unknown) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+export type HttpRequest = {
+  url: string;
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  headers?: Record<string, string>;
+  /** Sent as JSON. Omit for a GET. */
+  body?: unknown;
+  /** Defaults to 20 seconds. */
+  timeoutMs?: number;
+};
+
+export type HttpResponse = {
+  status: number;
+  /** Parsed JSON when the provider sent JSON, otherwise the raw text. */
+  body: unknown;
+  text: string;
+};
+
+/**
+ * The ONLY way a heart may reach the network.
+ *
+ * A heart must never call `fetch` itself. Everything about talking to a
+ * provider that the engine needs to do its job is handled here and cannot be
+ * got wrong: errors carry their status, timeouts are applied, JSON is parsed,
+ * and a rehearsal never reaches anybody.
+ *
+ * This is not a style preference. A connector written with raw `fetch` looks
+ * correct, typechecks, passes validation, and then quietly retries a wrong API
+ * key four times and emails real strangers during a test.
+ */
+export type HttpClient = {
+  (request: HttpRequest): Promise<HttpResponse>;
+  get(url: string, headers?: Record<string, string>): Promise<HttpResponse>;
+  post(url: string, body?: unknown, headers?: Record<string, string>): Promise<HttpResponse>;
+};
+
 export type HeartContext = {
   /** Values from all three owners, merged and validated. */
   config: Record<string, unknown>;
   /** The resolved credential — the heart never looks one up itself. */
   credentials: Record<string, string>;
+  /**
+   * The only way to reach the provider. Never call `fetch` directly.
+   *
+   *   const answer = await context.http.post(url, { page: context.page }, {
+   *     Authorization: `Bearer ${context.credentials.MY_KEY}`
+   *   });
+   *   const people = (answer.body as { people?: unknown[] }).people ?? [];
+   *
+   * A non-2xx throws an HttpError carrying `.status`, which is what tells the
+   * engine whether to retry. You do not catch it — let it out.
+   */
+  http: HttpClient;
   /** Which page we are on, for paged work. */
   page: number;
+  /** How many to ask the provider for — your declared `limits.pageSize`. */
+  pageSize: number;
   /** A cursor the previous page returned, when the provider uses one. */
   cursor?: string;
-  /** Rehearsal. A heart MUST NOT touch the outside world when this is true. */
+  /**
+   * True during a rehearsal.
+   *
+   * You almost certainly do not need this. The engine answers a rehearsal
+   * itself, from the `sample` value on each declared output, and never calls
+   * your heart at all — so a test cannot reach a real person even if you
+   * forgot to think about it. Make your samples realistic and ignore this flag.
+   */
   isTest: boolean;
   /** Structured logging. The heart never writes to the console. */
   log: (message: string, detail?: unknown) => void;
@@ -579,6 +653,44 @@ export type HeartResult = {
 
 /** The one function a connector author writes. */
 export type Heart = (context: HeartContext) => Promise<HeartResult>;
+
+/**
+ * What a self-test is given — and deliberately, what it is not.
+ *
+ * No config. A probe runs on a schedule with no business attached, so anything
+ * a business would have typed simply is not there. Two fresh writers in a row
+ * missed this in different ways: one reused the heart, the other invented a
+ * literal "DUMMY_DATABASE_ID". Both produce the same result — a connector that
+ * reports itself broken every morning until nobody reads the alerts.
+ *
+ * Leaving `config` out of this type is what turns that from a mistake you can
+ * make into one the compiler refuses. A probe must be a call that needs
+ * nothing but the credential. If the provider has no such call, say so in
+ * `rules.notes` and set `health.severity` to "informational" — an honest gap
+ * is worth more than a daily false alarm.
+ */
+export type ProbeContext = {
+  credentials: Record<string, string>;
+  http: HttpClient;
+  log: (message: string, detail?: unknown) => void;
+};
+
+/**
+ * An honest way out, for a provider with nothing to test against.
+ *
+ * Some APIs have no call you can make without a customer's own data — Notion
+ * is one: every read needs a database id that belongs to a business. A writer
+ * with no way to say that will invent a plausible literal
+ * ("sample_database_id"), and the daily check then 404s every morning until
+ * nobody reads the alerts.
+ *
+ * Saying it out loud is better. The connector is reported as unchecked with
+ * this reason attached, which is the truth, and a maintainer can see at a
+ * glance which providers we are flying blind on.
+ */
+export type ProbeResult = HeartResult | { cannotSelfTest: string };
+
+export type Probe = (context: ProbeContext) => Promise<ProbeResult>;
 
 /**
  * A whole connector.
@@ -633,8 +745,15 @@ export type ConnectorContract = {
    * the business is over its usage cap) is handled for you.
    */
   receive?: (context: InboundContext) => Promise<InboundResult> | InboundResult;
-  /** The probe's own heart — a known request whose answer we can check. */
-  probe?: Heart;
+  /**
+   * The daily self-test: one tiny known request, checked for shape.
+   *
+   * Required, and it must NOT be the heart. A probe runs with no business
+   * config, so reusing the heart builds a URL out of undefined, gets a 404,
+   * and reports the connector broken every morning until nobody reads the
+   * alerts any more.
+   */
+  probe: Probe;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -675,9 +794,40 @@ export function validateConnector(contract: ConnectorContract): string[] {
   if (typeof contract.heart !== "function") {
     problems.push(`${id}: no heart — the one piece of code a connector must have.`);
   }
-  if (contract.health && !contract.probe) {
-    problems.push(`${id}: it declares a health check but has no probe to run.`);
+  /*
+   * A probe that IS the heart.
+   *
+   * A fresh writer, given only this file, wrote `probe: heart` — which reads
+   * like reuse and is a daily false alarm: the probe runs with no business
+   * config, so the heart builds a URL out of undefined, gets a 404, and the
+   * connector reports itself broken every morning until somebody stops reading
+   * the alerts. A probe is a tiny call that needs nothing but the credential.
+   */
+  if (contract.probe && contract.probe === contract.heart) {
+    problems.push(
+      `${id}: the self-test is the same function as the heart. A probe runs with no business config, so it must be its own small call that needs only the credential.`
+    );
   }
+
+  /*
+   * A heart that reaches the network itself.
+   *
+   * Everything the engine needs in order to do its job — the status that
+   * decides whether a retry is sensible, the timeout, the rehearsal guard — is
+   * in the client it hands you. A heart calling `fetch` looks correct,
+   * typechecks, passes every other check here, and then retries a wrong API
+   * key on every run because the status was left in a string.
+   */
+  if (typeof contract.heart === "function" && /\bfetch\s*\(/.test(contract.heart.toString())) {
+    problems.push(
+      `${id}: the heart calls fetch() directly. Use context.http — it carries the status the engine needs to decide whether retrying is sensible.`
+    );
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(contract.provider?.lastVerified ?? "")) {
+    problems.push(`${id}: lastVerified must be a plain date like "2026-08-20" — it is what tells a maintainer how stale this is.`);
+  }
+
   if (contract.execution === "paged" && !contract.limits?.pageSize) {
     problems.push(`${id}: paged work needs a page size, or it will ask for everything at once.`);
   }
@@ -729,11 +879,6 @@ export function validateConnector(contract: ConnectorContract): string[] {
   if (rules.blockedCountries?.length && !rules.reaches?.length) {
     problems.push(
       `${id}: it blocks countries but does not say which config key holds the people it reaches ("reaches"), so nothing can check it.`
-    );
-  }
-  if (rules.testOnlyToVerifiedIdentity && !rules.reaches?.length) {
-    problems.push(
-      `${id}: it limits testing to verified identities but does not say which config key holds the people it reaches ("reaches"), so nothing can check it.`
     );
   }
   for (const key of [...(rules.unsubscribeIn ?? []), ...(rules.reaches ?? [])]) {

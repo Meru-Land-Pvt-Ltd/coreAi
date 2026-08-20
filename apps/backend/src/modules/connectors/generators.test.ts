@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { deriveBuyerContract, type ConnectorContract } from "@coreai/shared";
 import { allConnectors, connectorProblems, connectorsForJob, connectorsNeedingReview } from "./registry";
+import { runConnector } from "./engine";
 import { apolloFindPeople } from "./catalogue/apollo";
 
 /**
@@ -136,34 +137,54 @@ describe("the registry", () => {
 });
 
 describe("Apollo itself", () => {
-  it("never touches Apollo during a rehearsal", async () => {
-    const result = await apolloFindPeople.heart({
-      config: { jobTitles: "Dentist", locations: "London" },
-      credentials: { APOLLO_API_KEY: "not-a-real-key" },
-      page: 1,
+  it("cannot touch Apollo during a rehearsal, because its heart is never called", async () => {
+    // This used to be Apollo's own responsibility — an `if (isTest)` branch in
+    // the file, which every connector could forget. The engine now answers a
+    // rehearsal from the contract's declared samples and never reaches the
+    // heart, so forgetting is no longer possible.
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const result = await runConnector({
+      contract: apolloFindPeople,
+      businessId: `biz-${Math.random().toString(36).slice(2)}`,
       isTest: true,
-      log: () => undefined
+      config: { jobTitles: "Dentist", locations: "London", APOLLO_API_KEY: "not-a-real-key" }
     });
 
-    const leads = result.outputs.leads as Array<{ source: string }>;
-    // Marked as an example, so a rehearsal can never be mistaken for real data
-    // further down the orchestration.
-    expect(leads[0].source).toBe("apollo-example");
+    expect(result.ok).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // What the business sees is the connector's own declared example.
+    expect(Array.isArray(result.outputs.leads)).toBe(true);
+    expect(result.message).toContain("was not contacted");
+    fetchSpy.mockRestore();
   });
 
-  it("reads a pasted list the way a person actually types one", () => {
-    // A business will paste lines, or commas, or both. All three must work.
+  it("reads a pasted list the way a person actually types one", async () => {
+    // A business will paste lines, or commas, or a real list. All three must
+    // reach Apollo as a clean list of titles.
+    const seen: unknown[] = [];
     const shapes = ["Dentist\nPractice Owner", "Dentist, Practice Owner", ["Dentist", " Practice Owner "]];
+
     for (const jobTitles of shapes) {
-      expect(() =>
-        apolloFindPeople.heart({
-          config: { jobTitles, locations: "London" },
-          credentials: { APOLLO_API_KEY: "x" },
-          page: 1,
-          isTest: true,
-          log: () => undefined
-        })
-      ).not.toThrow();
+      await apolloFindPeople.heart({
+        config: { jobTitles, locations: "London" },
+        credentials: { APOLLO_API_KEY: "x" },
+        http: Object.assign(
+          async () => ({ status: 200, body: { people: [] }, text: "" }),
+          {
+            get: async () => ({ status: 200, body: { people: [] }, text: "" }),
+            post: async (_url: string, body: unknown) => {
+              seen.push((body as { person_titles: unknown }).person_titles);
+              return { status: 200, body: { people: [] }, text: "" };
+            }
+          }
+        ) as never,
+        page: 1,
+        isTest: false,
+        log: () => undefined
+      });
     }
+
+    for (const titles of seen) expect(titles).toEqual(["Dentist", "Practice Owner"]);
   });
 });

@@ -27,7 +27,11 @@ import {
   checkHeartResult,
   type ConnectorContract,
   type HeartContext,
-  type HeartResult
+  type HeartResult,
+  HttpError,
+  type HttpClient,
+  type HttpRequest,
+  type HttpResponse
 } from "@coreai/shared";
 import { consumeLimit, DAY, MINUTE } from "../../lib/rate-limit";
 import { platformApiSetting } from "../admin/platform-api-settings";
@@ -42,15 +46,6 @@ export type ConnectorRunInput = {
   isTest?: boolean;
   /** What this business is allowed to spend today, in cents. 0 = no ceiling. */
   budgetCents?: number;
-  /**
-   * Phone numbers and inboxes the architect has proved they own.
-   *
-   * Only consulted by connectors that declare testOnlyToVerifiedIdentity. Empty
-   * means none proved, and such a connector then refuses to rehearse — which is
-   * the safe direction, because the alternative is a "test" that emails two
-   * hundred strangers.
-   */
-  verifiedIdentities?: string[];
 };
 
 export type ConnectorRunLog = {
@@ -140,6 +135,89 @@ function statusOf(error: unknown): number | undefined {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /* -------------------------------------------------------------------------- */
+/* The only way a heart reaches the network                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Build the http client a heart is handed.
+ *
+ * Every connector used to hand-roll this, and a fresh writer got it wrong in
+ * the most expensive possible way: `throw new Error("Failed: " + statusText)`.
+ * That reads fine and hides the status, so the engine could no longer tell a
+ * 429 from a 401 and retried a wrong API key three times on every run.
+ *
+ * Supplying the client is what makes that impossible rather than discouraged.
+ */
+function makeHttpClient(log: (message: string, detail?: unknown) => void): HttpClient {
+  const request = async (input: HttpRequest): Promise<HttpResponse> => {
+    const method = input.method ?? (input.body === undefined ? "GET" : "POST");
+    const started = Date.now();
+
+    const response = await fetch(input.url, {
+      method,
+      headers: {
+        ...(input.body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...(input.headers ?? {})
+      },
+      ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
+      signal: AbortSignal.timeout(input.timeoutMs ?? 20_000)
+    });
+
+    const text = await response.text();
+    let body: unknown = text;
+    if (text.trim()) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = text;
+      }
+    }
+
+    // Never the URL's query string and never a header: both routinely carry
+    // credentials, and this line goes into a run log a business can read.
+    log(`${method} ${input.url.split("?")[0]} → ${response.status}`, { ms: Date.now() - started });
+
+    if (!response.ok) {
+      throw new HttpError(`${new URL(input.url).host} responded ${response.status}`, response.status, body);
+    }
+
+    return { status: response.status, body, text };
+  };
+
+  const client = ((input: HttpRequest) => request(input)) as HttpClient;
+  client.get = (url, headers) => request({ url, method: "GET", headers });
+  client.post = (url, body, headers) => request({ url, method: "POST", body, headers });
+  return client;
+}
+
+/**
+ * The answer to a rehearsal, built from what the contract declared.
+ *
+ * The heart is not called at all. Every connector used to carry its own
+ * `if (isTest)` branch, which meant every connector could forget it — and the
+ * cost of forgetting is a "test" that spends real credits or emails real
+ * strangers. The declared samples are already required, already realistic
+ * enough for the AI doors to translate with, and already what the honesty
+ * check measures against. Using them here makes a rehearsal structurally
+ * incapable of reaching anybody.
+ */
+function rehearsalOutputs(contract: ConnectorContract): Record<string, unknown> {
+  const outputs: Record<string, unknown> = {};
+  for (const output of contract.produces) outputs[output.key] = output.sample;
+  return outputs;
+}
+
+/** How many things a run produced, when the heart did not say. */
+function unitsFromOutputs(contract: ConnectorContract, outputs: Record<string, unknown>): number {
+  let units = 0;
+  for (const output of contract.produces) {
+    const value = outputs[output.key];
+    if (Array.isArray(value)) units += value.length;
+  }
+  return units;
+}
+
+/* -------------------------------------------------------------------------- */
 
 /**
  * Run one connector, all the way through.
@@ -167,6 +245,27 @@ export async function runConnector(input: ConnectorRunInput): Promise<ConnectorR
     logs
   });
 
+  // ---- A rehearsal never reaches anybody ----------------------------------
+  //
+  // Answered here, from the contract's own declared samples, without calling
+  // the heart. Placed before the limits and the budget as well: rehearsing an
+  // agent forty times must not use up the day's real allowance.
+  if (input.isTest) {
+    const outputs = rehearsalOutputs(contract);
+    log("rehearsal — the provider was not called", { outputs: Object.keys(outputs) });
+    return {
+      ok: true,
+      outputs,
+      message: `${contract.label} ran as a test. ${contract.provider.name} was not contacted and nothing was charged.`,
+      code: "ok",
+      pagesFetched: 1,
+      costCents: 0,
+      logs
+    };
+  }
+
+  const http = makeHttpClient(log);
+
   // ---- Credentials --------------------------------------------------------
   const { credentials, missing } = resolveCredentials(contract, input.config);
   if (missing.length > 0) {
@@ -185,11 +284,9 @@ export async function runConnector(input: ConnectorRunInput): Promise<ConnectorR
   // sent. checkConnectorRules lives in the shared package with no I/O, so the
   // decision can be tested on its own and cannot drift from what the contract
   // declares.
-  const ruled = checkConnectorRules(contract, {
-    config: input.config,
-    isTest: input.isTest === true,
-    verifiedIdentities: input.verifiedIdentities
-  });
+  // isTest is false by construction here: a rehearsal returned above without
+  // ever reaching this point.
+  const ruled = checkConnectorRules(contract, { config: input.config, isTest: false });
   if (!ruled.ok) {
     log("blocked by a rule", { rule: ruled.rule });
     return fail("blocked_by_rule", ruled.message);
@@ -320,9 +417,11 @@ export async function runConnector(input: ConnectorRunInput): Promise<ConnectorR
     const context: HeartContext = {
       config: input.config,
       credentials,
+      http,
       page,
+      pageSize: contract.limits.pageSize ?? 25,
       cursor,
-      isTest: input.isTest === true,
+      isTest: false,
       log
     };
 
@@ -383,7 +482,9 @@ export async function runConnector(input: ConnectorRunInput): Promise<ConnectorR
     }
 
     pagesFetched += 1;
-    unitsUsed += result.unitsUsed ?? 1;
+    // A heart that forgets to report what it produced must not silently make a
+    // per-result ceiling count one. The declared outputs already say.
+    unitsUsed += result.unitsUsed ?? unitsFromOutputs(contract, result.outputs) ?? 1;
     cursor = result.cursor;
 
     if (contract.execution !== "paged" || !result.morePages) break;
@@ -459,13 +560,24 @@ export async function checkConnectorHealth(
   }
 
   try {
+    // No config, on purpose: a self-test runs with no business attached, so a
+    // probe that needed one would be a daily false alarm.
     const result = await contract.probe({
-      config,
       credentials,
-      page: 1,
-      isTest: false,
+      http: makeHttpClient(() => undefined),
       log: () => undefined
     });
+
+    // The connector told us plainly that this provider has nothing it can
+    // check without a customer's own data. Better than a daily false alarm,
+    // and visible to whoever has to decide what we are flying blind on.
+    if ("cannotSelfTest" in result) {
+      return {
+        ...base,
+        healthy: true,
+        message: `Not checked — ${result.cannotSelfTest}`
+      };
+    }
 
     const missingKeys = contract.health.expectKeys.filter(
       (key) => result.outputs?.[key] === undefined

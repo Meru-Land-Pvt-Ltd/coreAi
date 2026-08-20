@@ -13,7 +13,7 @@
  * Provider docs: https://docs.apollo.io/reference/people-search
  */
 
-import type { ConnectorContract, HeartContext, HeartResult } from "@coreai/shared";
+import type { ConnectorContract, HeartContext, HeartResult, ProbeContext } from "@coreai/shared";
 
 const API = "https://api.apollo.io/api/v1";
 
@@ -48,30 +48,17 @@ function toLead(person: ApolloPerson) {
 
 /** One request to Apollo, shared by the heart and the daily self-test. */
 async function search(
-  context: HeartContext,
+  context: HeartContext | ProbeContext,
   body: Record<string, unknown>
 ): Promise<ApolloSearchResponse> {
-  const response = await fetch(`${API}/mixed_people/search`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-cache",
-      "x-api-key": context.credentials.APOLLO_API_KEY
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(20_000)
+  // context.http, never fetch: it is what carries the status the engine reads
+  // to decide whether trying again is sensible. A 402 from Apollo means credits
+  // ran out, and retrying that is just four more failures.
+  const answer = await context.http.post(`${API}/mixed_people/search`, body, {
+    "Cache-Control": "no-cache",
+    "x-api-key": context.credentials.APOLLO_API_KEY
   });
-
-  if (!response.ok) {
-    // The status is what the engine reads to decide whether trying again is
-    // sensible. A 402 from Apollo means credits ran out — retrying that four
-    // times is just four more failures.
-    const error = new Error(`Apollo responded ${response.status}`) as Error & { status: number };
-    error.status = response.status;
-    throw error;
-  }
-
-  return (await response.json()) as ApolloSearchResponse;
+  return answer.body as ApolloSearchResponse;
 }
 
 export const apolloFindPeople: ConnectorContract = {
@@ -222,29 +209,6 @@ export const apolloFindPeople: ConnectorContract = {
     const locations = asList(context.config.locations);
     const industry = String(context.config.industry ?? "").trim();
 
-    // A rehearsal must never touch Apollo — it would cost real credits to
-    // prove a form works.
-    if (context.isTest) {
-      context.log("test run — Apollo was not called");
-      return {
-        outputs: {
-          leads: [
-            {
-              name: "Priya Shah (example)",
-              email: "priya@example.com",
-              title: titles[0] ?? "Practice Owner",
-              company: "Example Dental",
-              website: null,
-              linkedin: null,
-              source: "apollo-example"
-            }
-          ],
-          totalFound: 1
-        },
-        morePages: false
-      };
-    }
-
     const answer = await search(context, {
       person_titles: titles,
       person_locations: locations,
@@ -269,7 +233,7 @@ export const apolloFindPeople: ConnectorContract = {
   },
 
   /** The daily self-test: one tiny search, checked for the shape we expect. */
-  probe: async (context: HeartContext): Promise<HeartResult> => {
+  probe: async (context: ProbeContext): Promise<HeartResult> => {
     const answer = await search(context, {
       person_titles: ["Chief Executive Officer"],
       page: 1,

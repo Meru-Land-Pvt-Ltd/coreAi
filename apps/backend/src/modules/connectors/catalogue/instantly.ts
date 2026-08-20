@@ -26,6 +26,7 @@ import type {
   ConnectorContract,
   HeartContext,
   HeartResult,
+  ProbeContext,
   InboundContext,
   InboundResult
 } from "@coreai/shared";
@@ -34,35 +35,20 @@ const API = "https://api.instantly.ai/api/v2";
 
 /** One request to Instantly, shared by both connectors and the self-test. */
 async function call(
-  context: HeartContext,
+  context: HeartContext | ProbeContext,
   method: "GET" | "POST",
   path: string,
   body?: unknown
 ): Promise<Record<string, unknown>> {
-  const response = await fetch(`${API}${path}`, {
+  // context.http, never fetch: the engine reads the status off the error it
+  // throws to decide whether a retry is sensible.
+  const answer = await context.http({
+    url: `${API}${path}`,
     method,
-    headers: {
-      Authorization: `Bearer ${context.credentials.INSTANTLY_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    signal: AbortSignal.timeout(20_000)
+    body,
+    headers: { Authorization: `Bearer ${context.credentials.INSTANTLY_API_KEY}` }
   });
-
-  if (!response.ok) {
-    // The engine reads this status to decide whether trying again is sensible.
-    const error = new Error(`Instantly responded ${response.status}`) as Error & { status: number };
-    error.status = response.status;
-    throw error;
-  }
-
-  const text = await response.text();
-  if (!text.trim()) return {};
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
+  return (answer.body ?? {}) as Record<string, unknown>;
 }
 
 /** A textarea of lines, a real list, or one value — always a clean list. */
@@ -238,20 +224,6 @@ export const instantlyAddLeads: ConnectorContract = {
     const leads = withEmail(candidates);
     const skipped = candidates.length - leads.length;
 
-    // A rehearsal must never put a real person into a real campaign. Instantly
-    // sends on its own schedule once a campaign is running, so an "add" during
-    // a test would become a real email to a real stranger hours later, with
-    // nobody watching.
-    if (context.isTest) {
-      context.log(`test run — Instantly was not called (${leads.length} would have been added)`);
-      return {
-        outputs: {
-          leadsAdded: leads.slice(0, 3).map((lead) => ({ ...lead, source: "instantly-example" })),
-          skipped
-        }
-      };
-    }
-
     if (leads.length === 0) {
       // A real, honest answer: the step ran, and there was nobody to add.
       context.log("nobody had a usable email address");
@@ -267,7 +239,7 @@ export const instantlyAddLeads: ConnectorContract = {
     };
   },
 
-  probe: async (context: HeartContext): Promise<HeartResult> => {
+  probe: async (context: ProbeContext): Promise<HeartResult> => {
     const answer = await call(context, "GET", "/campaigns?limit=1");
     return { outputs: { campaigns: answer.items ?? answer.data ?? [] } };
   }
@@ -425,7 +397,7 @@ export const instantlyReplies: ConnectorContract = {
     );
   },
 
-  probe: async (context: HeartContext): Promise<HeartResult> => {
+  probe: async (context: ProbeContext): Promise<HeartResult> => {
     const answer = await call(context, "GET", "/campaigns?limit=1");
     return { outputs: { campaigns: answer.items ?? answer.data ?? [] } };
   }

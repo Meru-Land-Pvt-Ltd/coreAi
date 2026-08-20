@@ -5,7 +5,7 @@ import {
   type ConnectorContract,
   type BuyerContract
 } from "@coreai/shared";
-import { runConnector } from "./engine";
+import { runConnector, checkConnectorHealth } from "./engine";
 import { sealBuyerAnswers, openBuyerAnswers, maskBuyerAnswers, SECRET_PLACEHOLDER } from "./buyer-secrets";
 import { connectorBudgetCentsFor, DEFAULT_CONNECTOR_DAILY_BUDGET_CENTS } from "./budget";
 import { instantlyAddLeads, instantlyReplies } from "./catalogue/instantly";
@@ -119,29 +119,24 @@ describe("the safety rules are enforced, not just displayed", () => {
     expect(checkConnectorRules(caller, { config: { phones: ["+99912345678"] }, isTest: false }).ok).toBe(false);
   });
 
-  it("stops a rehearsal reaching a stranger", () => {
-    const sender = make({
-      rules: { testOnlyToVerifiedIdentity: true, reaches: ["to"] },
-      needs: { ...base.needs, business: [{ key: "to", label: "To", help: "", kind: "phone", required: true }] }
+  it("no longer needs a rule to keep a rehearsal safe", async () => {
+    // There used to be a testOnlyToVerifiedIdentity rule here. It is gone
+    // because the engine now answers a rehearsal from the contract's own
+    // declared samples and never calls the heart — so a test cannot reach
+    // anybody, whatever the connector does or forgets to do.
+    const heart = vi.fn(async () => ({ outputs: { things: [1] } }));
+    const result = await runConnector({
+      contract: make({ heart }),
+      businessId: freshBiz(),
+      isTest: true,
+      config: {}
     });
 
-    const stranger = { config: { to: "+16505559999" }, isTest: true, verifiedIdentities: ["+919309185238"] };
-    expect(checkConnectorRules(sender, stranger).ok).toBe(false);
-
-    const own = { config: { to: "+919309185238" }, isTest: true, verifiedIdentities: ["+919309185238"] };
-    expect(checkConnectorRules(sender, own).ok).toBe(true);
-
-    // Nothing proved means nothing may be reached. Failing closed is the point.
-    expect(checkConnectorRules(sender, { config: { to: "+16505559999" }, isTest: true }).ok).toBe(false);
+    expect(result.ok).toBe(true);
+    expect(heart).not.toHaveBeenCalled();
+    expect(result.costCents).toBe(0);
   });
 
-  it("leaves a live run alone — the rehearsal rule is only about rehearsals", () => {
-    const sender = make({
-      rules: { testOnlyToVerifiedIdentity: true, reaches: ["to"] },
-      needs: { ...base.needs, business: [{ key: "to", label: "To", help: "", kind: "phone", required: true }] }
-    });
-    expect(checkConnectorRules(sender, { config: { to: "+16505559999" }, isTest: false }).ok).toBe(true);
-  });
 });
 
 describe("a rule that cannot be checked cannot ship", () => {
@@ -337,9 +332,10 @@ describe("Instantly", () => {
     const result = await runConnector({
       contract: instantlyAddLeads,
       businessId: freshBiz(),
-      isTest: true,
       config: { campaignId: "c1", consentConfirmed: "Yes", INSTANTLY_API_KEY: "k", leads: [] }
     });
+    // The step ran and there was nobody to add. That is not the same as a
+    // broken provider, and must never be recorded as one.
     expect(result.ok).toBe(true);
     expect(result.outputs.leadsAdded).toEqual([]);
   });
@@ -402,5 +398,138 @@ describe("Instantly replies — the knock", () => {
       ctx({ headers: { "x-triven-secret": "the-secret" }, body: { event_type: "reply_received" } })
     ) as { accepted: boolean };
     expect(result.accepted).toBe(false);
+  });
+});
+
+/* ========================================================================== */
+/* The conventions a fresh writer got wrong, now caught by the machinery       */
+/* ========================================================================== */
+
+describe("what the factory test found", () => {
+  it("gives a heart a client whose errors carry the status", async () => {
+    // A fresh model wrote `throw new Error("Failed: " + statusText)`. That
+    // reads fine and hides the one fact the engine needs, so it retried a
+    // wrong API key on every run. context.http makes that impossible.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("nope", { status: 401 })) as typeof fetch;
+
+    let seen: unknown = "none";
+    const contract = make({
+      failure: { ...base.failure, maxRetries: 3, neverRetry: [401] },
+      heart: async (context) => {
+        try {
+          await context.http.get("https://example.com/thing");
+        } catch (error) {
+          seen = (error as { status?: unknown }).status;
+          throw error;
+        }
+        return { outputs: { things: [] } };
+      }
+    });
+
+    const result = await runConnector({ contract, businessId: freshBiz(), config: {} });
+    globalThis.fetch = original;
+
+    expect(seen).toBe(401);
+    expect(result.code).toBe("provider_error");
+  });
+
+  it("does not retry a wrong key, because the status came through", async () => {
+    const original = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("nope", { status: 401 });
+    }) as typeof fetch;
+
+    await runConnector({
+      contract: make({
+        failure: { ...base.failure, maxRetries: 3, neverRetry: [401] },
+        heart: async (context) => {
+          await context.http.get("https://example.com/thing");
+          return { outputs: { things: [] } };
+        }
+      }),
+      businessId: freshBiz(),
+      config: {}
+    });
+    globalThis.fetch = original;
+
+    expect(calls).toBe(1);
+  });
+
+  it("counts what a run produced even when the heart forgets to say", async () => {
+    // A fresh model never set unitsUsed. A per-result ceiling would then count
+    // one per call instead of one per result, and stop being a ceiling.
+    const contract = make({
+      cost: { style: "per_result", estimateCents: 10, unit: "each", billedTo: "business" },
+      limits: { ...base.limits, pageSize: 4 },
+      heart: async () => ({ outputs: { things: [1, 2, 3, 4] } }) // no unitsUsed
+    });
+
+    const result = await runConnector({ contract, businessId: freshBiz(), config: {} });
+    expect(result.costCents).toBe(40);
+  });
+
+  it("refuses a connector whose self-test is just the heart again", () => {
+    const heart = async () => ({ outputs: { things: [1] } });
+    const problems = validateConnector(make({ heart, probe: heart }));
+    expect(problems.join(" ")).toContain("same function as the heart");
+  });
+
+  it("refuses a heart that reaches the network on its own", () => {
+    const problems = validateConnector(
+      make({
+        heart: async () => {
+          await fetch("https://example.com");
+          return { outputs: { things: [] } };
+        }
+      })
+    );
+    expect(problems.join(" ")).toContain("context.http");
+  });
+
+  it("refuses an invented or malformed lastVerified", () => {
+    const problems = validateConnector(
+      make({ provider: { ...base.provider, lastVerified: "sometime in 2023" } })
+    );
+    expect(problems.join(" ")).toContain("lastVerified");
+  });
+
+  it("still accepts the connectors we ship", () => {
+    // The rules above are only worth having if the real files pass them.
+    for (const contract of [instantlyAddLeads, instantlyReplies]) {
+      expect(validateConnector(contract)).toEqual([]);
+    }
+  });
+});
+
+describe("a connector may say honestly that it cannot self-test", () => {
+  it("reports unchecked with the reason, not broken", async () => {
+    // Notion has no call that works without a customer's own database id. A
+    // writer with no way to say that invents a plausible literal, and the
+    // daily check then 404s every morning until nobody reads the alerts.
+    const contract = make({
+      probe: async () => ({ cannotSelfTest: "every read needs a database id belonging to a business" })
+    });
+
+    const health = await checkConnectorHealth(contract);
+    expect(health.healthy).toBe(true);
+    expect(health.message).toContain("database id belonging to a business");
+  });
+
+  it("gives a probe no config at all, so it cannot depend on one", async () => {
+    // The type has no `config`, which is what makes this impossible to get
+    // wrong rather than merely discouraged.
+    let seen: string[] = [];
+    await checkConnectorHealth(
+      make({
+        probe: async (context) => {
+          seen = Object.keys(context);
+          return { outputs: { things: [] } };
+        }
+      })
+    );
+    expect(seen.sort()).toEqual(["credentials", "http", "log"]);
   });
 });
