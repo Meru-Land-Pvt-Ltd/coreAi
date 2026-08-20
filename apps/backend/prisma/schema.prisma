@@ -2419,6 +2419,10 @@ model AgentWebhookEndpoint {
   workflowId          String
   /// node.id of the trigger.webhook node this link feeds.
   nodeId              String
+  /// Set when this address belongs to a Connector Standard node declaring
+  /// execution "inbound". The connector's own receive() authenticates the
+  /// delivery and reads it, instead of the generic signature check.
+  connectorId         String?
   /// sha256(token) hex — the lookup column. Verification never decrypts.
   tokenHash           String    @unique
   /// AES-256-GCM of the token, so the buyer can see the link again.

@@ -23,6 +23,7 @@ import {
   type ConnectorJob
 } from "@coreai/shared";
 import { apolloFindPeople } from "./catalogue/apollo";
+import { instantlyAddLeads, instantlyReplies } from "./catalogue/instantly";
 
 /**
  * Every connector on the platform.
@@ -30,7 +31,7 @@ import { apolloFindPeople } from "./catalogue/apollo";
  * Adding a service means adding one file and one line here. Nothing else — not
  * the setup form, not the dashboard, not the pricing panel, not the retries.
  */
-const CONTRACTS: ConnectorContract[] = [apolloFindPeople];
+const CONTRACTS: ConnectorContract[] = [apolloFindPeople, instantlyAddLeads, instantlyReplies];
 
 const byId = new Map<string, ConnectorContract>();
 const byJob = new Map<ConnectorJob, ConnectorContract[]>();

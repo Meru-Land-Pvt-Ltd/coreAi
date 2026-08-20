@@ -111,6 +111,8 @@ import {
 import { executeArchitectTelegramTestAction } from "./architect-telegram-test-actions";
 import { getConnector } from "../connectors/registry";
 import { runConnectorAndRecord } from "../connectors/run-log";
+import { openSecretValues } from "../connectors/buyer-secrets";
+import { connectorBudgetCentsFor } from "../connectors/budget";
 
 /** Threaded through the runner to bound workflow-to-workflow chaining. */
 type WorkflowChain = {
@@ -4631,13 +4633,25 @@ async function runStandardConnectorNode({
   // everyone who installs the agent. The business's answers come from their
   // own setup form and win, because they are about their business.
   const config: Record<string, unknown> = { ...(node.data ?? {}) };
+  let installedConfig: Record<string, unknown> = {};
   if (context.installedAgentId) {
     const installed = await prisma.installedAgent.findUnique({
       where: { id: context.installedAgentId },
       select: { configJson: true }
     });
-    const answers = (installed?.configJson as Record<string, unknown> | null)?.buyerAnswers;
-    if (answers && typeof answers === "object") Object.assign(config, answers);
+    installedConfig = (installed?.configJson as Record<string, unknown> | null) ?? {};
+    const answers = installedConfig.buyerAnswers;
+    if (answers && typeof answers === "object") {
+      // A business's own API key is stored encrypted. It is decrypted here,
+      // at the last possible moment, and never leaves this function.
+      Object.assign(
+        config,
+        openSecretValues(
+          contract.needs.platform.map((need) => need.key),
+          answers as Record<string, unknown>
+        )
+      );
+    }
   }
 
   const result = await runConnectorAndRecord({
@@ -4648,7 +4662,10 @@ async function runStandardConnectorNode({
     config,
     // A rehearsal never spends the business's credits, and never reaches a
     // real person.
-    isTest: mode === "test"
+    isTest: mode === "test",
+    // Without this the ceiling in the engine never runs: it is gated on a
+    // budget being supplied, and nothing supplied one.
+    budgetCents: connectorBudgetCentsFor(installedConfig)
   });
 
   if (!result.ok) {

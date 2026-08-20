@@ -23,6 +23,7 @@
  */
 
 import {
+  checkConnectorRules,
   checkHeartResult,
   type ConnectorContract,
   type HeartContext,
@@ -41,6 +42,15 @@ export type ConnectorRunInput = {
   isTest?: boolean;
   /** What this business is allowed to spend today, in cents. 0 = no ceiling. */
   budgetCents?: number;
+  /**
+   * Phone numbers and inboxes the architect has proved they own.
+   *
+   * Only consulted by connectors that declare testOnlyToVerifiedIdentity. Empty
+   * means none proved, and such a connector then refuses to rehearse — which is
+   * the safe direction, because the alternative is a "test" that emails two
+   * hundred strangers.
+   */
+  verifiedIdentities?: string[];
 };
 
 export type ConnectorRunLog = {
@@ -168,6 +178,23 @@ export async function runConnector(input: ConnectorRunInput): Promise<ConnectorR
   }
 
   // ---- Rules, before anything is spent ------------------------------------
+  //
+  // These are the rules that protect the person at the other end. They run
+  // before the rate limits, before the budget and before the heart, so a
+  // refusal here costs nothing and leaves no trace of a message that was never
+  // sent. checkConnectorRules lives in the shared package with no I/O, so the
+  // decision can be tested on its own and cannot drift from what the contract
+  // declares.
+  const ruled = checkConnectorRules(contract, {
+    config: input.config,
+    isTest: input.isTest === true,
+    verifiedIdentities: input.verifiedIdentities
+  });
+  if (!ruled.ok) {
+    log("blocked by a rule", { rule: ruled.rule });
+    return fail("blocked_by_rule", ruled.message);
+  }
+
   if (contract.rules.hardDailyCap) {
     const cap = await consumeLimit({
       key: `connector:cap:${contract.id}:${businessId}`,
@@ -211,22 +238,75 @@ export async function runConnector(input: ConnectorRunInput): Promise<ConnectorR
   }
 
   // ---- Money, before the network ------------------------------------------
+  //
+  // The counter is in CENTS, not in calls. It used to tick once per call while
+  // the cost was charged per result, so a per-result connector on a $20 ceiling
+  // could really spend around $500 — the exact "a month of credits vanishes in
+  // a morning" failure this was written to prevent.
+  //
+  // A per-result call reserves the worst case up front (a full page at the
+  // declared unit price) and gives back what it did not use once the real count
+  // is known. Reserving the worst case is what makes the ceiling a ceiling.
   const budgetCents = input.budgetCents ?? 0;
-  const estimatePerCall = contract.cost.style === "free" ? 0 : contract.cost.estimateCents;
-  if (budgetCents > 0 && estimatePerCall > 0) {
+  const perUnit = contract.cost.style === "free" ? 0 : contract.cost.estimateCents;
+  const worstCasePerCall =
+    contract.cost.style === "per_result" ? perUnit * Math.max(1, contract.limits.pageSize ?? 1) : perUnit;
+
+  let reservedCents = 0;
+  if (budgetCents > 0 && worstCasePerCall > 0) {
+    const maxPagesForSpend = contract.execution === "paged" ? Math.max(1, contract.limits.maxPages ?? 1) : 1;
+    reservedCents = worstCasePerCall * maxPagesForSpend;
+
     const spend = await consumeLimit({
       key: `connector:spend:${businessId}`,
-      limit: Math.floor(budgetCents / Math.max(1, estimatePerCall)),
-      windowMs: DAY
+      limit: budgetCents,
+      windowMs: DAY,
+      cost: reservedCents
     });
     if (!spend.allowed) {
-      log("daily budget reached", { budgetCents });
+      log("daily budget reached", { budgetCents, wanted: reservedCents });
       return fail(
         "budget_exceeded",
         `Today's spending limit has been reached, so nothing further was run. Raise the limit to continue.`
       );
     }
   }
+
+  /**
+   * What this run has cost up to this moment.
+   *
+   * Defined once and read at every exit, so a run that dies on page three is
+   * still charged for pages one and two — the provider billed us for those
+   * whether or not we could use the result.
+   */
+  const costSoFar = () =>
+    contract.cost.style === "free"
+      ? 0
+      : contract.cost.style === "per_result"
+        ? unitsUsed * contract.cost.estimateCents
+        : pagesFetched * contract.cost.estimateCents;
+
+  /**
+   * Hand back whatever the run did not actually spend.
+   *
+   * Settles once. The paged loop can reach this through more than one exit —
+   * a failed page that is skipped still falls through to the normal ending —
+   * and refunding twice would hand the business back money it never reserved,
+   * quietly raising its ceiling every time a provider hiccuped.
+   */
+  let settled = false;
+  const refund = async (actualCents: number) => {
+    if (settled) return;
+    settled = true;
+    const unused = reservedCents - Math.round(actualCents);
+    if (unused <= 0) return;
+    await consumeLimit({
+      key: `connector:spend:${businessId}`,
+      limit: budgetCents,
+      windowMs: DAY,
+      cost: -unused
+    }).catch(() => undefined);
+  };
 
   // ---- The heart, with paging and retries ---------------------------------
   const merged: Record<string, unknown> = {};
@@ -278,6 +358,7 @@ export async function runConnector(input: ConnectorRunInput): Promise<ConnectorR
         log("giving up on further pages, keeping what was already fetched");
         break;
       }
+      await refund(costSoFar());
       return fail("provider_error", `${contract.failure.humanMessage} (${status ?? "no response"})`);
     }
 
@@ -288,6 +369,7 @@ export async function runConnector(input: ConnectorRunInput): Promise<ConnectorR
     const honest = checkHeartResult(contract, result);
     if (!honest.ok) {
       log("the connector reported success without returning what it promised", honest.missing);
+      await refund(costSoFar());
       return fail(
         "dishonest_result",
         `${contract.provider.name} answered, but without ${honest.missing.join(" or ")}. Nothing was recorded, because a partial answer here would be worse than none.`
@@ -307,14 +389,13 @@ export async function runConnector(input: ConnectorRunInput): Promise<ConnectorR
     if (contract.execution !== "paged" || !result.morePages) break;
   }
 
-  const costCents =
-    contract.cost.style === "free"
-      ? 0
-      : contract.cost.style === "per_result"
-        ? unitsUsed * contract.cost.estimateCents
-        : pagesFetched * contract.cost.estimateCents;
+  const costCents = costSoFar();
 
-  log("done", { pagesFetched, unitsUsed, costCents });
+  // Give back what was reserved and not spent, so an agent that finds three
+  // leads has not quietly eaten a whole page's worth of somebody's ceiling.
+  await refund(costCents);
+
+  log("done", { pagesFetched, unitsUsed, costCents, reservedCents });
 
   return {
     ok: true,

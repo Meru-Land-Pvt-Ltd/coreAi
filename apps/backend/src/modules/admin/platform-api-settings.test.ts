@@ -5,6 +5,7 @@ import {
   invalidatePlatformApiSettingsCache,
   isSecretPlatformApiKey,
   listPlatformApiSettings,
+  isManagedPlatformApiKey,
   platformApiSettingAsync,
   preloadPlatformApiSettings,
   savePlatformApiSettings,
@@ -132,6 +133,27 @@ describe("admin API surface", () => {
 
     const groups = await listPlatformApiSettings();
     const rendered = groups.flatMap((group) => group.fields).map((field) => field.key);
-    expect(new Set(rendered)).toEqual(new Set(PLATFORM_API_SETTING_KEYS));
+
+    // Every hand-written key still appears.
+    for (const key of PLATFORM_API_SETTING_KEYS) expect(rendered).toContain(key);
+
+    // And every rendered key is one the save endpoint will accept. This is the
+    // property that matters: Apollo shipped with a key this page did not list,
+    // so it could never be given one, and the connector sat unusable in
+    // production while reporting itself healthy. Connector keys now come from
+    // the registry, so the list can no longer fall behind the code — but a
+    // rendered field the save endpoint rejects would be just as dead.
+    for (const key of rendered) expect(isManagedPlatformApiKey(key)).toBe(true);
+  });
+
+  it("renders the keys connectors declare, without anyone adding them here", async () => {
+    if (!dbAvailable) throw new Error("Integration test requires a reachable database; failing loudly instead of passing silently.");
+
+    const groups = await listPlatformApiSettings();
+    const rendered = groups.flatMap((group) => group.fields).map((field) => field.key);
+
+    expect(rendered).toContain("APOLLO_API_KEY");
+    expect(rendered).toContain("INSTANTLY_API_KEY");
+    expect(isManagedPlatformApiKey("INSTANTLY_API_KEY")).toBe(true);
   });
 });

@@ -26,6 +26,16 @@ type SurfacesResponse = {
   values: Record<string, string>;
   tables: Record<string, Array<Record<string, string>>>;
   lists: Array<{ id: string; name: string; status: string; waiting: number; called: number; booked: number }>;
+  /** Addresses this business pastes into another product, so it can call us. */
+  connectorAddresses?: Array<{
+    connectorId: string;
+    label: string;
+    provider: string;
+    instructions: string;
+    url: string;
+    secretHeader: string | null;
+    secret: string;
+  }>;
 };
 
 const WINDOWS = [
@@ -164,6 +174,47 @@ export default function BusinessAgentSurfacesPage() {
         <p className="mt-4 rounded-lg bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800" data-testid="surfaces-running">
           Your agent is calling people right now.
         </p>
+      ) : null}
+
+      {tab === "setup" && (data.connectorAddresses?.length ?? 0) > 0 ? (
+        <div className="mt-6 space-y-4" data-testid="connector-addresses">
+          {data.connectorAddresses!.map((address) => (
+            <div
+              key={address.connectorId}
+              className="rounded-xl border border-amber-200 bg-amber-50/60 p-4"
+              data-testid={`connector-address-${address.connectorId}`}
+            >
+              <p className="text-sm font-semibold text-slate-800">{address.label}</p>
+              <p className="mt-1 text-[13px] leading-5 text-slate-600">{address.instructions}</p>
+
+              <label className="mt-3 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Address
+              </label>
+              <input
+                readOnly
+                value={address.url}
+                onFocus={(event) => event.currentTarget.select()}
+                data-testid={`connector-address-url-${address.connectorId}`}
+                className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-[12px] text-slate-700"
+              />
+
+              {address.secretHeader ? (
+                <>
+                  <label className="mt-3 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Header {address.secretHeader}
+                  </label>
+                  <input
+                    readOnly
+                    value={address.secret}
+                    onFocus={(event) => event.currentTarget.select()}
+                    data-testid={`connector-address-secret-${address.connectorId}`}
+                    className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-[12px] text-slate-700"
+                  />
+                </>
+              ) : null}
+            </div>
+          ))}
+        </div>
       ) : null}
 
       <BuyerSurface

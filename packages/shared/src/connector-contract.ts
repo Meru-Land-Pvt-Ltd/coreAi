@@ -249,9 +249,188 @@ export type ConnectorRules = {
   hardDailyCap?: number;
   /** Testing may only reach an identity the architect has proven is theirs. */
   testOnlyToVerifiedIdentity?: boolean;
+
+  /**
+   * Config keys whose text must contain a way out, when requiresUnsubscribe is set.
+   *
+   * A rule the engine cannot look at anywhere is not a rule, it is a comment.
+   * These two fields are what turn the flags above into something checkable —
+   * and `validateConnector` REFUSES a contract that declares a rule without
+   * saying where to check it. That is the part that matters: the previous
+   * version of this file declared four rules the engine never read, with a
+   * comment claiming they were enforced. Making the declaration impossible to
+   * fake is a stronger fix than remembering to read it.
+   */
+  unsubscribeIn?: string[];
+
+  /**
+   * Config keys holding the people this connector will reach.
+   *
+   * Phone numbers or email addresses, as a single value or a list. Used by the
+   * country block and by the rehearsal guard.
+   */
+  reaches?: string[];
+
   /** Anything else a maintainer must know, in plain words. */
   notes?: string[];
 };
+
+/* -------------------------------------------------------------------------- */
+
+/** Everything the rule check needs. No I/O — so it can be tested on its own. */
+export type RuleContext = {
+  config: Record<string, unknown>;
+  isTest: boolean;
+  /**
+   * Identities the architect has proved they own — their own phone, their own
+   * inbox. Empty means none proved, and a connector that may only reach a
+   * proved identity therefore refuses. Failing closed is the entire point: an
+   * unproved rehearsal that goes out to real strangers is not a test, it is an
+   * unconsented campaign with nobody's name on it.
+   */
+  verifiedIdentities?: string[];
+};
+
+export type RuleVerdict = { ok: true } | { ok: false; rule: string; message: string };
+
+/** Every value at a config key, flattened — a single value or a list. */
+function targetsAt(config: Record<string, unknown>, keys: string[]): string[] {
+  const out: string[] = [];
+  for (const key of keys) {
+    const value = config[key];
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === "string") out.push(item.trim());
+        else if (item && typeof item === "object") {
+          // A list of people: {email, phone, ...}. Take the reachable parts.
+          for (const field of ["email", "phone", "phoneNumber", "to"]) {
+            const inner = (item as Record<string, unknown>)[field];
+            if (typeof inner === "string" && inner.trim()) out.push(inner.trim());
+          }
+        }
+      }
+    } else if (typeof value === "string" && value.trim()) {
+      for (const part of value.split(/[\n,;]/)) if (part.trim()) out.push(part.trim());
+    }
+  }
+  return out;
+}
+
+/**
+ * Which countries a dial code can belong to.
+ *
+ * Deliberately small: only the codes this platform actually operates in. An
+ * unknown code is treated as unknown, not as safe — see below.
+ */
+const DIAL_CODES: Array<[string, string[]]> = [
+  ["1", ["US", "CA"]],
+  ["44", ["GB"]],
+  ["91", ["IN"]],
+  ["61", ["AU"]],
+  ["64", ["NZ"]],
+  ["65", ["SG"]],
+  ["971", ["AE"]],
+  ["49", ["DE"]],
+  ["33", ["FR"]],
+  ["34", ["ES"]],
+  ["39", ["IT"]],
+  ["31", ["NL"]],
+  ["353", ["IE"]],
+  ["81", ["JP"]],
+  ["27", ["ZA"]],
+  ["55", ["BR"]]
+];
+
+/** Countries a phone number might be in. Null when we genuinely cannot tell. */
+function countriesForPhone(value: string): string[] | null {
+  const digits = value.replace(/[^\d]/g, "");
+  if (!digits) return null;
+  // Longest code first, so 971 is not read as 97 or 9.
+  const sorted = [...DIAL_CODES].sort((a, b) => b[0].length - a[0].length);
+  for (const [code, countries] of sorted) if (digits.startsWith(code)) return countries;
+  return null;
+}
+
+const LOOKS_LIKE_PHONE = /^\+?[\d\s().-]{7,}$/;
+const WAY_OUT = /unsubscribe|opt[\s-]?out|\bstop\b|\{\{\s*unsubscribe/i;
+
+/**
+ * Check the rules that protect the person at the other end.
+ *
+ * Run BEFORE anything is spent and before the heart is touched. A rule that
+ * fires here means nothing happened at all — no call, no charge, no record of
+ * a message that was never sent.
+ */
+export function checkConnectorRules(contract: ConnectorContract, context: RuleContext): RuleVerdict {
+  const rules = contract.rules ?? {};
+
+  // ---- Consent ------------------------------------------------------------
+  // The business is asked this in their own words on their own setup form.
+  // Anything other than a clear yes is a no, including never having answered.
+  if (rules.requiresConsent) {
+    const answer = String(context.config.consentConfirmed ?? "").trim().toLowerCase();
+    if (!answer.startsWith("yes")) {
+      return {
+        ok: false,
+        rule: "requiresConsent",
+        message:
+          "This step only contacts people who agreed to be contacted, and that has not been confirmed yet. Nothing was sent. Confirm it on your setup page to switch this on."
+      };
+    }
+  }
+
+  // ---- A working way out --------------------------------------------------
+  if (rules.requiresUnsubscribe) {
+    for (const key of rules.unsubscribeIn ?? []) {
+      const text = String(context.config[key] ?? "");
+      if (!WAY_OUT.test(text)) {
+        return {
+          ok: false,
+          rule: "requiresUnsubscribe",
+          message:
+            "Every message has to tell people how to stop receiving them, and this one does not. Nothing was sent. Add an unsubscribe line and it will go out on the next run."
+        };
+      }
+    }
+  }
+
+  // ---- Countries we must not operate in -----------------------------------
+  if (rules.blockedCountries?.length) {
+    const blocked = new Set(rules.blockedCountries.map((code) => code.toUpperCase()));
+    for (const target of targetsAt(context.config, rules.reaches ?? [])) {
+      if (!LOOKS_LIKE_PHONE.test(target)) continue; // an email carries no country
+      const countries = countriesForPhone(target);
+      // Unknown is not the same as allowed. A blocklist exists because reaching
+      // the wrong country is a legal problem, and "we could not tell" is not a
+      // defence anyone has ever accepted.
+      if (!countries || countries.some((country) => blocked.has(country))) {
+        return {
+          ok: false,
+          rule: "blockedCountries",
+          message:
+            "One of these numbers is in a country this step is not allowed to contact, so nothing was sent."
+        };
+      }
+    }
+  }
+
+  // ---- A rehearsal must not reach a stranger ------------------------------
+  if (rules.testOnlyToVerifiedIdentity && context.isTest) {
+    const proved = new Set((context.verifiedIdentities ?? []).map((entry) => entry.trim().toLowerCase()));
+    const targets = targetsAt(context.config, rules.reaches ?? []);
+    const unproved = targets.filter((target) => !proved.has(target.toLowerCase()));
+    if (unproved.length > 0) {
+      return {
+        ok: false,
+        rule: "testOnlyToVerifiedIdentity",
+        message:
+          "A test can only reach a phone number or inbox you have proved is yours. Nothing was sent. Add and verify your own details, then test again."
+      };
+    }
+  }
+
+  return { ok: true };
+}
 
 /* -------------------------------------------------------------------------- */
 /* 08 · How to check I still work                                              */
@@ -290,6 +469,82 @@ export type HealthProbe = {
  * that only knew request-and-answer would be rebuilt within a week.
  */
 export type ExecutionStyle = "immediate" | "paged" | "polled" | "inbound";
+
+/* -------------------------------------------------------------------------- */
+/* Inbound — when the provider calls US                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The third shape of work, and the one every hand-written connector rebuilt.
+ *
+ * Twilio knocks when a phone rings. Vapi knocks when a call ends. Calendly
+ * knocks when someone books. Stripe knocks when someone pays. Instantly knocks
+ * when a prospect replies. Each of those was written separately, with its own
+ * idea of how to check the knock was genuine and its own way of not running
+ * twice when the provider retried.
+ *
+ * A connector now declares that it is knocked on, and writes one function that
+ * answers two questions: is this really from them, and what does it mean. The
+ * platform supplies the address, the rate limit, the duplicate filter, the
+ * paused-agent check and the run.
+ */
+export type InboundStyle = {
+  /**
+   * What a person is told to do with the address we give them.
+   *
+   * Written for the business, in their words, because they are the one who has
+   * to go and paste it into somebody else's settings screen.
+   */
+  instructions: string;
+  /** Events this connector understands. Anything else is acknowledged and ignored. */
+  events?: string[];
+  /**
+   * The header carrying the shared secret, when the provider signs nothing.
+   *
+   * Not every provider signs its webhooks. Several let you attach a header of
+   * your choosing instead, which is weaker than a signature but still proves
+   * the sender knows something only we told them.
+   */
+  secretHeader?: string;
+};
+
+export type InboundContext = {
+  /** The exact bytes as sent. Needed for any signature check. */
+  rawBody: string;
+  /** The body parsed as JSON, or the raw text when it is not JSON. */
+  body: unknown;
+  /** Lower-cased header names. */
+  headers: Record<string, string>;
+  /** The three owners' answers, same as a heart sees. */
+  config: Record<string, unknown>;
+  credentials: Record<string, string>;
+  /** The secret this install told the provider to send back. */
+  secret: string;
+  log: (message: string, detail?: unknown) => void;
+};
+
+export type InboundResult = {
+  /**
+   * True when this event should start the agent.
+   *
+   * False is a normal, healthy answer, not a failure. Providers send far more
+   * than anyone asked for — an "email opened" is not a reason to wake up a
+   * workflow — and acknowledging without running is how a connector stays
+   * cheap.
+   */
+  accepted: boolean;
+  /** Why it was ignored. Shown in the log, never to a customer. */
+  ignoredReason?: string;
+  /** Named values, keyed exactly as `produces` declares. */
+  outputs: Record<string, unknown>;
+  /**
+   * A stable id for this event, from the provider where possible.
+   *
+   * Providers retry. Without this, a retry is a second run: a second reply
+   * handled, a second message sent, a second appointment booked.
+   */
+  eventId?: string;
+};
 
 /* -------------------------------------------------------------------------- */
 /* The heart, and the contract that surrounds it                               */
@@ -362,6 +617,22 @@ export type ConnectorContract = {
   rollout: "internal" | "canary" | "everyone";
 
   heart: Heart;
+
+  /**
+   * How the provider is pointed at us. Required when execution is "inbound".
+   */
+  inbound?: InboundStyle;
+
+  /**
+   * The inbound heart: is this knock genuine, and what does it mean.
+   *
+   * Throw an error carrying `status: 401` when the request cannot be proved to
+   * come from the provider — the platform turns that into a 401 and never
+   * starts the agent. Everything else about receiving a webhook (the address,
+   * the rate limit, the duplicate filter, whether the agent is paused, whether
+   * the business is over its usage cap) is handled for you.
+   */
+  receive?: (context: InboundContext) => Promise<InboundResult> | InboundResult;
   /** The probe's own heart — a known request whose answer we can check. */
   probe?: Heart;
 };
@@ -410,6 +681,20 @@ export function validateConnector(contract: ConnectorContract): string[] {
   if (contract.execution === "paged" && !contract.limits?.pageSize) {
     problems.push(`${id}: paged work needs a page size, or it will ask for everything at once.`);
   }
+  // An inbound connector with no way to read a knock is a dead address: the
+  // business pastes it into their provider, the provider delivers, and nothing
+  // happens for ever.
+  if (contract.execution === "inbound") {
+    if (typeof contract.receive !== "function") {
+      problems.push(`${id}: it is inbound but has no receive() — nothing would ever read what the provider sends.`);
+    }
+    if (!contract.inbound?.instructions) {
+      problems.push(`${id}: it is inbound but does not say what a business should do with the address we give them.`);
+    }
+  }
+  if (contract.execution !== "inbound" && typeof contract.receive === "function") {
+    problems.push(`${id}: it has a receive() but is not declared inbound, so it would never be called.`);
+  }
   if (contract.execution === "paged" && !contract.limits?.maxPages) {
     problems.push(`${id}: paged work needs a page ceiling, or a runaway list can spend without end.`);
   }
@@ -425,6 +710,41 @@ export function validateConnector(contract: ConnectorContract): string[] {
   for (const field of contract.needs?.architect ?? []) {
     if (field.kind === "secret") {
       problems.push(`${id}: "${field.key}" is a secret asked of the architect. Secrets belong in platform needs.`);
+    }
+  }
+
+  // A rule the engine has nowhere to look is a comment pretending to be a rule.
+  //
+  // This exact failure already happened here: four rules were declared, shown
+  // to businesses on their setup form, and never read at run time — with a
+  // comment above them claiming the engine enforced them. Refusing the
+  // contract is what makes that impossible to repeat, because the connector
+  // simply will not register.
+  const rules = contract.rules ?? {};
+  if (rules.requiresUnsubscribe && !rules.unsubscribeIn?.length) {
+    problems.push(
+      `${id}: it requires an unsubscribe but does not say which config key carries the message ("unsubscribeIn"), so nothing can check it.`
+    );
+  }
+  if (rules.blockedCountries?.length && !rules.reaches?.length) {
+    problems.push(
+      `${id}: it blocks countries but does not say which config key holds the people it reaches ("reaches"), so nothing can check it.`
+    );
+  }
+  if (rules.testOnlyToVerifiedIdentity && !rules.reaches?.length) {
+    problems.push(
+      `${id}: it limits testing to verified identities but does not say which config key holds the people it reaches ("reaches"), so nothing can check it.`
+    );
+  }
+  for (const key of [...(rules.unsubscribeIn ?? []), ...(rules.reaches ?? [])]) {
+    const known =
+      (contract.needs?.business ?? []).some((field) => field.key === key) ||
+      (contract.needs?.architect ?? []).some((field) => field.key === key) ||
+      (contract.produces ?? []).some((output) => output.key === key);
+    if (!known) {
+      problems.push(
+        `${id}: a rule points at "${key}", which this connector never asks for or produces. A rule aimed at nothing passes every time.`
+      );
     }
   }
 

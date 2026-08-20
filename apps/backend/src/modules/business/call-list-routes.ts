@@ -19,6 +19,8 @@ import {
 } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
 import { allConnectors } from "../connectors/registry";
+import { maskBuyerAnswers, sealBuyerAnswers } from "../connectors/buyer-secrets";
+import { connectorAddressesForInstalledAgent } from "../webhooks/inbound-webhook";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { fillDashboardSpec, loadDashboardData, type DashboardWindow } from "./dashboard-metrics";
 import {
@@ -318,12 +320,14 @@ callListRoutes.get("/agents/:installedAgentId/surfaces", async (c) => {
   });
   if (!agent) return errorResponse(c, "Agent not found", 404, "AGENT_NOT_FOUND");
 
-  const [data, page] = await Promise.all([
+  const [data, page, connectorAddresses] = await Promise.all([
     loadDashboardData(agent.id, agent.businessId, window),
     prisma.publishedAgentPage.findFirst({
       where: { workflowId: agent.workflowId ?? "" },
       select: { setupJson: true, dashboardJson: true }
-    })
+    }),
+    // Addresses this business must paste into another product's settings.
+    connectorAddressesForInstalledAgent(agent.id).catch(() => [])
   ]);
 
   const contract = deriveBuyerContract(agent.workflow?.workflowJson, { connectors: allConnectors() });
@@ -337,7 +341,9 @@ callListRoutes.get("/agents/:installedAgentId/surfaces", async (c) => {
     // Null means Smart Designer has not composed that surface yet.
     setup,
     dashboard: dashboard ? fillDashboardSpec(dashboard, data.values) : null,
-    answers: buyerAnswersOf(agent.configJson),
+    // Masked: the form shows that a key is saved, never the key itself.
+    answers: maskBuyerAnswers(contract, buyerAnswersOf(agent.configJson)),
+    connectorAddresses,
     values: data.values,
     tables: data.tables,
     lists: data.lists
@@ -386,13 +392,16 @@ callListRoutes.post("/agents/:installedAgentId/setup-answers", async (c) => {
     string,
     unknown
   >;
+  // A business's own API key is encrypted at rest, like every other credential
+  // on this platform. It is never written in the clear and never read back.
+  const stored = sealBuyerAnswers(contract, answers, buyerAnswersOf(agent.configJson));
   await prisma.installedAgent.update({
     where: { id: agent.id },
-    data: { configJson: { ...config, buyerAnswers: answers } as never }
+    data: { configJson: { ...config, buyerAnswers: stored } as never }
   });
 
   const missing = contract.inputs
-    .filter((input) => input.required && !String(answers[input.key] ?? "").trim())
+    .filter((input) => input.required && !String(stored[input.key] ?? "").trim())
     .map((input) => input.label);
 
   return successResponse(c, { saved, missing }, missing.length ? "Saved — a few things still needed." : "Saved.");

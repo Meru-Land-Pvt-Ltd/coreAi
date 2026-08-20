@@ -97,13 +97,29 @@ export async function consumeLimit(args: {
   limit: number;
   windowMs: number;
   message?: string;
+  /**
+   * How much to take. Defaults to one.
+   *
+   * A spending ceiling counts money, not attempts: a call that may cost 75c has
+   * to take 75 from a bucket of 2000, or the ceiling silently becomes "2000
+   * calls" instead of "$20". A negative cost gives an unused reservation back.
+   */
+  cost?: number;
 }): Promise<LimitDecision> {
-  const used = await bump(`rl:${args.key}`, args.windowMs, 1);
+  const cost = args.cost ?? 1;
+
+  // A refund. Never refused, and never reported as a denial.
+  if (cost <= 0) {
+    const after = await bump(`rl:${args.key}`, args.windowMs, cost);
+    return { allowed: true, used: Math.max(0, after), limit: args.limit, message: "" };
+  }
+
+  const used = await bump(`rl:${args.key}`, args.windowMs, cost);
 
   if (used > args.limit) {
     // Give it back: a blocked caller must not push the counter further and
     // punish the next honest person to share their address.
-    await bump(`rl:${args.key}`, args.windowMs, -1);
+    await bump(`rl:${args.key}`, args.windowMs, -cost);
     return {
       allowed: false,
       used: args.limit,

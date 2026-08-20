@@ -1,4 +1,5 @@
 import { prisma } from "../../lib/prisma";
+import { allConnectors } from "../connectors/registry";
 import { decryptSecret, encryptSecret } from "../../lib/crypto";
 import { rawEnv, setPlatformSettingResolver } from "../../config/env";
 
@@ -106,8 +107,35 @@ export const PLATFORM_API_SETTING_KEYS = PLATFORM_API_SETTING_GROUPS.flatMap((gr
 
 const MANAGED_KEYS = new Set<string>(PLATFORM_API_SETTING_KEYS);
 
+/**
+ * The keys connectors declare for themselves.
+ *
+ * Apollo shipped and then could not be given a key: this list was hand-written,
+ * APOLLO_API_KEY was not on it, and the save endpoint rejects anything not on
+ * it. So the one connector we had made zero calls in production and reported
+ * itself healthy while being unusable.
+ *
+ * Reading the registry means a connector's key appears here the moment the
+ * connector does, which is the whole promise of one file per service.
+ *
+ * Safe to import: a connector file may only import types from the shared
+ * package — it reaches everything else through the context the engine hands it
+ * — so this direction can never become a cycle.
+ */
+function connectorKeyFields(): Array<{ key: string; label: string }> {
+  const fields = new Map<string, string>();
+  for (const contract of allConnectors()) {
+    for (const need of contract.needs.platform) {
+      if (need.kind === "none") continue;
+      if (!fields.has(need.key)) fields.set(need.key, `${contract.provider.name} — ${need.label}`);
+    }
+  }
+  return [...fields].map(([key, label]) => ({ key, label }));
+}
+
 export function isManagedPlatformApiKey(key: string): boolean {
-  return MANAGED_KEYS.has(key);
+  if (MANAGED_KEYS.has(key)) return true;
+  return connectorKeyFields().some((field) => field.key === key);
 }
 
 export function isSecretPlatformApiKey(key: string): boolean {
@@ -216,7 +244,25 @@ export async function listPlatformApiSettings(): Promise<
   });
   const stored = new Map(rows.map((row) => [row.key, row]));
 
-  return PLATFORM_API_SETTING_GROUPS.map((group) => ({
+  const connectorFields = connectorKeyFields();
+  const groups: Array<{
+    id: string;
+    title: string;
+    description: string;
+    fields: ReadonlyArray<{ key: string; label: string }>;
+  }> = [...PLATFORM_API_SETTING_GROUPS];
+
+  if (connectorFields.length > 0) {
+    groups.push({
+      id: "connectors",
+      title: "Connectors",
+      description:
+        "Keys declared by connectors. Each one appears here on its own when the connector ships — nothing is added by hand.",
+      fields: connectorFields
+    });
+  }
+
+  return groups.map((group) => ({
     id: group.id,
     title: group.title,
     description: group.description,
