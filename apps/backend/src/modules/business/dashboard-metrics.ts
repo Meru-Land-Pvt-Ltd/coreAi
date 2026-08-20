@@ -12,12 +12,15 @@
 
 import {
   deriveBusinessSurface,
+  deriveBuyerContract,
   fillMetricTokens,
   formatMetricValue,
   sanitizeProductSpec,
   type ProductSpec
 } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
+import { allConnectors } from "../connectors/registry";
+import { connectorTotals } from "../connectors/run-log";
 
 export type DashboardWindow = "today" | "week" | "month" | "all";
 
@@ -199,9 +202,35 @@ export async function loadDashboardData(
     }));
   }
 
+  // ---- Connectors --------------------------------------------------------
+  //
+  // Everything above is a figure the platform knows how to count because
+  // somebody wrote code for it. This part is not: these tiles were generated
+  // from whatever connectors the agent's nodes declared, including connectors
+  // that did not exist when this file was written. They are filled from the
+  // connector run log, which every connector writes to identically.
+  const connectorMetrics = deriveBuyerContract(agent?.workflow?.workflowJson, {
+    connectors: allConnectors()
+  }).metrics.filter((metric) => metric.source.startsWith("connector."));
+
+  if (connectorMetrics.length > 0) {
+    const totals = await connectorTotals(businessId, installedAgentId, from);
+    for (const metric of connectorMetrics) {
+      // source is "connector.<id>.<what>", and an id contains dots of its own,
+      // so the last segment is the figure and everything between is the id.
+      const parts = metric.source.split(".");
+      const what = parts[parts.length - 1];
+      const connectorId = parts.slice(1, -1).join(".");
+
+      if (what === "units") raw[metric.key] = totals.units[connectorId] ?? 0;
+      else if (what === "spend") raw[metric.key] = totals.spend[connectorId] ?? 0;
+      else if (what === "failed") raw[metric.key] = totals.failed[connectorId] ?? 0;
+    }
+  }
+
   // Format for display, so a percent never lands on screen as "62".
   const values: Record<string, string> = {};
-  for (const metric of surface.metrics) {
+  for (const metric of [...surface.metrics, ...connectorMetrics]) {
     values[metric.key] = formatMetricValue(metric.format, raw[metric.key] ?? 0);
   }
 

@@ -38,7 +38,8 @@ export function buildSetupPrompt(args: { agent: SurfaceAgentFacts; contract: Buy
   const fieldLines = contract.inputs
     .map(
       (input) =>
-        `- id "${input.key}" — ${input.label} (${input.kind}${input.required ? ", required" : ", optional"}). ${input.help}`
+        `- id "${input.key}" — ${input.label} (${input.kind}${input.required ? ", required" : ", optional"}). ${input.help}` +
+        (input.choices?.length ? ` The only allowed answers are: ${input.choices.join(" | ")}.` : "")
     )
     .join("\n");
 
@@ -67,6 +68,9 @@ export function buildSetupPrompt(args: { agent: SurfaceAgentFacts; contract: Buy
     '    { "type": "input", "id": "teamPhone", "label": "Which number should we ring?", "kind": "phone" }',
     "  A long answer uses \"multiline\": true. An account to connect is a button:",
     '    { "type": "button", "id": "connect_google_calendar", "label": "Connect your Google Calendar" }',
+    "  A \"choice\" field is a dropdown, and its options must be the allowed answers listed above, word for word:",
+    '    { "type": "choice", "id": "consentConfirmed", "label": "Did everyone on your list agree to be contacted?", "options": ["Yes — every person agreed", "No"] }',
+    "  A \"list\" field is a textarea with \"multiline\": true — one entry per line. A \"secret\" field is an input; never pre-fill it and never show it back.",
     "- Rewrite every label into a real question a person would be asked out loud. 'teamPhone' becomes 'Which number should we ring when someone needs a human?' Never show the raw field name.",
     "- One short line of help under anything that is not obvious. Say WHY you are asking — people answer honestly when they know what it is for.",
     "- One page. No marketing, no pricing, no testimonials, no sign-up, no navigation. They already bought.",

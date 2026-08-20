@@ -8,6 +8,7 @@ import { requireAuth, requireRole } from "../../middleware/auth";
 import { adminPhoneNumberRoutes } from "./phone-numbers";
 import { adminPayoutRoutes } from "./payout-routes";
 import { adminPricingRoutes } from "./pricing-routes";
+import { adminConnectorRoutes } from "../connectors/admin-routes";
 import { sendBusinessEmail } from "../email/ses-mail-service";
 import { listRegisteredBusinessAccounts } from "./registered-business-accounts";
 import { getAdminLiveSummaryData } from "./admin-summary";
@@ -63,6 +64,8 @@ adminRoutes.use("*", requireRole(["ADMIN"]));
 adminRoutes.route("/phone-numbers", adminPhoneNumberRoutes);
 adminRoutes.route("/payouts", adminPayoutRoutes);
 adminRoutes.route("/pricing", adminPricingRoutes);
+// The connector catalogue and its daily self-test results.
+adminRoutes.route("/connectors", adminConnectorRoutes);
 
 /* -------------------- Manage API (platform credentials) ------------------- */
 

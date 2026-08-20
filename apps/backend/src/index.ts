@@ -9,6 +9,7 @@ import { startBillingScheduler, stopBillingScheduler } from "./modules/business/
 import { startEarningReleaseWorker, stopEarningReleaseWorker } from "./modules/payouts/release-worker";
 import { startScheduleWorker, stopScheduleWorker } from "./modules/architect/schedule-trigger";
 import { startCallListWorker } from "./modules/architect/call-list";
+import { startConnectorHealthWorker, stopConnectorHealthWorker } from "./modules/connectors/health-worker";
 // [DISABLED:non-handoff] worker imports for the commented starts below.
 // import { startReminderWorker, stopReminderWorker } from "./modules/business/reminders/reminder-worker";
 // import {
@@ -40,6 +41,9 @@ const server = serve(
     // rows that are due, and runs them for the business that installed them.
     startScheduleWorker();
     startCallListWorker();
+    // Asks every connector, once a day, whether it still works — before a
+    // customer's agent finds out on their behalf.
+    startConnectorHealthWorker();
     // [DISABLED:non-handoff] reminder + retention workers and quality sweep.
     // startReminderWorker();
     // startRetentionSweepWorker();
@@ -78,6 +82,7 @@ async function shutdown(signal: string) {
   stopBillingScheduler();
   stopEarningReleaseWorker();
   stopScheduleWorker();
+  stopConnectorHealthWorker();
   // [DISABLED:non-handoff]
   // stopReminderWorker();
   // stopRetentionSweepWorker();

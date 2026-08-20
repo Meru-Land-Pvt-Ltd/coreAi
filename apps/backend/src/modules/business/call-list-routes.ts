@@ -18,6 +18,7 @@ import {
   summariseList
 } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
+import { allConnectors } from "../connectors/registry";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { fillDashboardSpec, loadDashboardData, type DashboardWindow } from "./dashboard-metrics";
 import {
@@ -325,7 +326,7 @@ callListRoutes.get("/agents/:installedAgentId/surfaces", async (c) => {
     })
   ]);
 
-  const contract = deriveBuyerContract(agent.workflow?.workflowJson);
+  const contract = deriveBuyerContract(agent.workflow?.workflowJson, { connectors: allConnectors() });
   const dashboard = sanitizeProductSpec(page?.dashboardJson);
   const setup = sanitizeProductSpec(page?.setupJson);
 
@@ -370,7 +371,7 @@ callListRoutes.post("/agents/:installedAgentId/setup-answers", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const submitted = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
 
-  const contract = deriveBuyerContract(agent.workflow?.workflowJson);
+  const contract = deriveBuyerContract(agent.workflow?.workflowJson, { connectors: allConnectors() });
   const allowed = new Set(contract.inputs.map((input) => input.key));
 
   const answers: Record<string, unknown> = { ...buyerAnswersOf(agent.configJson) };

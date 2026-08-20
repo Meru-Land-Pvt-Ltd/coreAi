@@ -92,7 +92,7 @@ model ArchitectProfile {
 }
 
 model WorkflowDefinition {
-  id                   String               @id @default(cuid())
+  id                   String                 @id @default(cuid())
   name                 String
   description          String?
   workflowJson         Json
@@ -101,20 +101,20 @@ model WorkflowDefinition {
   requiredIntegrations Json?
   buyerSetupSchema     Json?
   publishChecklist     Json?
-  reviewStatus         ListingReviewStatus  @default(DRAFT)
-  publishStatus        ListingPublishStatus @default(DRAFT)
-  isTemplate           Boolean              @default(false)
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  reviewStatus         ListingReviewStatus    @default(DRAFT)
+  publishStatus        ListingPublishStatus   @default(DRAFT)
+  isTemplate           Boolean                @default(false)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
   architectUserId      String
   listings             AgentListing[]
   installedAgents      InstalledAgent[]
   workflowRuns         WorkflowRun[]
   memoryRecords        MemoryRecord[]
   scheduledRuns        ScheduledAgentRun[]
-  callLists           CallList[]
+  callLists            CallList[]
   webhookEndpoints     AgentWebhookEndpoint[]
-  architect            User                 @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+  architect            User                   @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
 
   @@index([architectUserId])
   @@index([createdAt])
@@ -2413,24 +2413,24 @@ model ScheduledAgentRun {
 /// the credential, so only its hash is searchable; the encrypted copy exists
 /// solely to show the buyer their URL again on the setup screen.
 model AgentWebhookEndpoint {
-  id               String    @id @default(cuid())
-  businessId       String
-  installedAgentId String
-  workflowId       String
+  id                  String    @id @default(cuid())
+  businessId          String
+  installedAgentId    String
+  workflowId          String
   /// node.id of the trigger.webhook node this link feeds.
-  nodeId           String
+  nodeId              String
   /// sha256(token) hex — the lookup column. Verification never decrypts.
-  tokenHash        String    @unique
+  tokenHash           String    @unique
   /// AES-256-GCM of the token, so the buyer can see the link again.
-  tokenCipher      String
+  tokenCipher         String
   /// Optional shared secret; when set, deliveries must carry a valid signature.
   signingSecretCipher String?
   /// ACTIVE | PAUSED
-  status           String    @default("ACTIVE")
-  lastDeliveryAt   DateTime?
-  deliveryCount    Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  status              String    @default("ACTIVE")
+  lastDeliveryAt      DateTime?
+  deliveryCount       Int       @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   business       Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
   installedAgent InstalledAgent     @relation(fields: [installedAgentId], references: [id], onDelete: Cascade)
@@ -2966,31 +2966,31 @@ model CrmWebhookEvent {
 /// consented to be called by THIS business, and consent does not transfer
 /// between companies. The architect never sees these numbers.
 model CallList {
-  id               String  @id @default(cuid())
+  id               String @id @default(cuid())
   businessId       String
   installedAgentId String
   workflowId       String
   /// node.id of the trigger.call_list node this list feeds.
   nodeId           String
-  name             String  @default("My list")
+  name             String @default("My list")
 
   /// DRAFT | RUNNING | PAUSED | DONE | STOPPED_BUDGET
   status String @default("DRAFT")
 
   /// Six is the ceiling: 93% of leads that ever convert are reached by the
   /// sixth attempt, and leads needing 7+ are 45% LESS likely to convert.
-  maxAttempts Int @default(6)
+  maxAttempts             Int @default(6)
   /// Local hours in the CALLED PARTY's zone. 47 CFR 64.1200(c)(1) forbids
   /// calls before 8am or after 9pm there — these may narrow that, never widen.
-  windowStartHour Int @default(9)
-  windowEndHour   Int @default(20)
+  windowStartHour         Int @default(9)
+  windowEndHour           Int @default(20)
   /// Ten simultaneous AI calls is ten times the burn per minute, and past the
   /// point where carriers start failing calls in ways that look like silence.
   maxConcurrentCalls      Int @default(3)
   maxCallsPerPersonPerDay Int @default(1)
   /// Hard spend ceiling in whole dollars. 0 disables the cap.
-  budgetUsd    Int @default(50)
-  spentCents   Int @default(0)
+  budgetUsd               Int @default(50)
+  spentCents              Int @default(0)
 
   lastSweptAt DateTime?
   startedAt   DateTime?
@@ -3013,11 +3013,11 @@ model CallList {
 
 /// One person on a list, and everything that ever happened to them.
 model CallListPerson {
-  id     String @id @default(cuid())
-  listId String
-  name   String?
+  id       String  @id @default(cuid())
+  listId   String
+  name     String?
   /// Strict E.164. Unique per list so the same number cannot be queued twice.
-  phone  String
+  phone    String
   /// IANA zone when we can work it out from the number; null means the engine
   /// must fall back to the conservative window rather than guess.
   timeZone String?
@@ -3025,12 +3025,12 @@ model CallListPerson {
 
   /// WAITING | CALLING | RETRY | ANSWERED | BOOKED | NO_ANSWER | VOICEMAIL |
   /// BUSY | FAILED | BAD_NUMBER | OPTED_OUT | SUPPRESSED | DONE
-  status       String    @default("WAITING")
-  attempts     Int       @default(0)
+  status        String    @default("WAITING")
+  attempts      Int       @default(0)
   lastAttemptAt DateTime?
   nextAttemptAt DateTime?
   /// Guards "max calls per person per day" across restarts.
-  attemptsToday Int      @default(0)
+  attemptsToday Int       @default(0)
   attemptsDay   String?
   lastOutcome   String?
   lastCallId    String?
@@ -3065,4 +3065,58 @@ model CallSuppression {
 
   @@unique([businessId, phone])
   @@index([phone])
+}
+
+/// One run of one connector, for one business.
+///
+/// The dashboard figures a connector generates ("leads found", "spent on
+/// lookups") are read from here. That is the whole reason this table exists:
+/// a tile that cannot be filled from a real record would have to be filled
+/// with a guess, and a guess on a dashboard is the same lie the engine refuses
+/// to write to a log.
+model ConnectorRun {
+  id               String  @id @default(cuid())
+  connectorId      String
+  businessId       String?
+  installedAgentId String?
+  workflowRunId    String?
+
+  ok      Boolean
+  /// Machine-readable reason: ok, rate_limited, dishonest_result, ...
+  code    String
+  message String?
+
+  /// What the run produced — leads found, messages sent. Never the items
+  /// themselves: those belong to whichever step chose to store them, under
+  /// that step's own retention rules.
+  unitsProduced Int @default(0)
+  pagesFetched  Int @default(0)
+  costCents     Int @default(0)
+
+  isTest     Boolean  @default(false)
+  durationMs Int?
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, connectorId, createdAt])
+  @@index([installedAgentId, createdAt])
+  @@index([connectorId, createdAt])
+}
+
+/// The daily self-test result for one connector.
+///
+/// This is what replaces a person reading a provider's changelog. A row per
+/// day per connector, so "when did Apollo change?" has an answer with a date
+/// on it rather than a guess.
+model ConnectorHealthCheck {
+  id          String   @id @default(cuid())
+  connectorId String
+  healthy     Boolean
+  /// cosmetic | degrades-quality | breaks-agents
+  severity    String
+  message     String
+  missingKeys String[]
+  checkedAt   DateTime @default(now())
+
+  @@index([connectorId, checkedAt])
+  @@index([healthy, checkedAt])
 }

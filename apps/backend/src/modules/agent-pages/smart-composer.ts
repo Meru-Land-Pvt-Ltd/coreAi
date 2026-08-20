@@ -31,6 +31,7 @@ import {
   checkSetup
 } from "./buyer-surface-composer";
 import { deriveBuyerContract, fillContractTokens } from "@coreai/shared";
+import { allConnectors } from "../connectors/registry";
 import { getProductSpec, saveProductSpec, starterProductSpec } from "./product-spec-service";
 import { verifyDesignChange } from "./designer-eyes";
 import { deriveFaceBlueprint } from "./blueprint";
@@ -774,7 +775,7 @@ export function registerSmartDesignerRoutes(routes: Hono) {
         select: { setupJson: true, dashboardJson: true }
       });
 
-      const contract = deriveBuyerContract(workflow.workflowJson);
+      const contract = deriveBuyerContract(workflow.workflowJson, { connectors: allConnectors() });
 
       // Zeroes, not invented numbers. An architect shown a dashboard of
       // flattering fake figures learns nothing about what their customer will
@@ -823,7 +824,7 @@ export function registerSmartDesignerRoutes(routes: Hono) {
       if (!workflow) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
 
       const context = await loadComposerContext(workflow);
-      const contract = deriveBuyerContract(workflow.workflowJson);
+      const contract = deriveBuyerContract(workflow.workflowJson, { connectors: allConnectors() });
 
       const brain = resolveBrainSlot(await getSmartDesignerBrainConfig());
       if (!brain) return errorResponse(c, MISSING_LLM_CREDENTIALS_MESSAGE, 503, "LLM_NOT_CONFIGURED");

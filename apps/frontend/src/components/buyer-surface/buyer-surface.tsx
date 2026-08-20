@@ -79,6 +79,10 @@ function inputTypeFor(kind: string | undefined): string {
       return "url";
     case "number":
       return "number";
+    // A business supplying their own API key must not have it sitting in
+    // cleartext on a screen someone else may be standing next to.
+    case "secret":
+      return "password";
     case "date":
       return "date";
     case "time":

@@ -23,6 +23,7 @@
  */
 
 import { getNodeDefinition, type ConnectorRequirement, type NodeDefinition } from "./node-registry.js";
+import type { ConnectorContract, ConnectorField } from "./connector-contract.js";
 
 /* -------------------------------------------------------------------------- */
 /* What we ask the business                                                    */
@@ -40,7 +41,8 @@ export type BuyerInputKind =
   | "hours"
   | "choice"
   | "file"
-  | "list";
+  | "list"
+  | "secret";
 
 export type BuyerInput = {
   /** Stable key the composer references and the answer is saved under. */
@@ -129,6 +131,14 @@ export type BuyerContract = {
   hasDashboard: boolean;
   /** Node types we could not recognise — surfaced, never silently dropped. */
   unknownNodeTypes: string[];
+  /**
+   * Connectors a node asked for that are not installed.
+   *
+   * An agent referencing a connector nobody registered would otherwise show a
+   * setup form missing the questions that connector needed, and fail at run
+   * time with nothing on screen explaining why.
+   */
+  missingConnectors: string[];
 };
 
 /* -------------------------------------------------------------------------- */
@@ -289,6 +299,30 @@ const UNIVERSAL_METRICS: Array<Omit<BuyerMetric, "nodeIds">> = [
 /* The derivation                                                              */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Merge, letting the incoming entry win on wording.
+ *
+ * A key derived from a node's raw config gets a humanised guess for a label
+ * ("Job Titles") and a generic line of help. The connector that actually reads
+ * that key knows what it is for ("Who are you trying to reach?"). When both
+ * describe the same key, the connector's words are the better ones.
+ */
+function replaceMerged<T extends { key: string; nodeIds: string[] }>(list: T[], item: T): void {
+  const index = list.findIndex((entry) => entry.key === item.key);
+  if (index === -1) {
+    list.push(item);
+    return;
+  }
+  const nodeIds = [...list[index].nodeIds];
+  for (const nodeId of item.nodeIds) if (!nodeIds.includes(nodeId)) nodeIds.push(nodeId);
+  // A field required anywhere is required everywhere — relaxing it here would
+  // let a run start without something a heart cannot work without.
+  const required = Boolean(
+    (list[index] as { required?: boolean }).required || (item as { required?: boolean }).required
+  );
+  list[index] = { ...item, nodeIds, ...("required" in item ? { required } : {}) };
+}
+
 function pushMerged<T extends { key: string; nodeIds: string[] }>(list: T[], item: T): void {
   const existing = list.find((entry) => entry.key === item.key);
   if (existing) {
@@ -331,8 +365,181 @@ function buyerConfigKeys(node: GraphNode, def: NodeDefinition | undefined): stri
   return [...keys].filter((key) => !NEVER.test(key));
 }
 
-export function deriveBuyerContract(workflowJson: unknown): BuyerContract {
+/* -------------------------------------------------------------------------- */
+/* Connectors → the business's screens                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A node says WHICH connector it uses; the connector says everything else.
+ *
+ * This is the join that makes the standard pay for itself. Before it, adding
+ * Apollo meant hand-writing three questions into a setup form and two numbers
+ * into a dashboard. Now the node carries one id, and the questions, the
+ * account buttons, the consent line and the figures all come from the
+ * connector's own declaration — written once, by the person who wrote the
+ * heart, who is the only person who actually knows what it needs.
+ */
+function connectorIdsFor(node: GraphNode): string[] {
+  const data = node.data ?? {};
+  const ids = new Set<string>();
+
+  const single = data.connectorId;
+  if (typeof single === "string" && single.trim()) ids.add(single.trim());
+
+  const many = data.connectorIds;
+  if (Array.isArray(many)) {
+    for (const id of many) if (typeof id === "string" && id.trim()) ids.add(id.trim());
+  }
+
+  return [...ids];
+}
+
+/** A connector's field kind, in the words the buyer's form understands. */
+function buyerKindFor(field: ConnectorField): BuyerInputKind {
+  // The two vocabularies were deliberately kept the same shape, so this is a
+  // pass-through today. It exists so that when one of them grows a kind the
+  // other does not have, the mismatch is handled in one place instead of
+  // silently rendering as a plain text box.
+  const known: BuyerInputKind[] = [
+    "text", "longtext", "number", "phone", "email", "url",
+    "date", "time", "choice", "list", "file", "secret"
+  ];
+  return known.includes(field.kind as BuyerInputKind) ? (field.kind as BuyerInputKind) : "text";
+}
+
+/** A metric key safe to write as {{metric.key}}. */
+function metricKeyFor(connectorId: string, suffix: string): string {
+  return `c_${connectorId.replace(/[^a-zA-Z0-9]+/g, "_")}_${suffix}`;
+}
+
+/**
+ * Everything one connector contributes to the business's experience.
+ *
+ * Only figures the platform can genuinely produce are emitted. A connector's
+ * run log records how many units it produced and what it cost, so "leads
+ * found" and "spent on lookups" are real. It does NOT record the leads
+ * themselves — so no board of results is invented here. A dashboard tile that
+ * always reads zero is worse than no tile, and it is the same lie the engine
+ * exists to prevent, just drawn on a screen instead of written to a log.
+ */
+export function buyerSurfaceFromConnector(
+  contract: ConnectorContract,
+  nodeId: string
+): {
+  inputs: BuyerInput[];
+  connections: BuyerConnection[];
+  metrics: BuyerMetric[];
+} {
+  const inputs: BuyerInput[] = [];
+  const connections: BuyerConnection[] = [];
+  const metrics: BuyerMetric[] = [];
+
+  // ---- What the business is asked. Their words, not our guess at them.
+  for (const field of contract.needs.business) {
+    inputs.push({
+      key: field.key,
+      label: field.label,
+      help: field.help,
+      kind: buyerKindFor(field),
+      required: field.required,
+      nodeIds: [nodeId],
+      ...(field.choices ? { choices: field.choices } : {}),
+      ...(field.placeholder ? { placeholder: field.placeholder } : {})
+    });
+  }
+
+  // ---- A business may bring their own account for a metered service: their
+  // key, their bill, their rate limit. Never required — the platform key is
+  // the fallback — and never rendered in cleartext.
+  for (const need of contract.needs.platform) {
+    if (need.kind === "none" || need.kind === "oauth2") continue;
+    inputs.push({
+      key: need.key,
+      label: `Your own ${need.label} (optional)`,
+      help: `${need.help} Leave this empty to use ${contract.provider.name} through Triven instead.`,
+      kind: "secret",
+      required: false,
+      nodeIds: [nodeId]
+    });
+  }
+
+  // ---- Accounts they connect with a button.
+  for (const account of contract.needs.accounts) {
+    connections.push({
+      key: `connect_${account.connector}`,
+      label: account.label,
+      help: account.help,
+      connector: account.connector,
+      optional: account.optional === true,
+      nodeIds: [nodeId]
+    });
+  }
+
+  // ---- Consent is asked out loud, not buried in terms.
+  //
+  // The engine refuses to run a consent-required connector without a record.
+  // This is where the business is TOLD that, in the form, before they have
+  // spent an afternoon setting up something that will not dial.
+  if (contract.rules.requiresConsent) {
+    inputs.push({
+      key: "consentConfirmed",
+      label: "Did everyone on your list agree to be contacted?",
+      help: "Only people who gave you permission may be contacted. This is the law in most countries, and it is checked on every run.",
+      kind: "choice",
+      required: true,
+      choices: ["Yes — every person agreed", "No"],
+      nodeIds: [nodeId]
+    });
+  }
+
+  // ---- What they see afterwards.
+  const headline = contract.produces.find((output) => output.required && output.kind === "list");
+  if (headline) {
+    metrics.push({
+      key: metricKeyFor(contract.id, "found"),
+      label: headline.label,
+      help: `How many ${headline.label.toLowerCase()} ${contract.provider.name} returned.`,
+      emphasis: "primary",
+      format: "number",
+      source: `connector.${contract.id}.units`,
+      nodeIds: [nodeId]
+    });
+  }
+
+  if (contract.cost.style !== "free" && contract.cost.billedTo === "business") {
+    metrics.push({
+      key: metricKeyFor(contract.id, "spend"),
+      label: `Spent on ${contract.provider.name}`,
+      help: `Roughly what this has cost you — ${contract.cost.unit}.`,
+      emphasis: "secondary",
+      format: "money",
+      source: `connector.${contract.id}.spend`,
+      nodeIds: [nodeId]
+    });
+  }
+
+  return { inputs, connections, metrics };
+}
+
+export type DeriveBuyerOptions = {
+  /**
+   * Every connector the platform knows, passed in rather than imported.
+   *
+   * A connector's heart calls the network; this package must stay pure so the
+   * frontend can share these types. The backend hands its registry in, and a
+   * caller with no registry still gets a complete contract from the nodes.
+   */
+  connectors?: ConnectorContract[];
+};
+
+export function deriveBuyerContract(
+  workflowJson: unknown,
+  options: DeriveBuyerOptions = {}
+): BuyerContract {
   const nodes = nodesOf(workflowJson);
+  const catalogue = new Map((options.connectors ?? []).map((entry) => [entry.id, entry]));
+  /** Connectors a node asked for that the platform does not have. */
+  const missingConnectors: string[] = [];
 
   const inputs: BuyerInput[] = [];
   const connections: BuyerConnection[] = [];
@@ -375,6 +582,26 @@ export function deriveBuyerContract(workflowJson: unknown): BuyerContract {
         required: (def?.requiredConfig ?? []).includes(key),
         nodeIds: [nodeId]
       });
+    }
+
+    // ---- What the connectors on this node need and produce.
+    //
+    // Read AFTER the node's own config questions so a connector's own wording
+    // — written by whoever wrote its heart — replaces the humanised guess for
+    // the same key. pushMerged keeps the first entry, so any better label must
+    // arrive first; these are pushed through a replace-aware path instead.
+    for (const connectorId of connectorIdsFor(node)) {
+      const connector = catalogue.get(connectorId);
+      if (!connector) {
+        if (!missingConnectors.includes(connectorId)) missingConnectors.push(connectorId);
+        continue;
+      }
+
+      const surface = buyerSurfaceFromConnector(connector, nodeId);
+      for (const input of surface.inputs) replaceMerged(inputs, input);
+      for (const connection of surface.connections) pushMerged(connections, connection);
+      for (const metric of surface.metrics) pushMerged(metrics, metric);
+      if (connector.description) does.push(connector.description.toLowerCase().replace(/\.$/, ""));
     }
 
     // ---- What we can show them afterwards.
@@ -458,7 +685,8 @@ export function deriveBuyerContract(workflowJson: unknown): BuyerContract {
       ? `This agent ${[...new Set(does)].slice(0, 3).join(", ")}.`
       : "This agent runs in the background for you.",
     hasDashboard: metrics.length > 0,
-    unknownNodeTypes
+    unknownNodeTypes,
+    missingConnectors
   };
 }
 

@@ -109,6 +109,8 @@ import {
   type TelegramButton
 } from "./telegram-actions";
 import { executeArchitectTelegramTestAction } from "./architect-telegram-test-actions";
+import { getConnector } from "../connectors/registry";
+import { runConnectorAndRecord } from "../connectors/run-log";
 
 /** Threaded through the runner to bound workflow-to-workflow chaining. */
 type WorkflowChain = {
@@ -293,6 +295,8 @@ type RunnerNodeData = {
   imageSize?: unknown;
   connector?: unknown;
   connectorAction?: unknown;
+  /** A Connector Contract id, e.g. "apollo.find_people". */
+  connectorId?: unknown;
   // Outbound call target ("Who to call"), template-friendly.
   callTo?: unknown;
   // Schedule (timer) trigger config
@@ -4587,6 +4591,82 @@ async function runTelegramConnectorNode({
   logs.push(createLog(node, "success", "Telegram action completed.", actionOutput));
 }
 
+/**
+ * Run a node backed by a Connector Contract.
+ *
+ * Everything this function does is the same for every connector, which is why
+ * there is only one of it. Note what is NOT here: no knowledge of Apollo, no
+ * knowledge of any provider, and no place where a future connector would need
+ * a line added.
+ */
+async function runStandardConnectorNode({
+  node,
+  context,
+  logs,
+  mode,
+  connectorId
+}: {
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+  connectorId: string;
+}): Promise<void> {
+  const contract = getConnector(connectorId);
+  if (!contract) {
+    // Named but not installed. Said plainly, because "nothing happened" with
+    // no reason on screen is the failure people spend an afternoon on.
+    logs.push(
+      createLog(
+        node,
+        "error",
+        `This step uses a service ("${connectorId}") that is not installed on the platform, so it could not run.`
+      )
+    );
+    return;
+  }
+
+  // The three owners' answers, merged in the order of who is closest to the
+  // run. The architect's decisions live on the node — they were made once, for
+  // everyone who installs the agent. The business's answers come from their
+  // own setup form and win, because they are about their business.
+  const config: Record<string, unknown> = { ...(node.data ?? {}) };
+  if (context.installedAgentId) {
+    const installed = await prisma.installedAgent.findUnique({
+      where: { id: context.installedAgentId },
+      select: { configJson: true }
+    });
+    const answers = (installed?.configJson as Record<string, unknown> | null)?.buyerAnswers;
+    if (answers && typeof answers === "object") Object.assign(config, answers);
+  }
+
+  const result = await runConnectorAndRecord({
+    contract,
+    businessId:
+      asString(context.business?.id) || asString(context.businessId) || "unknown",
+    installedAgentId: context.installedAgentId,
+    config,
+    // A rehearsal never spends the business's credits, and never reaches a
+    // real person.
+    isTest: mode === "test"
+  });
+
+  if (!result.ok) {
+    logs.push(createLog(node, "error", result.message, { code: result.code }));
+    return;
+  }
+
+  // Publish outputs under the keys the contract declared, so a later step —
+  // including one built by someone who never heard of this connector — can
+  // read them by name.
+  for (const output of contract.produces) {
+    const value = result.outputs[output.key];
+    if (value !== undefined) (context as Record<string, unknown>)[output.key] = value;
+  }
+
+  logs.push(createLog(node, "success", result.message, result.outputs));
+}
+
 async function runConnectorNode({
   userId,
   node,
@@ -4602,6 +4682,22 @@ async function runConnectorNode({
   mode: WorkflowRunMode;
   chain: WorkflowChain;
 }) {
+  // ---- The Connector Standard --------------------------------------------
+  //
+  // A node that names a connector id runs through the one engine. This branch
+  // is the whole point of the standard: every hand-written handler below it
+  // was a week of work in eight files, and every connector written from here
+  // on needs none of them — no dispatch line, no config reading, no retries,
+  // no cost counting, no setup form, no dashboard tile.
+  //
+  // It is checked first so a connector-backed node can never fall through to
+  // the legacy name matching underneath and be run twice by two paths.
+  const connectorId = asString(node.data?.connectorId);
+  if (connectorId) {
+    await runStandardConnectorNode({ node, context, logs, mode, connectorId });
+    return;
+  }
+
   // Normalize separator variants ("google_calendar", "Google-Calendar") to the
   // canonical space-separated form before dispatching.
   const nodeType = asString(node.data?.type);
