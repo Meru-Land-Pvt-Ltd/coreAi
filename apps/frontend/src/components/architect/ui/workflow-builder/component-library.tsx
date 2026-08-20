@@ -9,11 +9,12 @@ import {
 } from "@coreai/shared";
 import {
   getArchitectBuilderNodeVisibility,
+  type ArchitectBuilderConnector,
   type ArchitectBuilderNodePresentation
 } from "@/components/architect/features/api";
 import { libraryGroups, libraryItemType } from "./library";
 import { SidebarNodeCard } from "./card/sidebar-node-card";
-import type { BuilderNodeData, LibraryGroup, LibraryItem, NodeKind } from "./types";
+import type { BuilderNodeData, LibraryGroup, LibraryItem, NodeAccent, NodeKind } from "./types";
 
 /** Re-export for canvas drop handler consumers. */
 export { BUILDER_NODE_DRAG_TYPE } from "./card/sidebar-node-card";
@@ -84,6 +85,42 @@ const FACE_COMING_SOON_CARDS: Array<Pick<FaceTemplateCard, "slug" | "title" | "p
   }
 ];
 
+/**
+ * Turn each connector's own declaration into a card in the Hands group.
+ *
+ * The node type is namespaced with the connector id so two connectors can
+ * never collide, and `connectorId` is what the engine dispatches on at run
+ * time — a step placed from here runs through the one connector engine, with
+ * its retries, its ceiling and its honesty check already applied.
+ */
+function withConnectors(groups: LibraryGroup[], connectors: ArchitectBuilderConnector[]): LibraryGroup[] {
+  if (connectors.length === 0) return groups;
+
+  const items: LibraryItem[] = connectors.map((connector) => ({
+    nodeKind: "connector" as NodeKind,
+    label: connector.label,
+    helper: connector.description,
+    // The same icon the API Call and Webhook cards use — a connector is a
+    // step that reaches out to another service, and it should read as one.
+    icon: "globe",
+    accent: "amber" as NodeAccent,
+    testId: `node-connector-${connector.id.replace(/[^a-z0-9]+/gi, "-")}`,
+    overrides: {
+      type: `connector.${connector.id}`,
+      nodeKind: "connector",
+      connectorId: connector.id,
+      connector: connector.provider,
+      kind: connector.provider.toUpperCase(),
+      title: connector.label,
+      subtitle: connector.description
+    }
+  }));
+
+  return groups.map((group) =>
+    group.title === "Hands" ? { ...group, items: [...group.items, ...items] } : group
+  );
+}
+
 function applyAdminPresentation(
   groups: LibraryGroup[],
   nodes: ArchitectBuilderNodePresentation[],
@@ -144,6 +181,7 @@ export function ComponentLibrary({
 }) {
   const [hiddenNodeTypes, setHiddenNodeTypes] = useState<string[]>(() => defaultHiddenArchitectNodeTypes());
   const [nodes, setNodes] = useState<ArchitectBuilderNodePresentation[]>(() => defaultArchitectNodePresentation());
+  const [connectors, setConnectors] = useState<ArchitectBuilderConnector[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,15 +190,25 @@ export function ComponentLibrary({
       if (!result.success || !result.data) return;
       if (result.data.hiddenNodeTypes) setHiddenNodeTypes(result.data.hiddenNodeTypes);
       if (result.data.nodes) setNodes(result.data.nodes);
+      if (result.data.connectors) setConnectors(result.data.connectors);
     });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  /**
+   * The library, with every registered connector added to Hands.
+   *
+   * This is what a connector file buys: no card is written here, no icon is
+   * chosen here, and no edit happens here when the next one ships. The
+   * connector described itself, and the sidebar read the description.
+   */
+  const groups = useMemo(() => withConnectors(libraryGroups, connectors), [connectors]);
+
   const filteredGroups = useMemo(
-    () => applyAdminPresentation(libraryGroups, nodes, hiddenNodeTypes, searchTerm),
-    [hiddenNodeTypes, nodes, searchTerm]
+    () => applyAdminPresentation(groups, nodes, hiddenNodeTypes, searchTerm),
+    [groups, hiddenNodeTypes, nodes, searchTerm]
   );
 
   return (

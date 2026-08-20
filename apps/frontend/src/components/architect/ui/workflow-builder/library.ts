@@ -1,6 +1,7 @@
 import {
   getNodeDefinition,
   API_CALL_NODE_TYPE,
+  CALL_LIST_NODE_TYPE,
   BLOCK_NODE_TYPES,
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
@@ -134,6 +135,14 @@ export const libraryGroups: LibraryGroup[] = [
         badge: "NEW"
       },
       paletteItem("trigger.manual", { icon: "play", accent: "amber" }),
+      {
+        /* The third way in, and the only one the BUSINESS starts.
+           The engine, the routes, the legal calling window and the dashboard
+           for this shipped weeks ago; the card never did, so the one node a
+           business operates themselves could not be placed on a canvas. */
+        ...paletteItem(CALL_LIST_NODE_TYPE, { icon: "phone-outgoing", accent: "amber", kind: "CALL LIST" }),
+        badge: "NEW"
+      },
       // Acts
       paletteItem(VOICE_NODE_TYPES.calendarAvailability, { icon: "calendar", accent: "blue" }),
       paletteItem(VOICE_NODE_TYPES.bookAppointment, { icon: "calendar", accent: "blue" }),

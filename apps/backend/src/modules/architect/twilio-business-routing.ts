@@ -3970,27 +3970,92 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
       : {})
   };
 
+  /**
+   * Book without Google Calendar — but never without the business's hours.
+   *
+   * This path runs whenever the calendar is unreachable, not connected, or
+   * blocked by the workspace guard, which is the normal state of a business on
+   * its first day. It used to create the appointment row directly, with no
+   * check of any kind: a practice closed on Sunday would have a patient booked
+   * for Sunday, told it was confirmed, and sent a text saying so.
+   *
+   * It now goes through the same reservation as the calendar path, so the
+   * business's opening hours, its notice period, its advance limit and its
+   * existing appointments all still apply. Only Google is skipped, because
+   * Google is the thing that is down.
+   */
   const localFallback = async (calendarStatus: string) => {
     let localAppointment: { id: string } | null = null;
-    if (ctx.business?.businessId) {
+    let refusal: { verdict: string; closeLabel: string | null; alternatives: string[] } | null = null;
+
+    const fallbackBusinessId = ctx.business?.businessId;
+    if (fallbackBusinessId) {
       try {
-        localAppointment = await prisma.appointment.create({
-          data: {
-            businessId: ctx.business.businessId,
-            customerPhone: patientPhone || "unknown",
-            customerName: patientName,
-            service,
-            providerName: providerName ?? undefined,
-            bookingCallId: ctx.callId ?? undefined,
-            startAt,
-            endAt,
-            timeZone: ctx.timeZone,
-            notes: `Booked by Triven AI (calendar not connected — local record).\n${eventDescription}`
-          },
-          select: { id: true }
+        const reservation = await revalidateAndReserveSlot({
+          businessId: fallbackBusinessId,
+          installedAgentId: ctx.installedAgentId ?? null,
+          date,
+          hour: time.hour,
+          minute: time.minute,
+          serviceName: service,
+          providerName,
+          excludeExternalCalendar: true,
+          createBooking: () =>
+            prisma.appointment.create({
+              data: {
+                businessId: fallbackBusinessId,
+                customerPhone: patientPhone || "unknown",
+                customerName: patientName,
+                service,
+                providerName: providerName ?? undefined,
+                bookingCallId: ctx.callId ?? undefined,
+                startAt,
+                endAt,
+                timeZone: ctx.timeZone,
+                notes: `Booked by Triven AI (calendar not connected — local record).\n${eventDescription}`
+              },
+              select: { id: true }
+            })
         });
+
+        if (!reservation.ok) {
+          refusal = {
+            verdict: reservation.result.verdict,
+            closeLabel: reservation.result.closeLabel,
+            alternatives: reservation.result.alternatives.map((slot) => slot.label)
+          };
+        } else {
+          localAppointment = reservation.booking;
+        }
+      } catch (error) {
+        console.error("[vapi-webhook] local appointment fallback failed (non-fatal)", error);
+      }
+    }
+
+    if (refusal) {
+      // Refused, and said so. Never a confirmation, never a text message, and
+      // never a row — the caller is offered another time instead.
+      console.warn("[vapi-tool] book_appointment refused on the local path", {
+        verdict: refusal.verdict,
+        date
+      });
+      return {
+        success: false,
+        verdict: refusal.verdict,
+        open_until: refusal.closeLabel,
+        alternatives: refusal.alternatives,
+        calendar_status: calendarStatus,
+        message:
+          refusal.verdict === "occupied"
+            ? "That time was just taken. Offer the alternatives — do not claim the rest of the day is booked."
+            : "That time cannot be booked (see verdict). Offer the alternatives."
+      };
+    }
+
+    if (localAppointment) {
+      try {
         await updateCallContact(ctx.business?.businessId, ctx.callId, {
-          appointmentId: localAppointment?.id,
+          appointmentId: localAppointment.id,
           canonicalPhoneE164: patientPhone,
           phoneSource: "confirmed",
           smsRecipientE164: patientPhone
@@ -4002,16 +4067,31 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
         //   );
         // }
       } catch (error) {
-        console.error("[vapi-webhook] local appointment fallback failed (non-fatal)", error);
+        // The appointment exists; only the call's contact memory did not
+        // update. Not worth losing a real booking over.
+        console.error("[vapi-webhook] local booking saved, contact memory not updated", error);
       }
     }
-    const smsOutcome = localAppointment
-      ? await sendBookingConfirmationSms(localAppointment.id, startAt.toISOString())
-      : null;
+
+    if (!localAppointment) {
+      // Nothing was written and nothing was refused, so something broke. The
+      // one answer that must never be given here is "booked" — a caller told
+      // they have an appointment they do not have is the worst outcome this
+      // handler has.
+      return {
+        success: false,
+        verdict: "error",
+        calendar_status: calendarStatus,
+        message:
+          "That appointment could not be saved. Apologise, take the time down, and tell them someone will call back to confirm."
+      };
+    }
+
+    const smsOutcome = await sendBookingConfirmationSms(localAppointment.id, startAt.toISOString());
     return {
       success: true,
-      appointmentCreated: Boolean(localAppointment),
-      ...(localAppointment ? { appointment_ref: appointmentAiRef(localAppointment.id) } : {}),
+      appointmentCreated: true,
+      appointment_ref: appointmentAiRef(localAppointment.id),
       ...consentExtras,
       event_id: null,
       event_link: null,

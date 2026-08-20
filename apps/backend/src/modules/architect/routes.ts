@@ -71,6 +71,7 @@ import {
   submitWorkflowForReview
 } from "./configure";
 import { listArchitectNodeVisibility } from "../admin/node-visibility";
+import { allConnectors } from "../connectors/registry";
 import { deployDentalWorkflow } from "./dental-deploy";
 import {
   getPhoneRoutingStatus,
@@ -586,6 +587,32 @@ architectRoutes.use(
   })
 );
 
+/**
+ * Every connector an architect may place, described for the builder sidebar.
+ *
+ * Generated from the registry, so a connector added as one file appears in the
+ * library with no second edit anywhere. Nothing executable and no credential
+ * leaves the server — only what a card needs to draw itself.
+ *
+ * Internal-rollout connectors are held back: a half-verified provider on
+ * everyone's canvas is how an architect builds an agent on something that is
+ * about to be withdrawn.
+ */
+function builderConnectors() {
+  return allConnectors()
+    .filter((contract) => contract.rollout !== "internal")
+    .map((contract) => ({
+      id: contract.id,
+      label: contract.label,
+      description: contract.description,
+      job: contract.job,
+      provider: contract.provider.name,
+      /** What the business will be asked, so the card can say so up front. */
+      businessQuestions: contract.needs.business.length,
+      cost: contract.cost.style === "free" ? null : { unit: contract.cost.unit, billedTo: contract.cost.billedTo }
+    }));
+}
+
 architectRoutes.get("/builder-nodes", async (c) => {
   try {
     const nodes = await listArchitectNodeVisibility();
@@ -598,13 +625,15 @@ architectRoutes.get("/builder-nodes", async (c) => {
         defaultLabel: node.defaultLabel,
         defaultGroup: node.defaultGroup
       })),
-      hiddenNodeTypes: nodes.filter((node) => !node.visible).map((node) => node.type)
+      hiddenNodeTypes: nodes.filter((node) => !node.visible).map((node) => node.type),
+      connectors: builderConnectors()
     });
   } catch (error) {
     console.error("[architect] builder-nodes visibility failed", error);
     return successResponse(c, {
       nodes: defaultArchitectNodePresentation(),
-      hiddenNodeTypes: defaultHiddenArchitectNodeTypes()
+      hiddenNodeTypes: defaultHiddenArchitectNodeTypes(),
+      connectors: builderConnectors()
     });
   }
 });

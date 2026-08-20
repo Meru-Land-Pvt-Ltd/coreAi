@@ -208,7 +208,10 @@ export const apolloFindPeople: ConnectorContract = {
   },
 
   execution: "paged",
-  rollout: "internal",
+  // Real and runnable, but new and unproven against live traffic. An architect
+  // can place it; without an Apollo key it says so plainly rather than
+  // pretending to search.
+  rollout: "canary",
 
   /* ---------------------------------------------------------------------- */
   /* The heart. Everything above is description; this is the only code.      */

@@ -45,10 +45,23 @@ export type ArchitectBuilderNodePresentation = {
   defaultGroup: string;
 };
 
+/** A connector the architect may place, described by the connector itself. */
+export type ArchitectBuilderConnector = {
+  id: string;
+  label: string;
+  description: string;
+  job: string;
+  provider: string;
+  businessQuestions: number;
+  cost: { unit: string; billedTo: "business" | "platform" } | null;
+};
+
 export function getArchitectBuilderNodeVisibility() {
-  return apiGet<{ hiddenNodeTypes: string[]; nodes?: ArchitectBuilderNodePresentation[] }>(
-    "/architect/builder-nodes"
-  );
+  return apiGet<{
+    hiddenNodeTypes: string[];
+    nodes?: ArchitectBuilderNodePresentation[];
+    connectors?: ArchitectBuilderConnector[];
+  }>("/architect/builder-nodes");
 }
 
 export type ArchitectAgentsStats = {

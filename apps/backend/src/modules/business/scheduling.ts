@@ -828,6 +828,14 @@ export async function revalidateAndReserveSlot<T>(input: {
   serviceName?: string | null;
   providerName?: string | null;
   now?: Date;
+  /**
+   * Skip the external calendar when it is already known to be unusable.
+   *
+   * The business's own opening hours and its own appointment rows are still
+   * checked — this only stops a booking being refused because Google could not
+   * be reached, which would be punishing the customer for our outage.
+   */
+  excludeExternalCalendar?: boolean;
   createBooking: () => Promise<T>;
 }): Promise<
   | { ok: true; booking: T; startAt: string; durationMinutes: number; assignedProvider?: string | null }
