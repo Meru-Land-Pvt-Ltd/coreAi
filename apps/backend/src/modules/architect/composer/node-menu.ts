@@ -77,9 +77,24 @@ export async function composerMenu(architectUserId: string, hiddenTypes: string[
     if (hidden.has(item.type)) continue;
     const definition = getNodeDefinition(item.type);
     if (!definition) continue;
+    // Only genuinely unbuilt steps are held back.
+    //
+    // There used to be a `backendExecutable` filter here as well, on the
+    // reasoning that a step the server cannot run is a drawing. It was wrong,
+    // and wrong in the most damaging way available: that flag is false on the
+    // AI receptionist, Send Text, Check Availability, Book Appointment and Send
+    // Email — the five steps a receptionist is actually made of. The live
+    // Dental AI Receptionist is built from exactly those five and books real
+    // patients every week.
+    //
+    // The flag means "not run as an ordinary graph step" — the voice
+    // conversation configures the assistant, and booking is called as a tool
+    // during the call — which is a fact about HOW they run, not about whether
+    // they work. Reading it as "cannot be used" left the composer choosing
+    // WhatsApp for somebody who telephoned, because WhatsApp was the only thing
+    // it was allowed to see. No amount of prompt wording fixes a menu with the
+    // right answer missing from it.
     if (definition.comingSoon) continue;
-    // A step that cannot run on the server is a drawing, not a step.
-    if (!definition.backendExecutable && definition.runtime.nodeKind !== "trigger") continue;
     entries.push(entryFor(definition));
   }
 
