@@ -19,6 +19,14 @@ export type MemoryFileRef = {
 
 /** Input for saveNodeMemory() — one node just finished executing. */
 export type NodeMemoryPayload = {
+  /**
+   * Values read for the honesty verdict and never written to the database.
+   *
+   * Several steps park their result in the run context rather than returning
+   * it, so judging them needs the run — but storing the whole run against every
+   * step would be enormous and would duplicate it once per node.
+   */
+  checkVariables?: Record<string, unknown>;
   workflowRunId: string;
   nodeId: string;
   nodeType: string;

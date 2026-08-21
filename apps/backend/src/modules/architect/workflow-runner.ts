@@ -6202,7 +6202,7 @@ export async function runWorkflowTest({
  * both are silent about failure, and neither can add a step to the run — their
  * work shows up only as a sub-line on this node's own log entry.
  */
-async function executeSingleNodeInRunner(params: {
+type SingleNodeParams = {
   node: RunnerNode;
   context: RunnerContext;
   userId: string;
@@ -6215,7 +6215,82 @@ async function executeSingleNodeInRunner(params: {
   executionOrder: number;
   /** The run's shared door allowance. */
   doorBudget: DoorBudget;
-}): Promise<{ logs: WorkflowRunLog[]; runFailed: boolean }> {
+};
+
+/**
+ * Every step writes down what it did.
+ *
+ * Until this existed, most did not. Only triggers, the memory node and the AI
+ * brain ever created a NodeRun row — so a completed six-step orchestration left
+ * one record, and a run marked COMPLETED with a single recorded step was normal.
+ * Nothing could be checked, because for thirty of thirty-eight node types there
+ * was nothing to check.
+ *
+ * Recorded here, one level above the twelve places the node executor can return
+ * from, so no path can be added later that quietly skips it. The honesty
+ * verdict — did this step return what its type says it produces — is computed
+ * inside saveNodeMemory, so it happens for every step by construction.
+ */
+async function recordNodeRun(params: SingleNodeParams, result: { logs: WorkflowRunLog[] }, startedAt: number) {
+  const { node, workflowRunId, context } = params;
+  if (!workflowRunId || workflowRunId.startsWith("test-run-")) return;
+
+  const own = result.logs.filter((log) => log.nodeId === node.id);
+  if (own.length === 0) return;
+
+  try {
+    // Some steps write their own row on the way past — the trigger, the memory
+    // node, the AI brain. Checking rather than listing them keeps this correct
+    // when a new one starts doing the same.
+    const already = await prisma.nodeRun.findFirst({
+      where: { workflowRunId, nodeId: node.id },
+      select: { id: true }
+    });
+    if (already) return;
+
+    const worst = own.some((log) => log.status === "error")
+      ? "error"
+      : own.some((log) => log.status === "waiting")
+        ? "waiting"
+        : own.some((log) => log.status === "skipped")
+          ? "skipped"
+          : "success";
+
+    const output = own.find((log) => log.output !== undefined)?.output;
+
+    await memoryBroker.saveNodeMemory({
+      workflowRunId,
+      nodeId: node.id,
+      nodeType: asString(node.data?.type, "unknown"),
+      nodeLabel: asString(node.data?.title ?? node.data?.label) || node.id,
+      status: worst,
+      executionOrder: params.executionOrder,
+      threadId: params.threadId,
+      output: (output as Record<string, unknown> | undefined) ?? undefined,
+      // Read for the honesty verdict and never stored: several steps park their
+      // result in the run rather than returning it, and storing the whole run
+      // context against every step would be enormous.
+      checkVariables: context as unknown as Record<string, unknown>,
+      summary: own[own.length - 1]?.message?.slice(0, 500),
+      startedAt: new Date(startedAt).toISOString(),
+      finishedAt: new Date().toISOString(),
+      durationMs: Date.now() - startedAt,
+      ...(worst === "error" ? { errorMessage: own.find((log) => log.status === "error")?.message?.slice(0, 500) } : {})
+    });
+  } catch (error) {
+    // Losing the record must never fail the work the step actually did.
+    console.warn("[runner] could not record a step", (error as Error).message);
+  }
+}
+
+async function executeSingleNodeInRunner(params: SingleNodeParams): Promise<{ logs: WorkflowRunLog[]; runFailed: boolean }> {
+  const startedAt = Date.now();
+  const result = await runOneNodeWithDoors(params);
+  await recordNodeRun(params, result, startedAt);
+  return result;
+}
+
+async function runOneNodeWithDoors(params: SingleNodeParams): Promise<{ logs: WorkflowRunLog[]; runFailed: boolean }> {
   const { node, context, input, doorBudget } = params;
   const doors = doorsForNode(node);
   if (!doors) return executeNodeOnConfig(params);
