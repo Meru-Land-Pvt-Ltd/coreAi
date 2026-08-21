@@ -13,6 +13,7 @@
  * wrong.
  */
 
+import { checkWiring } from "@coreai/shared";
 import type { MenuEntry } from "./node-menu";
 
 export type PlannedNode = {
@@ -104,6 +105,23 @@ export function checkPlan(plan: ComposerPlan, menu: MenuEntry[]): string[] {
       // canvas and is a blank on the day somebody needs it.
       problems.push(
         `Nothing ever reaches "${node.id}". Wire it into the flow, or leave it out.`
+      );
+    }
+  }
+
+  /* ---- Does every step get the data it needs? ---------------------------- */
+  //
+  // The same check the builder runs, so an orchestration the composer produces
+  // is held to exactly what a person's would be. Without this it could wire a
+  // step to a value nothing supplies and hand over something that looks
+  // finished and quietly does nothing.
+  for (const problem of checkWiring({
+    nodes: plan.nodes.map((node) => ({ id: node.id, data: { type: node.type, ...(node.config ?? {}) } })),
+    edges: (plan.edges ?? []).map((edge) => ({ source: edge.from, target: edge.to }))
+  }).problems) {
+    if (problem.kind === "missing_value") {
+      problems.push(
+        `Step "${problem.nodeId}" uses "${problem.wanted}", which no step before it produces. Wire in a step that does, or write {{business.${problem.wanted.split(".").pop()}}} to have the business supply it.`
       );
     }
   }

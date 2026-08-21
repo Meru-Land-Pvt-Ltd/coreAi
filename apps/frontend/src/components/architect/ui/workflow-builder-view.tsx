@@ -18,6 +18,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { BUILDER_NODE_DRAG_TYPE } from "./workflow-builder/component-library";
 import { AiComposerPanel, type ComposedCanvas } from "./workflow-builder/ai-composer-panel";
+import { useWiringCheck } from "./workflow-builder/use-wiring-check";
 import Link from "next/link";
 import type { Route } from "next";
 import {
@@ -563,6 +564,36 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     () => ({ coreNode: CoreNode as unknown as ComponentType<NodeProps> }),
     []
   );
+
+  /*
+   * THE CANVAS CHECKS ITSELF.
+   *
+   * Runs after every change an architect makes — a step added, a wire moved, a
+   * value typed — and paints the answer onto the steps themselves. There is no
+   * button, because a check somebody has to remember to press is a check that
+   * catches things after the customer does.
+   */
+  const wiring = useWiringCheck(
+    nodes as unknown as Array<{ id: string; data?: Record<string, unknown> }>,
+    edges as unknown as Array<{ source: string; target: string }>
+  );
+
+  /* The steps as the canvas draws them, each carrying its own verdict. */
+  const checkedNodes = useMemo(
+    () =>
+      nodes.map((node) => {
+        const problems = wiring.byNode[node.id];
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            ...(problems ? { wiringProblems: problems } : {}),
+            wiringChecked: wiring.known
+          }
+        };
+      }),
+    [nodes, wiring.byNode, wiring.known]
+  ) as typeof nodes;
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
@@ -2722,7 +2753,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               ) : null}
 
               <ReactFlow<BuilderNode, Edge>
-                nodes={nodes}
+                nodes={checkedNodes}
                 edges={edges}
                 nodeTypes={nodeTypes}
                 onInit={(instance) => {

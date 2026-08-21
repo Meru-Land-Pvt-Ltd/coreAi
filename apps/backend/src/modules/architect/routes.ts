@@ -74,6 +74,7 @@ import { listArchitectNodeVisibility } from "../admin/node-visibility";
 import { allConnectors } from "../connectors/registry";
 import { architectFrameRoutes } from "../connectors/architect-routes";
 import { composerRoutes } from "./composer/routes";
+import { checkWiring } from "@coreai/shared";
 import { readyFramesFor } from "../connectors/architect-frames";
 import { deployDentalWorkflow } from "./dental-deploy";
 import {
@@ -636,6 +637,22 @@ function builderConnectors() {
 architectRoutes.route("/node-frames", architectFrameRoutes);
 // "Build it for me" — describe an agent, get the orchestration.
 architectRoutes.route("/compose", composerRoutes);
+
+/**
+ * Does every step get the data it needs?
+ *
+ * Called by the builder every time an architect adds, removes or rewires a
+ * node — so the answer is on the canvas while they work rather than discovered
+ * by a customer months later. Takes the canvas as it stands, unsaved, because
+ * the useful moment is before it is saved.
+ */
+architectRoutes.post("/wiring-check", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    nodes?: Array<{ id: string; data?: Record<string, unknown> }>;
+    edges?: Array<{ source: string; target: string }>;
+  };
+  return successResponse(c, checkWiring({ nodes: body.nodes ?? [], edges: body.edges ?? [] }));
+});
 
 architectRoutes.get("/builder-nodes", async (c) => {
   const authUser = c.get("authUser");

@@ -27,6 +27,18 @@ const nodePalette: Record<NodeAccent, {
 
 export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
   const palette = nodePalette[data.accent] ?? nodePalette.slate;
+
+  /*
+   * The step's own health, put there by the canvas after every change.
+   *
+   * Deliberately quiet. A step that is fine gets a small green dot, not a green
+   * card — the canvas is for reading the flow, and painting two thirds of it a
+   * different colour would make the one broken step harder to see, not easier.
+   * A step with a problem gets a red ring and says what is wrong on hover.
+   */
+  const health = (data as { wiringProblems?: Array<{ message: string }> }).wiringProblems;
+  const broken = Array.isArray(health) && health.length > 0;
+  const verified = (data as { wiringChecked?: boolean }).wiringChecked === true && !broken;
   const isCondition = data.nodeKind === "condition";
   const isTelegramTrigger = data.type === "trigger.telegram_message";
   const hasInput = data.nodeKind !== "trigger";
@@ -52,7 +64,27 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
         />
       ) : null}
 
-      <div className={cn("node-card relative rounded-2xl border-2 bg-white shadow-lg", palette.border)}>
+      <div
+        className={cn(
+          "node-card relative rounded-2xl border-2 bg-white shadow-lg",
+          broken ? "border-red-400 ring-2 ring-red-200" : palette.border
+        )}
+        {...(broken ? { title: health!.map((problem) => problem.message).join("\n") } : {})}
+        data-testid={broken ? "core-node-broken" : verified ? "core-node-verified" : undefined}
+      >
+        {broken ? (
+          <span
+            className="absolute -right-1.5 -top-1.5 z-10 grid h-5 w-5 place-items-center rounded-full bg-red-500 text-[11px] font-bold text-white shadow"
+            aria-label={`${health!.length} problem${health!.length === 1 ? "" : "s"} with this step`}
+          >
+            !
+          </span>
+        ) : verified ? (
+          <span
+            className="absolute -right-1 -top-1 z-10 h-2.5 w-2.5 rounded-full bg-emerald-500 shadow"
+            aria-label="This step gets everything it needs"
+          />
+        ) : null}
         <div className={cn("flex items-center gap-2 rounded-t-[14px] border-b px-4 py-2.5", palette.headerBg, palette.headerBorder)}>
           <span className={cn("h-2 w-2 rounded-full", palette.dot)} />
           <span className={cn("text-[11px] font-bold uppercase tracking-wider", palette.text)} data-testid="architect-ui-workflow-builder-core-node-kind-text-2">{kindLabel}</span>
