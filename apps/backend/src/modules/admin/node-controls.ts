@@ -62,8 +62,11 @@ export function invalidatePausedCache(): void {
 /** What a business is told when their agent reaches a paused step. */
 export function pausedMessageFor(nodeLabel: string, reason: string): string {
   const why = reason.trim();
+  // Admins type a reason, not a sentence, so it arrives without a full stop and
+  // runs straight into the next line. Added here rather than asked of them.
+  const sentence = why && !/[.!?]$/.test(why) ? `${why}.` : why;
   return why
-    ? `"${nodeLabel}" is paused by Triven: ${why} The rest of your agent carried on.`
+    ? `"${nodeLabel}" is paused by Triven: ${sentence} The rest of your agent carried on.`
     : `"${nodeLabel}" is paused by Triven while we look into something. The rest of your agent carried on, and we will switch it back on as soon as it is safe.`;
 }
 

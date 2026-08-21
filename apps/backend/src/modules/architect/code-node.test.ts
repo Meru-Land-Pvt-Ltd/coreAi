@@ -115,6 +115,15 @@ describe("what a business is told when a step is paused", () => {
     expect(message).toContain("rest of your agent carried on");
   });
 
+  it("does not run the reason into the next sentence", () => {
+    // Admins type a reason, not a sentence. Without this it reads
+    // "...fixing it today The rest of your agent carried on."
+    const message = pausedMessageFor("Send text", "texts are misfiring, fixing today");
+    expect(message).toContain("fixing today. The rest");
+    // A reason that already ends properly is left alone.
+    expect(pausedMessageFor("Send text", "texts are misfiring.")).toContain("misfiring. The rest");
+  });
+
   it("still says something useful when no reason was given", () => {
     // "Paused" with no explanation is worse for a business than a plain
     // failure — there is nothing they can do and nothing to ask about.
