@@ -6384,6 +6384,12 @@ async function executeNodeOnConfig(params: {
       if (context.telegram) triggerOutput.telegram = context.telegram;
       if (context.telegramMessage) triggerOutput.telegramMessage = context.telegramMessage;
       if (context.calendly) triggerOutput.calendly = context.calendly;
+      // What another app sent us. It arrived on the run and was never handed
+      // on under the name this trigger says it produces, so every later step
+      // reading "webhook" found nothing.
+      if ((input as Record<string, unknown> | undefined)?.webhook) {
+        triggerOutput.webhook = (input as Record<string, unknown>).webhook;
+      }
       if (input?.latestMessage || context.latestMessage) triggerOutput.message = input?.latestMessage || context.latestMessage;
 
       await memoryBroker.saveNodeMemory({

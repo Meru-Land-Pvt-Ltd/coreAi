@@ -89,6 +89,14 @@ function findDeclared(name: string, sources: Array<Record<string, unknown> | und
 export function checkNodeOutput(input: {
   /** What the registry says this node type produces. */
   declares: readonly string[] | undefined;
+  /**
+   * The node type says plainly that it hands on nothing.
+   *
+   * That is an answer, not a shrug: a trigger fired by a person pressing a
+   * button really does produce nothing, and it passes. Only a step nobody has
+   * described at all is a blind spot.
+   */
+  producesNothing?: boolean;
   /** What the step handed back. */
   output?: Record<string, unknown>;
   /** The run's variables, where some steps park their result instead. */
@@ -102,6 +110,10 @@ export function checkNodeOutput(input: {
   // never ran. Neither is what this is looking for.
   if (status !== "success") {
     return { verdict: "cannot-tell", missing: [], message: "Not a claim of success." };
+  }
+
+  if (input.producesNothing) {
+    return { verdict: "proven", missing: [], message: "This step hands nothing on, and is not meant to." };
   }
 
   const declares = (input.declares ?? []).filter((name) => typeof name === "string" && name.trim());

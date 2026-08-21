@@ -40,6 +40,7 @@ export class MemoryBroker {
      */
     const honesty = checkNodeOutput({
       declares: getNodeDefinition(payload.nodeType)?.producedVariables,
+      producesNothing: getNodeDefinition(payload.nodeType)?.producesNothing,
       output: payload.output as Record<string, unknown> | undefined,
       variables:
         (payload.checkVariables as Record<string, unknown> | undefined) ??

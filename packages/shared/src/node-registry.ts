@@ -100,6 +100,16 @@ export type NodeDefinition = {
   requiredVariables?: string[];
   /** Variables this node writes into the runtime context when it executes. */
   producedVariables?: string[];
+  /**
+   * This step genuinely hands nothing to the steps after it, and that is
+   * correct rather than unfinished.
+   *
+   * Needed because silence is ambiguous. A node with no producedVariables
+   * might be a trigger that really produces nothing, or one nobody has got
+   * round to describing — and the honesty check has to tell those apart, or
+   * "we cannot see this" quietly reads as "this is fine".
+   */
+  producesNothing?: boolean;
 };
 
 /** The Triven connector groups platform actions executed directly by the runner. */
@@ -1792,6 +1802,30 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     runtime: { nodeKind: "trigger" }
   }),
   def({
+    /*
+     * THE AI BRAIN.
+     *
+     * The most-used step on the platform — 146 runs — and until now it was not
+     * in this registry at all. The consequence was not cosmetic: nothing could
+     * check whether it produced anything, the AI composer could not choose it,
+     * and its doors never opened, because all three read from here.
+     *
+     * It was reachable only because the sidebar builds its card by hand
+     * instead of from a definition.
+     */
+    type: "ai.llm_call",
+    label: "AI Brain",
+    category: "ai",
+    description: "Thinks about what has happened so far and writes an answer, using the model you pick.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: true,
+    comingSoon: false,
+    runtime: { nodeKind: "ai" },
+    // What it really returns, taken from the runs it has already done.
+    producedVariables: ["text"]
+  }),
+  def({
     type: "ai.context_reply",
     label: "AI Text Reply",
     category: "ai",
@@ -3000,12 +3034,81 @@ export function nodeDoorsEnabled(nodeData: unknown): boolean {
 }
 
 /** Attach the lookup-table extras (connectors, doors) onto a base definition. */
+/**
+ * WHAT EACH STEP REALLY HANDS ON.
+ *
+ * Kept as one table rather than scattered through three thousand lines,
+ * because this is the list somebody has to be able to read in one sitting and
+ * say "yes, that is true" — it is what the honesty check judges every run
+ * against, what the AI composer wires steps together by, and what the wiring
+ * check will read.
+ *
+ * Every entry below was taken from runs that have actually happened, not from
+ * what the step is supposed to do. Where the two disagreed, the declaration
+ * was wrong: the phone trigger claimed to produce a caller's NAME and the
+ * business's name and type, and produced none of the three. A declaration that
+ * is not delivered is worse than none, because everything downstream is built
+ * on it.
+ *
+ * `null` means the step genuinely hands on nothing, and that is correct rather
+ * than unfinished — a distinction the check needs, or "nobody described this"
+ * quietly reads as "this is fine".
+ */
+const PRODUCES_BY_TYPE: Record<string, string[] | null> = {
+  /*
+   * These are the names the RUN actually uses, not the tidier ones anybody
+   * would have chosen. That is deliberate. A later step reads a value by the
+   * name it really has, the AI composer wires steps together by these names,
+   * and the honesty check judges against them — so a prettier name here would
+   * be a lie in three places at once.
+   *
+   * The phone trigger is the cautionary tale: it declared caller.phone,
+   * caller.name and call.time, produced none of the three, and was recorded as
+   * a success thirty-one times.
+   */
+  [VOICE_NODE_TYPES.phoneCallTrigger]: ["callerNumber"],
+  "trigger.twilio_inbound_sms": ["inboundSms"],
+  "trigger.twilio_missed_call": ["missedCall"],
+  "trigger.call_list": ["callerNumber"],
+  [WEBHOOK_NODE_TYPE]: ["webhook"],
+
+  "ai.context_reply": ["text"],
+  "action.save_lead": ["leadId"],
+  "action.save_conversation_message": ["conversationId"],
+  "action.human_handoff": ["conversationId"],
+
+  /*
+   * Steps that genuinely hand on nothing, and that is correct rather than
+   * unfinished. Saying so out loud is the point: silence is ambiguous, and
+   * "nobody described this" must never read as "checked and fine".
+   */
+  // Started by a person pressing a button.
+  "trigger.manual": null,
+  // Fires on a clock. What happens next is the next step's business.
+  [SCHEDULE_NODE_TYPE]: null,
+  // Branches the flow. The branch it took is in the run, not in an output.
+  "logic.condition": null,
+  // Hands the call to Vapi, which reports back through its own webhook rather
+  // than by returning something here.
+  [OUTBOUND_CALL_NODE_TYPE]: null,
+  // A blank form until it is filled in, at which point it becomes the service
+  // it describes and takes on that frame's outputs instead.
+  [NODE_FRAME_NODE_TYPE]: null
+};
+
 function withRegistryExtras(base: NodeDefinition, type: string): NodeDefinition {
   const doors = getNodeDoors(type);
+  const declared = PRODUCES_BY_TYPE[type];
+
   return {
     ...base,
     requiredConnectors: requiredConnectorsForType(type),
-    ...(doors ? { doors } : {})
+    ...(doors ? { doors } : {}),
+    ...(declared === null
+      ? { producesNothing: true, producedVariables: [] }
+      : declared
+        ? { producedVariables: declared }
+        : {})
   };
 }
 

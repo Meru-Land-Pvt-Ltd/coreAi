@@ -112,6 +112,16 @@ describe("a step that said it worked and did not", () => {
   });
 });
 
+describe("a step that hands nothing on", () => {
+  it("passes, because that is an answer and not a shrug", () => {
+    // A trigger fired by a person pressing a button really does produce
+    // nothing. Only a step nobody has described at all is a blind spot.
+    const verdict = checkNodeOutput({ declares: [], producesNothing: true, output: {}, status: "success" });
+    expect(verdict.verdict).toBe("proven");
+    expect(verdict.message).toContain("not meant to");
+  });
+});
+
 describe("a step nobody can judge", () => {
   it("is not counted as a pass", () => {
     // The number that matters most and gets skipped over. A step nothing can
