@@ -112,6 +112,7 @@ export const instantlyAddLeads: ConnectorContract = {
   version: "1.0.0",
   job: "send-email-campaign",
   label: "Add people to an Instantly campaign",
+  shortLabel: "Instantly",
   description: "Puts the people found earlier into one of your Instantly campaigns, ready to be emailed.",
 
   provider: {
@@ -263,6 +264,7 @@ export const instantlyReplies: ConnectorContract = {
   version: "1.0.0",
   job: "read-campaign-replies",
   label: "When someone replies in Instantly",
+  shortLabel: "Instantly reply",
   description: "Starts your agent the moment a prospect replies to one of your Instantly emails.",
 
   provider: {

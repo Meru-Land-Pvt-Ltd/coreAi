@@ -49,6 +49,7 @@ export type ArchitectBuilderNodePresentation = {
 export type ArchitectBuilderConnector = {
   id: string;
   label: string;
+  shortLabel: string;
   description: string;
   job: string;
   provider: string;

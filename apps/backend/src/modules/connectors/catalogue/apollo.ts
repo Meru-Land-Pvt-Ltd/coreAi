@@ -66,6 +66,7 @@ export const apolloFindPeople: ConnectorContract = {
   version: "1.0.0",
   job: "find-work-emails",
   label: "Find leads on Apollo",
+  shortLabel: "Apollo",
   description: "Searches Apollo for people matching a job title, industry and location.",
 
   provider: {

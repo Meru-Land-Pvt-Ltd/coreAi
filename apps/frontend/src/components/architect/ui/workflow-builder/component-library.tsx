@@ -98,7 +98,9 @@ function withConnectors(groups: LibraryGroup[], connectors: ArchitectBuilderConn
 
   const items: LibraryItem[] = connectors.map((connector) => ({
     nodeKind: "connector" as NodeKind,
-    label: connector.label,
+    // The card is one line of about twelve characters. The full name lives on
+    // the node itself and in the hover tooltip.
+    label: connector.shortLabel || connector.label,
     helper: connector.description,
     // The same icon the API Call and Webhook cards use — a connector is a
     // step that reaches out to another service, and it should read as one.

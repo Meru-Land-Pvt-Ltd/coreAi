@@ -83,6 +83,9 @@ export function SidebarNodeCard({ item, onAddNode }: SidebarNodeCardProps) {
         type="button"
         draggable
         aria-label={item.label}
+        // The card shows one truncated line. Hovering must still tell you what
+        // it is — helper first, because that is the sentence that explains it.
+        title={description ? `${item.label} — ${description}` : item.label}
         aria-describedby={description ? `${item.testId ?? item.label}-desc` : undefined}
         onDragStart={(event) => {
           event.dataTransfer.effectAllowed = "copy";

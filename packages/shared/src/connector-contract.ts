@@ -705,7 +705,26 @@ export type ConnectorContract = {
   /** This connector's own version. Bumped when the heart changes. */
   version: string;
   job: ConnectorJob;
+  /** The full human name: "Add people to an Instantly campaign". */
   label: string;
+  /**
+   * A short name for the builder's sidebar card, where there is room for about
+   * twelve characters on one line.
+   *
+   * Every other node in the library already has one written for that space.
+   * Without it a connector card truncates to "Add people…" and the architect
+   * cannot tell which service it belongs to — which is exactly what happened
+   * with the first two: the word "Instantly" was cut off the card.
+   *
+   * THE RULE, set by the founder: use the company's name. "Apollo".
+   * "Instantly". "Hunter". That is what an architect is looking for when they
+   * scan the sidebar — not what the step does, which the card's tooltip and
+   * the node itself already say.
+   *
+   * Only where one company has more than one node does a single extra word
+   * follow, and only to separate them: "Instantly reply".
+   */
+  shortLabel?: string;
   description: string;
   provider: ProviderInfo;
 
@@ -782,6 +801,15 @@ export function validateConnector(contract: ConnectorContract): string[] {
   }
   if (!contract.provider?.docsUrl) {
     problems.push(`${id}: link the provider's docs — it is the first thing a maintainer opens.`);
+  }
+  // A card is one line of about twelve characters. A label longer than this
+  // truncates, and the truncated part is usually the provider's name — the one
+  // word that tells an architect what they are looking at.
+  const cardLabel = contract.shortLabel ?? contract.label ?? "";
+  if (cardLabel.length > 18) {
+    problems.push(
+      `${id}: "${cardLabel}" is too long for the sidebar card and will be cut off. Set shortLabel to the company's name — "Apollo", "Instantly".`
+    );
   }
   if (!contract.produces?.length) {
     problems.push(`${id}: declare what it produces, or the engine cannot tell success from silence.`);

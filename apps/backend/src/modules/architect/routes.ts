@@ -604,6 +604,8 @@ function builderConnectors() {
     .map((contract) => ({
       id: contract.id,
       label: contract.label,
+      /** What the sidebar card shows — about twelve characters. */
+      shortLabel: contract.shortLabel ?? contract.label,
       description: contract.description,
       job: contract.job,
       provider: contract.provider.name,
