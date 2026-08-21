@@ -19,6 +19,7 @@ import "@xyflow/react/dist/style.css";
 import { BUILDER_NODE_DRAG_TYPE } from "./workflow-builder/component-library";
 import { AiComposerPanel, type ComposedCanvas } from "./workflow-builder/ai-composer-panel";
 import { useWiringCheck } from "./workflow-builder/use-wiring-check";
+import { apiPost } from "@/lib/api";
 import Link from "next/link";
 import type { Route } from "next";
 import {
@@ -577,6 +578,49 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     nodes as unknown as Array<{ id: string; data?: Record<string, unknown> }>,
     edges as unknown as Array<{ source: string; target: string }>
   );
+
+  const [repairing, setRepairing] = useState(false);
+  const [repairNote, setRepairNote] = useState<string | null>(null);
+
+  /**
+   * Fix it for me.
+   *
+   * Sends the canvas as it stands and puts back what comes home. Nothing is
+   * saved by this — the change lands on their screen like any other edit, so
+   * undo works and they can look before they keep it.
+   */
+  const repairCanvasNow = useCallback(async () => {
+    setRepairing(true);
+    setRepairNote(null);
+
+    const result = await apiPost<{
+      fixed: boolean;
+      message?: string;
+      summary?: string;
+      nodes?: BuilderNode[];
+      edges?: Edge[];
+      fixedProblems?: string[];
+      remaining?: Array<{ message: string }>;
+    }>("/architect/compose/repair", {
+      nodes: nodes.map((node) => ({ id: node.id, position: node.position, data: node.data })),
+      edges: edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
+    });
+
+    setRepairing(false);
+
+    if (!result.success || !result.data) {
+      setRepairNote("That could not be fixed just now. Nothing was changed.");
+      return;
+    }
+    if (!result.data.fixed) {
+      setRepairNote(result.data.message ?? "Nothing was changed.");
+      return;
+    }
+
+    if (result.data.nodes) setNodes(result.data.nodes as BuilderNode[]);
+    if (result.data.edges) setEdges(result.data.edges as Edge[]);
+    setRepairNote(result.data.summary ?? "Fixed.");
+  }, [nodes, edges, setNodes, setEdges]);
 
   /* The steps as the canvas draws them, each carrying its own verdict. */
   const checkedNodes = useMemo(
@@ -2815,6 +2859,43 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                   </ControlButton>
                 </Controls>
               </ReactFlow>
+
+              {wiring.known && wiring.problems.length > 0 ? (
+                <div
+                  className="pointer-events-auto absolute bottom-6 left-1/2 z-20 w-[min(30rem,90vw)] -translate-x-1/2 rounded-2xl border border-red-200 bg-white/95 p-3 shadow-xl backdrop-blur"
+                  data-testid="wiring-banner"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-red-500 text-[12px] font-bold text-white">
+                      !
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-semibold text-slate-800">
+                        {wiring.problems.length === 1
+                          ? "One step will not get what it needs"
+                          : `${wiring.problems.length} steps will not get what they need`}
+                      </p>
+                      <p className="mt-0.5 line-clamp-2 text-[12px] leading-4 text-slate-600">
+                        {wiring.problems[0].nodeLabel} — {wiring.problems[0].message}
+                      </p>
+                      {repairNote ? (
+                        <p className="mt-1.5 text-[12px] font-medium text-emerald-700" data-testid="repair-note">
+                          {repairNote}
+                        </p>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void repairCanvasNow()}
+                      disabled={repairing}
+                      data-testid="wiring-repair"
+                      className="shrink-0 rounded-lg bg-amber-500 px-3 py-2 text-[13px] font-bold text-white transition hover:bg-amber-600 disabled:opacity-60"
+                    >
+                      {repairing ? "Fixing…" : "Fix it for me"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               <EmptyCanvasFacePicker
                 nodeCount={nodes.length}

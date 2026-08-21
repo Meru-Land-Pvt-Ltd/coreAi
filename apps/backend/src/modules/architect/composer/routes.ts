@@ -15,11 +15,12 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { streamSSE } from "hono/streaming";
-import { errorResponse } from "../../../lib/api-response";
+import { errorResponse, successResponse } from "../../../lib/api-response";
 import { defaultHiddenArchitectNodeTypes, hiddenArchitectNodeTypes } from "@coreai/shared";
 import { prisma } from "../../../lib/prisma";
 import { composeOrchestration } from "./compose";
 import { planToCanvas } from "./to-canvas";
+import { repairCanvas } from "./repair";
 
 export const composerRoutes = new Hono();
 
@@ -94,5 +95,47 @@ composerRoutes.post("/", async (c) => {
         problems: []
       });
     }
+  });
+});
+
+/**
+ * Fix it for me.
+ *
+ * Answered in one go rather than streamed: a repair is a few seconds, and a
+ * progress list for something that finishes before it can be read is noise.
+ *
+ * The canvas is sent as it stands, unsaved, and comes back changed — nothing is
+ * written to the architect's workflow here. What they get is a proposal they
+ * can see on their own screen and undo like any other edit.
+ */
+composerRoutes.post("/repair", async (c) => {
+  const authUser = c.get("authUser");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    nodes?: Array<{ id: string; position?: { x: number; y: number }; data?: Record<string, unknown> }>;
+    edges?: Array<{ id?: string; source: string; target: string }>;
+  };
+
+  if (!body.nodes?.length) {
+    return errorResponse(c, "There is nothing on the canvas to fix.", 422, "VALIDATION_ERROR");
+  }
+
+  const result = await repairCanvas({
+    architectUserId: authUser.id,
+    nodes: body.nodes,
+    edges: body.edges ?? [],
+    hiddenNodeTypes: await hiddenTypes()
+  });
+
+  if (!result.ok) {
+    return successResponse(c, { fixed: false, message: result.message, remaining: result.remaining ?? [] });
+  }
+
+  return successResponse(c, {
+    fixed: true,
+    summary: result.summary,
+    nodes: result.nodes,
+    edges: result.edges,
+    fixedProblems: result.fixed,
+    remaining: result.remaining
   });
 });
