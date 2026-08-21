@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import { getAuthToken } from "@/lib/auth";
 
 export type ComposedCanvas = {
   summary: string;
@@ -28,6 +29,42 @@ const EXAMPLES = [
   "When someone books on Calendly, text them a reminder the day before.",
   "Every morning, find dental practices in California and add them to my email campaign."
 ];
+
+/**
+ * Why it did not start, in words the person reading them can act on.
+ *
+ * "That could not be started just now" is the sentence that hid a broken login
+ * header for the entire life of this feature. Nobody can do anything with it.
+ * Every branch below either tells them what to do, or says plainly that it is
+ * our fault and not theirs.
+ */
+async function reasonFor(response: Response): Promise<string> {
+  // The server's own sentence wins whenever it wrote one.
+  const fromServer = await response
+    .json()
+    .then((body: { message?: unknown; error?: unknown }) => {
+      const text = body?.message ?? body?.error;
+      return typeof text === "string" && text.trim() ? text.trim() : null;
+    })
+    .catch(() => null);
+
+  if (response.status === 401) {
+    return "You have been signed out, so this could not start. Sign in again and your canvas will still be here.";
+  }
+  if (response.status === 403) {
+    return "This account is not allowed to build here. Nothing was changed on your canvas.";
+  }
+  if (response.status === 422) {
+    return fromServer ?? "Tell it a little more about what you want, then try again.";
+  }
+  if (response.status === 429) {
+    return "Too many builds at once. Wait a moment and try again — nothing was changed on your canvas.";
+  }
+  if (response.status >= 500) {
+    return "This failed on our side, not yours. Nothing was changed on your canvas, and we have been told.";
+  }
+  return fromServer ?? "This could not start. Nothing was changed on your canvas.";
+}
 
 export function AiComposerPanel({
   onBuilt,
@@ -52,17 +89,32 @@ export function AiComposerPanel({
     abortRef.current = controller;
 
     try {
+      /*
+       * The token, sent the way every other screen sends it.
+       *
+       * This is read by hand rather than through apiClient because the answer
+       * arrives as a stream and axios cannot read one. That is exactly how this
+       * request came to be the only one in the architect UI that sent a cookie
+       * instead of the token — and the server only ever reads the header, so it
+       * refused all seven attempts ever made with a 401. The panel then said
+       * "that could not be started", which sounds like the request was at
+       * fault, and hid a one-line problem for as long as it existed.
+       */
       const base = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+      const token = getAuthToken();
+
       const response = await fetch(`${base}/architect/compose`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({ want: want.trim() }),
         signal: controller.signal
       });
 
       if (!response.ok || !response.body) {
-        setFailed({ message: "That could not be started just now. Nothing was changed on your canvas.", problems: [] });
+        setFailed({ message: await reasonFor(response), problems: [] });
         setBuilding(false);
         return;
       }
@@ -123,7 +175,12 @@ export function AiComposerPanel({
     } catch (error) {
       if ((error as { name?: string })?.name === "AbortError") return;
       setBuilding(false);
-      setFailed({ message: "Something went wrong. Nothing was changed on your canvas.", problems: [] });
+      // A thrown fetch is the network, not the server — say so, because "something
+      // went wrong" sends people to support for a lost wifi connection.
+      setFailed({
+        message: "Could not reach the builder. Check your connection and try again — nothing was changed on your canvas.",
+        problems: []
+      });
     }
   }, [want, onBuilt]);
 
