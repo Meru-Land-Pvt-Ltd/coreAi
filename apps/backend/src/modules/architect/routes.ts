@@ -73,6 +73,7 @@ import {
 import { listArchitectNodeVisibility } from "../admin/node-visibility";
 import { allConnectors } from "../connectors/registry";
 import { architectFrameRoutes } from "../connectors/architect-routes";
+import { composerRoutes } from "./composer/routes";
 import { readyFramesFor } from "../connectors/architect-frames";
 import { deployDentalWorkflow } from "./dental-deploy";
 import {
@@ -633,6 +634,8 @@ function builderConnectors() {
 }
 
 architectRoutes.route("/node-frames", architectFrameRoutes);
+// "Build it for me" — describe an agent, get the orchestration.
+architectRoutes.route("/compose", composerRoutes);
 
 architectRoutes.get("/builder-nodes", async (c) => {
   const authUser = c.get("authUser");

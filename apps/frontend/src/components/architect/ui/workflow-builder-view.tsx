@@ -17,6 +17,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { BUILDER_NODE_DRAG_TYPE } from "./workflow-builder/component-library";
+import { AiComposerPanel, type ComposedCanvas } from "./workflow-builder/ai-composer-panel";
 import Link from "next/link";
 import type { Route } from "next";
 import {
@@ -225,7 +226,8 @@ const FACE_PICKER_CHOICES = [
 export function EmptyCanvasFacePicker({
   nodeCount,
   importingSlug,
-  onPick
+  onPick,
+  onComposed
 }: {
   /** Live canvas piece count — the picker only exists while it is zero. */
   nodeCount: number;
@@ -233,11 +235,30 @@ export function EmptyCanvasFacePicker({
   importingSlug: string | null;
   /** Same insert path as the sidebar template cards (onUseTemplate). */
   onPick: (slug: string) => void;
+  /** An orchestration the composer built, ready to land on the canvas. */
+  onComposed: (canvas: ComposedCanvas) => void;
 }) {
   // "Custom" celebrates the blank canvas: dismiss the picker and let the
   // architect build anything their way from the left panel.
   const [dismissed, setDismissed] = useState(false);
+  // The composer takes over the whole card while it works — a progress list
+  // beside four template buttons reads as clutter at exactly the moment the
+  // architect is watching one thing.
+  const [composing, setComposing] = useState(false);
   if (nodeCount > 0 || dismissed) return null;
+
+  if (composing) {
+    return (
+      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-4">
+        <div
+          data-testid="canvas-picker-composer"
+          className="fade-enter pointer-events-auto w-full max-w-xl rounded-3xl border border-gray-200 bg-white/95 p-6 shadow-xl backdrop-blur"
+        >
+          <AiComposerPanel onBuilt={onComposed} onCancel={() => setComposing(false)} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-4">
@@ -249,7 +270,26 @@ export function EmptyCanvasFacePicker({
           What are you building?
         </h2>
 
-        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          data-testid="canvas-picker-compose"
+          onClick={() => setComposing(true)}
+          disabled={importingSlug !== null}
+          className="group mt-5 flex w-full items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50/70 p-4 text-left transition hover:border-amber-400 hover:bg-amber-50 hover:shadow-md disabled:cursor-wait disabled:opacity-60"
+        >
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-200 text-amber-700 transition group-hover:bg-amber-300">
+            <BuilderIcon name="wand" className="h-5 w-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-bold text-slate-900">Build with AI composer</span>
+            <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+              Describe what you want in plain English. It picks the steps, wires them together and sets the
+              conditions — using only pieces that already exist.
+            </span>
+          </span>
+        </button>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {FACE_PICKER_CHOICES.map((choice) => (
             <button
               key={choice.slug}
@@ -300,6 +340,7 @@ export function EmptyCanvasFacePicker({
     </div>
   );
 }
+
 
 export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: string }) {
   const [workflow, setWorkflow] = useState<ArchitectWorkflow | null>(null);
@@ -2748,6 +2789,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 nodeCount={nodes.length}
                 importingSlug={importingSlug}
                 onPick={(slug) => void importTemplate(slug)}
+                onComposed={(canvas) => {
+                  setNodes(canvas.nodes as unknown as BuilderNode[]);
+                  setEdges(canvas.edges as unknown as Edge[]);
+                }}
               />
 
               {tidiedToastVisible ? (

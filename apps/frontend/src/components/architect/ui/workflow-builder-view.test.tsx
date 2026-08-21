@@ -24,7 +24,7 @@ const LIVE_FACE_SLUGS = ["chatbot", "voice-agent", "image-studio", "form-tool"] 
 
 describe("EmptyCanvasFacePicker", () => {
   it("shows on an empty canvas: title, the four live Face cards, and the drag hint", () => {
-    render(<EmptyCanvasFacePicker nodeCount={0} importingSlug={null} onPick={vi.fn()} />);
+    render(<EmptyCanvasFacePicker nodeCount={0} importingSlug={null} onPick={vi.fn()} onComposed={() => undefined} />);
 
     expect(screen.getByTestId("canvas-picker")).toBeDefined();
     expect(screen.getByTestId("canvas-picker-title").textContent).toBe("What are you building?");
@@ -39,7 +39,7 @@ describe("EmptyCanvasFacePicker", () => {
   it("clicking a Face card inserts through the sidebar template path (slug passed to onPick)", async () => {
     const user = userEvent.setup();
     const onPick = vi.fn();
-    render(<EmptyCanvasFacePicker nodeCount={0} importingSlug={null} onPick={onPick} />);
+    render(<EmptyCanvasFacePicker nodeCount={0} importingSlug={null} onPick={onPick} onComposed={() => undefined} />);
 
     for (const slug of LIVE_FACE_SLUGS) {
       await user.click(screen.getByTestId(`canvas-picker-${slug}`));
@@ -50,18 +50,18 @@ describe("EmptyCanvasFacePicker", () => {
 
   it("disappears the moment any piece exists on the canvas", () => {
     const { rerender } = render(
-      <EmptyCanvasFacePicker nodeCount={0} importingSlug={null} onPick={vi.fn()} />
+      <EmptyCanvasFacePicker nodeCount={0} importingSlug={null} onPick={vi.fn()} onComposed={() => undefined} />
     );
     expect(screen.getByTestId("canvas-picker")).toBeDefined();
 
-    rerender(<EmptyCanvasFacePicker nodeCount={1} importingSlug={null} onPick={vi.fn()} />);
+    rerender(<EmptyCanvasFacePicker nodeCount={1} importingSlug={null} onPick={vi.fn()} onComposed={() => undefined} />);
     expect(screen.queryByTestId("canvas-picker")).toBeNull();
   });
 
   it("locks the cards while a template import is in flight", async () => {
     const user = userEvent.setup();
     const onPick = vi.fn();
-    render(<EmptyCanvasFacePicker nodeCount={0} importingSlug="chatbot" onPick={onPick} />);
+    render(<EmptyCanvasFacePicker nodeCount={0} importingSlug="chatbot" onPick={onPick} onComposed={() => undefined} />);
 
     const card = screen.getByTestId("canvas-picker-chatbot") as HTMLButtonElement;
     expect(card.disabled).toBe(true);
@@ -71,7 +71,7 @@ describe("EmptyCanvasFacePicker", () => {
   });
 
   it("keeps the copy jargon-free", () => {
-    render(<EmptyCanvasFacePicker nodeCount={0} importingSlug={null} onPick={vi.fn()} />);
+    render(<EmptyCanvasFacePicker nodeCount={0} importingSlug={null} onPick={vi.fn()} onComposed={() => undefined} />);
     const text = (screen.getByTestId("canvas-picker").textContent ?? "").toLowerCase();
     for (const banned of ["workflow", "node", "dry run", "execution", "token", "webhook", "payload"]) {
       expect(text.includes(banned), `copy contains "${banned}"`).toBe(false);
