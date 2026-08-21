@@ -7,6 +7,7 @@ export * from "./business-surface";
 export * from "./buyer-contract";
 export * from "./call-list";
 export * from "./node-frame";
+export * from "./node-honesty";
 export * from "./execution-mode";
 export * from "./google-disclosure";
 export * from "./llm-models";

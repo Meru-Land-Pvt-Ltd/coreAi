@@ -3,6 +3,7 @@
  * Use memoryBroker from routes or workflow-runner instead of calling Prisma directly.
  */
 import { Prisma } from "@prisma/client";
+import { checkNodeOutput, getNodeDefinition } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
 import { mapNodeRunToRecord, mapStatusToPrisma } from "./mappers";
 import { resolveBackLinkedMemories } from "./backlink-resolver";
@@ -21,6 +22,38 @@ export class MemoryBroker {
     if (payload.workflowRunId?.startsWith("test-run-")) {
       return { nodeRunId: `test-node-run-${Date.now()}` };
     }
+
+    /*
+     * DID THIS STEP DO WHAT IT SAID IT WOULD?
+     *
+     * Every node execution on the platform funnels through here, which makes
+     * this the one place the question can be asked about all of them. The
+     * registry already says what most node types produce — the calendar step
+     * that invented three appointment times declared five things and returned
+     * none of them — and until now nothing compared the two.
+     *
+     * Recorded, not enforced. A step that fails this still finishes and the run
+     * carries on exactly as before. Switching detection on and enforcement on
+     * in the same change would turn every hidden fault into a live outage on
+     * the same afternoon, and we do not yet know how many there are. That is
+     * the next decision, and it belongs to a person who has seen the list.
+     */
+    const honesty = checkNodeOutput({
+      declares: getNodeDefinition(payload.nodeType)?.producedVariables,
+      output: payload.output as Record<string, unknown> | undefined,
+      variables: payload.variables as Record<string, unknown> | undefined,
+      status: payload.status
+    });
+
+    if (honesty.verdict === "unproven") {
+      console.warn("[honesty] a step reported success without returning what it declares", {
+        workflowRunId: payload.workflowRunId,
+        nodeId: payload.nodeId,
+        nodeType: payload.nodeType,
+        missing: honesty.missing
+      });
+    }
+
     try {
       const nodeRun = await prisma.nodeRun.create({
         data: {
@@ -45,6 +78,8 @@ export class MemoryBroker {
           finishedAt: payload.finishedAt ? new Date(payload.finishedAt) : undefined,
           durationMs: payload.durationMs,
           errorMessage: payload.errorMessage,
+          honesty: honesty.verdict,
+          missingOutputs: honesty.missing,
         },
       });
       await prisma.workflowRun.update({

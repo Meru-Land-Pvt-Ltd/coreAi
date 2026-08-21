@@ -9,6 +9,7 @@ import { adminPhoneNumberRoutes } from "./phone-numbers";
 import { adminPayoutRoutes } from "./payout-routes";
 import { adminPricingRoutes } from "./pricing-routes";
 import { adminConnectorRoutes } from "../connectors/admin-routes";
+import { honestyReport } from "../architect/honesty-report";
 import { sendBusinessEmail } from "../email/ses-mail-service";
 import { listRegisteredBusinessAccounts } from "./registered-business-accounts";
 import { getAdminLiveSummaryData } from "./admin-summary";
@@ -66,6 +67,15 @@ adminRoutes.route("/payouts", adminPayoutRoutes);
 adminRoutes.route("/pricing", adminPricingRoutes);
 // The connector catalogue and its daily self-test results.
 adminRoutes.route("/connectors", adminConnectorRoutes);
+
+/**
+ * What turned red: steps that reported success without returning what their
+ * node type says they produce, grouped by cause rather than by occurrence.
+ */
+adminRoutes.get("/honesty", async (c) => {
+  const days = Number.parseInt(c.req.query("days") ?? "30", 10);
+  return successResponse(c, await honestyReport(Number.isFinite(days) ? days : 30));
+});
 
 /* -------------------- Manage API (platform credentials) ------------------- */
 

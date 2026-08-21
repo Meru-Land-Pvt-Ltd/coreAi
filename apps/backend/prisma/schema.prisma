@@ -1747,6 +1747,15 @@ model NodeRun {
   finishedAt   DateTime?
   durationMs   Int?
   errorMessage String?
+
+  /// Did this step return what its node type says it produces?
+  /// "proven" | "unproven" | "cannot-tell". Recorded on every run; see
+  /// packages/shared/src/node-honesty.ts for why "cannot-tell" is its own
+  /// answer rather than a pass.
+  honesty        String?
+  /// Names it declared and did not return.
+  missingOutputs String[]
+
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -1758,6 +1767,7 @@ model NodeRun {
   @@index([workflowRunId, nodeId])
   @@index([threadId])
   @@index([status])
+  @@index([honesty, createdAt])
 }
 
 // Back-link: fromNodeRun = memory source, toNodeRun = node that reads it.
