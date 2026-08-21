@@ -2479,7 +2479,27 @@ model PlatformApiSetting {
 model ArchitectNodeVisibility {
   id        String   @id @default(cuid())
   nodeType  String   @unique
+
+  /// TOGGLE ONE — can an architect see it and drag it into something new?
+  /// Off hides it from the palette and from the AI composer. It says nothing
+  /// about the agents already running that use it.
   visible   Boolean  @default(true)
+
+  /// TOGGLE TWO — is it allowed to run, anywhere?
+  ///
+  /// Off pauses it everywhere at once, including inside agents a business has
+  /// already bought and is depending on right now. That is the point of it: it
+  /// is the switch for the morning a provider breaks or a step turns out to be
+  /// doing something it should not.
+  ///
+  /// Independent of `visible` on purpose. Hiding something from new work while
+  /// leaving existing customers running is the ordinary case; killing it
+  /// everywhere is the emergency.
+  executionEnabled Boolean @default(true)
+  /// Shown to the business whose agent has a paused step, in their words.
+  pausedReason     String?
+  pausedAt         DateTime?
+  pausedByUserId   String?
   /// Null = catalog label.
   label     String?
   /// Null = catalog group.
@@ -2488,6 +2508,7 @@ model ArchitectNodeVisibility {
   updatedAt DateTime @updatedAt
 
   @@index([visible])
+  @@index([executionEnabled])
 }
 
 /// Admin-created architect palette groups. Catalog groups live in shared code;

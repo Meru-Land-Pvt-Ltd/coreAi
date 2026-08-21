@@ -1,0 +1,9 @@
+{
+  "name": "@coreai/sandbox",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Runs an architect's code where it cannot reach anything.",
+  "main": "server.mjs",
+  "scripts": { "start": "node server.mjs" }
+}

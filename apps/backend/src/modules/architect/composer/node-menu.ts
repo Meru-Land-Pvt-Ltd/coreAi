@@ -25,6 +25,7 @@ import {
 } from "@coreai/shared";
 import { allConnectors } from "../../connectors/registry";
 import { readyFramesFor } from "../../connectors/architect-frames";
+import { pausedNodeTypes } from "../../admin/node-controls";
 
 export type MenuEntry = {
   type: string;
@@ -71,6 +72,19 @@ function entryFor(definition: NodeDefinition): MenuEntry {
  */
 export async function composerMenu(architectUserId: string, hiddenTypes: string[] = []): Promise<MenuEntry[]> {
   const hidden = new Set(hiddenTypes);
+
+  /*
+   * A paused step is not offered either.
+   *
+   * Hidden and paused are different switches, but both mean "do not put this in
+   * something new". Composing with a paused step would hand an architect an
+   * agent with a step that cannot run, which is worse than not offering it —
+   * they would publish it and find out from a customer.
+   */
+  for (const nodeType of (await pausedNodeTypes().catch(() => new Map<string, string>())).keys()) {
+    hidden.add(nodeType);
+  }
+
   const entries: MenuEntry[] = [];
 
   for (const item of ARCHITECT_NODE_CATALOG) {

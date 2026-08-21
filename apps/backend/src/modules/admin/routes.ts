@@ -1,4 +1,4 @@
-import { isArchitectNodeType } from "@coreai/shared";
+import { isArchitectNodeType, ARCHITECT_NODE_CATALOG, getNodeDefinition } from "@coreai/shared";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
@@ -10,6 +10,12 @@ import { adminPayoutRoutes } from "./payout-routes";
 import { adminPricingRoutes } from "./pricing-routes";
 import { adminConnectorRoutes } from "../connectors/admin-routes";
 import { honestyReport } from "../architect/honesty-report";
+import {
+  nodeControls,
+  setNodeExecution,
+  setNodeVisibility,
+  whoIsAffectedBy
+} from "./node-controls";
 import { diagnoseUnknownFailures, knownFailures } from "../architect/self-healing/diagnose";
 import { sendBusinessEmail } from "../email/ses-mail-service";
 import { listRegisteredBusinessAccounts } from "./registered-business-accounts";
@@ -68,6 +74,115 @@ adminRoutes.route("/payouts", adminPayoutRoutes);
 adminRoutes.route("/pricing", adminPricingRoutes);
 // The connector catalogue and its daily self-test results.
 adminRoutes.route("/connectors", adminConnectorRoutes);
+
+/* ------------------------------- Nodes ---------------------------------- */
+
+/**
+ * Every node, with both switches and what each one currently costs.
+ *
+ * `affects` is the number of live agents that would stop using a step if it
+ * were paused. It is here rather than behind a second click because pausing a
+ * node that fourteen businesses depend on is a different decision from pausing
+ * one nobody uses, and an admin should never have to guess which they are
+ * making.
+ */
+adminRoutes.get("/nodes", async (c) => {
+  const controls = await nodeControls();
+
+  const nodes = await Promise.all(
+    ARCHITECT_NODE_CATALOG.map(async (item) => {
+      const definition = getNodeDefinition(item.type);
+      const control = controls.get(item.type);
+      const affected = await whoIsAffectedBy(item.type).catch(() => ({
+        installedAgents: 0,
+        businesses: 0,
+        agentNames: [] as string[]
+      }));
+
+      return {
+        type: item.type,
+        label: control?.nodeType ? definition?.label ?? item.label : definition?.label ?? item.label,
+        group: item.group,
+        description: definition?.description ?? "",
+        visible: control ? control.visible : item.defaultVisible,
+        executionEnabled: control ? control.executionEnabled : true,
+        pausedReason: control?.pausedReason ?? null,
+        pausedAt: control?.pausedAt ?? null,
+        liveAgents: affected.installedAgents,
+        businesses: affected.businesses,
+        agentNames: affected.agentNames
+      };
+    })
+  );
+
+  return successResponse(c, { nodes });
+});
+
+/** Toggle one: may an architect build something new with this? */
+adminRoutes.put("/nodes/:nodeType/visibility", async (c) => {
+  const authUser = c.get("authUser");
+  const nodeType = c.req.param("nodeType");
+  const body = (await c.req.json().catch(() => ({}))) as { visible?: boolean };
+
+  try {
+    await setNodeVisibility(nodeType, body.visible !== false);
+  } catch (error) {
+    return errorResponse(c, (error as Error).message, 422, "VALIDATION_ERROR");
+  }
+
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: body.visible !== false ? "NODE_SHOWN" : "NODE_HIDDEN",
+    targetType: "NODE",
+    targetId: nodeType
+  });
+
+  return successResponse(
+    c,
+    { nodeType, visible: body.visible !== false },
+    body.visible !== false
+      ? "Architects can use it in new agents again."
+      : "Hidden from new agents. Everything already running is untouched."
+  );
+});
+
+/**
+ * Toggle two: may it run at all, anywhere?
+ *
+ * This one reaches into agents businesses have already bought, so it demands a
+ * written reason — which is what those businesses will read — and it is written
+ * to the admin audit log with who did it.
+ */
+adminRoutes.put("/nodes/:nodeType/execution", async (c) => {
+  const authUser = c.get("authUser");
+  const nodeType = c.req.param("nodeType");
+  const body = (await c.req.json().catch(() => ({}))) as { enabled?: boolean; reason?: string };
+  const enabled = body.enabled !== false;
+
+  const affected = await whoIsAffectedBy(nodeType).catch(() => ({ installedAgents: 0, businesses: 0, agentNames: [] }));
+
+  try {
+    await setNodeExecution({ nodeType, enabled, reason: body.reason, adminUserId: authUser.id });
+  } catch (error) {
+    return errorResponse(c, (error as Error).message, 422, "VALIDATION_ERROR");
+  }
+
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: enabled ? "NODE_RESUMED" : "NODE_PAUSED",
+    targetType: "NODE",
+    targetId: nodeType,
+    meta: { reason: body.reason ?? null, liveAgents: affected.installedAgents }
+  });
+
+  return successResponse(
+    c,
+    { nodeType, executionEnabled: enabled, affected },
+    enabled
+      ? `Running again in ${affected.installedAgents} live agent${affected.installedAgents === 1 ? "" : "s"}.`
+      : `Paused everywhere. ${affected.installedAgents} live agent${affected.installedAgents === 1 ? "" : "s"} across ${affected.businesses} business${affected.businesses === 1 ? "" : "es"} will skip this step and be told why.`
+  );
+});
 
 /**
  * What turned red: steps that reported success without returning what their

@@ -2569,6 +2569,30 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   // Two ways IN, both real. Until these shipped, an agent could only start when a
   // human typed on a page — the ceiling on every product the platform could make.
   def({ type: "trigger.webhook", label: "When another app sends data", category: "trigger", description: "Starts when another app or website sends its data to this agent's private link.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
+  // The code step. It was on the palette once and was taken off, because the
+  // editor shipped without anything that ran what was typed into it. It is back
+  // only now that there is a container with no network, no keys and no disk to
+  // run it in — see apps/sandbox/README.md. Registered here rather than left as
+  // a bare palette entry so it has a stable test id, a real label everywhere it
+  // is listed, and a row on the admin Nodes page like every other node.
+  def({
+    type: SCRIPT_NODE_TYPE,
+    label: "Code",
+    category: "action",
+    description:
+      "Write a small piece of JavaScript or Python. It runs on its own, away from everything else, and hands what it returns to the next step.",
+    requiredConfig: ["scriptCode"],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    // "connector" rather than a kind of its own: the runner matches this node by
+    // type and returns before any nodeKind branch, so this only decides how it is
+    // grouped and drawn — and "connector" is exactly what the palette already
+    // fell back to while this node had no definition. Nothing moves.
+    runtime: { nodeKind: "connector" },
+    defaultConfig: { scriptLanguage: "javascript", scriptCode: "", codeInput: "" },
+    producedVariables: ["script.output"]
+  }),
   def({
     type: NODE_FRAME_NODE_TYPE,
     label: "New connection",
@@ -3083,6 +3107,9 @@ const PRODUCES_BY_TYPE: Record<string, string[] | null> = {
    * "nobody described this" must never read as "checked and fine".
    */
   // Started by a person pressing a button.
+  // What the architect's own code handed back.
+  [SCRIPT_NODE_TYPE]: ["script.output"],
+
   "trigger.manual": null,
   // Fires on a clock. What happens next is the next step's business.
   [SCHEDULE_NODE_TYPE]: null,

@@ -76,6 +76,7 @@ import { architectFrameRoutes } from "../connectors/architect-routes";
 import { composerRoutes } from "./composer/routes";
 import { checkWiring } from "@coreai/shared";
 import { readyFramesFor } from "../connectors/architect-frames";
+import { pausedNodeTypes } from "../admin/node-controls";
 import { deployDentalWorkflow } from "./dental-deploy";
 import {
   getPhoneRoutingStatus,
@@ -657,11 +658,12 @@ architectRoutes.post("/wiring-check", async (c) => {
 architectRoutes.get("/builder-nodes", async (c) => {
   const authUser = c.get("authUser");
   try {
-    const [nodes, own] = await Promise.all([
+    const [nodes, own, paused] = await Promise.all([
       listArchitectNodeVisibility(),
       // Nodes this architect built themselves through the Node Frame, shown
       // beside ours because to them there is no difference.
-      readyFramesFor(authUser.id).catch(() => [])
+      readyFramesFor(authUser.id).catch(() => []),
+      pausedNodeTypes().catch(() => new Map<string, string>())
     ]);
     return successResponse(c, {
       nodes: nodes.map((node) => ({
@@ -672,7 +674,13 @@ architectRoutes.get("/builder-nodes", async (c) => {
         defaultLabel: node.defaultLabel,
         defaultGroup: node.defaultGroup
       })),
-      hiddenNodeTypes: nodes.filter((node) => !node.visible).map((node) => node.type),
+      // A paused node is hidden from the palette as well: an architect cannot
+      // be allowed to drag in a step that is switched off platform-wide and
+      // discover it later from a customer.
+      hiddenNodeTypes: [
+        ...nodes.filter((node) => !node.visible).map((node) => node.type),
+        ...paused.keys()
+      ],
       connectors: [...builderConnectors(), ...describeFrames(own)]
     });
   } catch (error) {

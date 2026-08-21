@@ -3,6 +3,7 @@ import {
   API_CALL_NODE_TYPE,
   CALL_LIST_NODE_TYPE,
   NODE_FRAME_NODE_TYPE,
+  SCRIPT_NODE_TYPE,
   BLOCK_NODE_TYPES,
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
@@ -167,6 +168,15 @@ export const libraryGroups: LibraryGroup[] = [
            BECOMES something, by describing a service we do not have a card for
            yet. What comes out of it is a node in this architect's own toolkit. */
         ...paletteItem(NODE_FRAME_NODE_TYPE, { icon: "wand", accent: "violet", kind: "NEW CONNECTION" }),
+        badge: "NEW"
+      },
+      {
+        /* The Code step, back on the palette.
+           It was taken off with a note saying it could return when it ran
+           somewhere with no network and no filesystem. It now runs in a
+           container with no route off the box, no credentials and no
+           privileges — so here it is. */
+        ...paletteItem(SCRIPT_NODE_TYPE, { icon: "code", accent: "slate", kind: "CODE" }),
         badge: "NEW"
       },
       /* The Code node is deliberately NOT here.

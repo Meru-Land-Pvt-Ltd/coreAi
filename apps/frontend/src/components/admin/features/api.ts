@@ -703,3 +703,47 @@ export function deleteAdminBuilderGroup(name: string) {
     { name }
   );
 }
+
+/* ------------------------------- Nodes ---------------------------------- */
+
+/**
+ * One node and its two switches.
+ *
+ * `liveAgents` and `businesses` are what turn pausing from a guess into a
+ * decision: switching off a step fourteen businesses depend on is a different
+ * act from switching off one nobody uses.
+ */
+export type AdminNodeControl = {
+  type: string;
+  label: string;
+  group: string;
+  description: string;
+  visible: boolean;
+  executionEnabled: boolean;
+  pausedReason: string | null;
+  pausedAt: string | null;
+  liveAgents: number;
+  businesses: number;
+  agentNames: string[];
+};
+
+export function getAdminNodes() {
+  return apiGet<{ nodes: AdminNodeControl[] }>("/admin/nodes");
+}
+
+/** Toggle one: may an architect build something new with it? */
+export function setAdminNodeVisibility(nodeType: string, visible: boolean) {
+  return apiPut<{ nodeType: string; visible: boolean }>(
+    `/admin/nodes/${encodeURIComponent(nodeType)}/visibility`,
+    { visible }
+  );
+}
+
+/** Toggle two: may it run at all — including inside agents already sold? */
+export function setAdminNodeExecution(nodeType: string, enabled: boolean, reason?: string) {
+  return apiPut<{
+    nodeType: string;
+    executionEnabled: boolean;
+    affected: { installedAgents: number; businesses: number };
+  }>(`/admin/nodes/${encodeURIComponent(nodeType)}/execution`, { enabled, reason });
+}

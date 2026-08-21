@@ -70,6 +70,13 @@ services:
       OPENAI_DATA_SHARING_DISABLED_CONFIRMED: ${OPENAI_DATA_SHARING_DISABLED_CONFIRMED}
       DEEPGRAM_MIP_OPT_OUT_CONFIRMED: ${DEEPGRAM_MIP_OPT_OUT_CONFIRMED}
       ELEVENLABS_TRAINING_OPT_OUT_CONFIRMED: ${ELEVENLABS_TRAINING_OPT_OUT_CONFIRMED}
+
+      # Where architect code runs, and the token that proves the request is ours.
+      SANDBOX_URL: ${SANDBOX_URL:-http://sandbox:8790}
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN:-}
+    networks:
+      - default
+      - sandbox_net
     depends_on:
       postgres:
         condition: service_healthy
@@ -161,6 +168,62 @@ services:
       - backend
     ports:
       - "127.0.0.1:3000:3000"
+
+  # ---------------------------------------------------------------------------
+  # The only place code somebody else wrote is ever executed.
+  #
+  # Every line below is a wall. Removing any one of them turns this from a
+  # sandbox into a way onto the machine that holds every business's credentials.
+  # ---------------------------------------------------------------------------
+  sandbox:
+    build:
+      context: .
+      dockerfile: apps/sandbox/Dockerfile
+    container_name: coreai-sandbox
+    restart: unless-stopped
+
+    # ONLY the internal network. `internal: true` means Docker creates no
+    # gateway for it, so there is no route off this box at all — not a firewall
+    # rule someone can misconfigure, an absent road.
+    networks:
+      - sandbox_net
+
+    # One variable. There is no platform key here to steal because none is sent.
+    environment:
+      PORT: 8790
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN:?SANDBOX_TOKEN is required}
+
+    # Nobody outside this machine, and nothing on the default network, can
+    # reach it. Only the backend, over sandbox_net.
+    expose:
+      - "8790"
+
+    read_only: true
+    tmpfs:
+      # Somewhere to work that dies with the process, and is too small to be
+      # useful for anything but working.
+      - /tmp:size=64m,mode=1777,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      # Nothing inside can become root, even if it finds a setuid binary.
+      - no-new-privileges:true
+    # A fork bomb hits a wall instead of the host.
+    pids_limit: 64
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8790/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  # No gateway, no internet, no route anywhere. The backend is on it as well so
+  # it can send work; nothing else is.
+  sandbox_net:
+    internal: true
 
 volumes:
   postgres_data:

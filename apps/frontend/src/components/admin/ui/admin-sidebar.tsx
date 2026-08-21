@@ -22,7 +22,8 @@ import {
   Tags,
   UserRoundCog,
   X,
-  type LucideIcon
+  type LucideIcon,
+  ToggleRight
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getAuthUser, logout, type AuthUser } from "@/lib/auth";
@@ -57,7 +58,9 @@ const NAV_GROUPS: Array<{ label: string; items: AdminNavItem[] }> = [
       { label: "Mail", href: "/admin/mail" as Route, icon: Mail },
       { label: "Manage API", href: "/admin/manage-api" as Route, icon: KeyRound },
       { label: "Design Brain rules", href: "/admin/design-rules" as Route, icon: Paintbrush },
-      { label: "Builder nodes", href: "/admin/builder-nodes" as Route, icon: LayoutGrid }
+      { label: "Builder nodes", href: "/admin/builder-nodes" as Route, icon: LayoutGrid },
+      // The two switches: available to build with, and allowed to run at all.
+      { label: "Nodes", href: "/admin/nodes" as Route, icon: ToggleRight }
     ]
   },
   {

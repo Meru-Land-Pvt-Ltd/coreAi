@@ -176,6 +176,25 @@ export function ScriptNodeInspector({ selectedNode, onUpdateNodeData }: NodeProp
         </button>
       </Section>
 
+      <Section title="What your code is given">
+        <Label>Input</Label>
+        <TextInput
+          value={str("codeInput")}
+          onChange={(val) => onUpdateNodeData("codeInput" as never, val as never)}
+          placeholder={'{"phone": "{{callerNumber}}"}'}
+          mono
+          testId="script-node-input"
+        />
+        <p className="mt-1.5 text-[11px] leading-4 text-slate-500">
+          Whatever you put here arrives as <span className="font-mono">input</span>. Use{" "}
+          <span className="font-mono">{"{{ }}"}</span> to pull in what earlier steps produced.
+        </p>
+        <p className="mt-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] leading-4 text-slate-600">
+          Your code runs somewhere sealed off — it has no internet, no keys, and cannot see anything
+          about your customers except what you put in this box. Leave it empty and it gets nothing.
+        </p>
+      </Section>
+
       <Section title="Output" last>
         <Label>Save result as</Label>
         <TextInput

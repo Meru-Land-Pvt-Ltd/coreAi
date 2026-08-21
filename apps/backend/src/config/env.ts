@@ -30,6 +30,11 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().url().default("http://localhost:3000"),
   BACKEND_URL: z.string().url().default("http://localhost:8787"),
 
+  /** Where an architect's code runs: a container with no route to anywhere. */
+  SANDBOX_URL: z.string().optional(),
+  /** Proves a request to that container came from us. Without it, it refuses. */
+  SANDBOX_TOKEN: z.string().optional(),
+
   SCRIPT_NODE_ENABLED: booleanFromEnv.default(true),
   PYTHON_BIN: z.string().optional(),
 

@@ -16,6 +16,7 @@ import {
   SCHEDULE_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
   WEBHOOK_NODE_TYPE,
+  SCRIPT_NODE_TYPE,
   VOICE_NODE_TYPES,
   calendlyActionPaidPlanNote,
   normalizeTimeZone,
@@ -114,6 +115,8 @@ import { doorsForFrame } from "@coreai/shared";
 import { runConnectorAndRecord } from "../connectors/run-log";
 import { openSecretValues } from "../connectors/buyer-secrets";
 import { cachedArchitectSecrets } from "../connectors/architect-frames";
+import { pausedNodeTypes, pausedMessageFor } from "../admin/node-controls";
+import { inputForCode, normalizeLanguage } from "./code-node";
 import { connectorBudgetCentsFor } from "../connectors/budget";
 
 /** Threaded through the runner to bound workflow-to-workflow chaining. */
@@ -6344,6 +6347,30 @@ async function executeNodeOnConfig(params: {
   const nodeKind = asString(node.data?.nodeKind);
 
   try {
+    /*
+     * IS THIS STEP PAUSED?
+     *
+     * Checked before anything else, for every step, in every agent — including
+     * ones a business bought months ago and is depending on right now. That is
+     * the whole point of the switch: it exists for the morning something turns
+     * out to be doing damage, and a kill switch that only affects new work is
+     * not a kill switch.
+     *
+     * The run carries on. Stopping the whole agent because one step is paused
+     * would turn "we switched off one step" into "we broke your agent", and a
+     * receptionist that still answers the phone without sending a text is worth
+     * far more than one that does not answer at all.
+     */
+    const pausedTypes = await pausedNodeTypes();
+    const pausedNodeType = asString(node.data?.type);
+    if (pausedTypes.has(pausedNodeType)) {
+      const label = asString(node.data?.title ?? node.data?.label) || pausedNodeType;
+      nodeLogs.push(
+        createLog(node, "skipped", pausedMessageFor(label, pausedTypes.get(pausedNodeType) ?? ""))
+      );
+      return { logs: nodeLogs, runFailed: false };
+    }
+
     // Design Brain styles the customer page (via the design-chat endpoint) —
     // never engine work. Its own skip line keeps the run log friendly even on
     // hand-written graphs that lack nodeKind (the "block." prefix check below
@@ -6409,6 +6436,40 @@ async function executeNodeOnConfig(params: {
       });
       return { logs: nodeLogs, runFailed: false };
     }
+  /*
+   * The code step. It does not run here — it is sent to a container with no
+   * network, no credentials and no privileges. See modules/architect/code-node.ts.
+   */
+  if (asString(node.data?.type) === SCRIPT_NODE_TYPE) {
+    const language = normalizeLanguage(node.data?.scriptLanguage);
+    const result = await executeScript({
+      language,
+      code: node.data?.scriptCode,
+      timeoutMs: node.data?.scriptTimeoutMs,
+      input: inputForCode(node.data ?? {}, (text) => String(renderTemplate(text, context) ?? ""))
+    });
+
+    if (result.status === "error") {
+      nodeLogs.push(createLog(node, "error", result.error ?? "Your code stopped with an error.", { logs: result.logs }));
+      return { logs: nodeLogs, runFailed: true };
+    }
+
+    const outputKey = asString(node.data?.scriptOutputKey) || "script.output";
+    (context as Record<string, unknown>)[outputKey] = result.output;
+    (context as Record<string, unknown>)[`node.${node.id}.output`] = result.output;
+
+    nodeLogs.push(
+      createLog(
+        node,
+        "success",
+        `Ran your ${language === "python" ? "Python" : "JavaScript"} in ${result.durationMs}ms.`,
+        { [outputKey]: result.output, logs: result.logs }
+      )
+    );
+    return { logs: nodeLogs, runFailed: false };
+  }
+
+
 
     if (nodeKind === "connector") {
       await runConnectorNode({
