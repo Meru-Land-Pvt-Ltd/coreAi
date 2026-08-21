@@ -12,6 +12,7 @@
 
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -37,6 +38,24 @@ const LANGUAGES = {
   javascript: { command: "node", args: [join(HERE, "harness.mjs")] },
   python: { command: "python3", args: ["-I", "-S", join(HERE, "harness.py")] }
 };
+
+/**
+ * Compared in constant time.
+ *
+ * Only the backend can reach this service, so a timing attack would have to
+ * come from inside the sandbox itself — from code that can already run here and
+ * gains nothing from the token. It is written this way anyway, because "the
+ * network makes it unreachable" is exactly the assumption that stops being true
+ * the day somebody adds a service to this network without reading this file.
+ */
+function tokenMatches(given) {
+  if (!TOKEN || typeof given !== "string") return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(TOKEN);
+  // timingSafeEqual throws on a length mismatch, which would leak the length.
+  // Comparing b against itself keeps the work identical either way.
+  return a.length === b.length ? timingSafeEqual(a, b) : (timingSafeEqual(b, b), false);
+}
 
 function reply(response, status, body) {
   const text = JSON.stringify(body);
@@ -172,7 +191,7 @@ const server = createServer((request, response) => {
     return;
   }
 
-  if (!TOKEN || request.headers["x-sandbox-token"] !== TOKEN) {
+  if (!tokenMatches(request.headers["x-sandbox-token"])) {
     // One shape of answer whether the token is wrong or missing, so this
     // cannot be used to learn whether a token exists.
     reply(response, 401, { ok: false, error: "Not allowed" });

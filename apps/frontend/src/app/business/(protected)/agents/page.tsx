@@ -54,6 +54,14 @@ type ApiListing = {
     trialDays?: number | null;
 };
 
+/** A step Triven has paused, with the sentence the business reads. */
+type PausedStep = {
+    nodeType: string;
+    label: string;
+    reason: string;
+    message: string;
+};
+
 type ApiPurchasedAgent = {
     purchaseId: string;
     purchasedAt: string;
@@ -63,6 +71,8 @@ type ApiPurchasedAgent = {
     isTrial?: boolean;
     totalExecutions?: number;
     totalBookings?: number;
+    /* Steps Triven has switched off. Empty in the ordinary case. */
+    pausedSteps?: PausedStep[];
     listing: ApiListing;
 };
 
@@ -99,6 +109,7 @@ type OwnedAgent = {
     trialDays?: number | null;
     totalExecutions: number;
     totalBookings: number;
+    pausedSteps: PausedStep[];
 };
 
 /** Setup is complete once the agent was deployed (ACTIVE) — PAUSED still counts. */
@@ -235,7 +246,8 @@ function mapPurchasedAgent(entry: ApiPurchasedAgent): OwnedAgent {
         freeTrialEnabled: listing.freeTrialEnabled,
         trialDays: listing.trialDays,
         totalExecutions: entry.totalExecutions ?? 0,
-        totalBookings: entry.totalBookings ?? 0
+        totalBookings: entry.totalBookings ?? 0,
+        pausedSteps: entry.pausedSteps ?? []
     };
 }
 
@@ -744,6 +756,27 @@ function OwnedAgentCard({
                 <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-slate-600" data-testid="business-my-agent-description-text">
                     {agent.description}
                 </p>
+
+                {/*
+                    A step Triven has switched off inside this agent.
+
+                    Shown here, on the card, rather than left for them to work
+                    out from a text that never arrived. The agent still runs —
+                    that is the point of the sentence — so this is amber and not
+                    red: something is reduced, nothing is broken.
+                */}
+                {agent.pausedSteps.length > 0 ? (
+                    <div
+                        className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"
+                        data-testid={`business-my-agent-paused-steps-${agent.listingId}`}
+                    >
+                        {agent.pausedSteps.map((step) => (
+                            <p key={step.nodeType} className="text-xs leading-relaxed text-amber-900">
+                                {step.message}
+                            </p>
+                        ))}
+                    </div>
+                ) : null}
             </div>
 
             <div className="flex items-center justify-between gap-2 border-t border-gray-50 bg-gray-50/60 px-6 py-3">

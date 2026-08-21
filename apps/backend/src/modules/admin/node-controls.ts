@@ -55,9 +55,74 @@ export async function pausedNodeTypes(force = false): Promise<Map<string, string
   }
 }
 
+/**
+ * Which steps inside these agents are paused right now.
+ *
+ * A business whose agent has a paused step has to be told plainly, on the
+ * screen where they look at their agents. The alternative is that they notice
+ * something quietly stopped happening — a text that never arrives, a booking
+ * that never lands — and conclude the product is broken, which from where they
+ * are sitting is a fair reading.
+ *
+ * Nothing is paused almost all of the time, and finding that out costs one
+ * cached lookup and no query at all. Only when something IS paused does this go
+ * and read any graphs.
+ */
+export async function pausedStepsForWorkflows(
+  workflowIds: string[]
+): Promise<Map<string, PausedStep[]>> {
+  const byWorkflow = new Map<string, PausedStep[]>();
+
+  const paused = await pausedNodeTypes();
+  if (paused.size === 0 || workflowIds.length === 0) return byWorkflow;
+
+  const workflows = await prisma.workflowDefinition
+    .findMany({
+      where: { id: { in: [...new Set(workflowIds)] } },
+      select: { id: true, workflowJson: true }
+    })
+    .catch(() => []);
+
+  for (const workflow of workflows) {
+    const graph = workflow.workflowJson as { nodes?: unknown } | null;
+    const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+    const steps: PausedStep[] = [];
+    const alreadyListed = new Set<string>();
+
+    for (const entry of nodes) {
+      const node = entry as { data?: Record<string, unknown> } | null;
+      // Same field the runner reads when it decides to skip a step, so the two
+      // can never disagree about which steps are affected.
+      const nodeType = typeof node?.data?.type === "string" ? node.data.type : "";
+      if (!nodeType || !paused.has(nodeType) || alreadyListed.has(nodeType)) continue;
+      alreadyListed.add(nodeType);
+
+      // The architect's own name for the step, because that is what the
+      // business sees on the canvas and in their run history.
+      const title = node?.data?.title ?? node?.data?.label;
+      const label = (typeof title === "string" && title.trim()) || nodeType;
+      const reason = paused.get(nodeType) ?? "";
+      steps.push({ nodeType, label, reason, message: pausedMessageFor(label, reason) });
+    }
+
+    if (steps.length > 0) byWorkflow.set(workflow.id, steps);
+  }
+
+  return byWorkflow;
+}
+
 export function invalidatePausedCache(): void {
   pausedCache = null;
 }
+
+/** One paused step inside a business's agent, ready to put on screen. */
+export type PausedStep = {
+  nodeType: string;
+  label: string;
+  reason: string;
+  /** The full sentence, already written for the business to read. */
+  message: string;
+};
 
 /** What a business is told when their agent reaches a paused step. */
 export function pausedMessageFor(nodeLabel: string, reason: string): string {

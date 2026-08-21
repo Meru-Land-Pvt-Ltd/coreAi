@@ -50,6 +50,7 @@ import {
   type InstalledAgentUsageStats
 } from "../business/installed-agent-run-stats";
 import { reconcileBusinessExecutionUsage } from "../business/execution-billing";
+import { pausedStepsForWorkflows, type PausedStep } from "../admin/node-controls";
 
 export const paymentRoutes = new Hono();
 
@@ -1084,6 +1085,19 @@ paymentRoutes.get("/my-agents", async (c) => {
     : [];
 
   const missingListingsMap = new Map(missingListings.map((l) => [l.id, l]));
+  /*
+   * Steps Triven has paused inside these agents.
+   *
+   * The business is told on the screen where they look at their agents, rather
+   * than being left to notice that something quietly stopped happening. Costs
+   * one cached lookup when nothing is paused, which is almost always.
+   */
+  const pausedStepsByWorkflow = await pausedStepsForWorkflows(
+    [...allListingIds]
+      .map((listingId) => (paymentsByListing.get(listingId)?.[0]?.listing ?? missingListingsMap.get(listingId))?.workflowId)
+      .filter((id): id is string => Boolean(id))
+  ).catch(() => new Map<string, PausedStep[]>());
+
   const agents = [];
 
   for (const listingId of allListingIds) {
@@ -1195,6 +1209,8 @@ paymentRoutes.get("/my-agents", async (c) => {
       installedAgentId: installedAgent?.id ?? null,
       installedAgentStatus: installedAgent?.status ?? null,
       installedAgentPausedAt: dateToIsoOrNull(installedAgent?.pausedAt),
+      /* Empty unless Triven has switched a step off. See pausedStepsForWorkflows. */
+      pausedSteps: (listing.workflowId && pausedStepsByWorkflow.get(listing.workflowId)) || [],
       pricing: {
         agentPrice: {
           amountCents: listing.priceCents,
