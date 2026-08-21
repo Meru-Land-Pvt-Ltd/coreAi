@@ -23,7 +23,7 @@ process.stdin.on("data", (chunk) => {
   raw += chunk;
 });
 
-process.stdin.on("end", () => {
+process.stdin.on("end", async () => {
   let request;
   try {
     request = JSON.parse(raw);
@@ -65,6 +65,9 @@ process.stdin.on("end", () => {
     parseFloat,
     encodeURIComponent,
     decodeURIComponent,
+    // Present because the harness awaits what it gets back; without it,
+    // `new Promise(...)` fails with a confusing "not defined".
+    Promise,
 
     // Named explicitly so the message is a sentence rather than
     // "require is not defined", which sends people to Stack Overflow.
@@ -81,9 +84,23 @@ process.stdin.on("end", () => {
   };
 
   try {
-    const script = new vm.Script(`(function(input){ "use strict";\n${request.code}\n})`);
+    const script = new vm.Script(`(async function(input){ "use strict";\n${request.code}\n})`);
     const fn = script.runInNewContext(context, { timeout: 10_000, displayErrors: true });
-    const output = fn(context.input);
+
+    /*
+     * Awaited, and this matters more than it looks.
+     *
+     * Without it, a step that returns a promise was serialised as `{}` and
+     * handed to the next step with ok:true — a wrong answer delivered silently,
+     * which is the one failure this platform does not tolerate anywhere else.
+     * `return Promise.resolve({answer: 42})` returned `{}`.
+     *
+     * The vm's own timeout only covers synchronous work; anything awaited slips
+     * past it. That is fine, because the timer that actually matters is in
+     * server.mjs and kills this whole process. A promise that never settles
+     * therefore ends as "your code took too long", which is the truth.
+     */
+    const output = await fn(context.input);
 
     // What comes back has to survive the trip to the next step, so it must be
     // plain data. A function or a circular object is a mistake worth naming.
