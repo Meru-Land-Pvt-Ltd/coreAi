@@ -99,7 +99,7 @@ import { applyTidyPositions } from "./workflow-builder/layout-graph";
 import { MobileSheet } from "./workflow-builder/mobile-sheet";
 import { NodeInspector } from "./workflow-builder/node-inspector";
 import { defaultAgentDescription, defaultAgentName, defaultNodeData } from "./workflow-builder/node-defaults";
-import { parseEdges, parseNodes } from "./workflow-builder/parsers";
+import { parseEdges, parseNodes, toBuilderEdges, toBuilderNodes } from "./workflow-builder/parsers";
 import {
   PreviewPanel,
   type PreviewChatResult,
@@ -617,8 +617,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       return;
     }
 
-    if (result.data.nodes) setNodes(result.data.nodes as BuilderNode[]);
-    if (result.data.edges) setEdges(result.data.edges as Edge[]);
+    if (result.data.nodes) setNodes(toBuilderNodes(result.data.nodes));
+    if (result.data.edges) setEdges(toBuilderEdges(result.data.edges));
     setRepairNote(result.data.summary ?? "Fixed.");
   }, [nodes, edges, setNodes, setEdges]);
 
@@ -2902,8 +2902,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 importingSlug={importingSlug}
                 onPick={(slug) => void importTemplate(slug)}
                 onComposed={(canvas) => {
-                  setNodes(canvas.nodes as unknown as BuilderNode[]);
-                  setEdges(canvas.edges as unknown as Edge[]);
+                  // Through the same door as everything else. The cast that used
+                  // to be here is why composed agents drew as grey stock boxes.
+                  setNodes(toBuilderNodes(canvas.nodes));
+                  setEdges(toBuilderEdges(canvas.edges));
                 }}
               />
 
