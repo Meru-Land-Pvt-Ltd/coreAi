@@ -40,7 +40,7 @@ function secretKeysOf(contract: BuyerContract): Set<string> {
 /**
  * Decrypt by key list rather than by contract.
  *
- * The run time holds a ConnectorContract, not the buyer-facing one, and its
+ * The run time holds a NodeFrame, not the buyer-facing one, and its
  * secret keys are exactly the platform credentials a business may supply
  * themselves. Same code, so the two can never disagree about what a secret is.
  */

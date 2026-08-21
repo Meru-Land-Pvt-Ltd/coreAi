@@ -23,9 +23,9 @@
  */
 
 import {
-  checkConnectorRules,
+  checkFrameRules,
   checkHeartResult,
-  type ConnectorContract,
+  type NodeFrame,
   type HeartContext,
   type HeartResult,
   HttpError,
@@ -37,7 +37,7 @@ import { consumeLimit, DAY, MINUTE } from "../../lib/rate-limit";
 import { platformApiSetting } from "../admin/platform-api-settings";
 
 export type ConnectorRunInput = {
-  contract: ConnectorContract;
+  contract: NodeFrame;
   /** Whose run this is — every limit and every cost is scoped to them. */
   businessId: string;
   /** Values from all three owners, already merged by the caller. */
@@ -90,7 +90,7 @@ function nowIso(): string {
  * copied into a dozen files and missed when one is rotated.
  */
 function resolveCredentials(
-  contract: ConnectorContract,
+  contract: NodeFrame,
   config: Record<string, unknown>
 ): { credentials: Record<string, string>; missing: string[] } {
   const credentials: Record<string, string> = {};
@@ -101,8 +101,11 @@ function resolveCredentials(
     // normal arrangement for metered data services: their account, their bill,
     // their rate limit. The platform key is the fallback.
     const fromBusiness = config[need.key];
-    const value =
-      (typeof fromBusiness === "string" && fromBusiness.trim()) || platformApiSetting(need.key) || "";
+    // An architect-built frame never reaches the platform's own key store. Its
+    // credential comes from the architect who built it or the business that
+    // installed it — see `source` on the frame for why this line exists.
+    const fromPlatform = contract.source === "architect" ? "" : platformApiSetting(need.key);
+    const value = (typeof fromBusiness === "string" && fromBusiness.trim()) || fromPlatform || "";
 
     if (value) credentials[need.key] = value;
     else if (need.required) missing.push(need.label);
@@ -118,7 +121,7 @@ function resolveCredentials(
  * required" four times is just four times the bill. Anything the contract
  * lists as never-retry is final, and so is any 4xx that is not a rate limit.
  */
-function shouldRetry(contract: ConnectorContract, status: number | undefined): boolean {
+function shouldRetry(contract: NodeFrame, status: number | undefined): boolean {
   if (status === undefined) return true; // a network blip, worth one more try
   if (contract.failure.neverRetry.includes(status)) return false;
   if (status === 429) return true; // throttled — backing off is the right answer
@@ -201,14 +204,14 @@ function makeHttpClient(log: (message: string, detail?: unknown) => void): HttpC
  * check measures against. Using them here makes a rehearsal structurally
  * incapable of reaching anybody.
  */
-function rehearsalOutputs(contract: ConnectorContract): Record<string, unknown> {
+function rehearsalOutputs(contract: NodeFrame): Record<string, unknown> {
   const outputs: Record<string, unknown> = {};
   for (const output of contract.produces) outputs[output.key] = output.sample;
   return outputs;
 }
 
 /** How many things a run produced, when the heart did not say. */
-function unitsFromOutputs(contract: ConnectorContract, outputs: Record<string, unknown>): number {
+function unitsFromOutputs(contract: NodeFrame, outputs: Record<string, unknown>): number {
   let units = 0;
   for (const output of contract.produces) {
     const value = outputs[output.key];
@@ -281,12 +284,12 @@ export async function runConnector(input: ConnectorRunInput): Promise<ConnectorR
   // These are the rules that protect the person at the other end. They run
   // before the rate limits, before the budget and before the heart, so a
   // refusal here costs nothing and leaves no trace of a message that was never
-  // sent. checkConnectorRules lives in the shared package with no I/O, so the
+  // sent. checkFrameRules lives in the shared package with no I/O, so the
   // decision can be tested on its own and cannot drift from what the contract
   // declares.
   // isTest is false by construction here: a rehearsal returned above without
   // ever reaching this point.
-  const ruled = checkConnectorRules(contract, { config: input.config, isTest: false });
+  const ruled = checkFrameRules(contract, { config: input.config, isTest: false });
   if (!ruled.ok) {
     log("blocked by a rule", { rule: ruled.rule });
     return fail("blocked_by_rule", ruled.message);
@@ -522,7 +525,7 @@ export type HealthResult = {
   checkedAt: string;
   /** Plain words, for whoever has to act on it. */
   message: string;
-  severity: ConnectorContract["health"]["severity"];
+  severity: NodeFrame["health"]["severity"];
   missingKeys?: string[];
 };
 
@@ -535,7 +538,7 @@ export type HealthResult = {
  * same day — before a customer's agent does.
  */
 export async function checkConnectorHealth(
-  contract: ConnectorContract,
+  contract: NodeFrame,
   config: Record<string, unknown> = {}
 ): Promise<HealthResult> {
   const base = {

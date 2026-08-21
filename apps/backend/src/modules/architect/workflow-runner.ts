@@ -110,8 +110,10 @@ import {
 } from "./telegram-actions";
 import { executeArchitectTelegramTestAction } from "./architect-telegram-test-actions";
 import { getConnector } from "../connectors/registry";
+import { doorsForFrame } from "@coreai/shared";
 import { runConnectorAndRecord } from "../connectors/run-log";
 import { openSecretValues } from "../connectors/buyer-secrets";
+import { cachedArchitectSecrets } from "../connectors/architect-frames";
 import { connectorBudgetCentsFor } from "../connectors/budget";
 
 /** Threaded through the runner to bound workflow-to-workflow chaining. */
@@ -4632,7 +4634,13 @@ async function runStandardConnectorNode({
   // run. The architect's decisions live on the node — they were made once, for
   // everyone who installs the agent. The business's answers come from their
   // own setup form and win, because they are about their business.
-  const config: Record<string, unknown> = { ...(node.data ?? {}) };
+  const config: Record<string, unknown> = {
+    // A frame the architect built carries its own key, stored encrypted against
+    // that frame. It sits underneath everything else so a business supplying
+    // their own key still wins.
+    ...(contract.source === "architect" ? cachedArchitectSecrets(contract.id) : {}),
+    ...(node.data ?? {})
+  };
   let installedConfig: Record<string, unknown> = {};
   if (context.installedAgentId) {
     const installed = await prisma.installedAgent.findUnique({
@@ -4699,7 +4707,7 @@ async function runConnectorNode({
   mode: WorkflowRunMode;
   chain: WorkflowChain;
 }) {
-  // ---- The Connector Standard --------------------------------------------
+  // ---- The Node Frame --------------------------------------------
   //
   // A node that names a connector id runs through the one engine. This branch
   // is the whole point of the standard: every hand-written handler below it
@@ -5681,6 +5689,19 @@ const DOOR_EXIT_OUTPUT_KEYS_BY_TYPE: Record<string, string[]> = {
  */
 function doorsForNode(node: RunnerNode): { nodeType: string; spec: NodeDoorSpec } | null {
   const nodeType = asString(node.data?.type);
+
+  // A node built from a Node Frame has no entry in the registry — its settings
+  // are whatever the architect said that service needs — so its doors are built
+  // from the frame itself. The field list still comes from the declaration and
+  // never from the run, which is the boundary that matters.
+  const connectorId = asString(node.data?.connectorId);
+  if (connectorId) {
+    const frame = getConnector(connectorId);
+    if (!frame) return null;
+    if (!nodeDoorsEnabled(node.data)) return null;
+    return { nodeType: nodeType || connectorId, spec: doorsForFrame(frame) };
+  }
+
   const spec = getNodeDoors(nodeType);
   if (!spec) return null;
   if (!nodeDoorsEnabled(node.data)) return null;

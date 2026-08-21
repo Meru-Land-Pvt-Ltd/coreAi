@@ -23,7 +23,7 @@
  */
 
 import type {
-  ConnectorContract,
+  NodeFrame,
   HeartContext,
   HeartResult,
   ProbeContext,
@@ -107,7 +107,7 @@ function withEmail(leads: Array<Record<string, unknown>>): Array<Record<string, 
 /* 1 · Put people into a campaign                                             */
 /* ========================================================================== */
 
-export const instantlyAddLeads: ConnectorContract = {
+export const instantlyAddLeads: NodeFrame = {
   id: "instantly.add_leads",
   version: "1.0.0",
   job: "send-email-campaign",
@@ -259,7 +259,7 @@ function replyTextOf(payload: Record<string, unknown>): string {
   return "";
 }
 
-export const instantlyReplies: ConnectorContract = {
+export const instantlyReplies: NodeFrame = {
   id: "instantly.replies",
   version: "1.0.0",
   job: "read-campaign-replies",

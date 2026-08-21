@@ -1,5 +1,17 @@
 /**
- * THE CONNECTOR CONTRACT — one file describes a connector, one engine runs them all.
+ * THE NODE FRAME — one filled-in frame becomes a node, one engine runs them all.
+ *
+ * The vocabulary, so it stays straight:
+ *
+ *   A NODE FRAME is this shape — the blank form. Nine declarations and one
+ *   function. It is what an architect fills in to describe a service.
+ *
+ *   A CONNECTOR is a filled-in frame. Apollo is a connector. Instantly is two.
+ *   They live in the catalogue as files, or in an architect's own account as
+ *   something they built through the Node Frame node in the builder.
+ *
+ *   A NODE is what appears on the canvas once a frame is filled in and passes
+ *   validation.
  *
  * Before this, adding a service meant editing eight places: the registry, the
  * runner, the setup form, the dashboard, the cost, the failure handling, the
@@ -263,7 +275,7 @@ export type ConnectorRules = {
    *
    * A rule the engine cannot look at anywhere is not a rule, it is a comment.
    * These two fields are what turn the flags above into something checkable —
-   * and `validateConnector` REFUSES a contract that declares a rule without
+   * and `validateNodeFrame` REFUSES a contract that declares a rule without
    * saying where to check it. That is the part that matters: the previous
    * version of this file declared four rules the engine never read, with a
    * comment claiming they were enforced. Making the declaration impossible to
@@ -361,7 +373,7 @@ const WAY_OUT = /unsubscribe|opt[\s-]?out|\bstop\b|\{\{\s*unsubscribe/i;
  * fires here means nothing happened at all — no call, no charge, no record of
  * a message that was never sent.
  */
-export function checkConnectorRules(contract: ConnectorContract, context: RuleContext): RuleVerdict {
+export function checkFrameRules(contract: NodeFrame, context: RuleContext): RuleVerdict {
   const rules = contract.rules ?? {};
 
   // ---- Consent ------------------------------------------------------------
@@ -699,7 +711,7 @@ export type Probe = (context: ProbeContext) => Promise<ProbeResult>;
  * and it should be small: if a new connector needs much more than a hundred
  * lines, the engine is missing something and the engine is what should change.
  */
-export type ConnectorContract = {
+export type NodeFrame = {
   /** Stable, never renamed: "apollo.find_people". */
   id: string;
   /** This connector's own version. Bumped when the heart changes. */
@@ -747,6 +759,19 @@ export type ConnectorContract = {
    */
   rollout: "internal" | "canary" | "everyone";
 
+  /**
+   * Where this frame came from.
+   *
+   * "catalogue" is one we wrote and shipped as a file. "architect" is one
+   * somebody built through the Node Frame node in the builder.
+   *
+   * It is not decoration: an architect-built frame is NEVER given a platform
+   * credential. Without that line, an architect could declare they need
+   * OPENAI_API_KEY, point a request at their own server, and walk off with our
+   * key. Their connector uses their own key or the business's, and nothing else.
+   */
+  source?: "catalogue" | "architect";
+
   heart: Heart;
 
   /**
@@ -776,6 +801,174 @@ export type ConnectorContract = {
 };
 
 /* -------------------------------------------------------------------------- */
+/* The AI doors a described connector is born with                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The two doors for a node built from a frame.
+ *
+ * Every other node type has its doors hand-written in the registry, with a
+ * fixed list of settings the entry door may fill in. A frame's settings are not
+ * fixed — they are whatever the architect said this service needs — so the list
+ * is built from the frame itself.
+ *
+ * That is still a real boundary, and for the same reason the fixed lists are:
+ * the names come from what the ARCHITECT declared when they built the frame,
+ * never from the run. A stranger typing into a published page can influence the
+ * VALUES a door fills in; they can never widen which settings it may touch.
+ *
+ * Credentials are absent by construction — they live in `needs.platform`, not
+ * in `needs.business`, so a door cannot reach the key that signs the request.
+ */
+export function doorsForFrame(frame: {
+  label: string;
+  description: string;
+  provider: { name: string };
+  needs: { business: Array<{ key: string; label: string }> };
+  produces: Array<{ key: string; label: string }>;
+}): { entry: { job: string; fields: string[] }; exit: { job: string } } {
+  const fields = frame.needs.business.map((need) => need.key);
+  const asked = frame.needs.business.map((need) => `${need.key} (${need.label})`).join(", ") || "none";
+  const gives = frame.produces.map((output) => `${output.key} (${output.label})`).join(", ");
+
+  return {
+    entry: {
+      fields,
+      job:
+        `This step calls ${frame.provider.name}: ${frame.description} ` +
+        `Turn the customer's words and the run so far into exactly what this call needs. ` +
+        `The settings you may fill in are: ${asked}. Leave every other setting exactly as it was saved. ` +
+        `Two rules decide whether you change anything at all. First, if what is already saved reads correctly ` +
+        `for what the customer gave, return no changes — the architect's own wording beats a guess. ` +
+        `Second, when an earlier step already produced the exact id, code or reference this call needs, use ` +
+        `that value word for word rather than a name, a search or a lookalike.`
+    },
+    exit: {
+      job:
+        `Clean ${frame.provider.name}'s raw reply into the smallest useful thing later steps can read. ` +
+        (gives ? `This step is meant to produce: ${gives}. ` : "") +
+        `Keep the names, numbers, ids, dates and links that answer what was asked; drop wrappers, ` +
+        `repeated boilerplate and anything nobody will read.`
+    }
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* A frame filled in through the builder, rather than written as code          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The one request a described connector makes.
+ *
+ * A hand-written connector has a heart — real code. An architect filling in the
+ * Node Frame node in the builder has no way to write code, so they describe the
+ * request instead and the platform builds the heart from the description.
+ *
+ * Text fields may carry placeholders, filled at run time:
+ *
+ *   {{config.campaignId}}      an answer from the business's setup form
+ *   {{credentials.ACME_KEY}}   a key, and ONLY one this frame itself declared
+ *   {{page}} {{pageSize}} {{cursor}}   supplied by the engine for paged work
+ *
+ * This covers a plain REST call, which is what most services are. Anything
+ * stranger still needs a written heart, and that is the honest boundary.
+ */
+export type FrameRecipe = {
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /** Full https URL. Placeholders allowed. */
+  url: string;
+  /** Header name to value. This is where an API key usually goes. */
+  headers?: Record<string, string>;
+  /** Added to the query string. */
+  query?: Record<string, string>;
+  /** Sent as JSON. Placeholders allowed inside string values. */
+  body?: Record<string, unknown>;
+  /**
+   * Where the useful part of the answer lives, as a dot path: "people",
+   * "data.items". Empty means the whole body is the answer.
+   */
+  resultsAt?: string;
+  /** How the provider hands over more than one page. */
+  paging?: {
+    style: "none" | "page" | "cursor";
+    /** For "page": the parameter carrying the page number. */
+    pageParam?: string;
+    /** For "cursor": the parameter carrying the cursor we were given. */
+    cursorParam?: string;
+    /** Dot path to the next cursor in the answer. */
+    cursorAt?: string;
+    /** Dot path to a true/false "there is more" flag in the answer. */
+    morePagesAt?: string;
+  };
+};
+
+/**
+ * Everything a form can produce: a whole frame except the code.
+ *
+ * The platform turns this into a real NodeFrame by building the heart from the
+ * recipe, and then runs the SAME validation every hand-written connector goes
+ * through. There is deliberately no second, weaker check for described
+ * connectors — a node an architect built in the builder has to clear the same
+ * bar as one we wrote ourselves, or it does not appear in their toolkit.
+ */
+export type NodeFrameDeclaration = Omit<NodeFrame, "heart" | "probe" | "receive"> & {
+  recipe: FrameRecipe;
+  /** A second, tiny request for the daily self-test. Optional and honest. */
+  probeRecipe?: FrameRecipe;
+  /** When the provider has no call that works without a customer's own data. */
+  cannotSelfTest?: string;
+};
+
+/** Read "data.items" out of a parsed body. Undefined when the path is not there. */
+export function valueAtPath(body: unknown, path?: string): unknown {
+  if (!path) return body;
+  let current: unknown = body;
+  for (const step of path.split(".")) {
+    if (current === null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[step];
+  }
+  return current;
+}
+
+/**
+ * Fill {{placeholders}} in one string.
+ *
+ * A placeholder that resolves to nothing becomes an empty string rather than
+ * the literal "{{config.thing}}" — sending a provider the word "undefined" in
+ * a URL produces a confusing 404 instead of an obvious empty value.
+ */
+export function fillPlaceholders(
+  text: string,
+  values: { config: Record<string, unknown>; credentials: Record<string, string>; page: number; pageSize: number; cursor?: string }
+): string {
+  return text.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (_match, token: string) => {
+    if (token === "page") return String(values.page);
+    if (token === "pageSize") return String(values.pageSize);
+    if (token === "cursor") return values.cursor ?? "";
+    if (token.startsWith("config.")) {
+      const found = values.config[token.slice(7)];
+      return found === undefined || found === null ? "" : String(found);
+    }
+    if (token.startsWith("credentials.")) return values.credentials[token.slice(12)] ?? "";
+    return "";
+  });
+}
+
+/**
+ * Every credential name a recipe reaches for.
+ *
+ * Used to refuse a frame that reads a key it never declared — which is how an
+ * architect could otherwise put {{credentials.OPENAI_API_KEY}} into a URL
+ * pointing at their own server and walk off with the platform's key.
+ */
+export function credentialsUsedByRecipe(recipe: FrameRecipe): string[] {
+  const text = JSON.stringify(recipe);
+  const found = new Set<string>();
+  for (const match of text.matchAll(/\{\{\s*credentials\.([a-zA-Z0-9_]+)\s*\}\}/g)) found.add(match[1]);
+  return [...found];
+}
+
+/* -------------------------------------------------------------------------- */
 /* Validation — a badly-formed connector must never ship                       */
 /* -------------------------------------------------------------------------- */
 
@@ -786,7 +979,7 @@ export type ConnectorContract = {
  * trusted should stop the deploy rather than wait to be discovered by a
  * customer whose agent quietly did nothing.
  */
-export function validateConnector(contract: ConnectorContract): string[] {
+export function validateNodeFrame(contract: NodeFrame): string[] {
   const problems: string[] = [];
   const id = contract.id || "(unnamed connector)";
 
@@ -925,7 +1118,7 @@ export function validateConnector(contract: ConnectorContract): string[] {
 }
 
 /** Every declared output key, for the engine's honesty check. */
-export function requiredOutputKeys(contract: ConnectorContract): string[] {
+export function requiredOutputKeys(contract: NodeFrame): string[] {
   return contract.produces.filter((output) => output.required).map((output) => output.key);
 }
 
@@ -937,7 +1130,7 @@ export function requiredOutputKeys(contract: ConnectorContract): string[] {
  * appointment slots were real.
  */
 export function checkHeartResult(
-  contract: ConnectorContract,
+  contract: NodeFrame,
   result: HeartResult
 ): { ok: boolean; missing: string[] } {
   const missing = requiredOutputKeys(contract).filter((key) => {

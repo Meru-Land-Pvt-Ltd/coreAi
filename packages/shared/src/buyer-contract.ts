@@ -23,7 +23,7 @@
  */
 
 import { getNodeDefinition, type ConnectorRequirement, type NodeDefinition } from "./node-registry.js";
-import type { ConnectorContract, ConnectorField } from "./connector-contract.js";
+import type { NodeFrame, ConnectorField } from "./node-frame.js";
 
 /* -------------------------------------------------------------------------- */
 /* What we ask the business                                                    */
@@ -423,7 +423,7 @@ function metricKeyFor(connectorId: string, suffix: string): string {
  * exists to prevent, just drawn on a screen instead of written to a log.
  */
 export function buyerSurfaceFromConnector(
-  contract: ConnectorContract,
+  contract: NodeFrame,
   nodeId: string
 ): {
   inputs: BuyerInput[];
@@ -529,7 +529,7 @@ export type DeriveBuyerOptions = {
    * frontend can share these types. The backend hands its registry in, and a
    * caller with no registry still gets a complete contract from the nodes.
    */
-  connectors?: ConnectorContract[];
+  connectors?: NodeFrame[];
 };
 
 export function deriveBuyerContract(

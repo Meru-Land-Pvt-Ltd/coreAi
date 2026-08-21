@@ -2,6 +2,7 @@ import {
   getNodeDefinition,
   API_CALL_NODE_TYPE,
   CALL_LIST_NODE_TYPE,
+  NODE_FRAME_NODE_TYPE,
   BLOCK_NODE_TYPES,
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
@@ -159,6 +160,13 @@ export const libraryGroups: LibraryGroup[] = [
       {
         // The universal action: one node reaches every service on the internet.
         ...paletteItem(API_CALL_NODE_TYPE, { icon: "globe", accent: "amber", kind: "API CALL" }),
+        badge: "NEW"
+      },
+      {
+        /* The Node Frame. Not a step that does something itself — a step that
+           BECOMES something, by describing a service we do not have a card for
+           yet. What comes out of it is a node in this architect's own toolkit. */
+        ...paletteItem(NODE_FRAME_NODE_TYPE, { icon: "wand", accent: "violet", kind: "NEW CONNECTION" }),
         badge: "NEW"
       },
       /* The Code node is deliberately NOT here.

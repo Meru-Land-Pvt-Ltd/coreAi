@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { deriveBuyerContract, type ConnectorContract } from "@coreai/shared";
+import { deriveBuyerContract, type NodeFrame } from "@coreai/shared";
 import { allConnectors, connectorProblems, connectorsForJob, connectorsNeedingReview } from "./registry";
 import { runConnector } from "./engine";
 import { apolloFindPeople } from "./catalogue/apollo";
@@ -100,7 +100,7 @@ describe("nothing is silently dropped", () => {
 
 describe("consent is asked out loud", () => {
   it("puts the question on the setup form when a connector requires it", () => {
-    const dialer: ConnectorContract = {
+    const dialer: NodeFrame = {
       ...apolloFindPeople,
       id: "test.dialer",
       rules: { ...apolloFindPeople.rules, requiresConsent: true }

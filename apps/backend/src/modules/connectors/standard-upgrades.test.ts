@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import {
-  checkConnectorRules,
-  validateConnector,
-  type ConnectorContract,
+  checkFrameRules,
+  validateNodeFrame,
+  type NodeFrame,
   type BuyerContract
 } from "@coreai/shared";
 import { runConnector, checkConnectorHealth } from "./engine";
@@ -19,7 +19,7 @@ import { instantlyAddLeads, instantlyReplies } from "./catalogue/instantly";
  * code path looked interesting.
  */
 
-const base: Omit<ConnectorContract, "heart"> = {
+const base: Omit<NodeFrame, "heart"> = {
   id: "test.thing",
   version: "1.0.0",
   job: "custom",
@@ -37,7 +37,7 @@ const base: Omit<ConnectorContract, "heart"> = {
   rollout: "everyone"
 };
 
-const make = (overrides: Partial<ConnectorContract> = {}): ConnectorContract => ({
+const make = (overrides: Partial<NodeFrame> = {}): NodeFrame => ({
   ...base,
   heart: async () => ({ outputs: { things: [1] } }),
   ...overrides
@@ -93,9 +93,9 @@ describe("the safety rules are enforced, not just displayed", () => {
       needs: { ...base.needs, business: [{ key: "body", label: "Message", help: "", kind: "longtext", required: true }] }
     });
 
-    expect(checkConnectorRules(mailer, { config: { body: "Hi there, buy my thing." }, isTest: false }).ok).toBe(false);
+    expect(checkFrameRules(mailer, { config: { body: "Hi there, buy my thing." }, isTest: false }).ok).toBe(false);
     expect(
-      checkConnectorRules(mailer, { config: { body: "Hi there. Reply STOP to unsubscribe." }, isTest: false }).ok
+      checkFrameRules(mailer, { config: { body: "Hi there. Reply STOP to unsubscribe." }, isTest: false }).ok
     ).toBe(true);
   });
 
@@ -105,8 +105,8 @@ describe("the safety rules are enforced, not just displayed", () => {
       needs: { ...base.needs, business: [{ key: "phones", label: "Who", help: "", kind: "list", required: true }] }
     });
 
-    expect(checkConnectorRules(caller, { config: { phones: ["+919309185238"] }, isTest: false }).ok).toBe(false);
-    expect(checkConnectorRules(caller, { config: { phones: ["+16505551234"] }, isTest: false }).ok).toBe(true);
+    expect(checkFrameRules(caller, { config: { phones: ["+919309185238"] }, isTest: false }).ok).toBe(false);
+    expect(checkFrameRules(caller, { config: { phones: ["+16505551234"] }, isTest: false }).ok).toBe(true);
   });
 
   it("treats a country it cannot identify as blocked, not as allowed", () => {
@@ -116,7 +116,7 @@ describe("the safety rules are enforced, not just displayed", () => {
       rules: { blockedCountries: ["IN"], reaches: ["phones"] },
       needs: { ...base.needs, business: [{ key: "phones", label: "Who", help: "", kind: "list", required: true }] }
     });
-    expect(checkConnectorRules(caller, { config: { phones: ["+99912345678"] }, isTest: false }).ok).toBe(false);
+    expect(checkFrameRules(caller, { config: { phones: ["+99912345678"] }, isTest: false }).ok).toBe(false);
   });
 
   it("no longer needs a rule to keep a rehearsal safe", async () => {
@@ -141,19 +141,19 @@ describe("the safety rules are enforced, not just displayed", () => {
 
 describe("a rule that cannot be checked cannot ship", () => {
   it("rejects an unsubscribe rule with nowhere to look", () => {
-    const problems = validateConnector(make({ rules: { requiresUnsubscribe: true } }));
+    const problems = validateNodeFrame(make({ rules: { requiresUnsubscribe: true } }));
     expect(problems.join(" ")).toContain("unsubscribeIn");
   });
 
   it("rejects a country block with nowhere to look", () => {
-    const problems = validateConnector(make({ rules: { blockedCountries: ["IN"] } }));
+    const problems = validateNodeFrame(make({ rules: { blockedCountries: ["IN"] } }));
     expect(problems.join(" ")).toContain("reaches");
   });
 
   it("rejects a rule aimed at a key the connector never has", () => {
     // A rule pointed at nothing passes every time, which is worse than no rule
     // because it reads as protection.
-    const problems = validateConnector(
+    const problems = validateNodeFrame(
       make({ rules: { requiresUnsubscribe: true, unsubscribeIn: ["nowhere"] } })
     );
     expect(problems.join(" ")).toContain("never asks for or produces");
@@ -277,8 +277,8 @@ describe("a business's own API key", () => {
 
 describe("Instantly", () => {
   it("registered clean, both halves", () => {
-    expect(validateConnector(instantlyAddLeads)).toEqual([]);
-    expect(validateConnector(instantlyReplies)).toEqual([]);
+    expect(validateNodeFrame(instantlyAddLeads)).toEqual([]);
+    expect(validateNodeFrame(instantlyReplies)).toEqual([]);
   });
 
   it("asks the business for permission before it will add anyone", async () => {
@@ -473,12 +473,12 @@ describe("what the factory test found", () => {
 
   it("refuses a connector whose self-test is just the heart again", () => {
     const heart = async () => ({ outputs: { things: [1] } });
-    const problems = validateConnector(make({ heart, probe: heart }));
+    const problems = validateNodeFrame(make({ heart, probe: heart }));
     expect(problems.join(" ")).toContain("same function as the heart");
   });
 
   it("refuses a heart that reaches the network on its own", () => {
-    const problems = validateConnector(
+    const problems = validateNodeFrame(
       make({
         heart: async () => {
           await fetch("https://example.com");
@@ -490,7 +490,7 @@ describe("what the factory test found", () => {
   });
 
   it("refuses an invented or malformed lastVerified", () => {
-    const problems = validateConnector(
+    const problems = validateNodeFrame(
       make({ provider: { ...base.provider, lastVerified: "sometime in 2023" } })
     );
     expect(problems.join(" ")).toContain("lastVerified");
@@ -499,7 +499,7 @@ describe("what the factory test found", () => {
   it("still accepts the connectors we ship", () => {
     // The rules above are only worth having if the real files pass them.
     for (const contract of [instantlyAddLeads, instantlyReplies]) {
-      expect(validateConnector(contract)).toEqual([]);
+      expect(validateNodeFrame(contract)).toEqual([]);
     }
   });
 });

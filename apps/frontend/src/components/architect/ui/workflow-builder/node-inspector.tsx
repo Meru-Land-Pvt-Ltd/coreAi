@@ -13,6 +13,7 @@ import {
   LLM_PROVIDERS,
   NODE_DOORS_DISABLED_KEY,
   SCRIPT_NODE_TYPE,
+  NODE_FRAME_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_TYPES,
   isBlockNodeType,
@@ -50,6 +51,7 @@ import { LlmNodeInspector } from "./llm-node-inspector";
 import { DeepgramNodeInspector } from "./deepgram-node-inspector";
 import { DeepgramTtsNodeInspector } from "./deepgram-tts-node-inspector";
 import { ScriptNodeInspector } from "./script-node-inspector";
+import { NodeFrameInspector } from "./node-frame-inspector";
 import { isProviderDisabled, useLlmAvailability } from "./use-llm-availability";
 import {
   useCalendlyAvailableTimeOptions,
@@ -167,6 +169,7 @@ export function NodeInspector({
     panel = <DeepgramTtsNodeInspector {...base} />;
   }
   else if (type === SCRIPT_NODE_TYPE) panel = <ScriptNodeInspector {...base} />;
+  else if (type === NODE_FRAME_NODE_TYPE) panel = <NodeFrameInspector {...base} />;
   else if (type === "ai.llm_call") panel = <LlmNodeInspector {...base} />;
   else if (type === "ai.memory") panel = <MemoryNodeProps {...base} />;
   else if (type === TELEGRAM_NODE_TYPES.trigger) panel = <TelegramTriggerProps {...base} />;

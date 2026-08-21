@@ -18,12 +18,13 @@
  */
 
 import {
-  validateConnector,
-  type ConnectorContract,
+  validateNodeFrame,
+  type NodeFrame,
   type ConnectorJob
 } from "@coreai/shared";
 import { apolloFindPeople } from "./catalogue/apollo";
 import { instantlyAddLeads, instantlyReplies } from "./catalogue/instantly";
+import { cachedArchitectFrame } from "./architect-frames";
 
 /**
  * Every connector on the platform.
@@ -31,15 +32,15 @@ import { instantlyAddLeads, instantlyReplies } from "./catalogue/instantly";
  * Adding a service means adding one file and one line here. Nothing else — not
  * the setup form, not the dashboard, not the pricing panel, not the retries.
  */
-const CONTRACTS: ConnectorContract[] = [apolloFindPeople, instantlyAddLeads, instantlyReplies];
+const CONTRACTS: NodeFrame[] = [apolloFindPeople, instantlyAddLeads, instantlyReplies];
 
-const byId = new Map<string, ConnectorContract>();
-const byJob = new Map<ConnectorJob, ConnectorContract[]>();
+const byId = new Map<string, NodeFrame>();
+const byJob = new Map<ConnectorJob, NodeFrame[]>();
 
 const problems: string[] = [];
 
 for (const contract of CONTRACTS) {
-  const issues = validateConnector(contract);
+  const issues = validateNodeFrame(contract);
   if (issues.length > 0) {
     problems.push(...issues);
     continue;
@@ -63,12 +64,18 @@ if (problems.length > 0) {
 }
 
 /** Everything that registered cleanly. */
-export function allConnectors(): ConnectorContract[] {
+export function allConnectors(): NodeFrame[] {
   return [...byId.values()];
 }
 
-export function getConnector(id: string): ConnectorContract | undefined {
-  return byId.get(id);
+/**
+ * One frame by id — ours, or one an architect built.
+ *
+ * The catalogue wins on a clash, so an architect cannot shadow a connector we
+ * ship by reusing its id and quietly change what it does for their buyers.
+ */
+export function getConnector(id: string): NodeFrame | undefined {
+  return byId.get(id) ?? cachedArchitectFrame(id);
 }
 
 /**
@@ -78,7 +85,7 @@ export function getConnector(id: string): ConnectorContract | undefined {
  * "find work emails" gets the one we trust most, and a canary version is only
  * chosen deliberately.
  */
-export function connectorsForJob(job: ConnectorJob): ConnectorContract[] {
+export function connectorsForJob(job: ConnectorJob): NodeFrame[] {
   const order = { everyone: 0, canary: 1, internal: 2 } as const;
   return [...(byJob.get(job) ?? [])].sort((a, b) => order[a.rollout] - order[b.rollout]);
 }
@@ -96,7 +103,7 @@ export function connectorProblems(): string[] {
  * quieter risk — a heart nobody has looked at in a year, still working, while
  * the provider has published two new versions and deprecated the one we use.
  */
-export function connectorsNeedingReview(now: Date = new Date(), months = 6): ConnectorContract[] {
+export function connectorsNeedingReview(now: Date = new Date(), months = 6): NodeFrame[] {
   const cutoff = new Date(now);
   cutoff.setMonth(cutoff.getMonth() - months);
 

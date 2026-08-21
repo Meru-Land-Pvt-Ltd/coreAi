@@ -12,7 +12,7 @@
  * prevent, just drawn instead of logged.
  */
 
-import type { ConnectorContract } from "@coreai/shared";
+import type { NodeFrame } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
 import { runConnector, type ConnectorRunInput, type ConnectorRunResult } from "./engine";
 
@@ -28,7 +28,7 @@ export type ConnectorRunContext = ConnectorRunInput & {
  * volunteered — a heart could report ten and return none, and the number on
  * the dashboard is the one a business makes decisions with.
  */
-function unitsFrom(contract: ConnectorContract, result: ConnectorRunResult): number {
+function unitsFrom(contract: NodeFrame, result: ConnectorRunResult): number {
   let units = 0;
   for (const output of contract.produces) {
     const value = result.outputs[output.key];

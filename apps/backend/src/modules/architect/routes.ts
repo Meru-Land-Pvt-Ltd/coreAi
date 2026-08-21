@@ -72,6 +72,8 @@ import {
 } from "./configure";
 import { listArchitectNodeVisibility } from "../admin/node-visibility";
 import { allConnectors } from "../connectors/registry";
+import { architectFrameRoutes } from "../connectors/architect-routes";
+import { readyFramesFor } from "../connectors/architect-frames";
 import { deployDentalWorkflow } from "./dental-deploy";
 import {
   getPhoneRoutingStatus,
@@ -598,6 +600,21 @@ architectRoutes.use(
  * everyone's canvas is how an architect builds an agent on something that is
  * about to be withdrawn.
  */
+function describeFrames(frames: ReturnType<typeof allConnectors>) {
+  return frames.map((contract) => ({
+    id: contract.id,
+    label: contract.label,
+    shortLabel: contract.shortLabel ?? contract.provider.name,
+    description: contract.description,
+    job: contract.job,
+    provider: contract.provider.name,
+    businessQuestions: contract.needs.business.length,
+    cost: contract.cost.style === "free" ? null : { unit: contract.cost.unit, billedTo: contract.cost.billedTo },
+    /** Theirs, not ours — the card says so. */
+    mine: true
+  }));
+}
+
 function builderConnectors() {
   return allConnectors()
     .filter((contract) => contract.rollout !== "internal")
@@ -615,9 +632,17 @@ function builderConnectors() {
     }));
 }
 
+architectRoutes.route("/node-frames", architectFrameRoutes);
+
 architectRoutes.get("/builder-nodes", async (c) => {
+  const authUser = c.get("authUser");
   try {
-    const nodes = await listArchitectNodeVisibility();
+    const [nodes, own] = await Promise.all([
+      listArchitectNodeVisibility(),
+      // Nodes this architect built themselves through the Node Frame, shown
+      // beside ours because to them there is no difference.
+      readyFramesFor(authUser.id).catch(() => [])
+    ]);
     return successResponse(c, {
       nodes: nodes.map((node) => ({
         type: node.type,
@@ -628,7 +653,7 @@ architectRoutes.get("/builder-nodes", async (c) => {
         defaultGroup: node.defaultGroup
       })),
       hiddenNodeTypes: nodes.filter((node) => !node.visible).map((node) => node.type),
-      connectors: builderConnectors()
+      connectors: [...builderConnectors(), ...describeFrames(own)]
     });
   } catch (error) {
     console.error("[architect] builder-nodes visibility failed", error);

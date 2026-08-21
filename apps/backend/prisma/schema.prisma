@@ -42,6 +42,7 @@ model User {
   platformApiSettings  PlatformApiSetting[]
   teamMemberships      BusinessTeamMember[]
   architectSecrets     ArchitectSecret[]
+  nodeFrames           ArchitectNodeFrame[]
 
   @@unique([email, role])
   @@index([role])
@@ -2419,7 +2420,7 @@ model AgentWebhookEndpoint {
   workflowId          String
   /// node.id of the trigger.webhook node this link feeds.
   nodeId              String
-  /// Set when this address belongs to a Connector Standard node declaring
+  /// Set when this address belongs to a Node Frame node declaring
   /// execution "inbound". The connector's own receive() authenticates the
   /// delivery and reads it, instead of the generic signature check.
   connectorId         String?
@@ -3123,4 +3124,35 @@ model ConnectorHealthCheck {
 
   @@index([connectorId, checkedAt])
   @@index([healthy, checkedAt])
+}
+
+/// A Node Frame an architect filled in through the builder.
+///
+/// The blank frame is the same one our own connectors use; this is a filled-in
+/// copy that lives in one architect's account instead of in the codebase. It is
+/// stored as a declaration plus a recipe — never as code — and the platform
+/// builds the runnable heart from it and runs the SAME validation every
+/// hand-written connector goes through before it appears in their toolkit.
+model ArchitectNodeFrame {
+  id              String @id @default(cuid())
+  architectUserId String
+  /// The frame's own id, e.g. "acme.find_things". Unique per architect.
+  frameId         String
+
+  /// DRAFT while it still has problems, READY once it validates clean.
+  status          String   @default("DRAFT")
+  /// The nine declarations plus the request recipe.
+  declarationJson Json
+  /// Keys the architect supplied, encrypted. Never platform credentials.
+  secretsJson     Json?
+  /// What validation said last time, so the builder can show it without rerunning.
+  problems        String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  architect User @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+
+  @@unique([architectUserId, frameId])
+  @@index([architectUserId, status])
 }

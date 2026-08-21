@@ -13,7 +13,7 @@
  * Provider docs: https://docs.apollo.io/reference/people-search
  */
 
-import type { ConnectorContract, HeartContext, HeartResult, ProbeContext } from "@coreai/shared";
+import type { NodeFrame, HeartContext, HeartResult, ProbeContext } from "@coreai/shared";
 
 const API = "https://api.apollo.io/api/v1";
 
@@ -61,7 +61,7 @@ async function search(
   return answer.body as ApolloSearchResponse;
 }
 
-export const apolloFindPeople: ConnectorContract = {
+export const apolloFindPeople: NodeFrame = {
   id: "apollo.find_people",
   version: "1.0.0",
   job: "find-work-emails",

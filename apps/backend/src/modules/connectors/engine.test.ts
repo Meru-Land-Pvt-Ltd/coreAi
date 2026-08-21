@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import type { ConnectorContract, HeartResult } from "@coreai/shared";
-import { validateConnector } from "@coreai/shared";
+import type { NodeFrame, HeartResult } from "@coreai/shared";
+import { validateNodeFrame } from "@coreai/shared";
 import { runConnector, checkConnectorHealth } from "./engine";
 
 /**
@@ -9,7 +9,7 @@ import { runConnector, checkConnectorHealth } from "./engine";
  * does is convenience; these two are the reason it exists at all.
  */
 
-const base: Omit<ConnectorContract, "heart"> = {
+const base: Omit<NodeFrame, "heart"> = {
   id: "test.thing",
   version: "1.0.0",
   job: "custom",
@@ -39,11 +39,11 @@ const base: Omit<ConnectorContract, "heart"> = {
 };
 
 const make = (
-  heart: ConnectorContract["heart"],
-  overrides: Partial<ConnectorContract> = {}
-): ConnectorContract => ({ ...base, heart, ...overrides });
+  heart: NodeFrame["heart"],
+  overrides: Partial<NodeFrame> = {}
+): NodeFrame => ({ ...base, heart, ...overrides });
 
-const run = (contract: ConnectorContract, extra: Record<string, unknown> = {}) =>
+const run = (contract: NodeFrame, extra: Record<string, unknown> = {}) =>
   runConnector({
     contract,
     // A fresh business per test, so one test's rate-limit counters can never
@@ -275,7 +275,7 @@ describe("the daily self-test", () => {
 
 describe("a badly-formed connector never ships", () => {
   it("rejects one with no required output — success and silence would be identical", () => {
-    const problems = validateConnector(
+    const problems = validateNodeFrame(
       make(async () => ({ outputs: {} }), {
         produces: [{ key: "maybe", label: "Maybe", kind: "text", required: false, sample: "x" }]
       })
@@ -284,7 +284,7 @@ describe("a badly-formed connector never ships", () => {
   });
 
   it("rejects paged work with no ceiling", () => {
-    const problems = validateConnector(
+    const problems = validateNodeFrame(
       make(async () => ({ outputs: { things: [] } }), {
         execution: "paged",
         limits: { ...base.limits, maxPages: undefined }
@@ -294,7 +294,7 @@ describe("a badly-formed connector never ships", () => {
   });
 
   it("rejects a secret asked of the architect", () => {
-    const problems = validateConnector(
+    const problems = validateNodeFrame(
       make(async () => ({ outputs: { things: [] } }), {
         needs: {
           ...base.needs,
@@ -306,7 +306,7 @@ describe("a badly-formed connector never ships", () => {
   });
 
   it("rejects a connector with no provider version, so deprecations stay traceable", () => {
-    const problems = validateConnector(
+    const problems = validateNodeFrame(
       make(async () => ({ outputs: { things: [] } }), {
         provider: { ...base.provider, apiVersion: "" }
       })

@@ -10,6 +10,7 @@ import { startEarningReleaseWorker, stopEarningReleaseWorker } from "./modules/p
 import { startScheduleWorker, stopScheduleWorker } from "./modules/architect/schedule-trigger";
 import { startCallListWorker } from "./modules/architect/call-list";
 import { startConnectorHealthWorker, stopConnectorHealthWorker } from "./modules/connectors/health-worker";
+import { startArchitectFrameRefresh } from "./modules/connectors/architect-frames";
 // [DISABLED:non-handoff] worker imports for the commented starts below.
 // import { startReminderWorker, stopReminderWorker } from "./modules/business/reminders/reminder-worker";
 // import {
@@ -22,6 +23,8 @@ import {
   registerTelegramManagerWebhook,
   telegramManagerEnvironmentConfigured
 } from "./modules/architect/telegram-connector";
+
+let frameRefresh: NodeJS.Timeout | null = null;
 
 const server = serve(
   {
@@ -44,6 +47,9 @@ const server = serve(
     // Asks every connector, once a day, whether it still works — before a
     // customer's agent finds out on their behalf.
     startConnectorHealthWorker();
+    // Nodes architects built themselves, kept to hand so the runner never has
+    // to query the database in the middle of a step.
+    frameRefresh = startArchitectFrameRefresh();
     // [DISABLED:non-handoff] reminder + retention workers and quality sweep.
     // startReminderWorker();
     // startRetentionSweepWorker();
@@ -83,6 +89,7 @@ async function shutdown(signal: string) {
   stopEarningReleaseWorker();
   stopScheduleWorker();
   stopConnectorHealthWorker();
+  if (frameRefresh) clearInterval(frameRefresh);
   // [DISABLED:non-handoff]
   // stopReminderWorker();
   // stopRetentionSweepWorker();

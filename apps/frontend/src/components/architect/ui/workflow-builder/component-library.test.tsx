@@ -9,6 +9,7 @@ import {
   OUTBOUND_CALL_NODE_TYPE,
   SCHEDULE_NODE_TYPE,
   CALL_LIST_NODE_TYPE,
+  NODE_FRAME_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_TYPES,
   WEBHOOK_NODE_TYPE
@@ -57,12 +58,12 @@ describe("library groups (Face / Brain / Hands)", () => {
     ]);
   });
 
-  it("keeps every pre-regroup item plus API Call, Timer, Webhook, the outbound call and the call list (35 total)", () => {
+  it("keeps every pre-regroup item plus API Call, Timer, Webhook, the outbound call, the call list and the Node Frame (36 total)", () => {
     const testIds = libraryGroups.flatMap((group) => group.items.map((item) => item.testId));
     // The three ways IN (timer, webhook, call list) and the outbound call node
     // joined the Hands group; the old Design Brain card left with the Smart
     // Designer, and the Code card left with the unsandboxed runner behind it.
-    expect(testIds).toHaveLength(35);
+    expect(testIds).toHaveLength(36);
 
     // Face: all block.* — the old Design Brain card is retired (the Smart
     // Designer generates and fixes the interface now).
@@ -112,6 +113,9 @@ describe("library groups (Face / Brain / Hands)", () => {
       tid("action.send_whatsapp"),
       tid(TELEGRAM_NODE_TYPES.sendMessage),
       tid(API_CALL_NODE_TYPE),
+      // The Node Frame: not a step that does something, a step that BECOMES
+      // something once the architect describes a service we have no card for.
+      tid(NODE_FRAME_NODE_TYPE),
       tid(VOICE_NODE_TYPES.endFlow)
     ]);
   });

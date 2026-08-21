@@ -144,6 +144,16 @@ export const TELEGRAM_NODE_TYPES = {
 
 export const SCRIPT_NODE_TYPE = "logic.script";
 
+/**
+ * The Node Frame node — the one an architect uses to add a service we do not
+ * have yet.
+ *
+ * Drag it in, describe the service, and it becomes that service's node. The
+ * description is saved to their own toolkit, so the next agent that needs it
+ * has a card in the sidebar instead of a form to fill in again.
+ */
+export const NODE_FRAME_NODE_TYPE = "tool.node_frame";
+
 export const SCRIPT_LANGUAGES = ["javascript", "python"] as const;
 export type ScriptLanguage = (typeof SCRIPT_LANGUAGES)[number];
 
@@ -2525,6 +2535,18 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   // Two ways IN, both real. Until these shipped, an agent could only start when a
   // human typed on a page — the ceiling on every product the platform could make.
   def({ type: "trigger.webhook", label: "When another app sends data", category: "trigger", description: "Starts when another app or website sends its data to this agent's private link.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
+  def({
+    type: NODE_FRAME_NODE_TYPE,
+    label: "New connection",
+    category: "action",
+    description:
+      "Add a service Triven does not have yet. Describe where it lives and what it gives back, and it becomes a node you can use here and in every agent after this.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector" }
+  }),
   def({ type: "trigger.call_list", label: "Call this list", category: "trigger", description: "Works through a list of people one at a time — rings them, waits, tries again, and remembers who picked up.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
   def({ type: "trigger.schedule", label: "On a schedule", category: "trigger", description: "Runs by itself — every hour, every day, or every week.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
 
