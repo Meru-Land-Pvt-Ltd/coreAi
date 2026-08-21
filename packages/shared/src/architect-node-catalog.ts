@@ -7,6 +7,8 @@
  * exist on a canvas — this only controls the palette.
  */
 
+import { NODE_DEFINITIONS } from "./node-registry";
+
 export type ArchitectNodeCatalogItem = {
   type: string;
   group: string;
@@ -28,7 +30,7 @@ export type ResolvedArchitectNode = ArchitectNodeCatalogItem & {
   defaultGroup: string;
 };
 
-export const ARCHITECT_NODE_CATALOG: readonly ArchitectNodeCatalogItem[] = [
+const HAND_WRITTEN_CATALOG: ArchitectNodeCatalogItem[] = [
   { type: "trigger.phone_call", group: "Triggers", label: "Incoming call", defaultVisible: true },
   { type: "trigger.telegram_message", group: "Triggers", label: "Telegram message", defaultVisible: true },
   { type: "trigger.twilio_inbound_sms", group: "Triggers", label: "Text message", defaultVisible: true },
@@ -74,8 +76,62 @@ export const ARCHITECT_NODE_CATALOG: readonly ArchitectNodeCatalogItem[] = [
 
   { type: "logic.condition", group: "Routing / Logic", label: "Condition", defaultVisible: true },
   { type: "action.human_handoff", group: "Routing / Logic", label: "Transfer to staff", defaultVisible: false },
-  { type: "flow.end", group: "Routing / Logic", label: "End", defaultVisible: true }
+  { type: "flow.end", group: "Routing / Logic", label: "End", defaultVisible: true },
+
+  /* ---- What the customer sees. ----
+     These are on the builder palette under "Face" and always have been, and
+     they were simply never written down here. The cost was not cosmetic: this
+     list is what the AI composer picks from, so with no Prompt Box and no
+     Result Viewer it could not build a chat product at all. Asked for "an AI I
+     can talk to", it reached for the phone receptionist, because a phone was
+     the only mouth it had. */
+  { type: "block.prompt_composer", group: "Face", label: "Prompt Box", defaultVisible: true },
+  { type: "block.output_stage", group: "Face", label: "Result Viewer", defaultVisible: true },
+  { type: "block.history_shelf", group: "Face", label: "History Shelf", defaultVisible: true },
+  { type: "block.action_button", group: "Face", label: "Button", defaultVisible: true },
+  { type: "block.continue_chain", group: "Face", label: "Continue Button", defaultVisible: true },
+  { type: "block.model_picker", group: "Face", label: "Model Picker", defaultVisible: true },
+  { type: "block.preset_gallery", group: "Face", label: "Styles Gallery", defaultVisible: true },
+
+  /* On the palette, and missing from here for the same reason. */
+  { type: "action.api_call", group: "Actions", label: "Connect to a service", defaultVisible: true },
+  { type: "trigger.call_list", group: "Triggers", label: "Call this list", defaultVisible: true }
 ];
+
+/**
+ * EVERY NODE GETS A ROW, WITHOUT ANYONE REMEMBERING TO ADD IT.
+ *
+ * This list used to be the only list, kept by hand, and it had fallen 22 nodes
+ * behind the builder. Two things broke quietly because of it: the admin Nodes
+ * page could not switch off a node it had never heard of, and the AI composer
+ * could not build with one.
+ *
+ * So anything in the registry that nobody wrote down still appears — switched
+ * OFF, because a node nobody has decided about is not one to hand an architect
+ * by default. Writing it above is now how you turn it on and give it a home,
+ * not how you make it exist.
+ */
+function derivedCatalog(): ArchitectNodeCatalogItem[] {
+  const written = new Set(HAND_WRITTEN_CATALOG.map((item) => item.type));
+  const groupForCategory: Record<string, string> = {
+    trigger: "Triggers",
+    action: "Actions",
+    ai: "AI",
+    product: "Face",
+    logic: "Routing / Logic"
+  };
+
+  const rest = NODE_DEFINITIONS.filter((definition) => !written.has(definition.type)).map((definition) => ({
+    type: definition.type,
+    group: groupForCategory[definition.category] ?? "Other",
+    label: definition.label,
+    defaultVisible: false
+  }));
+
+  return [...HAND_WRITTEN_CATALOG, ...rest];
+}
+
+export const ARCHITECT_NODE_CATALOG: readonly ArchitectNodeCatalogItem[] = derivedCatalog();
 
 export const ARCHITECT_NODE_TYPE_SET = new Set(ARCHITECT_NODE_CATALOG.map((item) => item.type));
 
