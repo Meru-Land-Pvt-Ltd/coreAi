@@ -24,6 +24,25 @@ beforeEach(() => {
   vi.mocked(pausedNodeTypes).mockResolvedValue(new Map());
 });
 
+describe("the admin switches actually reach the composer", () => {
+  it("throws away nothing an admin set — a Map is looked up by node type, an array is not", async () => {
+    const { hiddenArchitectNodeTypes } = await import("@coreai/shared");
+    const rows = [{ nodeType: "communication.send_sms", visible: false, label: null, group: null }];
+
+    // What the route used to pass, behind an `as never` cast.
+    const asArray = hiddenArchitectNodeTypes(
+      rows.map((r) => ({ type: r.nodeType, visible: r.visible, label: r.label, group: r.group })) as never
+    );
+    // What it passes now.
+    const asMap = hiddenArchitectNodeTypes(
+      new Map(rows.map((r) => [r.nodeType, { visible: r.visible, label: r.label, group: r.group }]))
+    );
+
+    expect(asArray).not.toContain("communication.send_sms");
+    expect(asMap).toContain("communication.send_sms");
+  });
+});
+
 describe("what the composer is allowed to build with", () => {
   it("never offers the Code step", async () => {
     const menu = await composerMenu("architect-1");

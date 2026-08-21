@@ -34,13 +34,23 @@ async function hiddenTypes(): Promise<string[]> {
     const rows = await prisma.architectNodeVisibility.findMany({
       select: { nodeType: true, visible: true, label: true, group: true }
     });
+
+    /*
+     * A Map, keyed by node type — which is what this function has always taken.
+     *
+     * It used to be handed an ARRAY, with `as never` to stop the type checker
+     * saying so. An array looked up by "action.send_sms" returns nothing, so
+     * every admin switch was silently thrown away and the composer built from
+     * the catalogue defaults no matter what anybody set on the Nodes page.
+     * Proven by A/B: hide a node, and the composer still offered it.
+     */
     return hiddenArchitectNodeTypes(
-      rows.map((row) => ({
-        type: row.nodeType,
-        visible: row.visible,
-        label: row.label,
-        group: row.group
-      })) as never
+      new Map(
+        rows.map((row) => [
+          row.nodeType,
+          { visible: row.visible, label: row.label, group: row.group }
+        ])
+      )
     );
   } catch {
     return defaultHiddenArchitectNodeTypes();
