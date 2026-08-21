@@ -19,6 +19,7 @@
  */
 
 import {
+  SCRIPT_NODE_TYPE,
   ARCHITECT_NODE_CATALOG,
   getNodeDefinition,
   type NodeDefinition
@@ -109,6 +110,17 @@ export async function composerMenu(architectUserId: string, hiddenTypes: string[
     // it was allowed to see. No amount of prompt wording fixes a menu with the
     // right answer missing from it.
     if (definition.comingSoon) continue;
+    /*
+     * The composer does not write code.
+     *
+     * It was asked for on one condition — "use only existing nodes, no custom
+     * code execution" — and that condition is the reason it is trustworthy. A
+     * composer that reaches for the Code step when it cannot find a node for
+     * something stops being an arrangement of things we have tested and becomes
+     * a program nobody read, published by somebody who cannot read it either.
+     * The step stays on the palette for an architect who chooses it knowingly.
+     */
+    if (item.type === SCRIPT_NODE_TYPE) continue;
     entries.push(entryFor(definition));
   }
 
