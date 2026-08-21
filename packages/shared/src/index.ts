@@ -9,6 +9,7 @@ export * from "./call-list";
 export * from "./node-frame";
 export * from "./node-honesty";
 export * from "./wiring-check";
+export * from "./failure-signature";
 export * from "./execution-mode";
 export * from "./google-disclosure";
 export * from "./llm-models";

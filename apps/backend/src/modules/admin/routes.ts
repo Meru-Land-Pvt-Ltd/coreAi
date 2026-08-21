@@ -10,6 +10,7 @@ import { adminPayoutRoutes } from "./payout-routes";
 import { adminPricingRoutes } from "./pricing-routes";
 import { adminConnectorRoutes } from "../connectors/admin-routes";
 import { honestyReport } from "../architect/honesty-report";
+import { diagnoseUnknownFailures, knownFailures } from "../architect/self-healing/diagnose";
 import { sendBusinessEmail } from "../email/ses-mail-service";
 import { listRegisteredBusinessAccounts } from "./registered-business-accounts";
 import { getAdminLiveSummaryData } from "./admin-summary";
@@ -72,6 +73,17 @@ adminRoutes.route("/connectors", adminConnectorRoutes);
  * What turned red: steps that reported success without returning what their
  * node type says they produce, grouped by cause rather than by occurrence.
  */
+/** Everything the platform has learned about why things break. */
+adminRoutes.get("/failures", async (c) => {
+  return successResponse(c, await knownFailures());
+});
+
+/** Explain what is still unexplained, now rather than on the next sweep. */
+adminRoutes.post("/failures/diagnose", async (c) => {
+  const limit = Number.parseInt(c.req.query("limit") ?? "5", 10);
+  return successResponse(c, await diagnoseUnknownFailures(Number.isFinite(limit) ? limit : 5));
+});
+
 adminRoutes.get("/honesty", async (c) => {
   const days = Number.parseInt(c.req.query("days") ?? "30", 10);
   return successResponse(c, await honestyReport(Number.isFinite(days) ? days : 30));

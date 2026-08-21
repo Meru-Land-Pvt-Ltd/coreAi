@@ -3166,3 +3166,48 @@ model ArchitectNodeFrame {
   @@unique([architectUserId, frameId])
   @@index([architectUserId, status])
 }
+
+/// What the platform has learned about one kind of failure.
+///
+/// The row is keyed by CAUSE, not by occurrence. A broken step fails on every
+/// run — four hundred times before anyone looks — and this is what turns four
+/// hundred identical failures into one diagnosis and three hundred and
+/// ninety-nine free lookups.
+///
+/// It is also the platform's memory. A fault diagnosed for one architect is
+/// already understood the next time any architect meets it, which is why this
+/// gets cheaper as the platform gets bigger rather than more expensive.
+model FailureDiagnosis {
+  id        String @id @default(cuid())
+  /// The cause, reduced: node type plus what went wrong, with everything
+  /// specific to one run stripped out.
+  signature String @unique
+  nodeType  String
+
+  /// How many runs have hit this. Counted even before it is diagnosed.
+  seenCount   Int      @default(1)
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  /// Filled in by one AI call, once, the first time this cause is seen.
+  cause       String?
+  remedy      String?
+  /// generic = true for everyone who uses this step, so the fix travels.
+  /// local = about one account's own situation, so it must not.
+  scope       String?
+  /// Whether the platform may apply it without asking. Never true for
+  /// anything that changes what a customer receives.
+  autoFixable Boolean  @default(false)
+  diagnosedAt DateTime?
+  diagnosedBy String?
+
+  /// How many times the known answer was served without an AI call.
+  servedFromMemory Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([diagnosedAt])
+  @@index([nodeType, lastSeenAt])
+  @@index([scope, autoFixable])
+}

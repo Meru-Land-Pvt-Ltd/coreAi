@@ -11,6 +11,7 @@ import { startScheduleWorker, stopScheduleWorker } from "./modules/architect/sch
 import { startCallListWorker } from "./modules/architect/call-list";
 import { startConnectorHealthWorker, stopConnectorHealthWorker } from "./modules/connectors/health-worker";
 import { startArchitectFrameRefresh } from "./modules/connectors/architect-frames";
+import { startSelfHealingWorker, stopSelfHealingWorker } from "./modules/architect/self-healing/worker";
 // [DISABLED:non-handoff] worker imports for the commented starts below.
 // import { startReminderWorker, stopReminderWorker } from "./modules/business/reminders/reminder-worker";
 // import {
@@ -50,6 +51,8 @@ const server = serve(
     // Nodes architects built themselves, kept to hand so the runner never has
     // to query the database in the middle of a step.
     frameRefresh = startArchitectFrameRefresh();
+    // Explains faults nobody has explained yet. Costs nothing while things work.
+    startSelfHealingWorker();
     // [DISABLED:non-handoff] reminder + retention workers and quality sweep.
     // startReminderWorker();
     // startRetentionSweepWorker();
@@ -90,6 +93,7 @@ async function shutdown(signal: string) {
   stopScheduleWorker();
   stopConnectorHealthWorker();
   if (frameRefresh) clearInterval(frameRefresh);
+  stopSelfHealingWorker();
   // [DISABLED:non-handoff]
   // stopReminderWorker();
   // stopRetentionSweepWorker();

@@ -5,6 +5,7 @@
 import { Prisma } from "@prisma/client";
 import { checkNodeOutput, getNodeDefinition } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
+import { noteFailure } from "../architect/self-healing/diagnose";
 import { mapNodeRunToRecord, mapStatusToPrisma } from "./mappers";
 import { resolveBackLinkedMemories } from "./backlink-resolver";
 import { buildContextBundle, mergeWorkflowMemory } from "./context-builder";
@@ -55,6 +56,22 @@ export class MemoryBroker {
         nodeType: payload.nodeType,
         missing: honesty.missing
       });
+    }
+
+    /*
+     * Note the fault, so the platform can learn it.
+     *
+     * One upsert, no thinking, and nothing at all is spent when the cause is
+     * already understood. Deliberately not awaited: a run must never wait on
+     * bookkeeping about a step that has already finished.
+     */
+    if (honesty.verdict === "unproven" || String(payload.status).toLowerCase() === "error") {
+      void noteFailure({
+        nodeType: payload.nodeType,
+        kind: honesty.verdict === "unproven" ? "unproven" : "error",
+        missingOutputs: honesty.missing,
+        errorMessage: payload.errorMessage
+      }).catch(() => undefined);
     }
 
     try {
