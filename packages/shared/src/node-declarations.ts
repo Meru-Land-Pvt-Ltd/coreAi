@@ -372,8 +372,37 @@ function askId(rawName: string): string {
 /* Block satisfaction — existing on-canvas answers.                          */
 /* ------------------------------------------------------------------------ */
 
-/** Semantic names a Prompt Box already captures — the customer's free text. */
-const PROMPT_LIKE_IDS = new Set(["latestmessage", "prompt", "message", "input", "query", "question", "text", "request"]);
+/**
+ * THE GUESSING GAME, REPLACED BY THE DECLARED DOOR.
+ *
+ * The Prompt Box declares what it gives — `text` — in the node registry, and
+ * docs/NODE-SOP.md says a door that is not written down is not a door.
+ *
+ * This was that door being guessed at. Eight hard-coded words, and what a
+ * customer typed reached a node only if that node happened to ask for one of
+ * them. An architect who called their input `userQuestion` got silence, with no
+ * warning anywhere on the canvas.
+ *
+ * The list is now the registry's own answer, read once. The old eight stay
+ * alongside it as names already saved on live canvases — they are aliases for
+ * one declared door now, not a door of their own — and adding a ninth is no
+ * longer how a node gets the customer's words. Declaring it is.
+ */
+const DECLARED_PROMPT_OUTPUTS =
+  getNodeDefinition(BLOCK_NODE_TYPES.promptComposer)?.producedVariables ?? [];
+
+const PROMPT_LIKE_IDS = new Set([
+  ...DECLARED_PROMPT_OUTPUTS.map((key) => key.toLowerCase()),
+  // Names architects already saved before the door was written down. Kept so
+  // no existing canvas silently stops working; nothing new is added here.
+  "latestmessage",
+  "prompt",
+  "message",
+  "input",
+  "query",
+  "question",
+  "request"
+]);
 const MODEL_LIKE_IDS = new Set(["model", "aimodel"]);
 const PRESET_LIKE_IDS = new Set(["preset", "style"]);
 

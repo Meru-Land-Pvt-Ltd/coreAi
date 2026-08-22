@@ -34,7 +34,17 @@ export const KNOWN_PROMPT_VARIABLES = [
   "currentDate",
   "todayDate",
   "tomorrowDate",
-  "timeZone"
+  "timeZone",
+  /**
+   * What a customer typed into a Prompt Box.
+   *
+   * The Prompt Box declares it gives `text` (docs/NODE-SOP.md), so a later node
+   * writing {{text}} is asking for a door that exists — and this list is what
+   * decides whether the canvas calls a token real or paints it red as unknown.
+   * Without this line the platform would offer the door and then warn about
+   * anyone who used it.
+   */
+  "text"
 ] as const;
 
 const KNOWN_PROMPT_VARIABLE_KEYS = new Set(
