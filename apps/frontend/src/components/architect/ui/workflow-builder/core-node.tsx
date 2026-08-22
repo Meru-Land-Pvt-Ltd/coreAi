@@ -115,17 +115,24 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
           </div>
           {data.subtitle ? <p className="mt-1 line-clamp-2 text-xs text-slate-500" data-testid="architect-ui-workflow-builder-core-node-subtitle-text">{data.subtitle}</p> : null}
 
-          {takes.length > 0 ? (
+          {takes.length > 0 || definition?.needsWhateverItsPromptAsksFor ? (
             <p className="mt-2 flex flex-wrap items-center gap-1" data-testid="core-node-takes">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Takes</span>
-              {takes.map((key) => (
-                <span
-                  key={key}
-                  className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-600"
-                >
-                  {key}
-                </span>
-              ))}
+              {definition?.needsWhateverItsPromptAsksFor ? (
+                /* This node's door in is written in its own prompt, so there is
+                   no fixed list to print — saying that is more honest than
+                   printing nothing and letting it read as "needs nothing". */
+                <span className="text-[10px] italic text-slate-500">whatever your prompt asks for</span>
+              ) : (
+                takes.map((key) => (
+                  <span
+                    key={key}
+                    className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-600"
+                  >
+                    {key}
+                  </span>
+                ))
+              )}
             </p>
           ) : null}
 

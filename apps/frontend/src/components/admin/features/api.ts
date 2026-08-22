@@ -747,3 +747,58 @@ export function setAdminNodeExecution(nodeType: string, enabled: boolean, reason
     affected: { installedAgents: number; businesses: number };
   }>(`/admin/nodes/${encodeURIComponent(nodeType)}/execution`, { enabled, reason });
 }
+
+/* ------------------------------ AI models -------------------------------- */
+
+/**
+ * One model an architect can pick.
+ *
+ * `source` is the whole point: built-in models shipped with a release and their
+ * price and name are ours, so an admin may switch one off but not rewrite it.
+ * Admin models were added here, without a deploy, and can be edited freely.
+ */
+export type AdminLlmModel = {
+  id: string;
+  providerId: string;
+  displayName: string;
+  category: string;
+  badge: string;
+  inputPricePer1M: number | null;
+  outputPricePer1M: number | null;
+  multimodal?: boolean;
+  source: "built-in" | "admin";
+};
+
+export type AdminLlmModelRow = {
+  modelId: string;
+  providerId: string;
+  displayName: string;
+  category: string;
+  inputPricePer1M: number | null;
+  outputPricePer1M: number | null;
+  multimodal: boolean;
+  enabled: boolean;
+};
+
+export function getAdminLlmModels() {
+  return apiGet<{ providers: string[]; models: AdminLlmModel[]; added: AdminLlmModelRow[] }>(
+    "/admin/llm-models"
+  );
+}
+
+export function saveAdminLlmModel(model: {
+  modelId: string;
+  providerId: string;
+  displayName: string;
+  category: string;
+  inputPricePer1M?: number | null;
+  outputPricePer1M?: number | null;
+  multimodal?: boolean;
+  enabled?: boolean;
+}) {
+  return apiPost<{ model: AdminLlmModelRow }>("/admin/llm-models", model);
+}
+
+export function removeAdminLlmModel(modelId: string) {
+  return apiDelete<{ removed: string }>(`/admin/llm-models/${encodeURIComponent(modelId)}`);
+}

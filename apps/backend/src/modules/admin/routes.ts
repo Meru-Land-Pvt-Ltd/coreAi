@@ -16,6 +16,14 @@ import {
   setNodeVisibility,
   whoIsAffectedBy
 } from "./node-controls";
+import {
+  allLlmModels,
+  listAdminLlmModels,
+  offerableProviderIds,
+  removeAdminLlmModel,
+  saveAdminLlmModel,
+  whatIsWrongWith
+} from "./llm-model-registry";
 import { diagnoseUnknownFailures, knownFailures } from "../architect/self-healing/diagnose";
 import { sendBusinessEmail } from "../email/ses-mail-service";
 import { listRegisteredBusinessAccounts } from "./registered-business-accounts";
@@ -153,6 +161,80 @@ adminRoutes.put("/nodes/:nodeType/visibility", async (c) => {
  * written reason — which is what those businesses will read — and it is written
  * to the admin audit log with who did it.
  */
+/* ------------------------------- AI models ------------------------------- */
+
+/**
+ * Every model an architect can pick, and which of them an admin put there.
+ *
+ * Providers ship new models constantly. Before this, adding one meant a code
+ * edit and a deploy, which means an architect building today is offered what
+ * was current whenever we last released.
+ */
+adminRoutes.get("/llm-models", async (c) => {
+  const [models, added] = await Promise.all([allLlmModels(true), listAdminLlmModels()]);
+  const addedIds = new Set(added.map((row) => row.modelId));
+
+  return successResponse(c, {
+    providers: offerableProviderIds(),
+    models: models.map((model) => ({
+      ...model,
+      /* Shipped models cannot be edited here, only switched off — the price and
+         name of something we released are ours, not a typo waiting to happen. */
+      source: addedIds.has(model.id) ? ("admin" as const) : ("built-in" as const)
+    })),
+    added
+  });
+});
+
+adminRoutes.post("/llm-models", async (c) => {
+  const authUser = c.get("authUser");
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+
+  const input = {
+    modelId: String(body.modelId ?? ""),
+    providerId: String(body.providerId ?? ""),
+    displayName: String(body.displayName ?? ""),
+    category: String(body.category ?? "flagship"),
+    inputPricePer1M: body.inputPricePer1M === null || body.inputPricePer1M === undefined || body.inputPricePer1M === ""
+      ? null
+      : Number(body.inputPricePer1M),
+    outputPricePer1M: body.outputPricePer1M === null || body.outputPricePer1M === undefined || body.outputPricePer1M === ""
+      ? null
+      : Number(body.outputPricePer1M),
+    multimodal: body.multimodal === true,
+    enabled: body.enabled !== false
+  };
+
+  const problem = whatIsWrongWith(input);
+  if (problem) return errorResponse(c, problem, 422, "VALIDATION_ERROR");
+
+  const saved = await saveAdminLlmModel(input, authUser.id);
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "LLM_MODEL_SAVED",
+    targetType: "LlmModel",
+    targetId: saved.modelId,
+    meta: { providerId: saved.providerId, displayName: saved.displayName, enabled: saved.enabled }
+  }).catch(() => null);
+
+  return successResponse(c, { model: saved });
+});
+
+adminRoutes.delete("/llm-models/:modelId", async (c) => {
+  const authUser = c.get("authUser");
+  const modelId = c.req.param("modelId");
+
+  await removeAdminLlmModel(modelId);
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "LLM_MODEL_REMOVED",
+    targetType: "LlmModel",
+    targetId: modelId
+  }).catch(() => null);
+
+  return successResponse(c, { removed: modelId });
+});
+
 adminRoutes.put("/nodes/:nodeType/execution", async (c) => {
   const authUser = c.get("authUser");
   const nodeType = c.req.param("nodeType");

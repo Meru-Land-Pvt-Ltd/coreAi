@@ -23,7 +23,8 @@ import {
   UserRoundCog,
   X,
   type LucideIcon,
-  ToggleRight
+  ToggleRight,
+  Sparkles
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getAuthUser, logout, type AuthUser } from "@/lib/auth";
@@ -60,7 +61,8 @@ const NAV_GROUPS: Array<{ label: string; items: AdminNavItem[] }> = [
       { label: "Design Brain rules", href: "/admin/design-rules" as Route, icon: Paintbrush },
       { label: "Builder nodes", href: "/admin/builder-nodes" as Route, icon: LayoutGrid },
       // The two switches: available to build with, and allowed to run at all.
-      { label: "Nodes", href: "/admin/nodes" as Route, icon: ToggleRight }
+      { label: "Nodes", href: "/admin/nodes" as Route, icon: ToggleRight },
+      { label: "AI models", href: "/admin/ai-models" as Route, icon: Sparkles }
     ]
   },
   {

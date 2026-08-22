@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { BuilderIcon } from "./icons";
 import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
 import { Section, Label, TextInput, TextArea } from "./node-inspector";
+import { modelsForProvider, useLlmModels } from "./use-llm-models";
 import {
   LLM_PROVIDERS,
   defaultLlmModelForProvider,
@@ -36,11 +37,18 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
     return typeof value === "string" ? value : fallback;
   };
 
+  /* The list the platform has right now, not the one compiled into this
+     bundle — an admin can add a model without a release, and it has to show up
+     here or the feature only exists on the server. Falls back to the bundled
+     list, so this dropdown is never empty. */
+  const liveModels = useLlmModels();
+
   const selection = resolveLlmSelection(str("llmProvider"), str("llmModel"));
   const currentProvider = getLlmProvider(selection.providerId);
-  const providerModels = getLlmModelsForProvider(selection.providerId);
+  const providerModels = modelsForProvider(liveModels, selection.providerId);
   const activeModelId = selection.modelId ?? defaultLlmModelForProvider(selection.providerId) ?? "";
-  const currentModel = findLlmModel(activeModelId);
+  const currentModel =
+    liveModels.find((model) => model.id === activeModelId) ?? findLlmModel(activeModelId);
   const isMultimodal = isMultimodalModel(currentModel, selection.providerId);
 
   // Close dropdowns on outside click
@@ -189,7 +197,7 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
                   >
                     <span className="truncate">{p.displayName}</span>
                     <span className="ml-2 shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                      {getLlmModelsForProvider(p.id).length} models
+                      {modelsForProvider(liveModels, p.id).length} models
                     </span>
                   </button>
                 );

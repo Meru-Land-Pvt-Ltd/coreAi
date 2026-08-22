@@ -3232,3 +3232,35 @@ model FailureDiagnosis {
   @@index([nodeType, lastSeenAt])
   @@index([scope, autoFixable])
 }
+
+/// A model an admin added without a deploy.
+///
+/// The built-in list in packages/shared/src/llm-models.ts ships with the code
+/// and needs a release to change. Providers publish new models constantly, and
+/// an architect who cannot pick one is an architect on last month's platform —
+/// so admins add them here and they appear in every AI Brain immediately.
+///
+/// Only MODELS, deliberately. A new provider needs an adapter that speaks its
+/// API, which is code; a new model on a provider we already speak to is data.
+model AdminLlmModel {
+  id              String   @id @default(cuid())
+  /// The id sent to the provider's API, e.g. "gpt-5.6". Unique across all models.
+  modelId         String   @unique
+  /// Must match a provider the engine already has an adapter for.
+  providerId      String
+  displayName     String
+  /// thinking | flagship | fast | code | legacy — drives the badge in the picker.
+  category        String   @default("flagship")
+  inputPricePer1M Float?
+  outputPricePer1M Float?
+  /// Can it read images and PDFs.
+  multimodal      Boolean  @default(false)
+  /// Off hides it from every picker without deleting what it is.
+  enabled         Boolean  @default(true)
+  addedByUserId   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([providerId])
+  @@index([enabled])
+}

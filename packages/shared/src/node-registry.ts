@@ -101,6 +101,18 @@ export type NodeDefinition = {
   /** Variables this node writes into the runtime context when it executes. */
   producedVariables?: string[];
   /**
+   * This step's door in is written by the architect, in its own prompt, every
+   * time it is used — so there is no fixed list of what it needs.
+   *
+   * True only for the AI nodes. An architect writing {{text}} needs text; one
+   * writing {{callerName}} needs that instead, and the same node is correct
+   * both times. Needed for the same reason as `producesNothing`: an empty
+   * `requiredVariables` on a node nobody has described looks identical to an
+   * empty one on a node that genuinely has no fixed needs, and the canvas has
+   * to tell those apart before it can claim to have checked anything.
+   */
+  needsWhateverItsPromptAsksFor?: boolean;
+  /**
    * This step genuinely hands nothing to the steps after it, and that is
    * correct rather than unfinished.
    *
@@ -1813,15 +1825,45 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
      * It was reachable only because the sidebar builds its card by hand
      * instead of from a definition.
      */
+    // NODE THREE. The circuit. See docs/NODE-SOP.md.
+    //
+    // Switch, circuit, lamp. The Prompt Box is the way in and the Result Viewer
+    // is the way out; this is the only node between them that does any work,
+    // and its voice cousin sits inside ten of the eleven agents businesses are
+    // paying for today. It is the most used node on the platform.
+    //
+    // Q3 — WHAT IT NEEDS is the one place this node is genuinely different from
+    // the first two, and pretending otherwise would be worse than saying so.
+    // The Prompt Box needs nothing and the Result Viewer always needs `text`.
+    // This one needs *whatever its own prompt asks for*: an architect writing
+    // {{text}} needs text, one writing {{callerName}} needs that instead. Its
+    // door in is written by the architect, in the prompt, every time.
+    //
+    // So `requiredVariables` stays empty and `needsWhateverItsPromptAsksFor`
+    // says why — because an empty list and an undescribed node look identical,
+    // and the canvas has to tell them apart to check anything honestly.
     type: "ai.llm_call",
     label: "AI Brain",
     category: "ai",
     description: "Thinks about what has happened so far and writes an answer, using the model you pick.",
-    requiredConfig: [],
+    // Q5 — every dial, written down. The runner reads exactly these off the
+    // node; anything not listed here is not a setting, it is a leftover.
+    requiredConfig: ["llmRequirements"],
     backendExecutable: true,
     launchCritical: true,
     comingSoon: false,
     runtime: { nodeKind: "ai" },
+    defaultConfig: {
+      llmProvider: "",
+      llmModel: "",
+      llmSystemPrompt: "You are a helpful assistant.",
+      llmRequirements: "",
+      llmTemperature: "0.7",
+      llmMaxTokens: "1024",
+      llmOutputFormat: "text"
+    },
+    requiredVariables: [],
+    needsWhateverItsPromptAsksFor: true,
     // What it really returns, taken from the runs it has already done.
     producedVariables: ["text"]
   }),

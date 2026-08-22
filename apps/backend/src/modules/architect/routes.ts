@@ -74,6 +74,7 @@ import { listArchitectNodeVisibility } from "../admin/node-visibility";
 import { allConnectors } from "../connectors/registry";
 import { architectFrameRoutes } from "../connectors/architect-routes";
 import { composerRoutes } from "./composer/routes";
+import { allLlmModels } from "../admin/llm-model-registry";
 import { checkWiring } from "@coreai/shared";
 import { readyFramesFor } from "../connectors/architect-frames";
 import { pausedNodeTypes } from "../admin/node-controls";
@@ -638,6 +639,19 @@ function builderConnectors() {
 architectRoutes.route("/node-frames", architectFrameRoutes);
 // "Build it for me" — describe an agent, get the orchestration.
 architectRoutes.route("/compose", composerRoutes);
+
+/**
+ * Every model an architect may pick, including the ones an admin added today.
+ *
+ * The builder used to read a list compiled into its own bundle, so a model an
+ * admin added was invisible until the next frontend release. It falls back to
+ * that bundled list if this ever fails, because an empty model dropdown on a
+ * node somebody is mid-way through building is worse than a slightly old one.
+ */
+architectRoutes.get("/llm-models", async (c) => {
+  const models = await allLlmModels().catch(() => []);
+  return successResponse(c, { models });
+});
 
 /**
  * Does every step get the data it needs?
