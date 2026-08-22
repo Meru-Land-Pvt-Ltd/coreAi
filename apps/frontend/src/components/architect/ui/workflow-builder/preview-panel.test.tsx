@@ -165,11 +165,13 @@ describe("PreviewPanel", () => {
     );
   });
 
-  it("explains the pause while the agent is under review", () => {
+  it("says nothing about review, because a customer never sees a word about it", () => {
+    // Preview is the customer's page. The review notice belongs on Build, where
+    // it already is; here it floated over the product an architect was trying
+    // to look at, and named the one thing they could do nothing about.
     render(<PreviewPanel {...makeProps({ underReview: true })} />);
-    expect(screen.getByTestId("preview-panel-review-lock").textContent).toContain(
-      "Testing is paused while your agent is under review."
-    );
+    expect(screen.queryByTestId("preview-panel-review-lock")).toBeNull();
+    expect(screen.queryByText(/under review/i)).toBeNull();
     expect(screen.queryByTestId("preview-panel-error")).toBeNull();
   });
 

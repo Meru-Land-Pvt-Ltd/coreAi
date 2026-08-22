@@ -585,17 +585,14 @@ export function PreviewPanel({
         </div>
       </div>
 
-      {/* While the agent is under review (or after an engine snag) a quiet
-          card floats near the top — the page stays visible. */}
-      {underReview ? (
-        <div
-          role="status"
-          data-testid="preview-panel-review-lock"
-          className="absolute left-1/2 top-4 z-30 w-[min(90%,32rem)] -translate-x-1/2 rounded-2xl border border-gray-200 bg-white/95 px-4 py-2.5 text-center text-sm leading-relaxed text-slate-600 shadow-lg backdrop-blur"
-        >
-          Testing is paused while your agent is under review.
-        </div>
-      ) : engineSnag ? (
+      {/* Preview is the customer's page, and a customer never sees a word about
+          review. The review notice belongs on Build, where it already is — here
+          it floated over the product an architect was trying to look at, and
+          told them the one thing they could not do anything about.
+
+          An engine snag stays: that is the page failing to answer, which is
+          something a customer would see and an architect must. */}
+      {engineSnag ? (
         <div
           role="status"
           data-testid="preview-panel-error"
