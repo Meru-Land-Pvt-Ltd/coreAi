@@ -1,4 +1,10 @@
-import { normalizeTimeZone, VOICE_TOOL_NAMES } from "@coreai/shared";
+import {
+  elevenLabsVoiceSettingsFor,
+  normalizeTimeZone,
+  resolveSalesTuning,
+  vapiSpeechPlansFor,
+  VOICE_TOOL_NAMES
+} from "@coreai/shared";
 import { normalizeAiProvider, type ResolvedVoicePipeline } from "../compliance/workspace-ai-guard";
 import {
   PLATFORM_DEFAULT_VOICE_ID,
@@ -290,6 +296,92 @@ export type VapiBusinessContext = {
   calendarId?: string;
   timeZone?: string;
 };
+
+/**
+ * Register one of our Twilio numbers with Vapi so it can PLACE calls.
+ *
+ * Outbound has always been impossible on this platform for a reason nobody had
+ * noticed: Vapi will not dial from a number it does not know, and no code here
+ * ever told it about ours. Inbound survives without this because the caller
+ * reaches Twilio first and we hand Vapi the leg; outbound has no such path.
+ *
+ * IMPORTANT: importing a number hands its inbound webhook to Vapi. Never do
+ * this to a number a business is already answering calls on — pick a free one.
+ */
+export async function registerNumberWithVapi(args: {
+  e164: string;
+  label?: string;
+}): Promise<{ vapiPhoneNumberId: string; number: string }> {
+  if (!env.VAPI_API_KEY) throw new Error("VAPI_API_KEY is not configured.");
+  if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN) {
+    throw new Error("Twilio credentials are not configured.");
+  }
+
+  const base = env.VAPI_BASE_URL.replace(/\/$/, "");
+  const response = await fetch(`${base}/phone-number`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.VAPI_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    signal: AbortSignal.timeout(20000),
+    body: JSON.stringify({
+      provider: "twilio",
+      number: args.e164,
+      twilioAccountSid: env.TWILIO_ACCOUNT_SID,
+      twilioAuthToken: env.TWILIO_AUTH_TOKEN,
+      ...(args.label ? { name: args.label } : {})
+    })
+  });
+
+  const json = await readJsonObject(response);
+  if (!response.ok || typeof json?.id !== "string") {
+    const message = typeof json?.message === "string" ? json.message : `HTTP ${response.status}`;
+    throw new Error(`Vapi could not register ${args.e164}: ${message}`);
+  }
+
+  return { vapiPhoneNumberId: json.id, number: String(json.number ?? args.e164) };
+}
+
+/** The numbers Vapi already knows about — used to avoid a double import. */
+export async function listVapiPhoneNumbers(): Promise<Array<{ id: string; number: string }>> {
+  if (!env.VAPI_API_KEY) return [];
+  const base = env.VAPI_BASE_URL.replace(/\/$/, "");
+  const response = await fetch(`${base}/phone-number`, {
+    headers: { Authorization: `Bearer ${env.VAPI_API_KEY}` },
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!response.ok) return [];
+  const body = await response.json().catch(() => null);
+  if (!Array.isArray(body)) return [];
+  return body
+    .filter((row): row is { id: string; number: string } => typeof row?.id === "string")
+    .map((row) => ({ id: row.id, number: String(row.number ?? "") }));
+}
+
+/**
+ * The number an outbound call is placed FROM.
+ *
+ * A business rarely has one of its own: its number answers calls, and only a
+ * number registered with the voice provider can make them. So when nothing
+ * specific is set we fall back to any platform number that has been enabled
+ * for outbound — which is what the admin "Enable outbound calling" button
+ * produces. Without this, every outbound call fails with "Vapi is not
+ * configured" even though a perfectly good number is sitting there registered.
+ */
+export async function resolveOutboundPhoneNumberId(
+  preferred?: string | null
+): Promise<string | null> {
+  const explicit = clean(preferred) || clean(env.VAPI_DEFAULT_PHONE_NUMBER_ID);
+  if (explicit) return explicit;
+
+  const registered = await prisma.platformPhoneNumber.findFirst({
+    where: { vapiPhoneNumberId: { not: null } },
+    orderBy: { createdAt: "asc" },
+    select: { vapiPhoneNumberId: true }
+  });
+  return registered?.vapiPhoneNumberId ?? null;
+}
 
 function requireVapiConfig(assistantId?: string | null, phoneNumberId?: string | null) {
   // Assistant ids come from the database (InstalledAgent.configJson), never
@@ -1293,6 +1385,12 @@ export type DeployVapiAssistantInput = {
   maxDurationSeconds?: number;
   /** End Flow node "Call recording" toggle → Vapi artifactPlan.recordingEnabled (default on). */
   recordingEnabled?: boolean;
+  /**
+   * The behaviour dials saved on the AI node — answer speed, interruption
+   * sensitivity, patience after pushback. Anything missing falls back to the
+   * researched default, so callers may pass a partial object or nothing.
+   */
+  tuning?: Record<string, unknown>;
 };
 
 export async function deployVapiAssistant({
@@ -1315,7 +1413,8 @@ export async function deployVapiAssistant({
   includeTools,
   silenceTimeoutSeconds,
   maxDurationSeconds,
-  recordingEnabled
+  recordingEnabled,
+  tuning
 }: DeployVapiAssistantInput): Promise<{ id: string; created: boolean; pipeline: ResolvedVoicePipeline }> {
   if (!env.VAPI_API_KEY) {
     throw new Error("VAPI_API_KEY is required to deploy the voice assistant.");
@@ -1327,8 +1426,22 @@ export async function deployVapiAssistant({
   // so long listing/business/workflow names never fail a deploy.
   const assistantName = clean(name).slice(0, 40) || "Triven Assistant";
 
+  // Turn-taking and delivery come from the node's dials. An untuned node
+  // resolves to the researched defaults, so every existing workflow keeps
+  // working unchanged.
+  const resolvedTuning = resolveSalesTuning(tuning ?? {});
+  const speechPlans = vapiSpeechPlansFor(resolvedTuning);
+
   const body: Record<string, unknown> = {
     name: assistantName,
+    // The line the caller actually hears before the line drops. Without it
+    // Vapi hangs up silently, which a caller reads as a dropped call.
+    endCallMessage: "Thanks for your time — take care.",
+    // endCallPhrases fires on phrases the ASSISTANT speaks, not the caller.
+    // The old list here was full of caller lines ("cut the call", "hang up"),
+    // so it never fired once — which is why she could not hang up when asked
+    // three times on the first live test. These are her own closing words.
+    endCallPhrases: ["Thanks for your time — take care.", "Have a great day.", "Talk soon — bye."],
     // Choke-point safety net: EVERY recording-on assistant greets with the
     // recording notice, no matter which deploy flow built the greeting
     // (buyer deploy already appends it; self-test/dental flows may not).
@@ -1345,40 +1458,57 @@ export async function deployVapiAssistant({
       // The knowledge-lookup tool is independent of the booking-tools flag —
       // PDF retrieval must never be silently disabled by an unrelated env
       // toggle while the prompt still advertises the tool.
-      tools: genericAssistantTools()
-        .filter((tool) => {
-          const toolName = tool.function.name;
-          if (toolName === VOICE_TOOL_NAMES.lookupKnowledge) {
-            return includeTools?.knowledgeLookup !== false;
+      tools: [
+        // HANGING UP. This used to be the assistant-level flag
+        // `endCallFunctionEnabled`, which Vapi has removed from the Create
+        // Assistant API — so the agent had no way to end a call at all. Told
+        // "cut the call" three times on the first live test it could only
+        // promise to, then keep talking.
+        //
+        // `blocking: true` matters as much as the tool itself: the default is
+        // false, which drops the line while the goodbye is still being spoken.
+        // And the rejection plan stops her hanging up mid-conversation — she
+        // may only end the call when the caller's own last words said goodbye.
+        {
+          type: "endCall",
+          messages: [
+            {
+              type: "request-start",
+              content: "Thanks for your time — take care.",
+              blocking: true
+            }
+          ],
+          rejectionPlan: {
+            conditions: [
+              {
+                type: "regex",
+                regex: "(?i)\\b(bye|goodbye|farewell|see you later|take care|that's it|i'm done|cut the call|hang up)\\b",
+                target: { position: -1, role: "user" },
+                negate: true
+              }
+            ]
           }
-          return env.VAPI_ENABLE_BOOKING_TOOLS;
-        })
-        .filter((tool) => shouldIncludeAssistantTool(tool.function.name, includeTools))
+        },
+        ...genericAssistantTools()
+          .filter((tool) => {
+            const toolName = tool.function.name;
+            if (toolName === VOICE_TOOL_NAMES.lookupKnowledge) {
+              return includeTools?.knowledgeLookup !== false;
+            }
+            return env.VAPI_ENABLE_BOOKING_TOOLS;
+          })
+          .filter((tool) => shouldIncludeAssistantTool(tool.function.name, includeTools))
+      ]
     },
     transcriber: {
       provider: env.VAPI_TRANSCRIBER_PROVIDER,
       model: env.VAPI_TRANSCRIBER_MODEL,
       language: resolveTranscriberLanguage(language)
     },
-    startSpeakingPlan: {
-      waitSeconds: 0.2,
-      smartEndpointingPlan: {
-        provider: "livekit",
-        waitFunction: "2000 / (1 + exp(-10 * (x - 0.5)))"
-      },
-      transcriptionEndpointingPlan: {
-        onPunctuationSeconds: 0.1,
-        onNoPunctuationSeconds: 0.4,
-        onNumberSeconds: 0.3
-      }
-    },
-    stopSpeakingPlan: {
-      numWords: 0,
-      voiceSeconds: 0.2,
-      backoffSeconds: 0
-    },
-    interruptionsEnabled: true,
-    firstMessageInterruptionsEnabled: true,
+    // TURN-TAKING. Every number here now comes from the tuning dials on the
+    // node, so an operator who can hear the problem can fix it without a
+    // deploy. The defaults are the researched ones (see sales-tuning.ts).
+    ...speechPlans,
     server: {
       url: serverUrl,
       // Vapi echoes this back as X-Vapi-Secret on every webhook call.
@@ -1403,14 +1533,20 @@ export async function deployVapiAssistant({
 
   const voiceSpeed = resolveVoiceSpeed(speakingSpeed);
 
+  const voiceSettings = elevenLabsVoiceSettingsFor(resolvedTuning);
+
   body.voice =
     voiceResolution.config.provider === "11labs"
       ? {
         ...voiceResolution.config,
-        stability: typeof stability === "number" ? stability : 0.65,
+        // Turbo is the low-latency model. On a sales call the wait before she
+        // answers costs more than the last few percent of audio polish, and
+        // the caller hears every millisecond of it as a dropped line.
+        model: "eleven_turbo_v2_5",
+        stability: typeof stability === "number" ? stability : voiceSettings.stability,
         similarityBoost: typeof similarityBoost === "number" ? similarityBoost : 0.75,
-        style: typeof style === "number" ? style : 0.0,
-        useSpeakerBoost: typeof useSpeakerBoost === "boolean" ? useSpeakerBoost : false,
+        style: typeof style === "number" ? style : voiceSettings.style,
+        useSpeakerBoost: typeof useSpeakerBoost === "boolean" ? useSpeakerBoost : voiceSettings.useSpeakerBoost,
         ...(voiceSpeed !== undefined ? { speed: voiceSpeed } : {})
       }
       : voiceResolution.config;

@@ -28,6 +28,9 @@ function loaderScript(origin: string): string {
   if (!tag) return;
 
   var slug = tag.getAttribute("data-triven-agent");
+  // The buyer's widget key. Present on a business's own site; absent on a
+  // marketplace demo embed, which stays a demo.
+  var key = tag.getAttribute("data-triven-key") || "";
   if (!slug) {
     if (window.console && console.warn) {
       console.warn("[triven] add data-triven-agent=\\"your-agent\\" to the script tag");
@@ -39,7 +42,12 @@ function loaderScript(origin: string): string {
   var mode = tag.getAttribute("data-triven-mode") === "bubble" ? "bubble" : "inline";
   var label = tag.getAttribute("data-triven-label") || "Ask us";
   var accent = tag.getAttribute("data-triven-accent") || "#f59e0b";
-  var src = origin + "/a/" + encodeURIComponent(slug) + "?embed=1";
+  var src =
+    origin +
+    "/a/" +
+    encodeURIComponent(slug) +
+    "?embed=1" +
+    (key ? "&k=" + encodeURIComponent(key) : "");
 
   // One agent, one widget, however many times the tag is pasted.
   var guard = "__trivenEmbed_" + slug.replace(/[^a-zA-Z0-9]/g, "_");

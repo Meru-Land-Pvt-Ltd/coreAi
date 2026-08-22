@@ -20,3 +20,7 @@ firebase-admin*.json
 # `git rm --cached <file>` in a dedicated commit if desired).
 *.tsbuildinfo
 .model-cache.json
+
+# TypeScript incremental build cache — a build artifact, never source.
+# It was tracked, so every local typecheck dirtied the tree and blocked deploys.
+apps/frontend/tsconfig.tsbuildinfo

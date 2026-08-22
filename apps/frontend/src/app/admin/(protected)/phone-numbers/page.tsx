@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   assignPhoneNumber,
   configurePhoneNumberWebhooks,
+  enableOutboundCalling,
   getAdminBusinesses,
   getAdminPhoneNumbers,
   getPhoneAssignOptions,
@@ -432,6 +433,34 @@ export default function AdminPhoneNumbersPage() {
                           className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                         >
                           {busy === `webhooks-${row.id}` ? "Configuring…" : "Configure webhooks"}
+                        </button>
+                      ) : null}
+                      {row.vapiPhoneNumberId ? (
+                        <span
+                          data-testid={`admin-phone-outbound-ready-${row.phoneNumber}`}
+                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700"
+                          title="This number is registered with the voice provider and can place calls."
+                        >
+                          Can place calls
+                        </span>
+                      ) : null}
+                      {row.twilioSid && !row.business && row.status === "AVAILABLE" && !row.vapiPhoneNumberId ? (
+                        <button
+                          type="button"
+                          data-testid={`admin-phone-outbound-${row.phoneNumber}`}
+                          onClick={() =>
+                            void runRowAction(
+                              `outbound-${row.id}`,
+                              () => enableOutboundCalling(row.id),
+                              `${row.phoneNumber} can now place calls.`,
+                              "Could not enable outbound calling."
+                            )
+                          }
+                          disabled={Boolean(busy)}
+                          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                          title="Registers this number with the voice provider so agents can call out from it. Takes over its incoming calls, so only free numbers are offered."
+                        >
+                          {busy === `outbound-${row.id}` ? "Enabling…" : "Enable outbound calling"}
                         </button>
                       ) : null}
                       {canRelease(row) ? (

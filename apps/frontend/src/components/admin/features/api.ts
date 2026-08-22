@@ -379,6 +379,8 @@ export type AdminPhoneNumber = {
   provider: string;
   status: PhoneNumberStatus;
   twilioSid: string | null;
+  /** Present once this number can place outbound calls. */
+  vapiPhoneNumberId?: string | null;
   country: string | null;
   region: string | null;
   locality: string | null;
@@ -470,6 +472,19 @@ export function unassignPhoneNumber(id: string) {
 
 export function configurePhoneNumberWebhooks(id: string) {
   return apiPost<{ number: AdminPhoneNumber }>(`/admin/phone-numbers/${id}/configure-webhooks`, {});
+}
+
+/**
+ * Let this number PLACE calls. Registers it with the voice provider, which is
+ * the step that was missing entirely — agents could answer calls but never
+ * make them. Only offered for free numbers: registering takes over the
+ * number's incoming calls, which would silence a business that uses it.
+ */
+export function enableOutboundCalling(id: string) {
+  return apiPost<{ vapiPhoneNumberId: string; number: string }>(
+    `/admin/phone-numbers/${id}/register-voice`,
+    {}
+  );
 }
 
 export function syncTwilioPhoneNumbers(dryRun: boolean) {

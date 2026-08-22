@@ -338,6 +338,7 @@ model Business {
   handoffEvents       HandoffEvent[]
   scheduledRuns       ScheduledAgentRun[]
   webhookEndpoints    AgentWebhookEndpoint[]
+  callConsents        CallConsent[]
   teamMembers         BusinessTeamMember[]
   memberInvites       BusinessMemberInvite[]
   activityLogs        BusinessActivityLog[]
@@ -454,6 +455,16 @@ model InstalledAgent {
   trialExecutionsUsed       Int                         @default(0)
   executionBillingStartedAt DateTime                    @default(now())
   configJson                Json?
+  /// sha256 of the public embed key. Present once the buyer has taken the
+  /// snippet for their own website; its presence is what lets that widget do
+  /// real work (book, save a lead) instead of running as a demo.
+  embedKeyHash              String?                     @unique
+  /// Encrypted copy of the same key, so the buyer can read their snippet again.
+  embedKeyCipher            String?
+  /// Per-day ceiling of live widget runs for this install. Null = platform
+  /// default. The key is public by nature (it sits in the buyer's HTML), so
+  /// THIS is the guard that actually protects the bill.
+  embedDailyLimit           Int?
   createdAt                 DateTime                    @default(now())
   updatedAt                 DateTime                    @updatedAt
   phoneNumbers              BusinessPhoneNumber[]
@@ -961,6 +972,10 @@ model PlatformPhoneNumber {
   purchasedByAdminId           String?
   purchasedAt                  DateTime?
   releasedAt                   DateTime?
+  /// The id Vapi gives this number once it is registered there. Present only
+  /// on numbers we use to PLACE calls — Vapi refuses to dial from a number it
+  /// does not know, and registering one hands its inbound webhook to Vapi.
+  vapiPhoneNumberId            String?
   voiceWebhookUrl              String?
   smsWebhookUrl                String?
   webhookStatus                PhoneWebhookStatus  @default(UNKNOWN)
@@ -2092,6 +2107,45 @@ model SmsExecution {
   @@index([createdAt])
   @@index([toPhone, createdAt])
   @@index([vapiCallId])
+}
+
+/// How a person proved they want this business to phone them. An AI voice is
+/// an "artificial voice" under the TCPA, so a sales call without one of these
+/// is unlawful — this record IS the defence.
+enum CallConsentMethod {
+  /// They asked to be called on the business's own website or product page.
+  WEB_REQUEST
+  /// They said yes on a call with this business, captured in the transcript.
+  VERBAL_CALL
+  /// The business holds written consent gathered elsewhere and attests to it.
+  IMPORTED_WRITTEN
+  /// The account owner consenting to be called by their own agent (testing).
+  OWNER_SELF
+}
+
+model CallConsent {
+  id               String            @id @default(cuid())
+  businessId       String
+  installedAgentId String?
+  /// Strict E.164. One record per person per business.
+  phoneNumber      String
+  /// OPTED_IN | OPTED_OUT
+  status           String            @default("OPTED_IN")
+  method           CallConsentMethod
+  /// Where the consent came from: a page URL, a call id, or the owner's note.
+  evidence         String?
+  /// What they were told they were agreeing to, kept word for word.
+  disclosureText   String?
+  consentAt        DateTime          @default(now())
+  revokedAt        DateTime?
+  revokedReason    String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, phoneNumber])
+  @@index([businessId, status])
 }
 
 enum SmsConsentStatus {

@@ -10,7 +10,13 @@ import {
   hashMagicLinkToken
 } from "./magic-link-token";
 
-export type OtpAuthRole = "BUSINESS" | "ARCHITECT";
+/**
+ * Roles that can receive a sign-in code. ADMIN is included so an existing
+ * admin can get into their own system — the routes still refuse to ISSUE or
+ * ACCEPT an admin code for an account that does not already hold the role, and
+ * an admin account is never created this way.
+ */
+export type OtpAuthRole = "ADMIN" | "BUSINESS" | "ARCHITECT";
 export type OtpEmailPurpose = "sign_in" | "email_update";
 
 export const OTP_EXPIRES_IN_MINUTES = 10;

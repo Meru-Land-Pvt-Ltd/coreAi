@@ -3,7 +3,9 @@ import {
   RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE,
   VOICE_NODE_TYPES,
   buildSilencePolicy,
-  normalizeTimeZone
+  normalizeTimeZone,
+  resolveSalesTuning,
+  salesBehaviourPromptFor
 } from "@coreai/shared";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
@@ -318,11 +320,18 @@ export async function startArchitectTestDeployment(
     custom_instructions: customInstructions || "(none)",
     silence_policy: buildSilencePolicy()
   };
-  const systemPrompt = resolveNodeTemplateVariables(
-    fillTokens(str(ai, "systemPrompt", RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE), tokens),
-    workflow.workflowJson,
-    { assistantName, businessName }
-  );
+  // The architect owns WHAT the agent says; the behaviour dials own HOW it
+  // says it. Appending rather than merging keeps the two separable — an
+  // architect can rewrite the whole script without losing the tuned conduct.
+  const tuning = resolveSalesTuning(ai);
+  const systemPrompt = [
+    resolveNodeTemplateVariables(
+      fillTokens(str(ai, "systemPrompt", RECEPTIONIST_SYSTEM_PROMPT_TEMPLATE), tokens),
+      workflow.workflowJson,
+      { assistantName, businessName }
+    ),
+    salesBehaviourPromptFor(tuning)
+  ].join("\n\n");
 
   const rawGreeting = str(ai, "firstMessage");
   const firstMessage = rawGreeting
@@ -353,6 +362,8 @@ export async function startArchitectTestDeployment(
   let assistant: { id: string; created: boolean };
   try {
     assistant = await deployVapiAssistant({
+      recordingEnabled,
+      tuning: ai,
       name: `Sandbox Test — ${workflow.name || businessName}`,
       firstMessage,
       systemPrompt,
@@ -361,7 +372,9 @@ export async function startArchitectTestDeployment(
       voiceProvider: selectedVoiceProvider,
       voiceId: selectedVoiceId,
       language: str(ai, "language", ""),
-      speakingSpeed: str(ai, "speakingSpeed", ""),
+      // The pace dial is the source of truth; the legacy free-text field is
+      // still honoured for workflows saved before the dials existed.
+      speakingSpeed: str(ai, "speakingSpeed", String(tuning.speakingPace)),
       serverUrl: `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`,
       existingAssistantId
     });
@@ -373,7 +386,8 @@ export async function startArchitectTestDeployment(
     if (isThirdPartyVoice) {
       console.warn("[test-deployment] Third-party voice deployment failed. Falling back to the built-in Vapi voice.", error);
       assistant = await deployVapiAssistant({
-    recordingEnabled,
+        recordingEnabled,
+        tuning: ai,
         name: `Sandbox Test — ${workflow.name || businessName}`,
         firstMessage,
         systemPrompt,
@@ -382,7 +396,7 @@ export async function startArchitectTestDeployment(
         voiceProvider: "vapi",
         voiceId: "",
         language: str(ai, "language", ""),
-        speakingSpeed: str(ai, "speakingSpeed", ""),
+        speakingSpeed: str(ai, "speakingSpeed", String(tuning.speakingPace)),
         serverUrl: `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/vapi/webhook`,
         existingAssistantId
       });

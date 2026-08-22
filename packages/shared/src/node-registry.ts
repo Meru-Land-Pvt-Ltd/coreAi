@@ -255,6 +255,9 @@ export function isDesignBrainNodeType(type: string | null | undefined): boolean 
 /** Stable registry slug for the API Call action node. */
 export const API_CALL_NODE_TYPE = "action.api_call";
 
+/** Stable registry slug for the outbound AI voice call node. */
+export const OUTBOUND_CALL_NODE_TYPE = "action.start_vapi_call";
+
 /* ------------------------------------------------------------------------ */
 /* The two ways IN. Everything else on the canvas is what an agent DOES once  */
 /* something starts it; these two decide WHEN it starts without a human       */
@@ -2084,10 +2087,11 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
   def({
     type: "action.start_vapi_call",
-    label: "Start Vapi Call",
+    label: "Call this person",
     category: "action",
-    description: "Starts a Vapi outbound AI voice call using business or env config.",
-    requiredConfig: ["vapiAssistantId", "vapiPhoneNumberId"],
+    description:
+      "Phones someone with your AI voice. Only ever calls people who asked to be called.",
+    requiredConfig: [],
     backendExecutable: true,
     launchCritical: true,
     comingSoon: false,

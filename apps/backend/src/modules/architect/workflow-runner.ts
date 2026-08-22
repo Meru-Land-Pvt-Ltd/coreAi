@@ -22,6 +22,8 @@ import {
   zonedWallClockToUtc,
   type NodeDoorSpec
 } from "@coreai/shared";
+import { mayCallNumber } from "./call-consent";
+import { maskPhone } from "../compliance/log-redaction";
 import {
   createDoorBudget,
   runEntryDoor,
@@ -57,7 +59,7 @@ import {
   listAvailableSlots
 } from "./google-calendar-connector";
 import { reserveSlotForInstant, topAlternativeLabels } from "../business/scheduling";
-import { startVapiOutboundCall } from "./vapi-connector";
+import { resolveOutboundPhoneNumberId, startVapiOutboundCall } from "./vapi-connector";
 import {
   calendlyBookMeetingForInvitee,
   calendlyCancelScheduledEvent,
@@ -222,6 +224,14 @@ export type WorkflowRunInput = {
     headers: Record<string, string>;
     body: unknown;
   };
+  /**
+   * True when this run came from a widget embedded on a business's own
+   * website. Such a run gets the business's REAL context — real calendar, real
+   * leads — but never the outbound channels: the page is public, so a stranger
+   * could otherwise make the business text or call any number in the world on
+   * their account. See modules/agent-pages/embed-live.ts.
+   */
+  embedSource?: boolean;
   /** A tick from the schedule (timer) trigger — no human, no caller. */
   schedule?: {
     scheduleId: string;
@@ -277,6 +287,8 @@ type RunnerNodeData = {
   imageSize?: unknown;
   connector?: unknown;
   connectorAction?: unknown;
+  // Outbound call target ("Who to call"), template-friendly.
+  callTo?: unknown;
   // Schedule (timer) trigger config
   cadence?: unknown;
   timeZone?: unknown;
@@ -519,6 +531,8 @@ type RunnerContext = {
     headers: Record<string, string>;
     body: unknown;
   };
+  /** Set when the run came from a widget on a business's own website. */
+  embedSource?: boolean;
   /** Set when the run came from the timer, not a person. */
   schedule?: {
     scheduleId: string;
@@ -1677,8 +1691,26 @@ function seedMissedCallContext(
     context.schedule = input.schedule;
   }
 
+  if (input?.embedSource) {
+    context.embedSource = true;
+  }
+
   context._mode = mode;
   return context;
+}
+
+/**
+ * May this run actually SEND something into the world — a text, a call, an
+ * email, a WhatsApp message?
+ *
+ * Live runs normally may. The exception is a run that started from a widget on
+ * a business's own website: that page is public, so a stranger could otherwise
+ * type a phone number and make the business text or dial it, on the business's
+ * account. Those runs still read the real calendar and save real leads — they
+ * simply never reach outward. See modules/agent-pages/embed-live.ts.
+ */
+export function outboundSendsAllowed(context: RunnerContext, mode: WorkflowRunMode): boolean {
+  return mode === "live" && context.embedSource !== true;
 }
 
 function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
@@ -2202,7 +2234,7 @@ async function runSmsConnectorNode({
     return;
   }
 
-  if (mode === "live") {
+  if (outboundSendsAllowed(context, mode)) {
     const outcome = await sendTrackedSms({
       to: actionTo,
       body: actionBody,
@@ -2293,17 +2325,34 @@ async function runVapiConnectorNode({
   mode: WorkflowRunMode;
 }) {
   const action = asString(node.data?.connectorAction, "start_voice_call");
-  const customerPhone = customerPhoneFromContext(context);
+  // A sales agent dials a person the run knows about; a receptionist calls the
+  // person who just rang. Both land here, so an explicit target wins and the
+  // inbound caller is the fallback.
+  const targetFromNode = renderTemplate(node.data?.callTo, context).trim();
+  const customerPhone = targetFromNode || customerPhoneFromContext(context);
 
   if (!customerPhone) {
-    logs.push(createLog(node, "error", "Vapi call failed because caller phone number is missing."));
+    logs.push(
+      createLog(
+        node,
+        "error",
+        "This call has no number to dial. Set 'Who to call' on the node, or run it after a step that knows the person's number."
+      )
+    );
     return;
   }
 
   const assistantId = renderTemplate(node.data?.vapiAssistantId, context) || context.business?.vapiAssistantId;
-  const phoneNumberId = renderTemplate(node.data?.vapiPhoneNumberId, context) || context.business?.vapiPhoneNumberId;
+  // A business's own number answers calls; only a number registered with the
+  // voice provider can place them. Fall back to whichever platform number an
+  // admin enabled for outbound, so an architect never has to paste an id.
+  const phoneNumberId =
+    renderTemplate(node.data?.vapiPhoneNumberId, context) ||
+    context.business?.vapiPhoneNumberId ||
+    (await resolveOutboundPhoneNumberId()) ||
+    undefined;
 
-  if (mode !== "live") {
+  if (!outboundSendsAllowed(context, mode)) {
     context.vapiCall = {
       id: null,
       status: "dry_run",
@@ -2316,6 +2365,26 @@ async function runVapiConnectorNode({
 
   if (action !== "start_voice_call") {
     logs.push(createLog(node, "error", `Unsupported Vapi action: ${action}`));
+    return;
+  }
+
+  // THE LAW, ENFORCED IN CODE. An AI voice is an "artificial voice" under the
+  // TCPA, so this business must hold this person's prior express consent. No
+  // record, no call — an architect cannot switch this off, and it fails closed
+  // on any doubt. See modules/architect/call-consent.ts.
+  const consent = await mayCallNumber({
+    businessId: context.business?.id,
+    phoneNumber: customerPhone
+  });
+  if (!consent.allowed) {
+    logs.push(
+      createLog(
+        node,
+        "error",
+        `No call placed — ${consent.reason}. A person must ask to be called before an AI can phone them.`,
+        { phone: maskPhone(customerPhone) }
+      )
+    );
     return;
   }
 
@@ -3667,7 +3736,7 @@ async function runEmailConnectorNode({
     `Message from ${business?.name ?? "your business"}`;
   const textBody = fillEmailTemplate(emailConfig.bodyTemplate, templateVars);
 
-  if (mode !== "live") {
+  if (!outboundSendsAllowed(context, mode)) {
     // A Test Email on the Test tab turns the dry preview into a real delivery
     // so the architect can verify the confirmation flow before publishing.
     const testRecipient = (context.testEmail ?? "").trim().toLowerCase();
@@ -4531,7 +4600,7 @@ async function runWhatsAppConnectorNode({
           return;
         }
 
-        if (mode !== "live") {
+        if (!outboundSendsAllowed(context, mode)) {
           whatsappResult.status = "dry_run";
           whatsappResult.wamid = null;
           setContextResult();
@@ -4570,7 +4639,7 @@ async function runWhatsAppConnectorNode({
           return;
         }
 
-        if (mode !== "live") {
+        if (!outboundSendsAllowed(context, mode)) {
           whatsappResult.status = "dry_run";
           whatsappResult.wamid = null;
           setContextResult();
@@ -4609,7 +4678,7 @@ async function runWhatsAppConnectorNode({
           return;
         }
 
-        if (mode !== "live") {
+        if (!outboundSendsAllowed(context, mode)) {
           whatsappResult.status = "dry_run";
           whatsappResult.wamid = null;
           setContextResult();
@@ -4658,7 +4727,7 @@ async function runWhatsAppConnectorNode({
         return;
       }
 
-      if (mode !== "live") {
+      if (!outboundSendsAllowed(context, mode)) {
         whatsappResult.status = "dry_run";
         whatsappResult.wamid = null;
         setContextResult();
@@ -4701,7 +4770,7 @@ async function runWhatsAppConnectorNode({
         return;
       }
 
-      if (mode !== "live") {
+      if (!outboundSendsAllowed(context, mode)) {
         whatsappResult.status = "dry_run";
         whatsappResult.wamid = null;
         setContextResult();
@@ -4736,7 +4805,7 @@ async function runWhatsAppConnectorNode({
         return;
       }
 
-      if (mode !== "live") {
+      if (!outboundSendsAllowed(context, mode)) {
         whatsappResult.status = "dry_run";
         whatsappResult.wamid = messageId;
         setContextResult();

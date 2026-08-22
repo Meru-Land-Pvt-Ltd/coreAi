@@ -3,9 +3,16 @@ import { z } from "zod";
 // Login may target any role (ADMIN included).
 export const authRoleSchema = z.enum(["ADMIN", "BUSINESS", "ARCHITECT"]);
 
-// OTP and public signup must never create ADMIN accounts — admins come only from
-// the seed script. Keep ADMIN out of these role schemas.
-export const otpAuthRoleSchema = z.enum(["BUSINESS", "ARCHITECT"]);
+// OTP and public signup must never CREATE an ADMIN account — admins come only
+// from the seed script, and that rule is unchanged.
+//
+// An existing admin may still sign in with an emailed code, because the admin
+// screen was password-only while every other door on the platform uses a code,
+// which left an admin with no password locked out of their own system. The
+// routes enforce the difference: an ADMIN code is issued and accepted ONLY for
+// an account that already holds the ADMIN role, and never with account
+// creation enabled. See auth/routes.ts adminOtpAllowed.
+export const otpAuthRoleSchema = z.enum(["ADMIN", "BUSINESS", "ARCHITECT"]);
 export const publicSignupRoleSchema = z.enum(["BUSINESS", "ARCHITECT"]);
 
 export const signupSchema = z.object({

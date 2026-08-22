@@ -4,6 +4,7 @@ import {
   BLOCK_NODE_TYPES,
   CALENDLY_NODE_TYPES,
   DEEPGRAM_NODE_TYPES,
+  OUTBOUND_CALL_NODE_TYPE,
   SCHEDULE_NODE_TYPE,
   SCRIPT_NODE_TYPE,
   TELEGRAM_NODE_TYPES,
@@ -140,6 +141,11 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(CALENDLY_NODE_TYPES.action, { icon: "calendly", accent: "blue", kind: "CALENDLY" }),
       paletteItem(VOICE_NODE_TYPES.sendEmail, { icon: "mail", accent: "green" }),
       paletteItem(VOICE_NODE_TYPES.sendSms, { icon: "message", accent: "green" }),
+      {
+        // The sales employee's hands: it phones people who asked to be phoned.
+        ...paletteItem(OUTBOUND_CALL_NODE_TYPE, { icon: "phone", accent: "green", kind: "AI CALL" }),
+        badge: "NEW"
+      },
       paletteItem("action.send_whatsapp", { icon: "whatsapp", accent: "green" }),
       paletteItem(TELEGRAM_NODE_TYPES.sendMessage, { icon: "telegram", accent: "blue" }),
       {

@@ -6,7 +6,9 @@ import {
   buildSilencePolicy,
   formatBuyerAnswerValue,
   resolveAfterHoursGreeting,
+  resolveSalesTuning,
   resolveSimulatedHoursState,
+  salesBehaviourPromptFor,
   type AfterHoursPolicy,
   type AfterHoursSnapshot
 } from "@coreai/shared";
@@ -558,7 +560,11 @@ export async function deployInstalledAgentVoiceAssistant(
   const assistant = await deployVapiAssistant({
     name: `${plan.businessName} - ${plan.assistantName}`,
     firstMessage: plan.firstMessage,
-    systemPrompt: plan.systemPrompt,
+    // The behaviour dials the architect set on the node travel with the agent
+    // to every buyer who installs it — a buyer inherits the tuned conduct, not
+    // just the script. Untuned nodes resolve to the researched defaults.
+    systemPrompt: `${plan.systemPrompt}\n\n${salesBehaviourPromptFor(resolveSalesTuning(plan.voiceNode))}`,
+    tuning: plan.voiceNode,
     model: cleanString(plan.voiceNode.model) || "gpt-4o-mini",
     voice: plan.override.voice || "triven-default",
     voiceProvider: plan.override.provider,

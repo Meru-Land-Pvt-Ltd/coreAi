@@ -37,6 +37,7 @@ export const ARCHITECT_NODE_CATALOG: readonly ArchitectNodeCatalogItem[] = [
   { type: "trigger.calendly", group: "Triggers", label: "Calendly booking", defaultVisible: true },
   { type: "trigger.manual", group: "Triggers", label: "Start here", defaultVisible: true },
   { type: "trigger.schedule", group: "Triggers", label: "On a schedule", defaultVisible: true },
+  { type: "action.start_vapi_call", group: "Actions", label: "Call this person", defaultVisible: true },
   { type: "trigger.webhook", group: "Triggers", label: "When another app sends data", defaultVisible: true },
 
   { type: "ai.voice_conversation", group: "AI", label: "AI receptionist", defaultVisible: true },
