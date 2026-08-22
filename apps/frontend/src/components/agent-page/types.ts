@@ -176,6 +176,14 @@ export type AgentPageRuntime = {
   >;
   runOnce(args: {
     prompt: string;
+    /**
+     * Exactly what the customer typed, with nothing added.
+     *
+     * `prompt` is the narrated instruction block a brain reads. This is the
+     * value — the Prompt Box's declared door out (docs/NODE-SOP.md) — so a
+     * later node can read {{text}} whatever it calls its own input.
+     */
+    text?: string;
     sessionId?: string;
   }): Promise<
     | {
@@ -273,7 +281,7 @@ export function createPublicAgentPageRuntime(slug: string, installKey?: string |
       return publicRuntimeError(response, "We couldn't start the call right now.");
     },
 
-    async runOnce({ prompt }) {
+    async runOnce({ prompt, text }) {
       // The public run endpoint has no session concept — sessionId is a
       // preview-runtime affordance and is intentionally not sent here.
       const response = await apiPost<{
@@ -285,6 +293,8 @@ export function createPublicAgentPageRuntime(slug: string, installKey?: string |
         remainingToday: number;
       }>(`/agent-pages/${slug}/run`, {
         prompt,
+        // The Prompt Box's door out, sent under the name it declares.
+        ...(text ? { text } : {}),
         // Present only when this page is the widget on the buyer's own site.
         // It is what tells the backend to do real work for that business
         // instead of running the marketplace demo.

@@ -2468,6 +2468,17 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   // time; the Face Blueprint (agent-pages/blueprint.ts) reads them to assemble
   // the customer-facing page and the builder's Test preview.
   def({
+    // NODE ONE. The switch. See docs/NODE-SOP.md.
+    //
+    // Needs nothing — it is the first node, and a first node owes nothing to
+    // anything before it. Gives exactly one thing, and now says so: `text`,
+    // the words the customer typed.
+    //
+    // Saying so is the whole change. Until this line existed, what the customer
+    // typed reached the brain only if the brain happened to ask for something
+    // named one of eight hard-coded words, and an architect who named it
+    // `userQuestion` got silence with no warning. A door that is not written
+    // down is not a door.
     type: BLOCK_NODE_TYPES.promptComposer,
     label: "Prompt Box",
     category: "product",
@@ -2477,7 +2488,8 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     launchCritical: false,
     comingSoon: false,
     runtime: { nodeKind: "block" },
-    defaultConfig: { placeholder: "Describe what you want…" }
+    defaultConfig: { placeholder: "Describe what you want…" },
+    producedVariables: ["text"]
   }),
   def({
     type: BLOCK_NODE_TYPES.presetGallery,

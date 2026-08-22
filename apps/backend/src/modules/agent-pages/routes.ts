@@ -295,6 +295,23 @@ const runBodySchema = z.object({
     .trim()
     .min(1, "Prompt is required")
     .max(4000, "Prompt is too long (4000 characters max)"),
+  /**
+   * THE PROMPT BOX'S DOOR OUT — see docs/NODE-SOP.md.
+   *
+   * `prompt` above is the narrated instruction block: "The customer pressed the
+   * button… The customer wrote…". Useful to a brain, useless to anything else,
+   * and it is not a value — it is a paragraph.
+   *
+   * This is the value. Exactly what the customer typed, nothing added, under
+   * the name the Prompt Box declares it gives. A later node reads it as
+   * {{text}} whatever it calls its own input, instead of the old arrangement
+   * where the words arrived only if a node happened to be named one of eight
+   * hard-coded words.
+   *
+   * Optional, because every page published before today sends only `prompt`,
+   * and those must keep working exactly as they do.
+   */
+  text: z.string().trim().max(4000).optional(),
   sessionId: z.string().uuid("Session id must be a UUID").optional(),
   /**
    * The buyer's public widget key, sent by the embed loader. Absent on the
@@ -370,6 +387,11 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
             timeZone: embed.install.timeZone,
             services: embed.install.services,
             latestMessage: parsed.data.prompt,
+            // What the Prompt Box says it gives, actually given — and only when
+            // there is something to give. A customer who pressed a button and
+            // typed nothing did not write anything, and handing on an empty
+            // string would say they did.
+            ...(parsed.data.text ? { text: parsed.data.text } : {}),
             // Marks the run as coming from a public widget: real calendar and
             // real leads, but no texts, calls, emails or WhatsApp — the page
             // is public and a stranger must never reach outward on this bill.
@@ -383,7 +405,12 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
           userId: page.architectUserId,
           workflowId: page.workflowId,
           workflowJson,
-          input: { message: parsed.data.prompt, businessName: page.listing.name },
+          input: {
+            message: parsed.data.prompt,
+            // See above: only when they actually typed something.
+            ...(parsed.data.text ? { text: parsed.data.text } : {}),
+            businessName: page.listing.name
+          },
           mode: "test"
         });
 

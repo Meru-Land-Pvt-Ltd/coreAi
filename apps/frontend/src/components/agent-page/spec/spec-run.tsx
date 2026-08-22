@@ -160,6 +160,18 @@ export type ComposedPrompt = {
   prompt: string;
   /** The customer's own words — the ONLY prompt text ever rendered. */
   displayPrompt: string;
+  /**
+   * THE PROMPT BOX'S DOOR OUT — see docs/NODE-SOP.md.
+   *
+   * Exactly what the customer typed, nothing added, under the name the Prompt
+   * Box declares it gives. `prompt` above is a narrated paragraph a brain can
+   * read and nothing else can; this is the value, so a later node can read
+   * {{text}} whatever that node calls its own input.
+   *
+   * Empty when they typed nothing and only pressed a button — a door with
+   * nothing at it says so, rather than inventing something to hand over.
+   */
+  text: string;
 };
 
 function fieldLine(field: ComposeField): string | null {
@@ -217,9 +229,11 @@ export function composeSpecPrompt(parts: {
     written.length === 1 &&
     !written[0].label?.trim() &&
     typed.length === 1;
+  const typedText = typed.join(" — ");
+
   if (onlyBareText) {
     const bare = typed[0].slice(0, MAX_PROMPT_LENGTH);
-    return { prompt: bare, displayPrompt: bare };
+    return { prompt: bare, displayPrompt: bare, text: bare };
   }
 
   const scaffolding: string[] = [];
@@ -245,7 +259,7 @@ export function composeSpecPrompt(parts: {
   if (writtenBlock.length > budget) writtenBlock = writtenBlock.slice(0, budget);
 
   const lines = [...scaffolding, ...(writtenBlock ? [writtenBlock] : []), ANSWER_NOW_LINE];
-  return { prompt: lines.join("\n").slice(0, MAX_PROMPT_LENGTH), displayPrompt };
+  return { prompt: lines.join("\n").slice(0, MAX_PROMPT_LENGTH), displayPrompt, text: typedText };
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +274,8 @@ export type SpecRunRequest = {
   channel: string;
   prompt: string;
   displayPrompt: string;
+  /** The Prompt Box's door out — what the customer typed, nothing added. */
+  text: string;
 };
 
 export type SpecRunValue = {
@@ -409,7 +425,7 @@ export function SpecRunProvider({
       try {
         let result: Awaited<ReturnType<AgentPageRuntime["runOnce"]>>;
         try {
-          result = await runtime.runOnce({ prompt: request.prompt, sessionId });
+          result = await runtime.runOnce({ prompt: request.prompt, text: request.text, sessionId });
         } catch {
           // Both runtimes resolve with { error } today — but a thrown rejection
           // must never strand a channel in a forever-shimmer with no retry.
@@ -484,11 +500,11 @@ export function SpecRunProvider({
         }))
         .filter((field) => field.value.trim().length > 0);
 
-      const { prompt, displayPrompt } = composeSpecPrompt({ buttonLabel, fields: composeFields });
+      const { prompt, displayPrompt, text } = composeSpecPrompt({ buttonLabel, fields: composeFields });
       // A button with nothing to say and no label would send an empty prompt.
       if (!prompt.trim()) return;
 
-      void performRun({ channel, prompt, displayPrompt });
+      void performRun({ channel, prompt, displayPrompt, text });
     },
     [fields, values, limitReached, performRun]
   );

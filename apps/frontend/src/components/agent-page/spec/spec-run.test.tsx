@@ -91,6 +91,53 @@ function simpleProductPage(): PageSpec {
 // Reading the page.
 // ===========================================================================
 
+describe("the Prompt Box's door out", () => {
+  /**
+   * What the customer typed has to travel under its own name, not only inside
+   * the narrated block. Before this, it reached a later node only if that node
+   * happened to be called one of eight hard-coded words. See docs/NODE-SOP.md.
+   */
+  it("carries the typed words as `text`, separate from the narrated prompt", () => {
+    const composed = composeSpecPrompt({
+      buttonLabel: "Generate",
+      fields: [{ kind: "input", label: "Your description", value: "MANGO4242" }]
+    });
+
+    expect(composed.text).toBe("MANGO4242");
+    // The narration still happens — nothing published before today changes.
+    expect(composed.prompt).toContain("MANGO4242");
+    expect(composed.prompt).toContain("Generate");
+    // ...and it is NOT the same string. That was the whole problem.
+    expect(composed.text).not.toBe(composed.prompt);
+  });
+
+  it("joins several typed boxes, and leaves out anything the customer only picked", () => {
+    const composed = composeSpecPrompt({
+      buttonLabel: "Go",
+      fields: [
+        { kind: "input", label: "First", value: "hello" },
+        { kind: "choice", label: "Style", value: "Photorealistic" },
+        { kind: "input", label: "Second", value: "world" }
+      ]
+    });
+    expect(composed.text).toBe("hello — world");
+    expect(composed.text).not.toContain("Photorealistic");
+  });
+
+  it("says nothing rather than inventing something when they only pressed a button", () => {
+    const composed = composeSpecPrompt({ buttonLabel: "Surprise me", fields: [] });
+    expect(composed.text).toBe("");
+    // The button press still reaches the brain through the narration.
+    expect(composed.prompt).toContain("Surprise me");
+  });
+
+  it("a bare typed sentence is its own text", () => {
+    const composed = composeSpecPrompt({ fields: [{ kind: "input", value: "just this" }] });
+    expect(composed.text).toBe("just this");
+    expect(composed.prompt).toBe("just this");
+  });
+});
+
 describe("reading wires off a page", () => {
   it("collects input fields in document order, ignoring unwired ones", () => {
     const fields = collectSpecFields(

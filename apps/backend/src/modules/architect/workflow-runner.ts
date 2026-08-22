@@ -190,6 +190,15 @@ export type WorkflowRunInput = {
   installedAgentId?: string;
   listingId?: string;
   latestMessage?: string;
+  /**
+   * What a person typed into a Prompt Box, exactly as they typed it.
+   *
+   * The Prompt Box declares it gives `text` (docs/NODE-SOP.md), so `text` is
+   * what arrives — not a narrated paragraph a later node has to unpick, and not
+   * a value that only lands if the next node happens to be named one of eight
+   * hard-coded words.
+   */
+  text?: string;
   assistantName?: string;
   userName?: string;
   customerName?: string;
@@ -1563,6 +1572,20 @@ function seedMissedCallContext(
   if (!asString(context.latestMessage) && optionalString(input?.message)) {
     context.latestMessage = optionalString(input?.message);
   }
+  /*
+   * THE PROMPT BOX'S DOOR OUT, ARRIVING UNDER ITS OWN NAME.
+   *
+   * Everything above this line is a narrated paragraph — "The customer pressed
+   * the button… The customer wrote…" — which a brain can read and nothing else
+   * can. `text` is the value: exactly what the person typed, under the name the
+   * Prompt Box declares it gives (docs/NODE-SOP.md). A later node writes
+   * {{text}} and gets the words, whatever that node calls its own input.
+   *
+   * It is set alongside latestMessage rather than instead of it, because every
+   * page published before today depends on latestMessage and none of them are
+   * going to be touched.
+   */
+  if (optionalString(input?.text)) context.text = optionalString(input?.text);
   if (optionalString(input?.testEmail)) context.testEmail = optionalString(input?.testEmail);
   if (input?.useTestCalendar === true) context.useTestCalendar = true;
   if (optionalString(input?.testSessionId)) context.testSessionId = optionalString(input?.testSessionId);

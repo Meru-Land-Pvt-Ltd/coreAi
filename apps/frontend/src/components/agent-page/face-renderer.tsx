@@ -409,7 +409,9 @@ export function FaceRenderer({
 
     let result: Awaited<ReturnType<AgentPageRuntime["runOnce"]>>;
     try {
-      result = await runtime.runOnce({ prompt: request.prompt, sessionId });
+      // basePrompt is the customer's own words with nothing added — which is
+      // exactly what the Prompt Box says it gives. See docs/NODE-SOP.md.
+      result = await runtime.runOnce({ prompt: request.prompt, text: request.basePrompt, sessionId });
     } catch {
       // Both runtimes resolve with { error } today — but a thrown rejection
       // must never strand the page in a forever-shimmer with no retry.
