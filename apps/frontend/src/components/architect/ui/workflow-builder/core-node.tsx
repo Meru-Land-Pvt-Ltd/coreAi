@@ -55,9 +55,10 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
     ? (definition?.label ?? data.title ?? "PRODUCT").toUpperCase()
     : data.kind;
 
-  /* What this node hands to the next one, straight from its declaration.
-     docs/NODE-SOP.md question 4 — and if it is written on the node, nobody has
-     to open a panel to find out what a wire will carry. */
+  /* What this node takes and what it hands on, straight from its declaration.
+     docs/NODE-SOP.md questions 3 and 4 — written on the card, so nobody opens a
+     panel to find out what a wire has to carry or what it will carry. */
+  const takes = definition?.requiredVariables ?? [];
   const gives = definition?.producedVariables ?? [];
 
   return (
@@ -112,8 +113,22 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
           </div>
           {data.subtitle ? <p className="mt-1 line-clamp-2 text-xs text-slate-500" data-testid="architect-ui-workflow-builder-core-node-subtitle-text">{data.subtitle}</p> : null}
 
+          {takes.length > 0 ? (
+            <p className="mt-2 flex flex-wrap items-center gap-1" data-testid="core-node-takes">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Takes</span>
+              {takes.map((key) => (
+                <span
+                  key={key}
+                  className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-600"
+                >
+                  {key}
+                </span>
+              ))}
+            </p>
+          ) : null}
+
           {gives.length > 0 ? (
-            <p className="mt-2 flex flex-wrap items-center gap-1" data-testid="core-node-gives">
+            <p className="mt-1.5 flex flex-wrap items-center gap-1" data-testid="core-node-gives">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Gives</span>
               {gives.map((key) => (
                 <span

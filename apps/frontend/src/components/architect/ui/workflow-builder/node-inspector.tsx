@@ -2935,31 +2935,43 @@ function ActionButtonBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPan
   );
 }
 
+/**
+ * THE RESULT VIEWER PANEL — node two, the lamp.
+ *
+ * Same furniture problem the Prompt Box had: it opened under a heading naming
+ * the node, then repeated "General › Section name", then a second heading also
+ * naming the node, before one useful control. The panel is already named after
+ * the node, so the name is one line and the setting gets the room.
+ */
 function ResultViewerBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
 
   return (
     <>
-      <Section title="General">
-        <Label>Section name</Label>
-        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+      <Section title="Name">
+        <TextInput
+          value={selectedNode.data.title}
+          onChange={set("title")}
+          placeholder="Result Viewer"
+          testId="block-result-name-input"
+        />
       </Section>
 
-      <Section title="Result Viewer" last>
-        <Label>What it shows</Label>
+      <Section title="What it shows" last>
         <SelectBox
           value={str("kind", "auto")}
           onChange={set("kind")}
           options={[
             { value: "auto", label: "Auto — match what comes back" },
+            { value: "text", label: "Words" },
             { value: "image", label: "Image" },
-            { value: "video", label: "Video" },
-            { value: "text", label: "Words" }
+            { value: "video", label: "Video" }
           ]}
           testId="block-result-kind-select"
         />
         <p className="mt-2 text-[11px] leading-5 text-slate-400">
           Auto is right for most products — it shows whatever the result is.
+          Choose one only when you want to force it.
         </p>
       </Section>
     </>

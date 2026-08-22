@@ -2527,6 +2527,19 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     runtime: { nodeKind: "block" },
     defaultConfig: { label: "Go" }
   }),
+  // NODE TWO. The lamp. See docs/NODE-SOP.md.
+  //
+  // A switch with no lamp proves nothing — this is the node that lets a human
+  // see that anything happened at all, which is why it comes straight after the
+  // Prompt Box and before everything else.
+  //
+  // It NEEDS `text`: the thing the step before it produced. Saying so is the
+  // whole of question 3, and until this line it claimed to need nothing, which
+  // is how an unwired Result Viewer could sit on a canvas looking healthy while
+  // being incapable of showing anything.
+  //
+  // It GIVES nothing, and says so out loud rather than by silence. It is the
+  // end of the line: what it has goes to a person, not to another node.
   def({
     type: BLOCK_NODE_TYPES.outputStage,
     label: "Result Viewer",
@@ -2537,7 +2550,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     launchCritical: false,
     comingSoon: false,
     runtime: { nodeKind: "block" },
-    defaultConfig: { kind: "auto" }
+    defaultConfig: { kind: "auto" },
+    requiredVariables: ["text"],
+    producedVariables: [],
+    producesNothing: true
   }),
   def({
     type: BLOCK_NODE_TYPES.continueChain,
