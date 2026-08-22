@@ -223,7 +223,14 @@ export function NodeInspector({
             className="font-bold text-slate-900"
             data-testid="architect-ui-workflow-builder-node-inspector-node-properties-text"
           >
-            {isDesignBrain ? "Design Brain" : isProductBlock ? "Product section" : "Node properties"}
+            {/* The node's own name. "Product section" told an architect nothing:
+                every Face node wore it, so the panel never said which one was
+                open. */}
+            {isDesignBrain
+              ? "Design Brain"
+              : getNodeDefinition(String(selectedNode.data.type ?? ""))?.label ??
+                String(selectedNode.data.title ?? "") ??
+                "Node properties"}
           </span>
         </div>
 
@@ -1036,44 +1043,49 @@ function PillList({ items, emptyText, className }: { items: string[]; emptyText:
   );
 }
 
+/**
+ * WHAT THIS STEP TAKES AND WHAT IT LEAVES.
+ *
+ * This was a coloured card holding a repeated title, a repeated description, a
+ * row of red pills labelled NEEDS, another labelled CREATES, and a note in a
+ * box inside the box. The founder's words: "I am not able to understand this."
+ *
+ * Two lines now. What goes in, what comes out — the two questions the SOP asks
+ * of every node (docs/NODE-SOP.md, 3 and 4) and the only two an architect is
+ * actually asking when they open a node. Everything the panel already says
+ * above is not said twice.
+ */
 function NodeOverviewPanel({ node }: { node: BuilderNode }) {
   const overview = nodeOverview(node);
-  const styles = TONE_CLASSNAMES[overview.tone];
+
+  const line = (label: string, items: string[], empty: string) => (
+    <div className="flex items-baseline gap-3 py-1.5">
+      <span className="w-12 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        {label}
+      </span>
+      {items.length === 0 ? (
+        <span className="text-[13px] text-slate-400">{empty}</span>
+      ) : (
+        <span className="flex flex-wrap gap-1.5">
+          {items.map((item) => (
+            <span
+              key={item}
+              className="rounded-md bg-slate-100 px-2 py-0.5 text-[12px] font-medium text-slate-700"
+            >
+              {item}
+            </span>
+          ))}
+        </span>
+      )}
+    </div>
+  );
 
   return (
-    <Section title="Step overview">
-      <div className={`rounded-2xl border px-3.5 py-3.5 ${styles.card}`} data-testid="node-step-overview">
-        <div className="flex gap-3">
-          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${styles.icon}`}>
-            <BuilderIcon name={String(node.data.icon ?? "message")} className="h-4 w-4" />
-          </span>
-
-          <div className="min-w-0 flex-1">
-            <p className={`text-sm font-bold leading-5 ${styles.title}`}>
-              {String(node.data.title ?? node.data.label ?? "Workflow step")}
-            </p>
-            <p className="mt-1 text-xs leading-5 text-slate-600">{overview.summary}</p>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-3">
-          <div>
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Needs</p>
-            <PillList items={overview.needs} emptyText="No input required" className={styles.chip} />
-          </div>
-
-          <div>
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Creates</p>
-            <PillList items={overview.creates} emptyText="No new output" className={styles.chip} />
-          </div>
-        </div>
-
-        <div className="mt-4 rounded-xl border border-white/70 bg-white/70 px-3 py-2">
-          <p className="flex items-start gap-2 text-[11px] leading-5 text-slate-600">
-            <BuilderIcon name="info" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
-            <span>{overview.setup.join(". ")}</span>
-          </p>
-        </div>
+    <Section title="In and out">
+      <div className="rounded-xl border border-gray-200 px-3.5 py-2" data-testid="node-step-overview">
+        {line("Takes", overview.needs, "Nothing — this step starts on its own")}
+        <div className="border-t border-gray-100" />
+        {line("Gives", overview.creates, "Nothing it hands on")}
       </div>
     </Section>
   );
@@ -2642,28 +2654,56 @@ const MAX_GALLERY_PRESETS = 8;
 const MAX_MODEL_OPTIONS = 6;
 const BLOCK_TEXT_MAX = 120;
 
+/**
+ * THE PROMPT BOX PANEL.
+ *
+ * It used to open under the heading "Product section", then repeat "General ›
+ * Section name" above a second heading that also said "Prompt Box" — three
+ * pieces of furniture before a single useful control, and the one control that
+ * matters, the hint text, was the smallest box on the screen.
+ *
+ * Now: the panel is already named after the node, so the name field is one line
+ * with its explanation on hover, and the hint text gets the room it deserves
+ * with its limit shown while it is being typed.
+ */
 function PromptBoxBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const hint = str("placeholder", "Describe what you want…");
 
   return (
     <>
-      <Section title="General">
-        <Label>Section name</Label>
-        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+      <Section title="Name" >
+        <TextInput
+          value={selectedNode.data.title}
+          onChange={set("title")}
+          placeholder="Prompt Box"
+          testId="block-prompt-name-input"
+        />
       </Section>
 
-      <Section title="Prompt Box" last>
-        <Label>Hint text</Label>
-        <TextInput
-          value={str("placeholder", "Describe what you want…")}
-          onChange={set("placeholder")}
+      <Section title="Hint text" last>
+        <textarea
+          value={hint}
+          onChange={(event) => set("placeholder")(event.target.value.slice(0, BLOCK_TEXT_MAX))}
           placeholder="Describe what you want…"
+          rows={4}
           maxLength={BLOCK_TEXT_MAX}
-          testId="block-prompt-placeholder-input"
+          data-testid="block-prompt-placeholder-input"
+          className="w-full resize-y rounded-xl border border-gray-200 px-3 py-2.5 text-sm leading-6 text-slate-900 outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
         />
-        <p className="mt-2 text-[11px] leading-5 text-slate-400">
-          Shown faintly inside the box until your customer starts typing.
-        </p>
+        <div className="mt-1.5 flex items-center justify-between">
+          <p className="text-[11px] text-slate-400">
+            Shown faintly inside the box until your customer starts typing.
+          </p>
+          <span
+            className={`shrink-0 font-mono text-[11px] ${
+              hint.length >= BLOCK_TEXT_MAX ? "font-semibold text-amber-600" : "text-slate-400"
+            }`}
+            data-testid="block-prompt-placeholder-count"
+          >
+            {hint.length}/{BLOCK_TEXT_MAX}
+          </span>
+        </div>
       </Section>
     </>
   );

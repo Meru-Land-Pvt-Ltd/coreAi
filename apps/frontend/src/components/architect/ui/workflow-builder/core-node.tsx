@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { isBlockNodeType } from "@coreai/shared";
+import { getNodeDefinition, isBlockNodeType } from "@coreai/shared";
 import type { CSSProperties } from "react";
 import { cn } from "@/components/architect/ui/architect-ui";
 import { BuilderIcon } from "./icons";
@@ -43,10 +43,22 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
   const isTelegramTrigger = data.type === "trigger.telegram_message";
   const hasInput = data.nodeKind !== "trigger";
   const cssVars = { "--glow-rgb": palette.rgb } as CSSProperties;
-  /* Product blocks always badge as PRODUCT — data.kind doubles as the Result
-     Viewer's saved setting ("auto"/"image"/…), so it can't drive the header. */
+  /* The header says what this node IS.
+     It used to say "PRODUCT" for every Face node — Prompt Box, Result Viewer,
+     Button, all of them wearing the same word. Somebody looking at a canvas
+     needs to know which one they are looking at, so the header now carries the
+     node's own name. data.kind cannot be used here: on a Result Viewer it
+     doubles as that node's saved setting ("auto"/"image"/…). */
   const isProductBlock = data.nodeKind === "block" || isBlockNodeType(String(data.type ?? ""));
-  const kindLabel = isProductBlock ? "PRODUCT" : data.kind;
+  const definition = getNodeDefinition(String(data.type ?? ""));
+  const kindLabel = isProductBlock
+    ? (definition?.label ?? data.title ?? "PRODUCT").toUpperCase()
+    : data.kind;
+
+  /* What this node hands to the next one, straight from its declaration.
+     docs/NODE-SOP.md question 4 — and if it is written on the node, nobody has
+     to open a panel to find out what a wire will carry. */
+  const gives = definition?.producedVariables ?? [];
 
   return (
     <div
@@ -58,7 +70,7 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
       {hasInput ? (
         <Handle
           type="target"
-          position={Position.Top}
+          position={Position.Left}
           className="core-port"
           style={{ background: palette.handle }}
         />
@@ -96,6 +108,20 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
             <span className="node-title truncate text-sm font-semibold leading-tight text-slate-900" data-testid="architect-ui-workflow-builder-core-node-title-text">{data.title}</span>
           </div>
           {data.subtitle ? <p className="mt-1 line-clamp-2 text-xs text-slate-500" data-testid="architect-ui-workflow-builder-core-node-subtitle-text">{data.subtitle}</p> : null}
+
+          {gives.length > 0 ? (
+            <p className="mt-2 flex flex-wrap items-center gap-1" data-testid="core-node-gives">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Gives</span>
+              {gives.map((key) => (
+                <span
+                  key={key}
+                  className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-600"
+                >
+                  {key}
+                </span>
+              ))}
+            </p>
+          ) : null}
         </div>
 
         {data.footer ? (
@@ -110,25 +136,25 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
           <Handle
             id="yes"
             type="source"
-            position={Position.Bottom}
+            position={Position.Right}
             className="core-port"
-            style={{ left: "30%", background: "#22c55e" }}
+            style={{ top: "35%", background: "#22c55e" }}
           />
           <Handle
             id="no"
             type="source"
-            position={Position.Bottom}
+            position={Position.Right}
             className="core-port"
-            style={{ left: "70%", background: "#ef4444" }}
+            style={{ top: "65%", background: "#ef4444" }}
           />
-          <span className="absolute -bottom-[23px] left-[30%] -translate-x-1/2 text-[10px] font-bold text-green-600" data-testid="architect-ui-workflow-builder-core-node-yes-text">Yes</span>
-          <span className="absolute -bottom-[23px] left-[70%] -translate-x-1/2 text-[10px] font-bold text-red-500" data-testid="architect-ui-workflow-builder-core-node-no-text">No</span>
+          <span className="absolute -right-[26px] top-[35%] -translate-y-1/2 text-[10px] font-bold text-green-600" data-testid="architect-ui-workflow-builder-core-node-yes-text">Yes</span>
+          <span className="absolute -right-[22px] top-[65%] -translate-y-1/2 text-[10px] font-bold text-red-500" data-testid="architect-ui-workflow-builder-core-node-no-text">No</span>
         </>
       ) : (
         <Handle
           id={isTelegramTrigger ? "*" : undefined}
           type="source"
-          position={Position.Bottom}
+          position={Position.Right}
           className="core-port"
           style={{ background: palette.handle }}
           title={isTelegramTrigger ? "All Telegram updates" : undefined}
