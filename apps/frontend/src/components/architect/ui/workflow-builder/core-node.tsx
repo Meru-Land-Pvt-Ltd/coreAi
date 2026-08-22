@@ -92,17 +92,19 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
           >
             !
           </span>
-        ) : verified ? (
-          // Inside the card, tucked into the top-right corner — a quiet
-          // "this step is ready" mark, not a pin stuck to the outside. A soft
-          // white ring lifts it off whatever colour the header is.
-          <span
-            className="absolute right-2 top-2 z-10 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white"
-            aria-label="This step gets everything it needs"
-          />
         ) : null}
         <div className={cn("flex items-center gap-2 rounded-t-[14px] border-b px-4 py-2.5", palette.headerBg, palette.headerBorder)}>
-          <span className={cn("h-2 w-2 rounded-full", palette.dot)} />
+          {/* ONE DOT, AND IT MEANS SOMETHING.
+              There were two: this spot beside the name, which only repeated the
+              colour of the card it was sitting on, and a green tick in the
+              top-right corner. The corner one is gone and this one carries the
+              health — so a canvas reads at a glance, with one mark to learn
+              instead of two, and the space it used to occupy stays clean. */}
+          <span
+            className={cn("h-2 w-2 shrink-0 rounded-full", verified ? "bg-emerald-500" : palette.dot)}
+            aria-label={verified ? "This step gets everything it needs" : undefined}
+            data-testid={verified ? "core-node-verified-dot" : undefined}
+          />
           <span className={cn("text-[11px] font-bold uppercase tracking-wider", palette.text)} data-testid="architect-ui-workflow-builder-core-node-kind-text-2">{kindLabel}</span>
         </div>
 
