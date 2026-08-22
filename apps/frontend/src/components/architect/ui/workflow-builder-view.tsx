@@ -2634,56 +2634,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onSave={() => void saveAgent()}
       />
 
-      {isLive && !isUnderReview ? (
-        <div
-          data-testid="builder-live-lock-banner"
-          className="fixed left-1/2 top-[7.25rem] z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-green-200 bg-green-50 p-4 shadow-lg md:top-20"
-        >
-          <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-green-100 text-green-600">
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
-          </span>
-
-          <div>
-            <p className="text-sm font-black text-green-800" data-testid="builder-live-lock-title">
-              Agent is live
-            </p>
-
-            <p className="mt-1 text-sm leading-6 text-green-700" data-testid="builder-live-lock-text">
-              This agent is published on the marketplace.
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Not on Preview. Preview is the customer's page, and a customer never
-          sees a word about review — this banner is `fixed`, so it floated over
-          the middle of the product an architect was trying to look at. Build is
-          where the lock applies and where it stays. */}
-      {isUnderReview && activeTab !== "test" ? (
-        <div
-          data-testid="builder-review-lock-banner"
-          className="fixed left-1/2 top-[7.25rem] z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-lg md:top-20"
-        >
-          <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-600">
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="5" y="11" width="14" height="10" rx="2" />
-              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-            </svg>
-          </span>
-
-          <div>
-            <p className="text-sm font-black text-amber-800" data-testid="builder-review-lock-title">
-              Agent is under review
-            </p>
-
-            <p className="mt-1 text-sm leading-6 text-amber-700" data-testid="builder-review-lock-text">
-              Editing is locked while this agent is in review. It will be live in 24-48 hrs after review.
-            </p>
-          </div>
-        </div>
-      ) : null}
+      {/* NEITHER STATE FLOATS OVER THE PRODUCT ANY MORE.
+          "Agent is live" and "Agent is under review" were both `fixed` boxes
+          parked in the middle of the screen — over the canvas an architect was
+          editing, and over the preview they were trying to look at. Neither
+          could be dismissed, and neither said anything the header was not
+          already saying: the pill beside the agent name reads Draft, In Review
+          or Live, all the time, without covering anything.
+          A state is worn, not announced. */}
 
       {flowGateNotice ? (
         <div
