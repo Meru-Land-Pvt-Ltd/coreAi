@@ -92,8 +92,11 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
             !
           </span>
         ) : verified ? (
+          // Inside the card, tucked into the top-right corner — a quiet
+          // "this step is ready" mark, not a pin stuck to the outside. A soft
+          // white ring lifts it off whatever colour the header is.
           <span
-            className="absolute -right-1 -top-1 z-10 h-2.5 w-2.5 rounded-full bg-emerald-500 shadow"
+            className="absolute right-2 top-2 z-10 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white"
             aria-label="This step gets everything it needs"
           />
         ) : null}

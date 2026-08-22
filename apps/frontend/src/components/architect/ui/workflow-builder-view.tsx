@@ -2657,7 +2657,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         </div>
       ) : null}
 
-      {isUnderReview ? (
+      {/* Not on Preview. Preview is the customer's page, and a customer never
+          sees a word about review — this banner is `fixed`, so it floated over
+          the middle of the product an architect was trying to look at. Build is
+          where the lock applies and where it stays. */}
+      {isUnderReview && activeTab !== "test" ? (
         <div
           data-testid="builder-review-lock-banner"
           className="fixed left-1/2 top-[7.25rem] z-40 flex w-[min(92vw,620px)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-lg md:top-20"
