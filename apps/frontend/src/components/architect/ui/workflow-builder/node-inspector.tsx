@@ -3538,61 +3538,44 @@ function CalendlyTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel
   );
 }
 
+/**
+ * MEMORY.
+ *
+ * The node that stops an agent starting blank every time. Without it a customer
+ * says "actually, make it Tuesday" and the agent has no idea what "it" is.
+ *
+ * The panel that was here talked in our words rather than theirs: "Memory
+ * configuration", "Custom context", "Output variable", "Memory Variable", and a
+ * button to copy {{memory}} into a prompt — when memory reaches the next step on
+ * its own and always has. Attachments have gone the same way as the AI Brain's:
+ * to a File Upload node of their own, rather than living half-here.
+ */
 function MemoryNodeProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
-  const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
-  const [copied, setCopied] = useState(false);
 
-  const handleCopyVariable = () => {
-    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      void navigator.clipboard.writeText("{{memory}}").catch(() => undefined);
-    }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
-  };
-
-  const handleRemoveAttachment = (indexToRemove: number) => {
-    const updated = attachments.filter((_, idx) => idx !== indexToRemove);
-    onUpdateNodeData("attachments", updated);
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      alert("File is too large. Maximum size is 5MB.");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64Data = event.target?.result as string;
-      const newAttachment: AIAttachment = {
-        name: file.name,
-        mimeType: file.type || "application/octet-stream",
-        data: base64Data,
-      };
-      onUpdateNodeData("attachments", [...attachments, newAttachment]);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  };
+  const KEEP = [
+    { value: "1000", label: "Just the last few turns" },
+    { value: "4000", label: "The whole conversation" },
+    { value: "16000", label: "Everything, in detail" }
+  ];
 
   return (
     <>
-      <Section title="General">
-        <Label>Node name</Label>
-        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+      <Section title="Name">
+        <TextInput value={selectedNode.data.title} onChange={set("title")} placeholder="Memory" testId="memory-name-input" />
       </Section>
 
-      <Section title="Memory configuration">
-        <Label>Custom context</Label>
+      <Section title="Always remember">
+        <p className="text-[12px] leading-5 text-slate-500">
+          Things worth remembering every single time, whatever else happened. Leave it empty and it
+          simply remembers the conversation.
+        </p>
         <TextArea
           value={str("customMemoryNotes", str("notes"))}
           onChange={set("customMemoryNotes")}
-          height="h-36"
-          placeholder="Type custom context or guidelines for downstream steps..."
+          testId="memory-notes-textarea"
+          height="h-32"
+          placeholder="This customer is on the yearly plan. Their delivery address is on file."
         />
         <UnknownVariablesNote
           text={str("customMemoryNotes", str("notes"))}
@@ -3601,99 +3584,20 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData, variableNodePrefixes 
         />
       </Section>
 
-      <Section title="Attachments">
-        <div className="space-y-3">
-          <Label>Files (Images / PDFs / Docs)</Label>
-
-          {attachments.length > 0 && (
-            <div className="space-y-2 mb-3">
-              {attachments.map((att, idx) => {
-                const isImage = att.mimeType.startsWith("image/");
-                const isPdf = att.mimeType === "application/pdf";
-
-                return (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5 transition hover:border-violet-100 hover:bg-violet-50/20"
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="flex h-8 w-8 shrink-0 place-items-center justify-center rounded-lg bg-white border border-slate-100 text-sm shadow-sm">
-                        {isImage ? "🖼️" : isPdf ? "📄" : "📁"}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-semibold text-slate-700 leading-tight">
-                          {att.name || `attachment-${idx + 1}`}
-                        </p>
-                        <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate uppercase">
-                          {att.mimeType}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAttachment(idx)}
-                      className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors"
-                      aria-label="Remove attachment"
-                    >
-                      <BuilderIcon name="x" className="h-4 w-4" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="relative">
-            <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer bg-slate-50/40 hover:bg-violet-50/20 hover:border-violet-300 transition-all duration-200 group">
-              <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                <svg
-                  className="w-6 h-6 mb-2 text-slate-400 group-hover:text-violet-500 transition-colors"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                  ></path>
-                </svg>
-                <p className="text-[11px] font-semibold text-slate-500 group-hover:text-violet-600 transition-colors">
-                  Click or drag files to add to memory
-                </p>
-                <p className="text-[9px] text-slate-400 mt-1">
-                  Supports Images, PDFs, Docs, TXT (Max 5MB)
-                </p>
-              </div>
-              <input
-                type="file"
-                className="hidden"
-                accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={handleFileChange}
-              />
-            </label>
-          </div>
-        </div>
-      </Section>
-
-      <Section title="Output variable" last>
-        <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-3.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-violet-800">Memory Variable</span>
-            <button
-              type="button"
-              onClick={handleCopyVariable}
-              className="inline-flex items-center gap-1 rounded-lg bg-violet-600 px-2.5 py-1 text-[11px] font-medium text-white shadow-sm transition hover:bg-violet-700"
-            >
-              {copied ? "Copied!" : "Copy {{memory}}"}
-            </button>
-          </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-            Memory is passed to connected AI steps automatically — no setup needed. Optionally paste <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold text-violet-700">{"{{memory}}"}</code> into a prompt to control exactly where it appears.
-          </p>
-        </div>
+      <Section title="How much to keep" last>
+        <SelectBox
+          value={str("maxMemoryTokens", "4000")}
+          onChange={set("maxMemoryTokens")}
+          options={KEEP}
+          testId="memory-keep-select"
+        />
+        {/* Beyond the limit it summarises rather than cutting the end off. A
+            conversation opens with the things that matter — a name, a date,
+            what somebody wanted — and closes with pleasantries. */}
+        <p className="mt-2 text-[12px] leading-5 text-slate-500">
+          When there is more than this, it keeps the facts — names, dates, what somebody asked for —
+          and drops the small talk. It never simply cuts off the end.
+        </p>
       </Section>
     </>
   );

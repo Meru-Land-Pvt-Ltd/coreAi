@@ -34,6 +34,7 @@ import {
 } from "../agent-runtime/node-doors";
 import { executeScript } from "../agent-runtime/script-executor";
 import { decideConditionRoad } from "./condition-door";
+import { shortenMemory } from "./memory-door";
 import { safeFetch, SafeFetchError, type SafeFetchErrorCode } from "../../lib/safe-fetch";
 import { getArchitectSecretValue, getPlatformYouTubeKey } from "./architect-secrets";
 import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
@@ -437,6 +438,7 @@ type RunnerNodeData = {
   llmPrompt?: unknown;
   attachments?: unknown;
   customMemoryNotes?: unknown;
+  maxMemoryTokens?: unknown;
   notes?: unknown;
   customNotes?: unknown;
   llmContext?: unknown;
@@ -5681,7 +5683,16 @@ async function runMemoryNodeInRunner({
       callerKey: context.missedCall?.callerNumber || undefined
     }
   });
-  const compactMemoryText = smartMemory.memory;
+  /* THE EXIT DOOR.
+     Beyond the limit an architect set, this summarises rather than cutting the
+     end off. A conversation opens with the things that matter — a name, a date,
+     what somebody actually wanted — and closes with pleasantries; truncating
+     keeps the pleasantries and throws away the appointment.
+     Below the limit it does nothing, so most runs never reach a model. */
+  const limit = Number(asString(node.data?.maxMemoryTokens, "4000")) || 4000;
+  const shortened = await shortenMemory(smartMemory.memory, limit).catch(() => null);
+
+  const compactMemoryText = shortened ?? smartMemory.memory;
   memoryScopeByContext.set(context as object, smartMemory.scopeKey);
 
   context.memory = compactMemoryText;
@@ -5697,7 +5708,7 @@ async function runMemoryNodeInRunner({
       executionOrder,
       threadId,
       output: { memory: compactMemoryText },
-      summary: "Memory Node aggregated previous node executions and attachments",
+      summary: "Remembered what has happened so far",
       startedAt: new Date().toISOString(),
       finishedAt: new Date().toISOString()
     });
@@ -5707,7 +5718,9 @@ async function runMemoryNodeInRunner({
     createLog(
       node,
       "success",
-      "Stored and aggregated previous step executions and manual attachments into compact memory string {{memory}}.",
+      shortened
+        ? "Remembered what has happened so far, shortened to keep the facts and drop the small talk."
+        : "Remembered what has happened so far.",
       { memory: compactMemoryText }
     )
   );

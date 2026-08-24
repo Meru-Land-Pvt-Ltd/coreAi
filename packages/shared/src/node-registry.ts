@@ -1882,20 +1882,40 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     runtime: { nodeKind: "ai" }
   }),
   def({
+    // NODE FIVE. The remembering. See docs/NODE-SOP.md.
+    //
+    // With in, out, think and choose, the machine is complete except for one
+    // thing: it forgets. Every run starts blank. A customer says "actually,
+    // make it Tuesday" and the agent has no idea what "it" is.
+    //
+    // Memory is what turned a calculator into a computer, and here it is what
+    // turns a tool into an assistant. It is already the AI Brain's biggest
+    // partner on this platform — eleven agents feed into it and sixteen take
+    // from it, more than any other pair.
+    //
+    // "Memory Node" was its name, and "Node" is a word from our side of the
+    // screen. It is Memory.
     type: "ai.memory",
-    label: "Memory Node",
+    label: "Memory",
     category: "ai",
-    description: "Stores and aggregates all previous node execution history + manual document uploads into a compact text memory string.",
+    description: "Remembers what has happened, so the next answer knows about the last one.",
     requiredConfig: [],
     backendExecutable: true,
     launchCritical: true,
     comingSoon: false,
     runtime: { nodeKind: "ai" },
+    // Q5 — both dials, written down.
     defaultConfig: {
+      /* Things worth remembering every single time, whatever else happened. */
       customMemoryNotes: "",
+      /* How much it may hand on. Beyond this the exit door summarises rather
+         than truncating — cutting a conversation loses the beginning, which is
+         exactly where somebody said their name and what they wanted. */
       maxMemoryTokens: "4000"
     },
     capability: "ai.memory",
+    // Q3 — what just happened. Q4 — everything remembered so far.
+    requiredVariables: ["text"],
     producedVariables: ["memory"]
   }),
   def({
