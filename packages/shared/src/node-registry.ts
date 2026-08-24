@@ -2262,24 +2262,53 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     defaultConfig: { nextWorkflowId: "" }
   }),
   def({
+    // NODE FOUR. The fork in the road. See docs/NODE-SOP.md.
+    //
+    // With a switch, a circuit and a lamp you have a machine that always does
+    // the same thing. This is the node that lets an agent behave differently
+    // depending on what happened, which is the difference between a pipe and a
+    // machine.
+    //
+    // It sorts what arrives into one of the words an architect chose, and each
+    // word is a road out of the node. Yes and No are only the two it starts
+    // with: rename them, add more, or leave them. Routing a support email three
+    // ways used to mean three conditions chained in a ladder — an unreadable
+    // canvas, and three AI calls where one would do.
+    //
+    // "Anything else" is always there and cannot be removed. A customer will
+    // eventually say something nobody listed, and a run that falls off the end
+    // in silence is the failure this platform keeps deleting.
     type: "logic.condition",
     label: "Condition",
     category: "logic",
-    description: "Send the flow down one path or the other, based on a rule you choose.",
-    requiredConfig: ["condition"],
+    description: "Sorts what arrives into one of the answers you choose, and sends the flow down that road.",
+    requiredConfig: ["conditionChoices"],
     backendExecutable: true,
     launchCritical: true,
     comingSoon: false,
     runtime: { nodeKind: "condition" },
-    /* The rule is now three fields instead of a sentence. A free-text box was
-       what let this node pretend: whatever an architect typed was used as a
-       label and the engine always asked the same question underneath. */
+    /* The rule is three fields, not a sentence. A free-text box was what let
+       this node pretend: whatever an architect typed became a label while the
+       engine asked the same question underneath. */
     defaultConfig: {
       condition: "Business hours",
       conditionOperator: "business_hours",
       conditionField: "",
-      conditionValue: ""
-    }
+      conditionValue: "",
+      /* The roads out. Two to begin with, because that is the common case —
+         and both are ordinary words an architect may rename. */
+      conditionChoices: ["Yes", "No"],
+      /* What the entry door is asked when the rule is about meaning rather
+         than arithmetic. Empty for a plain rule, which never calls a model. */
+      conditionQuestion: ""
+    },
+    // Q3 — it needs something to look at, the same as any other node.
+    requiredVariables: ["text"],
+    /* Q4 — it does not hand on a value, it chooses a road. But the road it
+       chose, and one line of why, are worth having: a Send Text after a
+       Condition can then say "sorry about the delay" instead of a generic
+       line. The exit door writes both. */
+    producedVariables: ["choice", "why"]
   }),
   def({
     type: "output.result",
@@ -3187,7 +3216,9 @@ const PRODUCES_BY_TYPE: Record<string, string[] | null> = {
   // Fires on a clock. What happens next is the next step's business.
   [SCHEDULE_NODE_TYPE]: null,
   // Branches the flow. The branch it took is in the run, not in an output.
-  "logic.condition": null,
+  /* It chooses a road rather than handing on a value — but which road, and one
+     line of why, are worth having. See the definition above. */
+  "logic.condition": ["choice", "why"],
   // Hands the call to Vapi, which reports back through its own webhook rather
   // than by returning something here.
   [OUTBOUND_CALL_NODE_TYPE]: null,

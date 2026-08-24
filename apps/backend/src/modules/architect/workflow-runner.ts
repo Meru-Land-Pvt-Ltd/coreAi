@@ -33,6 +33,7 @@ import {
   type DoorContext
 } from "../agent-runtime/node-doors";
 import { executeScript } from "../agent-runtime/script-executor";
+import { decideConditionRoad } from "./condition-door";
 import { safeFetch, SafeFetchError, type SafeFetchErrorCode } from "../../lib/safe-fetch";
 import { getArchitectSecretValue, getPlatformYouTubeKey } from "./architect-secrets";
 import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
@@ -390,6 +391,10 @@ type RunnerNodeData = {
   appointmentEndAt?: unknown;
   appointmentService?: unknown;
   condition?: unknown;
+  /** The fork in the road: how it decides, what it is deciding, and the roads out. */
+  conditionOperator?: unknown;
+  conditionQuestion?: unknown;
+  conditionChoices?: unknown;
   outputKey?: unknown;
   leadSource?: unknown;
   leadStatus?: unknown;
@@ -662,9 +667,15 @@ type RunnerContext = {
   condition?: {
     passed: boolean;
     label: string;
+    /** The road it took, in the architect's own words. */
+    choice?: string;
   };
-  /** Which way EACH condition went, keyed by node id — the wave builder reads this. */
-  conditionResults?: Record<string, boolean>;
+  /** The road the last condition took, and one line of why — its door out. */
+  choice?: unknown;
+  why?: unknown;
+  /** Which road each condition took, keyed by node id — the wave builder reads this.
+      A word; booleans are the old yes/no from agents drawn before words existed. */
+  conditionResults?: Record<string, ConditionOutcome>;
   sentEmail?: {
     id: string | null;
     to: string;
@@ -970,6 +981,9 @@ export function groupNodesIntoExecutionWaves(
   return waves;
 }
 
+/** The road a condition took. A word, or the old boolean for agents drawn before words existed. */
+export type ConditionOutcome = string | boolean;
+
 /**
  * WHICH NODES DOES A DECISION SWITCH OFF?
  *
@@ -987,30 +1001,38 @@ export function groupNodesIntoExecutionWaves(
 export function nodesSwitchedOffByConditions(
   nodes: RunnerNode[],
   edges: RunnerEdge[],
-  conditionResults: Record<string, boolean>
+  conditionResults: Record<string, ConditionOutcome>
 ): Set<string> {
   const decided = Object.keys(conditionResults);
   if (decided.length === 0) return new Set();
 
-  const isYes = (handle: string | null | undefined): boolean | null => {
+  /* A road out of a condition is a WORD now, not a side.
+     Yes and No are two ordinary words an architect may rename, so this compares
+     the word the condition chose against the word on the line — and still
+     understands the old yes/no/true/false handles, because agents drawn before
+     this change are still running. */
+  const road = (handle: string | null | undefined): string | null => {
     const value = (handle ?? "").trim().toLowerCase();
     if (!value) return null;
-    if (["yes", "true", "pass", "passed", "then", "a"].includes(value)) return true;
-    if (["no", "false", "fail", "failed", "else", "otherwise", "b"].includes(value)) return false;
-    return null;
+    if (["yes", "true", "pass", "passed", "then", "a"].includes(value)) return "yes";
+    if (["no", "false", "fail", "failed", "else", "otherwise", "b"].includes(value)) return "no";
+    return value;
   };
+
+  const chosen = (outcome: ConditionOutcome): string =>
+    typeof outcome === "boolean" ? (outcome ? "yes" : "no") : String(outcome).trim().toLowerCase();
 
   // Edges the decision closed off.
   const closed = new Set<string>();
   for (const edge of edges) {
     const outcome = conditionResults[edge.source];
     if (outcome === undefined) continue;
-    const branch = isYes(edge.sourceHandle);
+    const branch = road(edge.sourceHandle);
     // An unlabelled line out of a condition always runs — the architect drew
-    // it without choosing a side, and guessing which side they meant is worse
+    // it without choosing a road, and guessing which one they meant is worse
     // than running it.
     if (branch === null) continue;
-    if (branch !== outcome) closed.add(edge.id || `${edge.source}->${edge.target}:${edge.sourceHandle}`);
+    if (branch !== chosen(outcome)) closed.add(edge.id || `${edge.source}->${edge.target}:${edge.sourceHandle}`);
   }
   if (closed.size === 0) return new Set();
 
@@ -2270,9 +2292,24 @@ export const CONDITION_OPERATORS = [
 export function evaluateCondition(
   node: RunnerNode,
   context: RunnerContext
-): { passed: boolean; label: string; explain: string } {
+): { passed: boolean; label: string; explain: string; choice?: string } {
   const data = (node.data ?? {}) as Record<string, unknown>;
   const label = asString(data.condition, "Condition");
+
+  /* A rule about MEANING — "is this a complaint?" — is answered before the node
+     runs, by the entry door, which writes the word it decided onto the node's
+     own result. A plain rule never reaches a model: asking an AI whether we are
+     inside business hours would put a cost and a delay on the commonest rule on
+     the platform. */
+  const decidedByDoor = asString((context as Record<string, unknown>)[`condition.${node.id}.choice`], "");
+  if (decidedByDoor) {
+    return {
+      passed: true,
+      label,
+      choice: decidedByDoor,
+      explain: asString((context as Record<string, unknown>)[`condition.${node.id}.why`], `it looked like "${decidedByDoor}"`)
+    };
+  }
   const operator = asString(data.conditionOperator, "business_hours");
   const field = asString(data.conditionField, "");
   const expected = asString(data.conditionValue, "");
@@ -2328,24 +2365,59 @@ export function evaluateCondition(
   return { passed: outcome.passed, label, explain: outcome.explain };
 }
 
+/**
+ * The roads out of this condition, in the architect's own words.
+ *
+ * Two to begin with, and both ordinary words they may rename — Yes and No are
+ * a default, not a law. "Anything else" is appended and cannot be removed: a
+ * customer will eventually say something nobody listed, and a run that falls
+ * off the end in silence is the failure this platform keeps deleting.
+ */
+export const ANYTHING_ELSE = "Anything else";
+
+export function conditionRoads(node: RunnerNode): string[] {
+  const raw = (node.data as Record<string, unknown> | undefined)?.conditionChoices;
+  const chosen = Array.isArray(raw)
+    ? raw.map((value) => String(value).trim()).filter((value) => value.length > 0)
+    : [];
+
+  const roads = chosen.length > 0 ? chosen : ["Yes", "No"];
+  return roads.some((road) => road.toLowerCase() === ANYTHING_ELSE.toLowerCase())
+    ? roads
+    : [...roads, ANYTHING_ELSE];
+}
+
 function runConditionNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
   const verdict = evaluateCondition(node, context);
+  const roads = conditionRoads(node);
 
-  context.condition = {
-    passed: verdict.passed,
-    label: verdict.label
-  };
+  /* A plain rule answers yes or no, so it takes the first road or the second —
+     whatever the architect called them. A rule about meaning has already picked
+     a word by name (the entry door), and it is honoured if it is a road that
+     exists; anything unrecognised takes "Anything else" rather than guessing. */
+  const named = String(verdict.choice ?? "").trim();
+  const matched = named
+    ? roads.find((road) => road.toLowerCase() === named.toLowerCase())
+    : undefined;
+
+  const choice = matched ?? (named ? ANYTHING_ELSE : verdict.passed ? roads[0]! : roads[1] ?? ANYTHING_ELSE);
+
+  context.condition = { passed: verdict.passed, label: verdict.label, choice };
+  /* The road it took and one line of why, handed to whatever runs next — so a
+     Send Text after a Condition can say "sorry about the delay" rather than a
+     generic line. This is the node's door out (docs/NODE-SOP.md). */
+  context.choice = choice;
+  context.why = verdict.explain;
+
   // Remembered per node, because a flow may have several conditions and the
-  // wave builder needs to know which way EACH of them went.
-  context.conditionResults = { ...(context.conditionResults ?? {}), [node.id]: verdict.passed };
+  // wave builder needs to know which road EACH of them took.
+  context.conditionResults = { ...(context.conditionResults ?? {}), [node.id]: choice };
 
   logs.push(
-    createLog(
-      node,
-      "success",
-      `${verdict.passed ? "Yes" : "No"} — ${verdict.explain}. Following the ${verdict.passed ? "Yes" : "No"} branch.`,
-      { ...context.condition, explain: verdict.explain }
-    )
+    createLog(node, "success", `${choice} — ${verdict.explain}. Following the "${choice}" road.`, {
+      ...context.condition,
+      explain: verdict.explain
+    })
   );
 }
 
@@ -7013,6 +7085,22 @@ async function executeNodeOnConfig(params: {
     }
 
     if (nodeKind === "condition") {
+      /* A rule about MEANING is decided before the node runs, by its entry
+         door. A plain rule never reaches this — asking a model whether we are
+         inside business hours would put a cost and a delay on the commonest
+         rule on the platform. */
+      if (asString(node.data?.conditionOperator) === "meaning") {
+        const decision = await decideConditionRoad({
+          question: asString(node.data?.conditionQuestion),
+          roads: conditionRoads(node),
+          arrived: asString(context.text) || asString(context.latestMessage)
+        });
+        if (decision.choice) {
+          (context as Record<string, unknown>)[`condition.${node.id}.choice`] = decision.choice;
+          (context as Record<string, unknown>)[`condition.${node.id}.why`] = decision.why;
+        }
+      }
+
       runConditionNode(node, context, nodeLogs);
       const hasErr = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
       return { logs: nodeLogs, runFailed: hasErr };

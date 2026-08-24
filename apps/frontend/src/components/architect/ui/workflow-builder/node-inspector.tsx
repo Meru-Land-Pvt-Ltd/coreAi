@@ -3799,72 +3799,151 @@ function StandardAiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   );
 }
 
+/**
+ * THE FORK IN THE ROAD.
+ *
+ * It sorts what arrives into one of the words an architect chose, and each word
+ * is a road out of the node. Yes and No are only the two it starts with.
+ *
+ * Routing a support email three ways used to mean three conditions chained in a
+ * ladder — an unreadable canvas and three decisions where one would do.
+ *
+ * Two kinds of rule, and the difference is what it costs:
+ *   • a PLAIN rule — are we open, does this contain "cancel" — is arithmetic,
+ *     answered instantly, and never reaches a model
+ *   • a rule about MEANING — is this a complaint — is read by the entry door,
+ *     which picks one of the words by name
+ * Asking a model whether we are inside business hours would put a cost and a
+ * delay on the commonest rule on the platform, so the two are kept apart.
+ */
 function ConditionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
 
+  const operator = str("conditionOperator", "business_hours");
+  const byMeaning = operator === "meaning";
+
+  const roads: string[] = Array.isArray(selectedNode.data.conditionChoices)
+    ? (selectedNode.data.conditionChoices as unknown[]).map((value) => String(value))
+    : ["Yes", "No"];
+
+  const setRoads = (next: string[]) =>
+    onUpdateNodeData("conditionChoices" as keyof BuilderNodeData, next as BuilderNodeData[keyof BuilderNodeData]);
+
   return (
     <>
-      <Section title="General">
-        <Label>Node name</Label>
-        <TextInput value={selectedNode.data.title} onChange={set("title")} />
+      <Section title="Name">
+        <TextInput value={selectedNode.data.title} onChange={set("title")} placeholder="Condition" />
       </Section>
 
-      <Section title="The rule" last>
-        <Label>What is this decision called?</Label>
-        <TextInput value={str("condition", "Business hours")} onChange={set("condition")} placeholder="e.g. Is it after hours?" />
-        <p className="mt-1 text-[11px] text-slate-400">Just a name, so you can read the flow later.</p>
+      <Section title="How it decides">
+        <SelectBox
+          value={operator}
+          onChange={set("conditionOperator")}
+          testId="condition-operator"
+          options={[
+            { value: "business_hours", label: "Are we open right now?" },
+            { value: "meaning", label: "Read what arrived and decide" },
+            { value: "contains", label: "Something contains…" },
+            { value: "not_contains", label: "Something does not contain…" },
+            { value: "equals", label: "Something is exactly…" },
+            { value: "not_equals", label: "Something is not…" },
+            { value: "is_empty", label: "Something is empty" },
+            { value: "is_not_empty", label: "Something has a value" },
+            { value: "greater_than", label: "A number is more than…" },
+            { value: "less_than", label: "A number is less than…" }
+          ]}
+        />
 
-        <div className="mt-4">
-          <Label>What to check</Label>
-          <SelectBox
-            value={str("conditionOperator", "business_hours")}
-            onChange={set("conditionOperator")}
-            options={[
-              { value: "business_hours", label: "Are we open right now?" },
-              { value: "contains", label: "Something contains…" },
-              { value: "not_contains", label: "Something does not contain…" },
-              { value: "equals", label: "Something is exactly…" },
-              { value: "not_equals", label: "Something is not…" },
-              { value: "is_empty", label: "Something is empty" },
-              { value: "is_not_empty", label: "Something has a value" },
-              { value: "greater_than", label: "A number is more than…" },
-              { value: "less_than", label: "A number is less than…" }
-            ]}
-          />
-        </div>
-
-        {str("conditionOperator", "business_hours") !== "business_hours" ? (
+        {byMeaning ? (
+          <div className="mt-4">
+            <Label>What is it deciding?</Label>
+            <textarea
+              value={str("conditionQuestion")}
+              onChange={(event) => set("conditionQuestion")(event.target.value)}
+              placeholder="Is this customer complaining, asking a question, or is it spam?"
+              rows={3}
+              data-testid="condition-question"
+              className="mt-1 w-full resize-y rounded-xl border border-gray-200 px-3 py-2.5 text-sm leading-6 text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
+            />
+            <p className="mt-1.5 text-[11px] leading-5 text-slate-400">
+              It reads whatever arrived and picks one of the roads below. Only this kind of rule
+              uses AI — the others are instant and cost nothing.
+            </p>
+          </div>
+        ) : operator !== "business_hours" ? (
           <>
             <div className="mt-4">
               <Label>Which value?</Label>
-              <TextInput
-                value={str("conditionField")}
-                onChange={set("conditionField")}
-                placeholder="latestMessage"
-              />
+              <TextInput value={str("conditionField")} onChange={set("conditionField")} placeholder="text" />
               <p className="mt-1 text-[11px] text-slate-400">
-                What the customer said is <code>latestMessage</code>. Their number is{" "}
-                <code>customer.phone</code>. An AI step&apos;s answer is <code>ai.output</code>.
+                What arrived from the step before is <code>text</code>.
               </p>
             </div>
 
-            {!["is_empty", "is_not_empty"].includes(str("conditionOperator", "business_hours")) ? (
+            {!["is_empty", "is_not_empty"].includes(operator) ? (
               <div className="mt-4">
                 <Label>Compared to</Label>
-                <TextInput
-                  value={str("conditionValue")}
-                  onChange={set("conditionValue")}
-                  placeholder="e.g. cancel"
-                />
+                <TextInput value={str("conditionValue")} onChange={set("conditionValue")} placeholder="cancel" />
               </div>
             ) : null}
           </>
         ) : null}
+      </Section>
 
-        <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-900">
-          Steps on the <strong>Yes</strong> line run only when the rule is true. Steps on the{" "}
-          <strong>No</strong> line run only when it is false. A line you leave unlabelled always runs.
+      {/* ---------------------------------------------------------- the roads */}
+      <Section title="The roads out" last>
+        <p className="text-[12px] leading-5 text-slate-500">
+          Every word here is a road out of this step. Rename them, or add more.
         </p>
+
+        <div className="mt-3 space-y-2" data-testid="condition-roads">
+          {roads.map((road, index) => (
+            <div key={index} className="flex items-center gap-2">
+              <span
+                className={`h-2 w-2 shrink-0 rounded-full ${index === 0 ? "bg-green-500" : "bg-amber-500"}`}
+              />
+              <input
+                value={road}
+                onChange={(event) => {
+                  const next = [...roads];
+                  next[index] = event.target.value;
+                  setRoads(next);
+                }}
+                placeholder={index === 0 ? "Yes" : "No"}
+                data-testid={`condition-road-${index}`}
+                className="h-10 min-w-0 flex-1 rounded-xl border border-gray-200 px-3 text-sm text-slate-900 outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
+              />
+              {roads.length > 2 ? (
+                <button
+                  type="button"
+                  onClick={() => setRoads(roads.filter((_, i) => i !== index))}
+                  data-testid={`condition-road-remove-${index}`}
+                  className="shrink-0 px-1 text-[12px] font-semibold text-red-600 hover:underline"
+                >
+                  Remove
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setRoads([...roads, ""])}
+          data-testid="condition-road-add"
+          className="mt-2 rounded-lg border border-gray-200 px-3 py-1.5 text-[13px] font-semibold text-slate-700 transition hover:border-gray-300"
+        >
+          Add a road
+        </button>
+
+        {/* Always there, never removable. A customer will eventually say
+            something nobody listed, and a run that falls off the end in silence
+            is the failure this platform keeps deleting. */}
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-slate-50/60 px-3 py-2.5">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-slate-400" />
+          <span className="text-[13px] font-medium text-slate-600">Anything else</span>
+          <span className="text-[11px] text-slate-400">— always here, so nothing is ever lost</span>
+        </div>
       </Section>
     </>
   );

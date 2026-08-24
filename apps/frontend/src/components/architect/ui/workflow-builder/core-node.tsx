@@ -59,6 +59,19 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
      docs/NODE-SOP.md questions 3 and 4 — written on the card, so nobody opens a
      panel to find out what a wire has to carry or what it will carry. */
   const takes = definition?.requiredVariables ?? [];
+
+  /* The roads out of a condition, in the architect's own words. Two by default,
+     and "Anything else" always last — see conditionRoads in the runner, which
+     must agree with this. */
+  const roads = (() => {
+    if (!isCondition) return [];
+    const raw = (data as unknown as Record<string, unknown>).conditionChoices;
+    const chosen = Array.isArray(raw)
+      ? raw.map((value) => String(value).trim()).filter((value) => value.length > 0)
+      : [];
+    const list = chosen.length > 0 ? chosen : ["Yes", "No"];
+    return list.some((road) => road.toLowerCase() === "anything else") ? list : [...list, "Anything else"];
+  })();
   const gives = definition?.producedVariables ?? [];
 
   return (
@@ -159,23 +172,37 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
       </div>
 
       {isCondition ? (
+        /* ONE ROAD OUT PER WORD.
+           Yes and No used to be the only two, hard-coded, so routing three ways
+           meant three conditions chained in a ladder. They are ordinary words
+           an architect may rename now, and "Anything else" is always last —
+           a customer will eventually say something nobody listed. */
         <>
-          <Handle
-            id="yes"
-            type="source"
-            position={Position.Right}
-            className="core-port"
-            style={{ top: "35%", background: "#22c55e" }}
-          />
-          <Handle
-            id="no"
-            type="source"
-            position={Position.Right}
-            className="core-port"
-            style={{ top: "65%", background: "#ef4444" }}
-          />
-          <span className="absolute -right-[26px] top-[35%] -translate-y-1/2 text-[10px] font-bold text-green-600" data-testid="architect-ui-workflow-builder-core-node-yes-text">Yes</span>
-          <span className="absolute -right-[22px] top-[65%] -translate-y-1/2 text-[10px] font-bold text-red-500" data-testid="architect-ui-workflow-builder-core-node-no-text">No</span>
+          {roads.map((road, index) => {
+            const top = `${((index + 1) / (roads.length + 1)) * 100}%`;
+            const last = index === roads.length - 1;
+            return (
+              <span key={road}>
+                <Handle
+                  id={road.toLowerCase()}
+                  type="source"
+                  position={Position.Right}
+                  className="core-port"
+                  style={{ top, background: last ? "#94a3b8" : index === 0 ? "#22c55e" : "#f59e0b" }}
+                />
+                <span
+                  className={cn(
+                    "absolute -right-1 max-w-[7rem] translate-x-full -translate-y-1/2 truncate pl-1.5 text-[10px] font-bold",
+                    last ? "text-slate-400" : index === 0 ? "text-green-600" : "text-amber-600"
+                  )}
+                  style={{ top }}
+                  data-testid={`core-node-road-${road.toLowerCase()}`}
+                >
+                  {road}
+                </span>
+              </span>
+            );
+          })}
         </>
       ) : (
         <Handle
