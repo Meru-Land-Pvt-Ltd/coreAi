@@ -251,12 +251,13 @@ function Provider({
 
   return (
     <section
-      className="mb-3 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+      className="border-b border-gray-100 last:border-b-0"
       data-testid={`llm-provider-${provider.providerId}`}
     >
-      {/* White, so each provider lifts off the ground behind it. Tinting the
-          row made it sink into the panel instead of reading as its own thing. */}
-      <header className="flex flex-wrap items-center gap-3 px-4 py-3">
+      {/* A row on the sheet, divided by a hairline. Not a card: the page is
+          already one white surface, and a card on a card is the thing that made
+          this screen read as a pile of fragments. See admin-shell.tsx. */}
+      <header className="flex flex-wrap items-center gap-3 py-3.5">
         <button
           type="button"
           onClick={() => setOpen(!open)}
@@ -308,7 +309,7 @@ function Provider({
       </header>
 
       {open ? (
-        <div className="border-t border-gray-100 px-4 py-3">
+        <div className="pb-4">
           {/* ------------------------------------------------------------ key */}
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -364,10 +365,10 @@ function Provider({
               </p>
             ) : null}
 
-            <div className="mt-4 overflow-x-auto">
+            <div className="mt-4 overflow-x-auto rounded-xl border border-gray-200">
               <table className="w-full min-w-[720px] border-collapse">
                 <thead>
-                  <tr className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <tr className="bg-slate-50/80 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     <th className="py-2 pl-4 pr-3 text-left font-bold">Model</th>
                     <th className="px-3 py-2 text-left font-bold">Name architects see</th>
                     <th className="px-3 py-2 text-center font-bold">Available</th>
@@ -442,8 +443,8 @@ export function AiBrainModels() {
         </button>
       </div>
 
-      <div className="mt-5 rounded-2xl bg-slate-50/70 p-3">
-        {loading ? <p className="px-1 py-2 text-sm text-slate-500">Asking every provider what it has…</p> : null}
+      <div className="mt-5 border-t border-gray-100">
+        {loading ? <p className="py-4 text-sm text-slate-500">Asking every provider what it has…</p> : null}
 
         {providers.map((provider) => (
           <Provider key={provider.providerId} provider={provider} onChanged={() => void load()} />

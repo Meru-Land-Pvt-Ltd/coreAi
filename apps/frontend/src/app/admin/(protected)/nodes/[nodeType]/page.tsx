@@ -144,7 +144,7 @@ export default function AdminNodePage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8" data-testid={`admin-node-page-${node.type}`}>
+    <div className="mx-auto max-w-5xl px-6 py-8 sm:px-8" data-testid={`admin-node-page-${node.type}`}>
       <button
         type="button"
         onClick={() => router.push("/admin/nodes" as Route)}
@@ -161,8 +161,9 @@ export default function AdminNodePage() {
       <p className="mt-1 text-sm text-slate-500">{node.description || node.type}</p>
       <p className="mt-1 font-mono text-[11px] text-slate-400">{node.type}</p>
 
-      {/* ------------------------------------------------------- the switches */}
-      <section className="mt-6 rounded-2xl border border-gray-200 p-5">
+      {/* Sections of one sheet, divided by a hairline — not cards stacked on
+          top of a card. See admin-shell.tsx. */}
+      <section className="mt-8 border-t border-gray-100 pt-6">
         <h2 className="text-base font-bold text-slate-900">Switches</h2>
         <p className="mt-1 text-sm text-slate-500">
           {node.liveAgents === 0
@@ -257,7 +258,7 @@ export default function AdminNodePage() {
 
       {/* -------------------------------------------- this node's own settings */}
       {settings ? (
-        <section className="mt-6 rounded-2xl border border-gray-200 p-5" data-testid="admin-node-settings">
+        <section className="mt-8 border-t border-gray-100 pt-6" data-testid="admin-node-settings">
           <SettingsFor nodeType={node.type} />
         </section>
       ) : null}
