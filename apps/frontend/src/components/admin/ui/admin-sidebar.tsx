@@ -23,8 +23,7 @@ import {
   UserRoundCog,
   X,
   type LucideIcon,
-  ToggleRight,
-  Sparkles
+  ToggleRight
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getAuthUser, logout, type AuthUser } from "@/lib/auth";
@@ -61,8 +60,11 @@ const NAV_GROUPS: Array<{ label: string; items: AdminNavItem[] }> = [
       { label: "Design Brain rules", href: "/admin/design-rules" as Route, icon: Paintbrush },
       { label: "Builder nodes", href: "/admin/builder-nodes" as Route, icon: LayoutGrid },
       // The two switches: available to build with, and allowed to run at all.
-      { label: "Nodes", href: "/admin/nodes" as Route, icon: ToggleRight },
-      { label: "AI models", href: "/admin/ai-models" as Route, icon: Sparkles }
+      { label: "Nodes", href: "/admin/nodes" as Route, icon: ToggleRight }
+      /* No per-node entries here. A node's settings live inside that node, at
+         /admin/nodes/<type> — otherwise this list grows an item every time any
+         of 62 nodes gains a setting, and nobody remembers which node "AI
+         models" belonged to. */
     ]
   },
   {

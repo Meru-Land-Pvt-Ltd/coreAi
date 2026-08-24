@@ -1,7 +1,12 @@
 "use client";
 
 /**
- * AI MODELS — adding one without waiting for a release.
+ * THE AI BRAIN'S MODELS — adding one without waiting for a release.
+ *
+ * Lives inside the AI Brain's own page at /admin/nodes/ai.llm_call, not in the
+ * sidebar. A node's settings belong to the node: the sidebar would otherwise
+ * grow an entry every time any of 62 nodes gained one, and an admin would be
+ * left guessing which node "AI models" belonged to.
  *
  * The model list shipped with the code, so offering architects a model that
  * came out on Tuesday meant an edit, a review and a deploy. Providers publish
@@ -45,7 +50,7 @@ const BLANK = {
   multimodal: false
 };
 
-export default function AdminAiModelsPage() {
+export function AiBrainModels() {
   const [providers, setProviders] = useState<string[]>([]);
   const [models, setModels] = useState<AdminLlmModel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,18 +114,18 @@ export default function AdminAiModelsPage() {
   }));
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8" data-testid="admin-ai-models-page">
-      <h1 className="text-2xl font-black tracking-tight text-slate-900" data-testid="admin-ai-models-title">
-        AI models
-      </h1>
+    <div data-testid="admin-ai-models-panel">
+      <h2 className="text-base font-bold text-slate-900" data-testid="admin-ai-models-title">
+        Models
+      </h2>
       <p className="mt-1 text-sm text-slate-500">
         Every model an architect can pick in an AI Brain. Add one here and it appears immediately —
         no release, no deploy.
       </p>
 
       {/* ---------------------------------------------------------------- add */}
-      <section className="mt-6 rounded-2xl border border-gray-200 p-5">
-        <h2 className="text-sm font-bold text-slate-900">Add a model</h2>
+      <section className="mt-5 rounded-2xl border border-gray-200 p-5">
+        <h3 className="text-sm font-bold text-slate-900">Add a model</h3>
         <p className="mt-1 text-[12px] leading-5 text-slate-500">
           The model id is what gets sent to the provider — copy it exactly from their documentation.
           A provider that isn&apos;t listed needs an adapter first, which is a release.
@@ -256,9 +261,9 @@ export default function AdminAiModelsPage() {
 
         {byProvider.map((group) => (
           <div key={group.providerId} className="mb-6">
-            <h2 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
               {group.providerId} · {group.models.length}
-            </h2>
+            </h3>
 
             <div className="space-y-1.5">
               {group.models.map((model) => (

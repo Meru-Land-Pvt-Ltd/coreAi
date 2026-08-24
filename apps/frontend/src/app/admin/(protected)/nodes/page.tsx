@@ -18,7 +18,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import { Search } from "lucide-react";
+import { hasNodeSettingsPage } from "@/components/admin/features/node-settings-pages";
 import {
   getAdminNodes,
   setAdminNodeExecution,
@@ -200,10 +203,27 @@ export default function AdminNodesPage() {
               </div>
               <p className="mt-0.5 line-clamp-1 text-[12px] text-slate-500">{node.description || node.type}</p>
 
-              <p className="mt-1 text-[11px] text-slate-400">
-                {node.liveAgents === 0
-                  ? "Not used by any live agent"
-                  : `In ${node.liveAgents} live agent${node.liveAgents === 1 ? "" : "s"} across ${node.businesses} business${node.businesses === 1 ? "" : "es"}`}
+              <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
+                <span>
+                  {node.liveAgents === 0
+                    ? "Not used by any live agent"
+                    : `In ${node.liveAgents} live agent${node.liveAgents === 1 ? "" : "s"} across ${node.businesses} business${node.businesses === 1 ? "" : "es"}`}
+                </span>
+
+                {/* Only nodes that HAVE settings get a link. A link that opens
+                    an empty page teaches an admin not to click links. */}
+                {hasNodeSettingsPage(node.type) ? (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <Link
+                      href={`/admin/nodes/${encodeURIComponent(node.type)}` as Route}
+                      data-testid={`admin-node-settings-${node.type}`}
+                      className="font-semibold text-amber-600 hover:underline"
+                    >
+                      Settings
+                    </Link>
+                  </>
+                ) : null}
               </p>
 
               {!node.executionEnabled && node.pausedReason ? (
