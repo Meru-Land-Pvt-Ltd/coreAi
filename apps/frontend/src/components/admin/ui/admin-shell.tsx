@@ -40,15 +40,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
           <span className="h-10 w-10" aria-hidden="true" />
         </header>
 
-        {/* ONE WHITE SHEET, NOT CARDS SCATTERED ON GREY.
-            Every admin page sits on a single white surface. Boxes floating
-            individually on the grey made the workspace read as a pile of
-            fragments rather than one screen — and it had to be said page by
-            page. Said once, here, and every admin page after this inherits it. */}
         <main className="admin-workspace w-full max-w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-          <div className="min-h-[calc(100vh-8rem)] rounded-2xl border border-gray-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05)]">
-            {children}
-          </div>
+          {children}
         </main>
       </div>
     </div>
