@@ -47,7 +47,10 @@ export type AdminLlmProviderView = {
   /** The env key its key is stored under, so the page can save it. */
   envKey: string;
   hasKey: boolean;
+  /** Available: may an architect choose its models in something new. */
   enabled: boolean;
+  /** Running: may it work at all, including in agents already bought. */
+  runningEnabled: boolean;
   health: ProviderHealth;
   /** Null when the provider could not be asked — the reason is in health. */
   models: AdminLlmModelRow[] | null;
@@ -78,7 +81,9 @@ export async function llmControlPanel(force = false): Promise<AdminLlmProviderVi
     prisma.adminLlmModel.findMany().catch(() => [])
   ]);
 
-  const providerEnabled = new Map(providerRows.map((row) => [row.providerId, row.enabled]));
+  const providerSwitches = new Map(
+    providerRows.map((row) => [row.providerId, { enabled: row.enabled, runningEnabled: row.runningEnabled }])
+  );
   const overrides = new Map(modelRows.map((row) => [row.modelId, row]));
   const shipped = new Map(LLM_MODELS.map((model) => [model.id, model]));
 
@@ -121,7 +126,8 @@ export async function llmControlPanel(force = false): Promise<AdminLlmProviderVi
         displayName: provider.displayName,
         envKey: provider.envKey,
         hasKey: Boolean(llmProviderApiKey(provider.id)),
-        enabled: providerEnabled.get(provider.id) ?? true,
+        enabled: providerSwitches.get(provider.id)?.enabled ?? true,
+        runningEnabled: providerSwitches.get(provider.id)?.runningEnabled ?? true,
         health,
         models,
         modelsProblem
@@ -130,11 +136,18 @@ export async function llmControlPanel(force = false): Promise<AdminLlmProviderVi
   );
 }
 
-export async function setProviderEnabled(providerId: string, enabled: boolean) {
+export async function setProviderSwitches(
+  providerId: string,
+  patch: { enabled?: boolean; runningEnabled?: boolean }
+) {
   await prisma.adminLlmProvider.upsert({
     where: { providerId },
-    update: { enabled },
-    create: { providerId, enabled }
+    update: patch,
+    create: {
+      providerId,
+      enabled: patch.enabled ?? true,
+      runningEnabled: patch.runningEnabled ?? true
+    }
   });
   invalidateLlmModelCache();
 }

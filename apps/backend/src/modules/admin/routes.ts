@@ -16,7 +16,7 @@ import {
   setNodeVisibility,
   whoIsAffectedBy
 } from "./node-controls";
-import { forgetProvider, llmControlPanel, patchModel, setProviderEnabled } from "./llm-control";
+import { forgetProvider, llmControlPanel, patchModel, setProviderSwitches } from "./llm-control";
 import { diagnoseUnknownFailures, knownFailures } from "../architect/self-healing/diagnose";
 import { sendBusinessEmail } from "../email/ses-mail-service";
 import { listRegisteredBusinessAccounts } from "./registered-business-accounts";
@@ -198,21 +198,27 @@ adminRoutes.put("/llm-control/:providerId/key", async (c) => {
   return successResponse(c, { providers: await llmControlPanel(true) });
 });
 
-/** A whole provider on or off inside the AI Brain. */
+/** A whole provider's two switches, the same pair as the node and the model. */
 adminRoutes.put("/llm-control/:providerId", async (c) => {
   const authUser = c.get("authUser");
   const providerId = c.req.param("providerId");
-  const body = (await c.req.json().catch(() => ({}))) as { enabled?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { enabled?: unknown; runningEnabled?: unknown };
 
-  await setProviderEnabled(providerId, body.enabled !== false);
+  const patch = {
+    ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}),
+    ...(typeof body.runningEnabled === "boolean" ? { runningEnabled: body.runningEnabled } : {})
+  };
+
+  await setProviderSwitches(providerId, patch);
   await logAdminAction({
     adminUserId: authUser.id,
-    action: body.enabled === false ? "LLM_PROVIDER_DISABLED" : "LLM_PROVIDER_ENABLED",
+    action: "LLM_PROVIDER_SWITCHED",
     targetType: "LlmProvider",
-    targetId: providerId
+    targetId: providerId,
+    meta: patch
   }).catch(() => null);
 
-  return successResponse(c, { providerId, enabled: body.enabled !== false });
+  return successResponse(c, { providers: await llmControlPanel() });
 });
 
 /** One model: its name, its two switches, its price. */

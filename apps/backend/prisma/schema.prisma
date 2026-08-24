@@ -3280,6 +3280,12 @@ model AdminLlmModel {
 model AdminLlmProvider {
   id         String   @id @default(cuid())
   providerId String   @unique
+  /// May an architect choose any of its models in something NEW.
   enabled    Boolean  @default(true)
+  /// May it run AT ALL, including inside agents businesses already bought.
+  /// The same pair as the node switches and the model switches, for the same
+  /// reason: retiring a provider must not break the agents using it, and
+  /// killing one must not wait for a deploy.
+  runningEnabled Boolean @default(true)
   updatedAt  DateTime @updatedAt
 }

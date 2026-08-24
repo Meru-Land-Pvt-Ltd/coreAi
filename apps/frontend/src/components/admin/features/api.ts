@@ -774,7 +774,10 @@ export type LlmProviderView = {
   displayName: string;
   envKey: string;
   hasKey: boolean;
+  /** Available: may an architect choose its models in something new. */
   enabled: boolean;
+  /** Running: may it work at all, including in agents already bought. */
+  runningEnabled: boolean;
   health: LlmProviderHealth;
   /** Null when the provider could not be asked — see modelsProblem. */
   models: LlmModelRow[] | null;
@@ -792,10 +795,13 @@ export function saveLlmKey(providerId: string, envKey: string, apiKey: string) {
   );
 }
 
-export function setLlmProviderEnabled(providerId: string, enabled: boolean) {
-  return apiPut<{ providerId: string; enabled: boolean }>(
+export function setLlmProviderSwitches(
+  providerId: string,
+  patch: { enabled?: boolean; runningEnabled?: boolean }
+) {
+  return apiPut<{ providers: LlmProviderView[] }>(
     `/admin/llm-control/${encodeURIComponent(providerId)}`,
-    { enabled }
+    patch
   );
 }
 

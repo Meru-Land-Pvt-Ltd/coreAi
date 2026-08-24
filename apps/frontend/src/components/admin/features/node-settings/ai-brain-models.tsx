@@ -23,7 +23,7 @@ import {
   getLlmControl,
   patchLlmModel,
   saveLlmKey,
-  setLlmProviderEnabled,
+  setLlmProviderSwitches,
   type LlmModelRow,
   type LlmProviderHealth,
   type LlmProviderView
@@ -249,16 +249,31 @@ function Provider({
 
         <Health health={provider.health} />
 
+        {/* The same pair as the node and the model. Available decides new
+            builds; Running decides everything, including agents already sold. */}
         <span className="flex shrink-0 items-center gap-2">
-          <span className="text-[11px] font-medium text-slate-500">Enabled</span>
+          <span className="text-[11px] font-medium text-slate-500">Available</span>
           <Switch
             on={provider.enabled}
             onClick={async () => {
-              await setLlmProviderEnabled(provider.providerId, !provider.enabled);
+              await setLlmProviderSwitches(provider.providerId, { enabled: !provider.enabled });
               onChanged();
             }}
-            testId={`llm-provider-enabled-${provider.providerId}`}
-            label={`${provider.displayName} enabled`}
+            testId={`llm-provider-available-${provider.providerId}`}
+            label={`${provider.displayName} available in new agents`}
+          />
+        </span>
+
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="text-[11px] font-medium text-slate-500">Running</span>
+          <Switch
+            on={provider.runningEnabled}
+            onClick={async () => {
+              await setLlmProviderSwitches(provider.providerId, { runningEnabled: !provider.runningEnabled });
+              onChanged();
+            }}
+            testId={`llm-provider-running-${provider.providerId}`}
+            label={`${provider.displayName} running in existing agents`}
           />
         </span>
       </header>
@@ -291,12 +306,20 @@ function Provider({
 
           {/* --------------------------------------------------------- models */}
           {provider.models === null ? (
-            <p
-              className="mt-4 rounded-lg border border-gray-200 bg-slate-50 px-4 py-3 text-[13px] text-slate-600"
-              data-testid={`llm-provider-models-problem-${provider.providerId}`}
-            >
-              {provider.modelsProblem}
-            </p>
+            /* NO DOUBLE INFORMATION.
+               The pill beside the provider's name already says "key rejected"
+               or "out of credit". Repeating it in a box underneath made a
+               reader stop and work out whether the two sentences were the same
+               one. This only speaks when it knows something the pill does not —
+               the provider answered, but had nothing to give. */
+            provider.health.state === "working" ? (
+              <p
+                className="mt-4 rounded-lg border border-gray-200 bg-slate-50 px-4 py-3 text-[13px] text-slate-600"
+                data-testid={`llm-provider-models-problem-${provider.providerId}`}
+              >
+                {provider.modelsProblem}
+              </p>
+            ) : null
           ) : (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full min-w-[720px] border-collapse">
