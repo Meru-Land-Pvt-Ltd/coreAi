@@ -748,57 +748,64 @@ export function setAdminNodeExecution(nodeType: string, enabled: boolean, reason
   }>(`/admin/nodes/${encodeURIComponent(nodeType)}/execution`, { enabled, reason });
 }
 
-/* ------------------------------ AI models -------------------------------- */
+/* ---------------------------- The AI Brain ------------------------------- */
 
-/**
- * One model an architect can pick.
- *
- * `source` is the whole point: built-in models shipped with a release and their
- * price and name are ours, so an admin may switch one off but not rewrite it.
- * Admin models were added here, without a deploy, and can be edited freely.
- */
-export type AdminLlmModel = {
-  id: string;
-  providerId: string;
-  displayName: string;
-  category: string;
-  badge: string;
-  inputPricePer1M: number | null;
-  outputPricePer1M: number | null;
-  multimodal?: boolean;
-  source: "built-in" | "admin";
-};
+/** Working, no key, or a sentence saying what is wrong. */
+export type LlmProviderHealth =
+  | { state: "working"; detail: null }
+  | { state: "no-key"; detail: string }
+  | { state: "problem"; detail: string };
 
-export type AdminLlmModelRow = {
+export type LlmModelRow = {
   modelId: string;
-  providerId: string;
+  providerName: string | null;
   displayName: string;
-  category: string;
+  /** Available: may an architect choose it in something new. */
+  enabled: boolean;
+  /** Running: may it run at all, including in agents already bought. */
+  runningEnabled: boolean;
   inputPricePer1M: number | null;
   outputPricePer1M: number | null;
-  multimodal: boolean;
-  enabled: boolean;
+  shipped: boolean;
 };
 
-export function getAdminLlmModels() {
-  return apiGet<{ providers: string[]; models: AdminLlmModel[]; added: AdminLlmModelRow[] }>(
-    "/admin/llm-models"
+export type LlmProviderView = {
+  providerId: string;
+  displayName: string;
+  envKey: string;
+  hasKey: boolean;
+  enabled: boolean;
+  health: LlmProviderHealth;
+  /** Null when the provider could not be asked — see modelsProblem. */
+  models: LlmModelRow[] | null;
+  modelsProblem: string | null;
+};
+
+export function getLlmControl(refresh = false) {
+  return apiGet<{ providers: LlmProviderView[] }>(`/admin/llm-control${refresh ? "?refresh=1" : ""}`);
+}
+
+export function saveLlmKey(providerId: string, envKey: string, apiKey: string) {
+  return apiPut<{ providers: LlmProviderView[] }>(
+    `/admin/llm-control/${encodeURIComponent(providerId)}/key`,
+    { envKey, apiKey }
   );
 }
 
-export function saveAdminLlmModel(model: {
-  modelId: string;
-  providerId: string;
-  displayName: string;
-  category: string;
-  inputPricePer1M?: number | null;
-  outputPricePer1M?: number | null;
-  multimodal?: boolean;
-  enabled?: boolean;
-}) {
-  return apiPost<{ model: AdminLlmModelRow }>("/admin/llm-models", model);
+export function setLlmProviderEnabled(providerId: string, enabled: boolean) {
+  return apiPut<{ providerId: string; enabled: boolean }>(
+    `/admin/llm-control/${encodeURIComponent(providerId)}`,
+    { enabled }
+  );
 }
 
-export function removeAdminLlmModel(modelId: string) {
-  return apiDelete<{ removed: string }>(`/admin/llm-models/${encodeURIComponent(modelId)}`);
+export function patchLlmModel(
+  providerId: string,
+  modelId: string,
+  patch: Partial<Pick<LlmModelRow, "displayName" | "enabled" | "runningEnabled" | "inputPricePer1M" | "outputPricePer1M">>
+) {
+  return apiPut<{ model: unknown }>(
+    `/admin/llm-control/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}`,
+    patch
+  );
 }

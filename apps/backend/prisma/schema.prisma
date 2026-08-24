@@ -3255,12 +3255,31 @@ model AdminLlmModel {
   outputPricePer1M Float?
   /// Can it read images and PDFs.
   multimodal      Boolean  @default(false)
-  /// Off hides it from every picker without deleting what it is.
+  /// May an architect choose this in something NEW. Off hides it from pickers.
   enabled         Boolean  @default(true)
+  /// May it run AT ALL, including inside agents businesses already bought.
+  /// The same pair as the node switches: retiring a model must not break the
+  /// agents already using it, and killing one must not wait for a deploy.
+  runningEnabled  Boolean  @default(true)
   addedByUserId   String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([providerId])
   @@index([enabled])
+}
+
+/// One LLM provider's switch.
+///
+/// Switching a whole provider off inside the AI Brain is the thing to reach for
+/// when a provider is down, has run out of credit, or is being retired — rather
+/// than switching off its models one at a time.
+///
+/// Keys are NOT here. They live in PlatformApiSetting, encrypted, which already
+/// resolves ahead of the environment at runtime.
+model AdminLlmProvider {
+  id         String   @id @default(cuid())
+  providerId String   @unique
+  enabled    Boolean  @default(true)
+  updatedAt  DateTime @updatedAt
 }

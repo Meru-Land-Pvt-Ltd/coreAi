@@ -50,9 +50,20 @@ export async function allLlmModels(force = false): Promise<LlmModelMeta[]> {
 
   let added: LlmModelMeta[] = [];
   let disabled = new Set<string>();
+  let offProviders = new Set<string>();
 
   try {
-    const rows = await prisma.adminLlmModel.findMany();
+    const [rows, providerRows] = await Promise.all([
+      prisma.adminLlmModel.findMany(),
+      prisma.adminLlmProvider.findMany()
+    ]);
+
+    /* A provider switched off inside the AI Brain takes all of its models with
+       it. Reaching for one switch when a provider is down beats switching off
+       eleven models one at a time and remembering to switch them back. */
+    for (const provider of providerRows) {
+      if (!provider.enabled) offProviders.add(provider.providerId);
+    }
 
     for (const row of rows) {
       if (!row.enabled) {
@@ -89,7 +100,7 @@ export async function allLlmModels(force = false): Promise<LlmModelMeta[]> {
   const models = [
     ...LLM_MODELS.filter((model) => !addedIds.has(model.id) && !disabled.has(model.id)),
     ...added
-  ];
+  ].filter((model) => !offProviders.has(model.providerId));
 
   cache = { at: Date.now(), models };
   return models;

@@ -1,309 +1,390 @@
 "use client";
 
 /**
- * THE AI BRAIN'S MODELS — adding one without waiting for a release.
+ * THE AI BRAIN'S CONTROL PANEL.
  *
- * Lives inside the AI Brain's own page at /admin/nodes/ai.llm_call, not in the
- * sidebar. A node's settings belong to the node: the sidebar would otherwise
- * grow an entry every time any of 62 nodes gained one, and an admin would be
- * left guessing which node "AI models" belonged to.
+ * One screen for every decision about an LLM: is the key working, is the
+ * provider on, which of its models may architects use, what do they cost.
  *
- * The model list shipped with the code, so offering architects a model that
- * came out on Tuesday meant an edit, a review and a deploy. Providers publish
- * constantly; an architect who cannot pick this week's model is building on
- * last month's platform.
+ * It replaced a form that made an admin type a model id copied out of a
+ * provider's documentation. The founder called that useless and was right — the
+ * provider already publishes the list, so typing it was work we invented, and
+ * one typo produced a model that looked real in a dropdown and failed on the
+ * first customer. Models are fetched now. An admin never types an id.
  *
- * Two things this screen deliberately does NOT do:
- *
- *  • Add a PROVIDER. That needs an adapter that speaks its API — code somebody
- *    writes and tests. A form that produced a provider nothing can call would
- *    be a form that produces a broken agent.
- *
- *  • Let anyone rewrite a built-in model. Its name and price are ours, shipped
- *    with a release. They can be switched OFF here, because a model that starts
- *    refusing calls has to be removable today, not at the next release.
+ * A table, not cards: sixty models across seven providers, each with two
+ * switches, a name, two prices and a state. Cards cannot hold that and stay
+ * readable. One row per model, columns aligned, nothing decorative.
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import {
-  getAdminLlmModels,
-  saveAdminLlmModel,
-  removeAdminLlmModel,
-  type AdminLlmModel
+  getLlmControl,
+  patchLlmModel,
+  saveLlmKey,
+  setLlmProviderEnabled,
+  type LlmModelRow,
+  type LlmProviderHealth,
+  type LlmProviderView
 } from "@/components/admin/features/api";
 
-const CATEGORIES = [
-  { value: "flagship", label: "Flagship — the balanced one" },
-  { value: "thinking", label: "Thinking — slower, reasons harder" },
-  { value: "fast", label: "Fast — cheap and quick" },
-  { value: "code", label: "Coding" },
-  { value: "legacy", label: "Legacy — kept for old agents" }
-];
+function Health({ health }: { health: LlmProviderHealth }) {
+  const tone =
+    health.state === "working"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : health.state === "no-key"
+        ? "border-slate-200 bg-slate-50 text-slate-500"
+        : "border-red-200 bg-red-50 text-red-700";
 
-const BLANK = {
-  modelId: "",
-  providerId: "",
-  displayName: "",
-  category: "flagship",
-  inputPricePer1M: "",
-  outputPricePer1M: "",
-  multimodal: false
-};
+  const label = health.state === "working" ? "Working" : health.state === "no-key" ? "No key" : health.detail;
+
+  return (
+    <span
+      className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${tone}`}
+      data-testid="llm-provider-health"
+    >
+      {label}
+    </span>
+  );
+}
+
+function Switch({
+  on,
+  onClick,
+  busy,
+  testId,
+  label
+}: {
+  on: boolean;
+  onClick: () => void;
+  busy?: boolean;
+  testId: string;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={onClick}
+      disabled={busy}
+      data-testid={testId}
+      className={`relative h-5 w-9 shrink-0 rounded-full transition disabled:opacity-40 ${
+        on ? "bg-emerald-500" : "bg-gray-300"
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+          on ? "left-[1.15rem]" : "left-0.5"
+        }`}
+      />
+    </button>
+  );
+}
+
+/** A price cell that only saves when the admin leaves it. */
+function PriceCell({
+  value,
+  onSave,
+  testId
+}: {
+  value: number | null;
+  onSave: (next: number | null) => void;
+  testId: string;
+}) {
+  const [draft, setDraft] = useState(value === null ? "" : String(value));
+
+  useEffect(() => {
+    setDraft(value === null ? "" : String(value));
+  }, [value]);
+
+  return (
+    <input
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        const trimmed = draft.trim();
+        const next = trimmed === "" ? null : Number(trimmed);
+        if (trimmed !== "" && !Number.isFinite(next)) {
+          setDraft(value === null ? "" : String(value));
+          return;
+        }
+        if (next !== value) onSave(next);
+      }}
+      inputMode="decimal"
+      placeholder="—"
+      data-testid={testId}
+      className="w-20 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-right font-mono text-[12px] text-slate-700 transition hover:border-gray-200 focus:border-amber-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-100"
+    />
+  );
+}
+
+function ModelRow({
+  providerId,
+  model,
+  onPatch
+}: {
+  providerId: string;
+  model: LlmModelRow;
+  onPatch: (modelId: string, patch: Partial<LlmModelRow>) => void;
+}) {
+  const [name, setName] = useState(model.displayName);
+
+  useEffect(() => {
+    setName(model.displayName);
+  }, [model.displayName]);
+
+  return (
+    <tr className="border-t border-gray-100" data-testid={`llm-model-${model.modelId}`}>
+      <td className="py-2 pl-4 pr-3">
+        <span className="font-mono text-[12px] text-slate-500">{model.modelId}</span>
+        {model.providerName && model.providerName !== model.modelId ? (
+          <span className="ml-2 text-[11px] text-slate-400">{model.providerName}</span>
+        ) : null}
+      </td>
+
+      <td className="px-3 py-2">
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          onBlur={() => {
+            if (name.trim() !== model.displayName) onPatch(model.modelId, { displayName: name.trim() });
+          }}
+          placeholder={model.modelId}
+          data-testid={`llm-model-name-${model.modelId}`}
+          className="w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[13px] font-medium text-slate-900 transition hover:border-gray-200 focus:border-amber-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-100"
+        />
+      </td>
+
+      <td className="px-3 py-2 text-center">
+        <Switch
+          on={model.enabled}
+          onClick={() => onPatch(model.modelId, { enabled: !model.enabled })}
+          testId={`llm-model-available-${model.modelId}`}
+          label={`Available in new agents: ${model.modelId}`}
+        />
+      </td>
+
+      <td className="px-3 py-2 text-center">
+        <Switch
+          on={model.runningEnabled}
+          onClick={() => onPatch(model.modelId, { runningEnabled: !model.runningEnabled })}
+          testId={`llm-model-running-${model.modelId}`}
+          label={`Running in existing agents: ${model.modelId}`}
+        />
+      </td>
+
+      <td className="px-3 py-2 text-right">
+        <PriceCell
+          value={model.inputPricePer1M}
+          onSave={(next) => onPatch(model.modelId, { inputPricePer1M: next })}
+          testId={`llm-model-in-price-${model.modelId}`}
+        />
+      </td>
+
+      <td className="py-2 pl-3 pr-4 text-right">
+        <PriceCell
+          value={model.outputPricePer1M}
+          onSave={(next) => onPatch(model.modelId, { outputPricePer1M: next })}
+          testId={`llm-model-out-price-${model.modelId}`}
+        />
+      </td>
+    </tr>
+  );
+}
+
+function Provider({
+  provider,
+  onChanged
+}: {
+  provider: LlmProviderView;
+  onChanged: () => void;
+}) {
+  /* Open when there is something to do: a provider with a problem or no key is
+     the one an admin came here for. */
+  const [open, setOpen] = useState(provider.health.state !== "working");
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const patch = async (modelId: string, next: Partial<LlmModelRow>) => {
+    await patchLlmModel(provider.providerId, modelId, next);
+    onChanged();
+  };
+
+  const saveKey = async () => {
+    if (!key.trim()) return;
+    setSaving(true);
+    await saveLlmKey(provider.providerId, provider.envKey, key.trim());
+    setSaving(false);
+    setKey("");
+    onChanged();
+  };
+
+  const models = provider.models ?? [];
+  const onCount = models.filter((model) => model.enabled).length;
+
+  return (
+    <section className="mb-4 overflow-hidden rounded-2xl border border-gray-200" data-testid={`llm-provider-${provider.providerId}`}>
+      <header className="flex flex-wrap items-center gap-3 bg-slate-50/70 px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          data-testid={`llm-provider-toggle-open-${provider.providerId}`}
+        >
+          {open ? (
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+          ) : (
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+          )}
+          <span className="truncate text-sm font-bold text-slate-900">{provider.displayName}</span>
+          {provider.models ? (
+            <span className="shrink-0 text-[11px] text-slate-400">
+              {onCount} of {models.length} on
+            </span>
+          ) : null}
+        </button>
+
+        <Health health={provider.health} />
+
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="text-[11px] font-medium text-slate-500">Enabled</span>
+          <Switch
+            on={provider.enabled}
+            onClick={async () => {
+              await setLlmProviderEnabled(provider.providerId, !provider.enabled);
+              onChanged();
+            }}
+            testId={`llm-provider-enabled-${provider.providerId}`}
+            label={`${provider.displayName} enabled`}
+          />
+        </span>
+      </header>
+
+      {open ? (
+        <div className="px-4 py-3">
+          {/* ------------------------------------------------------------ key */}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="password"
+              value={key}
+              onChange={(event) => setKey(event.target.value)}
+              placeholder={provider.hasKey ? "A key is saved — paste a new one to replace it" : "Paste the API key"}
+              data-testid={`llm-provider-key-${provider.providerId}`}
+              className="h-10 min-w-0 flex-1 rounded-xl border border-gray-200 px-3 font-mono text-[12px] outline-none focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
+            />
+            <button
+              type="button"
+              onClick={() => void saveKey()}
+              disabled={!key.trim() || saving}
+              data-testid={`llm-provider-key-save-${provider.providerId}`}
+              className="h-10 shrink-0 rounded-xl bg-slate-900 px-4 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:opacity-40"
+            >
+              {saving ? "Saving…" : "Save key"}
+            </button>
+          </div>
+          <p className="mt-1.5 text-[11px] text-slate-400">
+            Stored encrypted. It is used the moment you save it — no restart.
+          </p>
+
+          {/* --------------------------------------------------------- models */}
+          {provider.models === null ? (
+            <p
+              className="mt-4 rounded-lg border border-gray-200 bg-slate-50 px-4 py-3 text-[13px] text-slate-600"
+              data-testid={`llm-provider-models-problem-${provider.providerId}`}
+            >
+              {provider.modelsProblem}
+            </p>
+          ) : (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[720px] border-collapse">
+                <thead>
+                  <tr className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    <th className="py-2 pl-4 pr-3 text-left font-bold">Model</th>
+                    <th className="px-3 py-2 text-left font-bold">Name architects see</th>
+                    <th className="px-3 py-2 text-center font-bold">Available</th>
+                    <th className="px-3 py-2 text-center font-bold">Running</th>
+                    <th className="px-3 py-2 text-right font-bold">In / 1M</th>
+                    <th className="py-2 pl-3 pr-4 text-right font-bold">Out / 1M</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {models.map((model) => (
+                    <ModelRow
+                      key={model.modelId}
+                      providerId={provider.providerId}
+                      model={model}
+                      onPatch={patch}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
 
 export function AiBrainModels() {
-  const [providers, setProviders] = useState<string[]>([]);
-  const [models, setModels] = useState<AdminLlmModel[]>([]);
+  const [providers, setProviders] = useState<LlmProviderView[]>([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ ...BLANK });
-  const [saving, setSaving] = useState(false);
-  const [problem, setProblem] = useState("");
-  const [notice, setNotice] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const response = await getAdminLlmModels();
-    if (response.success && response.data) {
-      setProviders(response.data.providers);
-      setModels(response.data.models);
-      setForm((current) => ({ ...current, providerId: current.providerId || response.data!.providers[0] || "" }));
-    }
+  const load = useCallback(async (refresh = false) => {
+    const response = await getLlmControl(refresh);
+    if (response.success && response.data) setProviders(response.data.providers);
     setLoading(false);
+    setRefreshing(false);
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const save = async () => {
-    setSaving(true);
-    setProblem("");
-    setNotice("");
-
-    const response = await saveAdminLlmModel({
-      modelId: form.modelId.trim(),
-      providerId: form.providerId,
-      displayName: form.displayName.trim(),
-      category: form.category,
-      inputPricePer1M: form.inputPricePer1M === "" ? null : Number(form.inputPricePer1M),
-      outputPricePer1M: form.outputPricePer1M === "" ? null : Number(form.outputPricePer1M),
-      multimodal: form.multimodal
-    });
-
-    setSaving(false);
-
-    if (!response.success) {
-      // The server's own sentence, because it is the one that knows why.
-      setProblem(response.message ?? response.error ?? "That could not be saved.");
-      return;
-    }
-
-    setNotice(`${form.displayName || form.modelId} is now in every AI Brain.`);
-    setForm({ ...BLANK, providerId: form.providerId });
-    void load();
-  };
-
-  const remove = async (modelId: string) => {
-    await removeAdminLlmModel(modelId);
-    setNotice(`${modelId} removed. Agents already saved with it keep their setting.`);
-    void load();
-  };
-
-  const byProvider = providers.map((providerId) => ({
-    providerId,
-    models: models.filter((model) => model.providerId === providerId)
-  }));
-
   return (
     <div data-testid="admin-ai-models-panel">
-      <h2 className="text-base font-bold text-slate-900" data-testid="admin-ai-models-title">
-        Models
-      </h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Every model an architect can pick in an AI Brain. Add one here and it appears immediately —
-        no release, no deploy.
-      </p>
-
-      {/* ---------------------------------------------------------------- add */}
-      <section className="mt-5 rounded-2xl border border-gray-200 p-5">
-        <h3 className="text-sm font-bold text-slate-900">Add a model</h3>
-        <p className="mt-1 text-[12px] leading-5 text-slate-500">
-          The model id is what gets sent to the provider — copy it exactly from their documentation.
-          A provider that isn&apos;t listed needs an adapter first, which is a release.
-        </p>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Provider</span>
-            <select
-              value={form.providerId}
-              onChange={(event) => setForm({ ...form, providerId: event.target.value })}
-              data-testid="admin-ai-models-provider"
-              className="mt-1 h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
-            >
-              {providers.map((providerId) => (
-                <option key={providerId} value={providerId}>
-                  {providerId}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Model id</span>
-            <input
-              value={form.modelId}
-              onChange={(event) => setForm({ ...form, modelId: event.target.value })}
-              placeholder="gpt-5.6"
-              data-testid="admin-ai-models-id"
-              className="mt-1 h-11 w-full rounded-xl border border-gray-200 px-3 font-mono text-sm outline-none focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
-            />
-          </label>
-
-          <label className="block">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Name architects see</span>
-            <input
-              value={form.displayName}
-              onChange={(event) => setForm({ ...form, displayName: event.target.value })}
-              placeholder="GPT-5.6"
-              data-testid="admin-ai-models-name"
-              className="mt-1 h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
-            />
-          </label>
-
-          <label className="block">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Kind</span>
-            <select
-              value={form.category}
-              onChange={(event) => setForm({ ...form, category: event.target.value })}
-              data-testid="admin-ai-models-category"
-              className="mt-1 h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
-            >
-              {CATEGORIES.map((category) => (
-                <option key={category.value} value={category.value}>
-                  {category.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Input price / 1M
-            </span>
-            <input
-              value={form.inputPricePer1M}
-              onChange={(event) => setForm({ ...form, inputPricePer1M: event.target.value })}
-              placeholder="leave empty if unknown"
-              inputMode="decimal"
-              data-testid="admin-ai-models-input-price"
-              className="mt-1 h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
-            />
-          </label>
-
-          <label className="block">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Output price / 1M
-            </span>
-            <input
-              value={form.outputPricePer1M}
-              onChange={(event) => setForm({ ...form, outputPricePer1M: event.target.value })}
-              placeholder="leave empty if unknown"
-              inputMode="decimal"
-              data-testid="admin-ai-models-output-price"
-              className="mt-1 h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
-            />
-          </label>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-bold text-slate-900" data-testid="admin-ai-models-title">
+            Models
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            The models each provider actually has, asked for directly. Switch on the ones architects
+            may use, name them, and set what they cost us.
+          </p>
         </div>
-
-        <label className="mt-3 flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={form.multimodal}
-            onChange={(event) => setForm({ ...form, multimodal: event.target.checked })}
-            data-testid="admin-ai-models-multimodal"
-            className="h-4 w-4 rounded border-gray-300"
-          />
-          <span className="text-sm text-slate-700">It can read images and PDFs</span>
-        </label>
-
-        {problem ? (
-          <p
-            className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700"
-            data-testid="admin-ai-models-problem"
-          >
-            {problem}
-          </p>
-        ) : null}
-
-        {notice ? (
-          <p
-            className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800"
-            data-testid="admin-ai-models-notice"
-          >
-            {notice}
-          </p>
-        ) : null}
 
         <button
           type="button"
-          onClick={() => void save()}
-          disabled={saving}
-          data-testid="admin-ai-models-save"
-          className="mt-4 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+          onClick={() => {
+            setRefreshing(true);
+            void load(true);
+          }}
+          disabled={refreshing}
+          data-testid="admin-ai-models-refresh"
+          className="flex shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-2 text-[13px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
         >
-          {saving ? "Adding…" : "Add model"}
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "Asking providers…" : "Refresh"}
         </button>
-      </section>
+      </div>
 
-      {/* --------------------------------------------------------------- list */}
-      <section className="mt-8">
-        {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
+      <div className="mt-5">
+        {loading ? <p className="text-sm text-slate-500">Asking every provider what it has…</p> : null}
 
-        {byProvider.map((group) => (
-          <div key={group.providerId} className="mb-6">
-            <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              {group.providerId} · {group.models.length}
-            </h3>
-
-            <div className="space-y-1.5">
-              {group.models.map((model) => (
-                <div
-                  key={model.id}
-                  data-testid={`admin-ai-model-${model.id}`}
-                  className="flex items-center gap-3 rounded-xl border border-gray-200 px-4 py-2.5"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="text-sm font-semibold text-slate-900">{model.displayName}</span>
-                    <span className="ml-2 font-mono text-[11px] text-slate-400">{model.id}</span>
-                  </span>
-
-                  <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                    {model.badge}
-                  </span>
-
-                  {model.source === "admin" ? (
-                    <>
-                      <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                        Added here
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => void remove(model.id)}
-                        data-testid={`admin-ai-model-remove-${model.id}`}
-                        className="shrink-0 text-[12px] font-semibold text-red-600 hover:underline"
-                      >
-                        Remove
-                      </button>
-                    </>
-                  ) : (
-                    <span className="shrink-0 text-[10px] font-medium text-slate-400">shipped</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+        {providers.map((provider) => (
+          <Provider key={provider.providerId} provider={provider} onChanged={() => void load()} />
         ))}
-      </section>
+      </div>
+
+      <p className="mt-2 text-[11px] leading-5 text-slate-400">
+        A provider that is not listed needs an adapter that speaks its API — that is a release, not a
+        setting. Everything above is data.
+      </p>
     </div>
   );
 }
