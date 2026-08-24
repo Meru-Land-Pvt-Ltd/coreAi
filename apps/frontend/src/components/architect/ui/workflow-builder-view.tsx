@@ -2542,6 +2542,25 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     }
   }
 
+  /* The steps wired INTO the selected one, by the names an architect gave them.
+     A panel saying "the step before" leaves somebody to work out which one.
+
+     ABOVE the early returns, deliberately. It sat below them for one deploy and
+     took the whole builder down with React #310: the loading render returned
+     before this hook ran, the loaded render ran it, and a component that calls a
+     different number of hooks between renders is not a component React can keep. */
+  const incomingNodeNames = useMemo(() => {
+    if (!selectedNode) return [];
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    return edges
+      .filter((edge) => edge.target === selectedNode.id)
+      .map((edge) => {
+        const source = byId.get(edge.source);
+        return String(source?.data?.title ?? source?.data?.label ?? "").trim();
+      })
+      .filter((name) => name.length > 0);
+  }, [selectedNode, nodes, edges]);
+
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
@@ -2573,21 +2592,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       onAddNode={addNodeFromLibrary}
     />
   );
-
-  /* The steps wired INTO the selected one, by the names an architect gave
-     them. A panel that says "the step before" leaves somebody to work out
-     which one; naming it costs nothing and removes the guess. */
-  const incomingNodeNames = useMemo(() => {
-    if (!selectedNode) return [];
-    const byId = new Map(nodes.map((node) => [node.id, node]));
-    return edges
-      .filter((edge) => edge.target === selectedNode.id)
-      .map((edge) => {
-        const source = byId.get(edge.source);
-        return String(source?.data?.title ?? source?.data?.label ?? "").trim();
-      })
-      .filter((name) => name.length > 0);
-  }, [selectedNode, nodes, edges]);
 
   const inspector = (
     <NodeInspector
