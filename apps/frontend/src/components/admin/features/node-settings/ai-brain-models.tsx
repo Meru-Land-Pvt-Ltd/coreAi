@@ -226,8 +226,13 @@ function Provider({
   const onCount = models.filter((model) => model.enabled).length;
 
   return (
-    <section className="mb-4 overflow-hidden rounded-2xl border border-gray-200" data-testid={`llm-provider-${provider.providerId}`}>
-      <header className="flex flex-wrap items-center gap-3 bg-slate-50/70 px-4 py-3">
+    <section
+      className="mb-3 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+      data-testid={`llm-provider-${provider.providerId}`}
+    >
+      {/* White, so each provider lifts off the ground behind it. Tinting the
+          row made it sink into the panel instead of reading as its own thing. */}
+      <header className="flex flex-wrap items-center gap-3 px-4 py-3">
         <button
           type="button"
           onClick={() => setOpen(!open)}
@@ -279,7 +284,7 @@ function Provider({
       </header>
 
       {open ? (
-        <div className="px-4 py-3">
+        <div className="border-t border-gray-100 px-4 py-3">
           {/* ------------------------------------------------------------ key */}
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -396,15 +401,15 @@ export function AiBrainModels() {
         </button>
       </div>
 
-      <div className="mt-5">
-        {loading ? <p className="text-sm text-slate-500">Asking every provider what it has…</p> : null}
+      <div className="mt-5 rounded-2xl bg-slate-50/70 p-3">
+        {loading ? <p className="px-1 py-2 text-sm text-slate-500">Asking every provider what it has…</p> : null}
 
         {providers.map((provider) => (
           <Provider key={provider.providerId} provider={provider} onChanged={() => void load()} />
         ))}
       </div>
 
-      <p className="mt-2 text-[11px] leading-5 text-slate-400">
+      <p className="mt-3 text-[11px] leading-5 text-slate-400">
         A provider that is not listed needs an adapter that speaks its API — that is a release, not a
         setting. Everything above is data.
       </p>
