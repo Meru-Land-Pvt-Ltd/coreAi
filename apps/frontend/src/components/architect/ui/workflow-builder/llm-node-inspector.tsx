@@ -1,19 +1,38 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { BuilderIcon } from "./icons";
-import type { BuilderNode, BuilderNodeData, AIAttachment } from "./types";
-import { Section, Label, TextInput, TextArea } from "./node-inspector";
+/**
+ * THE AI BRAIN.
+ *
+ * The most used node on the platform, and the one place an architect writes
+ * the actual work. Rebuilt around one idea: a person with no training should
+ * understand every word on this panel.
+ *
+ * What was here before, and why each thing went:
+ *
+ *  • THREE names for one output — {{ai.output}}, {{node.ai-1787399665497.output}}
+ *    and {{node.thinker.output}} — one of them carrying a raw timestamp. One
+ *    value, three spellings, on a screen where the rule is one fact one place.
+ *    There is one name now: `text`, the thing the node declares it gives.
+ *  • "Input mapping: this step does not require mapped variables" — a section
+ *    whose only job was to announce it was empty.
+ *  • Developer options, id / type / kind — platform internals on a screen where
+ *    somebody is building a receptionist.
+ *  • A four-row box for the most important field on the platform. It is the
+ *    page now: tall, resizable, room for two A4 pages of prompt.
+ *  • Attachments — going to its own File Upload node, so it is not half-here.
+ *  • A Temperature slider on models that reject temperature. Anthropic's
+ *    thinking models refuse it and claude.adapter.ts has always quietly thrown
+ *    the value away, while this panel let an architect drag it. Dials are
+ *    declared per model now (see packages/shared/src/model-dials.ts) and a dial
+ *    a model does not have is absent, not greyed.
+ */
+
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { modelDials, type ModelDial } from "@coreai/shared";
+import type { BuilderNode, BuilderNodeData } from "./types";
 import { modelsForProvider, useLlmModels } from "./use-llm-models";
-import {
-  LLM_PROVIDERS,
-  defaultLlmModelForProvider,
-  findLlmModel,
-  getLlmModelsForProvider,
-  getLlmProvider,
-  isMultimodalModel,
-  resolveLlmSelection,
-} from "./llm-catalog";
+import { LLM_PROVIDERS, defaultLlmModelForProvider, getLlmProvider, resolveLlmSelection } from "./llm-catalog";
 import { isProviderDisabled, providerDisabledTitle, useLlmAvailability } from "./use-llm-availability";
 
 type NodePropsPanel = {
@@ -21,400 +40,285 @@ type NodePropsPanel = {
   onUpdateNodeData: (field: keyof BuilderNodeData, value: BuilderNodeData[keyof BuilderNodeData]) => void;
 };
 
+/* ------------------------------------------------------------------ pieces */
+
+/** The one sentence describing which brain is doing the work. */
+function ModelLine({
+  providerName,
+  modelName,
+  onClick,
+  open
+}: {
+  providerName: string;
+  modelName: string;
+  onClick: () => void;
+  open: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid="llm-model-line"
+      className="flex w-full items-center justify-between gap-3 rounded-xl border border-gray-200 px-3.5 py-3 text-left transition hover:border-gray-300"
+    >
+      <span className="min-w-0">
+        <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-400">Brain</span>
+        <span className="mt-0.5 block truncate text-[14px] font-semibold text-slate-900">
+          {modelName} <span className="font-normal text-slate-400">· {providerName}</span>
+        </span>
+      </span>
+      <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`} />
+    </button>
+  );
+}
+
+/** One dial, in the words the model declared for it. */
+function Dial({
+  dial,
+  value,
+  onChange
+}: {
+  dial: ModelDial;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div data-testid={`llm-dial-${dial.key}`}>
+      <p className="text-[13px] font-semibold text-slate-900">{dial.label}</p>
+      <p className="mt-0.5 text-[12px] leading-5 text-slate-500">{dial.help}</p>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {(dial.options ?? []).map((option) => {
+          const picked = value === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onChange(option.value)}
+              data-testid={`llm-dial-${dial.key}-${option.value}`}
+              title={option.note}
+              className={`rounded-lg border px-3 py-1.5 text-[13px] font-medium transition ${
+                picked
+                  ? "border-amber-300 bg-amber-50 text-amber-900"
+                  : "border-gray-200 text-slate-600 hover:border-gray-300"
+              }`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* A dial that moves the bill says so before anything is published, not
+          after it arrives. */}
+      {dial.costNote ? (
+        <p className="mt-1.5 text-[11px] leading-5 text-amber-700" data-testid={`llm-dial-cost-${dial.key}`}>
+          {dial.costNote}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------- the panel */
+
 export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const [providerOpen, setProviderOpen] = useState(false);
-  const [modelOpen, setModelOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const providerRef = useRef<HTMLDivElement>(null);
-  const modelRef = useRef<HTMLDivElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
 
-  const { availability, refresh: refreshAvailability } = useLlmAvailability();
-
-  const attachments = (selectedNode.data.attachments as AIAttachment[] | undefined) ?? [];
-
-  const str = (key: string, fallback = ""): string => {
-    const value = selectedNode.data[key];
-    return typeof value === "string" ? value : fallback;
-  };
-
-  /* The list the platform has right now, not the one compiled into this
-     bundle — an admin can add a model without a release, and it has to show up
-     here or the feature only exists on the server. Falls back to the bundled
-     list, so this dropdown is never empty. */
+  const { availability } = useLlmAvailability();
   const liveModels = useLlmModels();
 
+  const str = (key: string, fallback = ""): string => {
+    const value = (selectedNode.data as Record<string, unknown>)[key];
+    return typeof value === "string" && value.length > 0 ? value : fallback;
+  };
+  const set = (key: string) => (value: string) =>
+    onUpdateNodeData(key as keyof BuilderNodeData, value as BuilderNodeData[keyof BuilderNodeData]);
+
   const selection = resolveLlmSelection(str("llmProvider"), str("llmModel"));
-  const currentProvider = getLlmProvider(selection.providerId);
+  const provider = getLlmProvider(selection.providerId);
   const providerModels = modelsForProvider(liveModels, selection.providerId);
   const activeModelId = selection.modelId ?? defaultLlmModelForProvider(selection.providerId) ?? "";
-  const currentModel =
-    liveModels.find((model) => model.id === activeModelId) ?? findLlmModel(activeModelId);
-  const isMultimodal = isMultimodalModel(currentModel, selection.providerId);
+  const model = liveModels.find((entry) => entry.id === activeModelId);
 
-  // Close dropdowns on outside click
+  /* What THIS model actually has. A dial it does not have is absent — never a
+     control that looks live and is thrown away by the adapter. */
+  const dials = modelDials({
+    providerId: selection.providerId,
+    category: model?.category,
+    modelId: activeModelId
+  });
+
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      const target = event.target as Node;
-      if (providerRef.current && !providerRef.current.contains(target)) {
-        setProviderOpen(false);
-      }
-      if (modelRef.current && !modelRef.current.contains(target)) {
-        setModelOpen(false);
-      }
+    function onOutside(event: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) setPickerOpen(false);
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
   }, []);
 
-  // Auto-switch away from a disabled provider (e.g. OpenAI when disabled) to the first usable provider
-  useEffect(() => {
-    if (!availability) return;
-    if (isProviderDisabled(availability, selection.providerId)) {
-      const firstUsable = LLM_PROVIDERS.find((p) => !isProviderDisabled(availability, p.id));
-      if (firstUsable && firstUsable.id !== selection.providerId) {
-        onUpdateNodeData("llmProvider", firstUsable.id);
-        onUpdateNodeData("llmModel", defaultLlmModelForProvider(firstUsable.id) ?? "");
-      }
-    }
-  }, [availability, selection.providerId, onUpdateNodeData]);
-
-  // Switching provider also switches to that provider's first model, so the
-  // node never keeps a model the new provider cannot run.
-  const handleProviderChange = (providerId: string) => {
-    setProviderOpen(false);
-    if (providerId === selection.providerId) return;
-    if (isProviderDisabled(availability, providerId)) return;
-
-    onUpdateNodeData("llmProvider", providerId);
-    onUpdateNodeData("llmModel", defaultLlmModelForProvider(providerId) ?? "");
+  const chooseModel = (providerId: string, modelId: string) => {
+    onUpdateNodeData("llmProvider" as keyof BuilderNodeData, providerId as BuilderNodeData[keyof BuilderNodeData]);
+    onUpdateNodeData("llmModel" as keyof BuilderNodeData, modelId as BuilderNodeData[keyof BuilderNodeData]);
+    setPickerOpen(false);
   };
 
-  const handleModelChange = (modelId: string) => {
-    const foundModel = findLlmModel(modelId);
-    if (foundModel) {
-      onUpdateNodeData("llmModel", foundModel.id);
-      onUpdateNodeData("llmProvider", foundModel.providerId);
-    }
-    setModelOpen(false);
-  };
+  /** Drop {{text}} in at the cursor, so nobody types braces from memory. */
+  const insertVariable = (name: string) => {
+    const field = promptRef.current;
+    const token = `{{${name}}}`;
+    const current = str("llmRequirements");
 
-  // Attachment handling
-  const handleRemoveAttachment = (indexToRemove: number) => {
-    const updated = attachments.filter((_, idx) => idx !== indexToRemove);
-    onUpdateNodeData("attachments", updated);
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      alert("File is too large. Maximum size is 5MB.");
+    if (!field) {
+      set("llmRequirements")(`${current}${token}`);
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64Data = event.target?.result as string;
-      const newAttachment: AIAttachment = {
-        name: file.name,
-        mimeType: file.type || "application/octet-stream",
-        data: base64Data,
-      };
-      onUpdateNodeData("attachments", [...attachments, newAttachment]);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
+    const start = field.selectionStart ?? current.length;
+    const end = field.selectionEnd ?? current.length;
+    const next = `${current.slice(0, start)}${token}${current.slice(end)}`;
+    set("llmRequirements")(next);
+
+    requestAnimationFrame(() => {
+      field.focus();
+      const caret = start + token.length;
+      field.setSelectionRange(caret, caret);
+    });
   };
 
   return (
     <>
-      {/* --- Section 1: General Info --- */}
-      <Section title="General">
-        <Label>Node name</Label>
-        <TextInput
-          value={selectedNode.data.title}
-          onChange={(val) => onUpdateNodeData("title", val)}
+      {/* ------------------------------------------------------------- name */}
+      <div className="px-5 pt-5">
+        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Name</label>
+        <input
+          value={String(selectedNode.data.title ?? "")}
+          onChange={(event) => set("title")(event.target.value)}
+          placeholder="AI Brain"
+          data-testid="llm-node-name"
+          className="mt-1 h-11 w-full rounded-xl border border-gray-200 px-3 text-sm font-medium text-slate-900 outline-none transition focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
         />
-      </Section>
+      </div>
 
-      <Section title="AI Model">
-        <Label>LLM provider</Label>
+      {/* ------------------------------------------------------------ brain */}
+      <div className="relative mt-4 px-5" ref={pickerRef}>
+        <ModelLine
+          providerName={provider?.displayName ?? selection.providerId}
+          modelName={model?.displayName ?? activeModelId ?? "Choose a brain"}
+          onClick={() => setPickerOpen(!pickerOpen)}
+          open={pickerOpen}
+        />
 
-        <div className="relative" ref={providerRef}>
-          {/* Custom Select Button */}
-          <button
-            type="button"
-            onClick={() => {
-              if (!providerOpen) refreshAvailability();
-              setProviderOpen(!providerOpen);
-            }}
-            data-testid="llm-provider-select"
-            className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-sm text-slate-800 outline-none transition hover:border-slate-300 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
+        {pickerOpen ? (
+          <div
+            className="absolute left-5 right-5 z-20 mt-1 max-h-80 overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-lg"
+            data-testid="llm-model-picker"
           >
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <span className="font-medium truncate">
-                {currentProvider?.displayName ?? selection.providerId}
-              </span>
-            </div>
-            <span className="ml-2 text-slate-400 shrink-0">
-              <BuilderIcon
-                name="chevron"
-                className={`h-4 w-4 transition-transform duration-200 ${
-                  providerOpen ? "rotate-180" : ""
-                }`}
-              />
-            </span>
-          </button>
+            {LLM_PROVIDERS.map((entry) => {
+              const models = modelsForProvider(liveModels, entry.id);
+              if (models.length === 0) return null;
 
-          {/* Custom Dropdown Menu Popover */}
-          {providerOpen && (
-            <div
-              className="absolute left-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-black/5 scrollbar-thin"
-              data-testid="llm-provider-options"
-            >
-              {LLM_PROVIDERS.map((p) => {
-                const isSelected = p.id === selection.providerId;
-                // Greyed out when the backend has no key for it (and something
-                // else does work) — picking it would only fail at run time.
-                const disabled = isProviderDisabled(availability, p.id);
+              const off = isProviderDisabled(availability, entry.id);
 
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => handleProviderChange(p.id)}
-                    disabled={disabled}
-                    title={providerDisabledTitle(availability, p.id)}
-                    data-testid={`llm-provider-option-${p.id}`}
-                    className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition ${
-                      disabled
-                        ? "cursor-not-allowed text-slate-400"
-                        : isSelected
-                          ? "bg-slate-100 text-slate-900 font-semibold"
-                          : "text-slate-700 hover:bg-slate-50"
-                    }`}
-                  >
-                    <span className="truncate">{p.displayName}</span>
-                    <span className="ml-2 shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                      {modelsForProvider(liveModels, p.id).length} models
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="mt-4">
-          <Label>Model</Label>
-
-          <div className="relative" ref={modelRef}>
-            {/* Custom Select Button */}
-            <button
-              type="button"
-              onClick={() => setModelOpen(!modelOpen)}
-              data-testid="llm-model-select"
-              className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-sm text-slate-800 outline-none transition hover:border-slate-300 focus:border-amber-300 focus:ring-2 focus:ring-amber-400/50"
-            >
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span className="font-medium truncate">
-                  {currentModel?.displayName ?? (activeModelId || "Select a model")}
-                </span>
-                {currentModel && (
-                  <span className="shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                    {currentModel.badge}
-                  </span>
-                )}
-              </div>
-              <span className="ml-2 text-slate-400 shrink-0">
-                <BuilderIcon
-                  name="chevron"
-                  className={`h-4 w-4 transition-transform duration-200 ${
-                    modelOpen ? "rotate-180" : ""
-                  }`}
-                />
-              </span>
-            </button>
-
-            {/* Custom Dropdown Menu Popover — only this provider's models */}
-            {modelOpen && (
-              <div
-                className="absolute left-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-black/5 scrollbar-thin"
-                data-testid="llm-model-options"
-              >
-                {providerModels.map((m) => {
-                  const isSelected = m.id === activeModelId;
-                  return (
+              return (
+                <div key={entry.id}>
+                  <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    {entry.displayName}
+                  </p>
+                  {models.map((entryModel) => (
                     <button
-                      key={m.id}
+                      key={entryModel.id}
                       type="button"
-                      onClick={() => handleModelChange(m.id)}
-                      data-testid={`llm-model-option-${m.id}`}
-                      className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition ${
-                        isSelected
-                          ? "bg-slate-100 text-slate-900 font-semibold"
-                          : "text-slate-700 hover:bg-slate-50"
+                      disabled={off}
+                      title={off ? providerDisabledTitle(availability, entry.id) : undefined}
+                      onClick={() => chooseModel(entry.id, entryModel.id)}
+                      data-testid={`llm-model-option-${entryModel.id}`}
+                      className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[13px] transition ${
+                        off
+                          ? "cursor-not-allowed text-slate-300"
+                          : entryModel.id === activeModelId
+                            ? "bg-amber-50 font-semibold text-amber-900"
+                            : "text-slate-700 hover:bg-slate-50"
                       }`}
                     >
-                      <span className="truncate">{m.displayName}</span>
-                      <span className="ml-2 shrink-0 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                        {m.badge}
+                      <span className="truncate">{entryModel.displayName}</span>
+                      <span className="shrink-0 rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                        {entryModel.badge}
                       </span>
                     </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      </Section>
-
-      {/* --- Section 3: Prompts --- */}
-      <Section title="Prompts">
-        <div className="space-y-4">
-          <div>
-            <Label>What should this AI step do?</Label>
-            <TextArea
-              value={str("llmRequirements")}
-              onChange={(val) => onUpdateNodeData("llmRequirements", val)}
-              height="h-32"
-              placeholder="e.g. Reply to the customer nicely and include the booking link if they want an appointment."
-            />
-          </div>
-        </div>
-      </Section>
-
-      {/* --- Section 4: Attachments (Only shown if model supports Multimodal capabilities) --- */}
-      {isMultimodal && (
-        <Section title="Attachments">
-          <div className="space-y-3">
-            <Label>Files (Images / PDFs / Docs)</Label>
-
-            {attachments.length > 0 && (
-              <div className="space-y-2 mb-3">
-                {attachments.map((att, idx) => {
-                  const isImage = att.mimeType.startsWith("image/");
-                  const isPdf = att.mimeType === "application/pdf";
-
-                  return (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-2.5 transition hover:border-violet-100 hover:bg-violet-50/10"
-                    >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span className="flex h-8 w-8 shrink-0 place-items-center justify-center rounded-lg bg-white border border-slate-100 text-sm shadow-sm">
-                          {isImage ? "🖼️" : isPdf ? "📄" : "📁"}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-semibold text-slate-700 leading-tight">
-                            {att.name || `attachment-${idx + 1}`}
-                          </p>
-                          <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate uppercase">
-                            {att.mimeType}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveAttachment(idx)}
-                        className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-red-500 transition-colors"
-                        aria-label="Remove attachment"
-                      >
-                        <BuilderIcon name="x" className="h-4 w-4" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="relative">
-              <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer bg-slate-50/40 hover:bg-violet-50/20 hover:border-violet-300 transition-all duration-200 group">
-                <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                  <svg
-                    className="w-6 h-6 mb-2 text-slate-400 group-hover:text-violet-500 transition-colors"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                    ></path>
-                  </svg>
-                  <p className="text-[11px] font-semibold text-slate-500 group-hover:text-violet-600 transition-colors">
-                    Click or drag file to attach
-                  </p>
-                  <p className="text-[9px] text-slate-400 mt-1">
-                    Supports Images, PDFs, Docs (Max 5MB)
-                  </p>
+                  ))}
                 </div>
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="image/*,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  onChange={handleFileChange}
-                />
-              </label>
-            </div>
+              );
+            })}
           </div>
-        </Section>
-      )}
+        ) : null}
+      </div>
 
-      {/* --- Section 5: Advanced Options --- */}
-      <Section title="Advanced options" last>
+      {/* ----------------------------------------------------------- prompt */}
+      <div className="mt-5 px-5">
+        <div className="flex items-baseline justify-between gap-2">
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            What it should do
+          </label>
+          <span className="text-[11px] text-slate-400">{str("llmRequirements").length.toLocaleString()}</span>
+        </div>
+
+        {/* The page, not a field. Somebody pasting two A4 pages of prompt
+            should be able to read them. */}
+        <textarea
+          ref={promptRef}
+          value={str("llmRequirements")}
+          onChange={(event) => set("llmRequirements")(event.target.value)}
+          placeholder={"Write it the way you would tell a person.\n\nExample: Answer the customer's question using only what the business told us. Keep it under three sentences and never invent a price."}
+          rows={16}
+          data-testid="llm-prompt"
+          className="mt-1 min-h-[22rem] w-full resize-y rounded-xl border border-gray-200 px-3.5 py-3 text-[14px] leading-7 text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
+        />
+
+        {/* Values you click in, rather than braces typed from memory. A typo'd
+            variable is silence at run time with nothing on screen to explain it. */}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] text-slate-400">Add what came before:</span>
+          <button
+            type="button"
+            onClick={() => insertVariable("text")}
+            data-testid="llm-insert-text"
+            className="rounded-md border border-gray-200 bg-slate-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-600 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-800"
+          >
+            text
+          </button>
+          <span className="text-[11px] text-slate-400">— what your customer typed</span>
+        </div>
+      </div>
+
+      {/* --------------------------------------------------------- settings */}
+      <div className="mt-6 px-5 pb-6">
         <button
           type="button"
-          onClick={() => setAdvancedOpen(!advancedOpen)}
-          className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-left transition hover:border-slate-300"
+          onClick={() => setSettingsOpen(!settingsOpen)}
+          data-testid="llm-settings-toggle"
+          className="flex w-full items-center justify-between gap-2 rounded-xl border border-gray-200 px-3.5 py-2.5 text-left transition hover:border-gray-300"
         >
-          <span className="text-xs font-bold text-slate-700">Advanced settings</span>
-          <BuilderIcon
-            name="chevron"
-            className={`h-3.5 w-3.5 text-slate-400 transition-transform ${advancedOpen ? "rotate-180" : ""}`}
-          />
+          <span className="text-[13px] font-semibold text-slate-700">Settings</span>
+          <ChevronDown className={`h-4 w-4 text-slate-400 transition ${settingsOpen ? "rotate-180" : ""}`} />
         </button>
 
-        {advancedOpen && (
-          <div className="mt-4 space-y-4">
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <Label>Temperature</Label>
-                <span className="font-mono text-xs text-slate-600">{str("llmTemperature", "0.7")}</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.1"
-                value={str("llmTemperature", "0.7")}
-                onChange={(e) => onUpdateNodeData("llmTemperature", e.target.value)}
-                className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-violet-600 focus:outline-none"
+        {settingsOpen ? (
+          <div className="mt-4 space-y-5" data-testid="llm-settings">
+            {dials.map((dial) => (
+              <Dial
+                key={dial.key}
+                dial={dial}
+                value={str(dial.key, dial.default)}
+                onChange={set(dial.key)}
               />
-              <div className="flex justify-between text-[9px] text-slate-400 mt-1">
-                <span>Deterministic (0.0)</span>
-                <span>Creative (1.0)</span>
-              </div>
-            </div>
-
-            <div>
-              <Label>Max Completion Tokens</Label>
-              <input
-                type="number"
-                min="1"
-                max="8192"
-                value={str("llmMaxTokens", "1024")}
-                onChange={(e) => onUpdateNodeData("llmMaxTokens", e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:outline-none ring-0 focus:ring-0 focus:border-amber-400 transition-colors shadow-none"
-              />
-            </div>
+            ))}
           </div>
-        )}
-      </Section>
+        ) : null}
+      </div>
     </>
   );
 }

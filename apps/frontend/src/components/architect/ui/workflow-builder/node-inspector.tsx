@@ -153,6 +153,9 @@ export function NodeInspector({
   // Product blocks live in the customer's world: the frame drops builder
   // jargon ("Node properties", "Delete Node") and the variable-mapping drawer
   // — an architect fills in words and choices here, nothing more technical.
+  /** The AI Brain owns its whole panel — see llm-node-inspector.tsx. */
+  const isLlmBrain = type === "ai.llm_call";
+
   const isProductBlock =
     isBlockNodeType(type) || String(selectedNode.data.nodeKind ?? "") === "block";
   // Old canvases can still carry a design.brain node — it gets the plain
@@ -247,17 +250,25 @@ export function NodeInspector({
 
       {panel}
 
-      {/* The Design Brain explains itself in chat — no step overview card. */}
-      {isDesignBrain ? null : <NodeOverviewPanel node={selectedNode} />}
+      {/* The AI Brain says all of this itself, in words a person understands.
+          Bolting the generic drawers on underneath it produced three spellings
+          of one output, a section announcing it was empty, and the node's raw
+          id — on the screen where somebody is building a receptionist. */}
+      {isLlmBrain ? null : (
+        <>
+          {/* The Design Brain explains itself in chat — no step overview card. */}
+          {isDesignBrain ? null : <NodeOverviewPanel node={selectedNode} />}
 
-      {/* The variable-mapping drawer is engine territory — never for blocks. A
-          product section that carries doors still gets the one quiet switch. */}
-      {isProductBlock ? (
-        hasNodeDoors(type) ? (
-          <NodeAdvancedSettingsPanel node={selectedNode} onUpdateNodeData={onUpdateNodeData} doorsOnly />
-        ) : null
-      ) : (
-        <NodeAdvancedSettingsPanel node={selectedNode} onUpdateNodeData={onUpdateNodeData} />
+          {/* The variable-mapping drawer is engine territory — never for blocks.
+              A product section that carries doors still gets the one switch. */}
+          {isProductBlock ? (
+            hasNodeDoors(type) ? (
+              <NodeAdvancedSettingsPanel node={selectedNode} onUpdateNodeData={onUpdateNodeData} doorsOnly />
+            ) : null
+          ) : (
+            <NodeAdvancedSettingsPanel node={selectedNode} onUpdateNodeData={onUpdateNodeData} />
+          )}
+        </>
       )}
 
       <div className="border-t border-gray-100 p-5">

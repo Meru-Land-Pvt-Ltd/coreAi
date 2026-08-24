@@ -61,272 +61,145 @@ function renderInspector(data: Partial<BuilderNodeData>) {
   return { onUpdateNodeData };
 }
 
-describe("AI Brain provider then model selection", () => {
-  it("shows the node's provider and its model", () => {
+/**
+ * THE AI BRAIN.
+ *
+ * Rewritten when the panel was, because the old tests described a design that
+ * no longer exists: two dropdowns, provider then model. There is one picker
+ * now, and these hold the things that actually matter about it.
+ */
+
+describe("choosing a brain", () => {
+  it("says which brain is doing the work, in one line", () => {
     renderInspector({ llmProvider: "claude", llmModel: "claude-opus-5" });
 
-    expect(screen.getByTestId("llm-provider-select").textContent).toContain("Anthropic Claude");
-    expect(screen.getByTestId("llm-model-select").textContent).toContain("Claude Opus 5");
+    const line = screen.getByTestId("llm-model-line").textContent ?? "";
+    expect(line).toContain("Claude Opus 5");
+    expect(line).toContain("Anthropic Claude");
   });
 
-  it("lists only the selected provider's models", async () => {
+  it("offers every provider's models in one list, not a provider step first", async () => {
     const user = userEvent.setup();
     renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
 
-    await user.click(screen.getByTestId("llm-model-select"));
+    await user.click(screen.getByTestId("llm-model-line"));
 
+    // One click to any brain — the provider is a heading, not a gate.
     expect(screen.getByTestId("llm-model-option-gpt-5.5")).toBeDefined();
-    expect(screen.queryByTestId("llm-model-option-claude-opus-5")).toBeNull();
-    expect(screen.queryByTestId("llm-model-option-gemini-3.5-flash")).toBeNull();
+    expect(screen.getByTestId("llm-model-option-claude-opus-5")).toBeDefined();
   });
 
-  it("switching provider also switches to that provider's default model", async () => {
+  it("picking a brain sets its provider too, so the two can never disagree", async () => {
     const user = userEvent.setup();
-    const { onUpdateNodeData } = renderInspector({
-      llmProvider: "openai",
-      llmModel: "gpt-5.4-mini"
-    });
+    const { onUpdateNodeData } = renderInspector({ llmProvider: "openai", llmModel: "gpt-5.5" });
 
-    await user.click(screen.getByTestId("llm-provider-select"));
-    await user.click(screen.getByTestId("llm-provider-option-gemini"));
+    await user.click(screen.getByTestId("llm-model-line"));
+    await user.click(screen.getByTestId("llm-model-option-claude-opus-5"));
 
-    expect(onUpdateNodeData).toHaveBeenCalledWith("llmProvider", "gemini");
-    expect(onUpdateNodeData).toHaveBeenCalledWith("llmModel", "gemini-3.5-flash");
+    expect(onUpdateNodeData).toHaveBeenCalledWith("llmProvider", "claude");
+    expect(onUpdateNodeData).toHaveBeenCalledWith("llmModel", "claude-opus-5");
+  });
+});
+
+describe("the dials belong to the model, not the node", () => {
+  it("a thinking model has no freedom dial, because it refuses one", async () => {
+    // Anthropic rejects temperature on thinking models and claude.adapter.ts
+    // has always thrown the value away. A slider here was the screen lying.
+    const user = userEvent.setup();
+    renderInspector({ llmProvider: "claude", llmModel: "claude-opus-5" });
+
+    await user.click(screen.getByTestId("llm-settings-toggle"));
+
+    expect(screen.queryByTestId("llm-dial-llmTemperature")).toBeNull();
+    expect(screen.getByTestId("llm-dial-llmReasoningEffort")).toBeDefined();
   });
 
-  it("picking a model keeps the provider in step with it", async () => {
+  it("an ordinary model has the freedom dial and no thinking dial", async () => {
+    const user = userEvent.setup();
+    renderInspector({ llmProvider: "claude", llmModel: "claude-sonnet-5" });
+
+    await user.click(screen.getByTestId("llm-settings-toggle"));
+
+    expect(screen.getByTestId("llm-dial-llmTemperature")).toBeDefined();
+    expect(screen.queryByTestId("llm-dial-llmReasoningEffort")).toBeNull();
+  });
+
+  it("a dial that moves the bill says so before anything is published", async () => {
+    const user = userEvent.setup();
+    renderInspector({ llmProvider: "claude", llmModel: "claude-sonnet-5" });
+
+    await user.click(screen.getByTestId("llm-settings-toggle"));
+
+    expect(screen.getByTestId("llm-dial-cost-llmMaxTokens").textContent).toContain("costs more");
+  });
+
+  it("dials are written in words, never the provider's parameter names", async () => {
+    const user = userEvent.setup();
+    renderInspector({ llmProvider: "claude", llmModel: "claude-sonnet-5" });
+
+    await user.click(screen.getByTestId("llm-settings-toggle"));
+
+    const settings = screen.getByTestId("llm-settings").textContent ?? "";
+    expect(settings).toContain("How much freedom");
+    expect(settings).toContain("Longest answer");
+    expect(settings).not.toContain("temperature");
+    expect(settings).not.toContain("max_tokens");
+  });
+});
+
+describe("the prompt", () => {
+  it("is a page, not a four-row box", () => {
+    renderInspector({ llmProvider: "claude", llmModel: "claude-sonnet-5" });
+
+    // Somebody pasting two A4 pages should be able to read them.
+    const prompt = screen.getByTestId("llm-prompt") as HTMLTextAreaElement;
+    expect(Number(prompt.rows)).toBeGreaterThanOrEqual(12);
+  });
+
+  it("lets a variable be clicked in rather than typed from memory", async () => {
+    // A typo'd variable is silence at run time with nothing on screen saying why.
     const user = userEvent.setup();
     const { onUpdateNodeData } = renderInspector({
       llmProvider: "claude",
-      llmModel: "claude-sonnet-5"
-    });
+      llmModel: "claude-sonnet-5",
+      llmRequirements: "Reply to: "
+    } as Partial<BuilderNodeData>);
 
-    await user.click(screen.getByTestId("llm-model-select"));
-    await user.click(screen.getByTestId("llm-model-option-claude-haiku-4-5-20251001"));
+    await user.click(screen.getByTestId("llm-insert-text"));
 
-    expect(onUpdateNodeData).toHaveBeenCalledWith("llmModel", "claude-haiku-4-5-20251001");
-    expect(onUpdateNodeData).toHaveBeenCalledWith("llmProvider", "claude");
-  });
-
-  it("falls back to the provider's default when the saved model belongs elsewhere", () => {
-    // Left over from the old single-list dropdown.
-    renderInspector({ llmProvider: "claude", llmModel: "gpt-5.5" });
-
-    expect(screen.getByTestId("llm-provider-select").textContent).toContain("Anthropic Claude");
-    expect(screen.getByTestId("llm-model-select").textContent).toContain("Claude Sonnet 5");
-  });
-
-  it("shows an uncataloged saved model as-is instead of a different one", () => {
-    renderInspector({ llmProvider: "openai", llmModel: "gpt-4-turbo" });
-
-    expect(screen.getByTestId("llm-provider-select").textContent).toContain("OpenAI");
-    expect(screen.getByTestId("llm-model-select").textContent).toContain("gpt-4-turbo");
-  });
-
-  it("lists the provider's legacy models alongside the current ones", async () => {
-    const user = userEvent.setup();
-    renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
-
-    await user.click(screen.getByTestId("llm-model-select"));
-
-    expect(screen.getByTestId("llm-model-option-o4-mini")).toBeDefined();
-    expect(screen.getByTestId("llm-model-option-gpt-4o").textContent).toContain("Legacy");
+    expect(onUpdateNodeData).toHaveBeenCalledWith("llmRequirements", expect.stringContaining("{{text}}"));
   });
 });
 
-describe("providers the backend cannot run", () => {
-  it("greys out and blocks a provider whose API key is missing", async () => {
-    getProvidersMock.mockResolvedValue(providersResponse(["openai"]));
-    const user = userEvent.setup();
-    const { onUpdateNodeData } = renderInspector({
-      llmProvider: "openai",
-      llmModel: "gpt-5.4-mini"
-    });
-
-    await user.click(screen.getByTestId("llm-provider-select"));
-
-    const claudeOption = await screen.findByTestId("llm-provider-option-claude");
-    expect(claudeOption).toHaveProperty("disabled", true);
-    // The disabled state is the whole signal — no key names in the UI.
-    expect(claudeOption.textContent).not.toContain("API_KEY");
-    expect(claudeOption.getAttribute("title")).toContain("Unavailable");
-    expect(screen.getByTestId("llm-provider-option-openai")).toHaveProperty("disabled", false);
-
-    await user.click(claudeOption);
-    expect(onUpdateNodeData).not.toHaveBeenCalled();
-  });
-
-  it("greys out a provider whose account is out of credit", async () => {
-    // Key present, but the last run came back 402 Insufficient Balance.
-    getProvidersMock.mockResolvedValue({
-      success: true,
-      data: {
-        providers: [
-          { id: "openai", displayName: "OpenAI", envKey: "OPENAI_API_KEY", models: [], configured: true, available: true, unavailableReason: null, unavailableKind: null },
-          { id: "claude", displayName: "Anthropic Claude", envKey: "ANTHROPIC_API_KEY", models: [], configured: true, available: false, unavailableReason: "out of credit", unavailableKind: "blocked" }
-        ]
-      }
-    });
-    const user = userEvent.setup();
-    const { onUpdateNodeData } = renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
-
-    await user.click(screen.getByTestId("llm-provider-select"));
-    const claudeOption = await screen.findByTestId("llm-provider-option-claude");
-
-    expect(claudeOption).toHaveProperty("disabled", true);
-    expect(claudeOption.getAttribute("title")).toContain("out of credit");
-
-    await user.click(claudeOption);
-    expect(onUpdateNodeData).not.toHaveBeenCalled();
-  });
-
-  it("greys out the only provider when its account is out of credit", async () => {
-    // DeepSeek is the only key on the backend and the last run returned 402 —
-    // it must still grey out; "nothing else works" is not a reason to offer it.
-    getProvidersMock.mockResolvedValue({
-      success: true,
-      data: {
-        providers: [
-          { id: "deepseek", displayName: "DeepSeek", envKey: "DEEPSEEK_API_KEY", models: [], configured: true, available: false, unavailableReason: "out of credit", unavailableKind: "blocked" },
-          { id: "openai", displayName: "OpenAI", envKey: "OPENAI_API_KEY", models: [], configured: false, available: false, unavailableReason: "no API key", unavailableKind: "no_key" }
-        ]
-      }
-    });
-    const user = userEvent.setup();
-    renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
-
-    await user.click(screen.getByTestId("llm-provider-select"));
-
-    const deepseek = await screen.findByTestId("llm-provider-option-deepseek");
-    expect(deepseek).toHaveProperty("disabled", true);
-    expect(deepseek.getAttribute("title")).toContain("out of credit");
-    // The keyless provider stays selectable — nothing else works either.
-    expect(screen.getByTestId("llm-provider-option-openai")).toHaveProperty("disabled", false);
-  });
-
-  it("refetches availability when the provider list is opened", async () => {
-    getProvidersMock.mockResolvedValue(providersResponse(["openai"]));
-    const user = userEvent.setup();
-    renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
-
-    const callsAfterMount = getProvidersMock.mock.calls.length;
-    await user.click(screen.getByTestId("llm-provider-select"));
-
-    expect(getProvidersMock.mock.calls.length).toBeGreaterThan(callsAfterMount);
-  });
-
-  it("disables nothing when the backend has no keys at all", async () => {
-    getProvidersMock.mockResolvedValue(providersResponse([]));
-    const user = userEvent.setup();
-    renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
-
-    await user.click(screen.getByTestId("llm-provider-select"));
-
-    // Greying out every provider would block workflow design entirely, so the
-    // builder only shows the hint.
-    const claudeOption = await screen.findByTestId("llm-provider-option-claude");
-    expect(claudeOption).toHaveProperty("disabled", false);
-  });
-
-  it("leaves every provider usable when the status call fails", async () => {
-    getProvidersMock.mockRejectedValue(new Error("network down"));
-    const user = userEvent.setup();
-    renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
-
-    await user.click(screen.getByTestId("llm-provider-select"));
-
-    const claudeOption = await screen.findByTestId("llm-provider-option-claude");
-    expect(claudeOption).toHaveProperty("disabled", false);
-    expect(claudeOption.textContent).toContain("models");
-  });
-
-  it("auto-switches away from disabled default provider (openai) to the first available provider", async () => {
-    getProvidersMock.mockResolvedValue(providersResponse(["claude"]));
-    const { onUpdateNodeData } = renderInspector({ llmProvider: "openai", llmModel: "gpt-5.4-mini" });
-
-    await waitFor(() => {
-      expect(onUpdateNodeData).toHaveBeenCalledWith("llmProvider", "claude");
-      expect(onUpdateNodeData).toHaveBeenCalledWith("llmModel", "claude-sonnet-5");
-    });
-  });
-});
-
-describe("AI Step node provider then model selection", () => {
-  function renderAiStep(data: Partial<BuilderNodeData>) {
-    const onUpdateNodeData = vi.fn();
+describe("what is no longer on this panel", () => {
+  it("shows one name for its output, not three", () => {
+    // {{ai.output}}, {{node.ai-1787399665497.output}} and {{node.thinker.output}}
+    // were the same value spelled three ways, one carrying a raw timestamp.
     render(
       <NodeInspector
-        selectedNode={node({ type: "ai.context_reply", kind: "AI", label: "AI Step", ...data })}
+        selectedNode={node({ llmProvider: "claude", llmModel: "claude-sonnet-5" })}
+        onUpdateNodeData={vi.fn()}
         onClearSelection={vi.fn()}
-        onUpdateNodeData={onUpdateNodeData}
         onDeleteNode={vi.fn()}
       />
     );
-    return { onUpdateNodeData };
-  }
 
-  it("offers only the selected provider's models", () => {
-    renderAiStep({ provider: "claude", model: "claude-sonnet-5" });
-
-    const modelSelect = screen.getByTestId("node-inspector-model-select") as HTMLSelectElement;
-    const modelIds = Array.from(modelSelect.options).map((option) => option.value);
-
-    expect(screen.getByTestId("node-inspector-provider-select")).toHaveProperty("value", "claude");
-    expect(modelIds).toContain("claude-opus-5");
-    expect(modelIds).not.toContain("gpt-5.5");
+    const panel = document.body.textContent ?? "";
+    expect(panel).not.toContain("{{ai.output}}");
+    expect(panel).not.toContain("Output mapping");
+    expect(panel).not.toContain("Input mapping");
   });
 
-  it("switching provider also switches to that provider's default model", async () => {
-    const user = userEvent.setup();
-    const { onUpdateNodeData } = renderAiStep({ provider: "openai", model: "gpt-5.4-mini" });
-
-    await user.selectOptions(screen.getByTestId("node-inspector-provider-select"), "claude");
-
-    expect(onUpdateNodeData).toHaveBeenCalledWith("provider", "claude");
-    expect(onUpdateNodeData).toHaveBeenCalledWith("model", "claude-sonnet-5");
-  });
-});
-
-describe("AI Memory node inspector", () => {
-  function renderMemoryNode(data?: Partial<BuilderNodeData>) {
-    const onUpdateNodeData = vi.fn();
+  it("does not show the node's internal id to somebody building a receptionist", () => {
     render(
       <NodeInspector
-        selectedNode={{
-          id: "mem-1",
-          type: "coreNode",
-          position: { x: 0, y: 0 },
-          data: {
-            label: "Memory Node",
-            title: "Memory Node",
-            kind: "AI",
-            nodeKind: "ai",
-            type: "ai.memory",
-            subtitle: "Aggregates memory and documents",
-            customMemoryNotes: "Remember patient preferences",
-            ...data
-          } as BuilderNodeData
-        }}
+        selectedNode={node({ llmProvider: "claude", llmModel: "claude-sonnet-5" })}
+        onUpdateNodeData={vi.fn()}
         onClearSelection={vi.fn()}
-        onUpdateNodeData={onUpdateNodeData}
         onDeleteNode={vi.fn()}
       />
     );
-    return { onUpdateNodeData };
-  }
 
-  it("renders Node name, Custom context, Attachments, and Output variable", () => {
-    renderMemoryNode();
-
-    expect(screen.getByText("Node name")).toBeDefined();
-    expect(screen.getByText("Custom context")).toBeDefined();
-    expect(screen.getByText("Memory configuration")).toBeDefined();
-    expect(screen.getByText("Attachments")).toBeDefined();
-    expect(screen.getByText("Files (Images / PDFs / Docs)")).toBeDefined();
-    expect(screen.getByText("Output variable")).toBeDefined();
-    expect(screen.getByText("Copy {{memory}}")).toBeDefined();
-    expect(screen.queryByText("Description")).toBeNull();
+    expect(screen.queryByTestId("node-advanced-developer")).toBeNull();
   });
 });
-
-
