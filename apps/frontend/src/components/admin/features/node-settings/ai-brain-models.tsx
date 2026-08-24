@@ -53,27 +53,43 @@ function Switch({
   on,
   onClick,
   busy,
+  disabled,
+  title,
   testId,
   label
 }: {
   on: boolean;
   onClick: () => void;
   busy?: boolean;
+  /** The provider above it is off, so this decides nothing. */
+  disabled?: boolean;
+  title?: string;
   testId: string;
   label: string;
 }) {
+  const dead = Boolean(disabled);
+
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
       aria-label={label}
+      aria-disabled={dead}
+      title={title}
       onClick={onClick}
-      disabled={busy}
+      disabled={busy || dead}
       data-testid={testId}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition disabled:opacity-40 ${
-        on ? "bg-emerald-500" : "bg-gray-300"
-      }`}
+      /* A switch that cannot change anything must not look live. Green here
+         would tell an admin this model is on when the provider above it is
+         off — the screen would be lying about the state of the platform. */
+      className={`relative h-5 w-9 shrink-0 rounded-full transition ${
+        dead
+          ? "cursor-not-allowed bg-gray-200 opacity-50"
+          : on
+            ? "bg-emerald-500"
+            : "bg-gray-300"
+      } disabled:cursor-not-allowed`}
     >
       <span
         className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
@@ -122,13 +138,17 @@ function PriceCell({
 }
 
 function ModelRow({
-  providerId,
   model,
-  onPatch
+  onPatch,
+  providerAvailable,
+  providerRunning,
+  providerName
 }: {
-  providerId: string;
   model: LlmModelRow;
   onPatch: (modelId: string, patch: Partial<LlmModelRow>) => void;
+  providerAvailable: boolean;
+  providerRunning: boolean;
+  providerName: string;
 }) {
   const [name, setName] = useState(model.displayName);
 
@@ -160,7 +180,9 @@ function ModelRow({
 
       <td className="px-3 py-2 text-center">
         <Switch
-          on={model.enabled}
+          on={model.enabled && providerAvailable}
+          disabled={!providerAvailable}
+          title={providerAvailable ? undefined : `${providerName} is not available, so no model of theirs is.`}
           onClick={() => onPatch(model.modelId, { enabled: !model.enabled })}
           testId={`llm-model-available-${model.modelId}`}
           label={`Available in new agents: ${model.modelId}`}
@@ -169,7 +191,9 @@ function ModelRow({
 
       <td className="px-3 py-2 text-center">
         <Switch
-          on={model.runningEnabled}
+          on={model.runningEnabled && providerRunning}
+          disabled={!providerRunning}
+          title={providerRunning ? undefined : `${providerName} is not running, so no model of theirs is.`}
           onClick={() => onPatch(model.modelId, { runningEnabled: !model.runningEnabled })}
           testId={`llm-model-running-${model.modelId}`}
           label={`Running in existing agents: ${model.modelId}`}
@@ -326,6 +350,20 @@ function Provider({
               </p>
             ) : null
           ) : (
+            <>
+            {!provider.enabled || !provider.runningEnabled ? (
+              <p
+                className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800"
+                data-testid={`llm-provider-off-note-${provider.providerId}`}
+              >
+                {!provider.enabled && !provider.runningEnabled
+                  ? `${provider.displayName} is switched off entirely, so its models decide nothing below.`
+                  : !provider.enabled
+                    ? `${provider.displayName} is not available for new agents, so the Available column below decides nothing.`
+                    : `${provider.displayName} is not running, so the Running column below decides nothing.`}
+              </p>
+            ) : null}
+
             <div className="mt-4 overflow-x-auto">
               <table className="w-full min-w-[720px] border-collapse">
                 <thead>
@@ -342,14 +380,17 @@ function Provider({
                   {models.map((model) => (
                     <ModelRow
                       key={model.modelId}
-                      providerId={provider.providerId}
                       model={model}
                       onPatch={patch}
+                      providerAvailable={provider.enabled}
+                      providerRunning={provider.runningEnabled}
+                      providerName={provider.displayName}
                     />
                   ))}
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       ) : null}
