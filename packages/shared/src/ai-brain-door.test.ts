@@ -17,12 +17,10 @@ describe("the AI Brain answers the SOP", () => {
     expect(brain?.label).toBe("AI Brain");
   });
 
-  it("Q3 — its needs are written by the architect, in its own prompt, and it says so", () => {
-    // The one place this node is genuinely different from the first two.
-    // Pretending it has a fixed door in would be a lie the canvas then checks
-    // against; pretending it needs nothing reads as "wire me to anything".
-    expect(brain?.requiredVariables).toEqual([]);
-    expect(brain?.needsWhateverItsPromptAsksFor).toBe(true);
+  it("Q3 — it needs text, the same as any other node", () => {
+    // It briefly carried a special case saying its needs were whatever its
+    // prompt asked for. That was an invention; see the test below.
+    expect(brain?.requiredVariables).toEqual(["text"]);
   });
 
   it("Q4 — gives text", () => {
@@ -48,8 +46,8 @@ describe("the AI Brain answers the SOP", () => {
     }
   });
 
-  it("the prompt is the one setting it cannot run without", () => {
-    expect(brain?.requiredConfig).toContain("llmRequirements");
+  it("the one thing it cannot run without is being told what the answer should be", () => {
+    expect(brain?.requiredConfig).toContain("llmAnswerShouldBe");
   });
 
   it("takes what the Prompt Box gives, and gives what the Result Viewer takes", () => {
@@ -57,5 +55,24 @@ describe("the AI Brain answers the SOP", () => {
     // Result Viewer is the shape every product on this platform starts from.
     const resultViewer = getNodeDefinition("block.output_stage");
     expect(brain?.producedVariables).toEqual(resultViewer?.requiredVariables);
+  });
+});
+
+describe("the two boxes become one instruction", () => {
+  it("the door in is text — no special case", () => {
+    // This carried "it needs whatever its prompt asks for" for a while. That
+    // was an invention: a file becomes text, audio becomes text, a video
+    // becomes text before it ever reaches here. It is the one node that can
+    // read anything, which is why its door is the simplest, not the cleverest.
+    expect(brain?.requiredVariables).toEqual(["text"]);
+    expect((brain as { needsWhateverItsPromptAsksFor?: boolean })?.needsWhateverItsPromptAsksFor).toBeUndefined();
+  });
+
+  it("ships with both boxes and the old single box, so nothing already built breaks", () => {
+    const dials = Object.keys(brain?.defaultConfig ?? {});
+    expect(dials).toContain("llmInputIs");
+    expect(dials).toContain("llmAnswerShouldBe");
+    // Sixty-seven brains across forty-one agents were written in the old one.
+    expect(dials).toContain("llmRequirements");
   });
 });

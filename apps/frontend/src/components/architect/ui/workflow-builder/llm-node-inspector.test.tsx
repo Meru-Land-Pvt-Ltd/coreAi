@@ -147,27 +147,44 @@ describe("the dials belong to the model, not the node", () => {
   });
 });
 
-describe("the prompt", () => {
-  it("is a page, not a four-row box", () => {
+describe("the two boxes", () => {
+  it("asks what is coming in, and how the answer should be — not for 'a prompt'", () => {
     renderInspector({ llmProvider: "claude", llmModel: "claude-sonnet-5" });
 
-    // Somebody pasting two A4 pages should be able to read them.
-    const prompt = screen.getByTestId("llm-prompt") as HTMLTextAreaElement;
-    expect(Number(prompt.rows)).toBeGreaterThanOrEqual(12);
+    // A brain is briefed the way a person is: say what is arriving, show it,
+    // say what you want back. One box lets somebody describe the answer and
+    // forget to say what the input is.
+    expect(screen.getByTestId("llm-input-is")).toBeDefined();
+    expect(screen.getByTestId("llm-answer-should-be")).toBeDefined();
   });
 
-  it("lets a variable be clicked in rather than typed from memory", async () => {
-    // A typo'd variable is silence at run time with nothing on screen saying why.
-    const user = userEvent.setup();
-    const { onUpdateNodeData } = renderInspector({
-      llmProvider: "claude",
-      llmModel: "claude-sonnet-5",
-      llmRequirements: "Reply to: "
-    } as Partial<BuilderNodeData>);
+  it("says the data arrives on its own, so nobody types a variable in the middle", () => {
+    renderInspector({ llmProvider: "claude", llmModel: "claude-sonnet-5" });
 
-    await user.click(screen.getByTestId("llm-insert-text"));
+    const line = screen.getByTestId("llm-data-line").textContent ?? "";
+    expect(line).toContain("automatically");
+    // No braces anywhere in the ordinary case.
+    expect(line).not.toContain("{{");
+  });
 
-    expect(onUpdateNodeData).toHaveBeenCalledWith("llmRequirements", expect.stringContaining("{{text}}"));
+  it("names the step it is wired to, rather than saying 'the step before'", () => {
+    const onUpdateNodeData = vi.fn();
+    render(
+      <LlmNodeInspector
+        selectedNode={node({ llmProvider: "claude", llmModel: "claude-sonnet-5" })}
+        onUpdateNodeData={onUpdateNodeData}
+        incomingNodeNames={["Box1"]}
+      />
+    );
+
+    expect(screen.getByTestId("llm-data-line").textContent).toContain("Box1");
+  });
+
+  it("the answer box has room for a real brief", () => {
+    renderInspector({ llmProvider: "claude", llmModel: "claude-sonnet-5" });
+
+    const box = screen.getByTestId("llm-answer-should-be") as HTMLTextAreaElement;
+    expect(Number(box.rows)).toBeGreaterThanOrEqual(10);
   });
 });
 

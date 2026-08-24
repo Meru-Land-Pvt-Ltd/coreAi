@@ -2574,6 +2574,21 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     />
   );
 
+  /* The steps wired INTO the selected one, by the names an architect gave
+     them. A panel that says "the step before" leaves somebody to work out
+     which one; naming it costs nothing and removes the guess. */
+  const incomingNodeNames = useMemo(() => {
+    if (!selectedNode) return [];
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    return edges
+      .filter((edge) => edge.target === selectedNode.id)
+      .map((edge) => {
+        const source = byId.get(edge.source);
+        return String(source?.data?.title ?? source?.data?.label ?? "").trim();
+      })
+      .filter((name) => name.length > 0);
+  }, [selectedNode, nodes, edges]);
+
   const inspector = (
     <NodeInspector
       selectedNode={selectedNode}
@@ -2582,6 +2597,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       onDeleteNode={deleteSelectedNode}
       connectorOwnership="architect"
       variableNodePrefixes={variableNodePrefixes}
+      incomingNodeNames={incomingNodeNames}
     />
   );
 

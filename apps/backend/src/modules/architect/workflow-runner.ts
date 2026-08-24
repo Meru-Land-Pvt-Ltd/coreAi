@@ -425,6 +425,9 @@ type RunnerNodeData = {
   llmProvider?: unknown;
   llmModel?: unknown;
   llmRequirements?: unknown;
+  /** The two boxes: what is arriving, and what the answer should be like. */
+  llmInputIs?: unknown;
+  llmAnswerShouldBe?: unknown;
   llmSystemPrompt?: unknown;
   llmPrompt?: unknown;
   attachments?: unknown;
@@ -1202,12 +1205,41 @@ export function setMemoryScopeForContext(context: RunnerContext, scopeKey: strin
   memoryScopeByContext.set(context as object, scopeKey);
 }
 
+/**
+ * THE TWO BOXES, MADE INTO ONE INSTRUCTION.
+ *
+ * An architect answers two questions — what is arriving, and what the answer
+ * should be like — and the data itself arrives in between from the step before.
+ * That is exactly how a person briefs another person, and it is what anybody
+ * writing a good prompt does by hand anyway: say what is coming, show it, say
+ * what you want back.
+ *
+ * Splitting it in two is not decoration. One box lets somebody describe the
+ * output and forget to say what the input is, and the model then guesses at
+ * what it is holding.
+ *
+ * `llmRequirements` is the old single box. Sixty-seven AI Brains across
+ * forty-one agents were written in it, so it still works exactly as it did:
+ * the two boxes win only when at least one of them has been filled in.
+ */
+function composeBrainTask(data: Record<string, unknown> | undefined): string {
+  const incoming = asString(data?.llmInputIs).trim();
+  const answer = asString(data?.llmAnswerShouldBe).trim();
+
+  if (!incoming && !answer) return asString(data?.llmRequirements);
+
+  const parts: string[] = [];
+  if (incoming) parts.push(`WHAT YOU ARE BEING GIVEN:\n${incoming}`);
+  if (answer) parts.push(`WHAT YOUR ANSWER SHOULD BE:\n${answer}`);
+  return parts.join("\n\n");
+}
+
 function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainNodeConfig {
   const isLlmCall = asString(node.data?.type) === "ai.llm_call";
   const isTestMode = context._mode === "test";
   const configuredSystemPrompt = asString(node.data?.llmSystemPrompt);
   const hasAuthoredTask = Boolean(
-    asString(node.data?.llmRequirements) ||
+    composeBrainTask(node.data) ||
     asString(node.data?.llmPrompt) ||
     asString(node.data?.prompt) ||
     asString(node.data?.instructions) ||
@@ -1280,7 +1312,7 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
         // ones — keep them rendered too so {{memory}} and friends resolve.
         llmSystemPrompt: renderTemplate(node.data?.llmSystemPrompt, context),
         llmPrompt: renderTemplate(node.data?.llmPrompt, context),
-        llmRequirements: renderTemplate(node.data?.llmRequirements, context) || telegramDefaultTask,
+        llmRequirements: renderTemplate(composeBrainTask(node.data), context) || telegramDefaultTask,
         llmContext: combinedLlmContext,
         llmCustomerMessage: customerMessage,
         temperature: node.data?.llmTemperature ?? node.data?.temperature,

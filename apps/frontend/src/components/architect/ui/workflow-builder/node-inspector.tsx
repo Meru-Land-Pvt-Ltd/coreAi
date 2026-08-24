@@ -124,7 +124,8 @@ export function NodeInspector({
   calendarEmail = null,
   connectingCalendar = false,
   onConnectCalendar,
-  variableNodePrefixes
+  variableNodePrefixes,
+  incomingNodeNames
 }: {
   selectedNode: BuilderNode | null;
   onClearSelection: () => void;
@@ -138,6 +139,8 @@ export function NodeInspector({
   onConnectCalendar?: () => void;
   /** Node ids/labels from the graph — whitelists {{node.prop}}-style tokens in warnings. */
   variableNodePrefixes?: string[];
+  /** Names of the steps wired INTO the selected node. */
+  incomingNodeNames?: string[];
 }) {
   if (!selectedNode) return <EmptyProperties />;
 
@@ -173,7 +176,7 @@ export function NodeInspector({
   }
   else if (type === SCRIPT_NODE_TYPE) panel = <ScriptNodeInspector {...base} />;
   else if (type === NODE_FRAME_NODE_TYPE) panel = <NodeFrameInspector {...base} />;
-  else if (type === "ai.llm_call") panel = <LlmNodeInspector {...base} />;
+  else if (type === "ai.llm_call") panel = <LlmNodeInspector {...base} incomingNodeNames={incomingNodeNames} />;
   else if (type === "ai.memory") panel = <MemoryNodeProps {...base} />;
   else if (type === TELEGRAM_NODE_TYPES.trigger) panel = <TelegramTriggerProps {...base} />;
   else if (Object.values(TELEGRAM_NODE_TYPES).includes(type as (typeof TELEGRAM_NODE_TYPES)[keyof typeof TELEGRAM_NODE_TYPES])) {

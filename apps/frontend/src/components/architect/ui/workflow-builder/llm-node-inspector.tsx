@@ -17,8 +17,12 @@
  *    whose only job was to announce it was empty.
  *  • Developer options, id / type / kind — platform internals on a screen where
  *    somebody is building a receptionist.
- *  • A four-row box for the most important field on the platform. It is the
- *    page now: tall, resizable, room for two A4 pages of prompt.
+ *  • ONE box asking for "the prompt". A brain is briefed the way a person is:
+ *    say what is arriving, show it, say what you want back. One box lets
+ *    somebody describe the answer and forget to say what the input is, and the
+ *    model then guesses at what it is holding. Two boxes now, with the data
+ *    arriving between them from the step before — so there is nothing to type
+ *    in the middle, and no {{braces}} in the ordinary case at all.
  *  • Attachments — going to its own File Upload node, so it is not half-here.
  *  • A Temperature slider on models that reject temperature. Anthropic's
  *    thinking models refuse it and claude.adapter.ts has always quietly thrown
@@ -28,7 +32,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ArrowDown, ChevronDown } from "lucide-react";
 import { modelDials, type ModelDial } from "@coreai/shared";
 import type { BuilderNode, BuilderNodeData } from "./types";
 import { modelsForProvider, useLlmModels } from "./use-llm-models";
@@ -38,6 +42,8 @@ import { isProviderDisabled, providerDisabledTitle, useLlmAvailability } from ".
 type NodePropsPanel = {
   selectedNode: BuilderNode;
   onUpdateNodeData: (field: keyof BuilderNodeData, value: BuilderNodeData[keyof BuilderNodeData]) => void;
+  /** Names of the steps wired into this one. Optional so the panel renders alone. */
+  incomingNodeNames?: string[];
 };
 
 /* ------------------------------------------------------------------ pieces */
@@ -122,14 +128,17 @@ function Dial({
 
 /* -------------------------------------------------------------- the panel */
 
-export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+export function LlmNodeInspector({ selectedNode, onUpdateNodeData, incomingNodeNames }: NodePropsPanel) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
-  const promptRef = useRef<HTMLTextAreaElement>(null);
 
   const { availability } = useLlmAvailability();
   const liveModels = useLlmModels();
+
+  /* The names of the steps wired into this one, so the middle line names them
+     rather than saying "the step before" and leaving somebody to guess which. */
+  const feeders = incomingNodeNames ?? [];
 
   const str = (key: string, fallback = ""): string => {
     const value = (selectedNode.data as Record<string, unknown>)[key];
@@ -164,29 +173,6 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
     onUpdateNodeData("llmProvider" as keyof BuilderNodeData, providerId as BuilderNodeData[keyof BuilderNodeData]);
     onUpdateNodeData("llmModel" as keyof BuilderNodeData, modelId as BuilderNodeData[keyof BuilderNodeData]);
     setPickerOpen(false);
-  };
-
-  /** Drop {{text}} in at the cursor, so nobody types braces from memory. */
-  const insertVariable = (name: string) => {
-    const field = promptRef.current;
-    const token = `{{${name}}}`;
-    const current = str("llmRequirements");
-
-    if (!field) {
-      set("llmRequirements")(`${current}${token}`);
-      return;
-    }
-
-    const start = field.selectionStart ?? current.length;
-    const end = field.selectionEnd ?? current.length;
-    const next = `${current.slice(0, start)}${token}${current.slice(end)}`;
-    set("llmRequirements")(next);
-
-    requestAnimationFrame(() => {
-      field.focus();
-      const caret = start + token.length;
-      field.setSelectionRange(caret, caret);
-    });
   };
 
   return (
@@ -257,41 +243,63 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData }: NodePropsPa
         ) : null}
       </div>
 
-      {/* ----------------------------------------------------------- prompt */}
+      {/* ------------------------------------------------- what is arriving */}
       <div className="mt-5 px-5">
-        <div className="flex items-baseline justify-between gap-2">
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-            What it should do
-          </label>
-          <span className="text-[11px] text-slate-400">{str("llmRequirements").length.toLocaleString()}</span>
-        </div>
-
-        {/* The page, not a field. Somebody pasting two A4 pages of prompt
-            should be able to read them. */}
+        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+          What is coming in
+        </label>
+        <p className="mt-0.5 text-[12px] leading-5 text-slate-500">
+          Tell it what it is about to be given, the way you would tell a person.
+        </p>
         <textarea
-          ref={promptRef}
-          value={str("llmRequirements")}
-          onChange={(event) => set("llmRequirements")(event.target.value)}
-          placeholder={"Write it the way you would tell a person.\n\nExample: Answer the customer's question using only what the business told us. Keep it under three sentences and never invent a price."}
-          rows={16}
-          data-testid="llm-prompt"
-          className="mt-1 min-h-[22rem] w-full resize-y rounded-xl border border-gray-200 px-3.5 py-3 text-[14px] leading-7 text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
+          value={str("llmInputIs")}
+          onChange={(event) => set("llmInputIs")(event.target.value)}
+          placeholder="A question a customer typed on our website."
+          rows={3}
+          data-testid="llm-input-is"
+          className="mt-1.5 w-full resize-y rounded-xl border border-gray-200 px-3.5 py-2.5 text-[14px] leading-7 text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
         />
+      </div>
 
-        {/* Values you click in, rather than braces typed from memory. A typo'd
-            variable is silence at run time with nothing on screen to explain it. */}
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-[11px] text-slate-400">Add what came before:</span>
-          <button
-            type="button"
-            onClick={() => insertVariable("text")}
-            data-testid="llm-insert-text"
-            className="rounded-md border border-gray-200 bg-slate-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-600 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-800"
-          >
-            text
-          </button>
-          <span className="text-[11px] text-slate-400">— what your customer typed</span>
+      {/* THE DATA ITSELF — nothing to type.
+          It arrives from the step before. Saying so out loud is the difference
+          between an architect trusting the middle is handled and an architect
+          pasting {{text}} in and hoping. */}
+      <div className="mt-3 px-5">
+        <div
+          className="flex items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-slate-50/60 px-3.5 py-2.5"
+          data-testid="llm-data-line"
+        >
+          <ArrowDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          <span className="text-[12px] leading-5 text-slate-500">
+            {feeders.length > 0 ? (
+              <>
+                The answer from <span className="font-medium text-slate-700">{feeders.join(", ")}</span> arrives
+                here automatically.
+              </>
+            ) : (
+              <>Whatever the step before this one produces arrives here automatically.</>
+            )}
+          </span>
         </div>
+      </div>
+
+      {/* --------------------------------------------- what should come back */}
+      <div className="mt-3 px-5">
+        <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+          How the answer should be
+        </label>
+        <p className="mt-0.5 text-[12px] leading-5 text-slate-500">
+          What you want back, and anything it must never do.
+        </p>
+        <textarea
+          value={str("llmAnswerShouldBe")}
+          onChange={(event) => set("llmAnswerShouldBe")(event.target.value)}
+          placeholder={"Friendly, under three sentences, and never invent a price.\n\nIf you do not know, say so and offer to have somebody call them back."}
+          rows={12}
+          data-testid="llm-answer-should-be"
+          className="mt-1.5 min-h-[16rem] w-full resize-y rounded-xl border border-gray-200 px-3.5 py-3 text-[14px] leading-7 text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
+        />
       </div>
 
       {/* --------------------------------------------------------- settings */}

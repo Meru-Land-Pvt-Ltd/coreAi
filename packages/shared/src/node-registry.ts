@@ -1832,23 +1832,23 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     // and its voice cousin sits inside ten of the eleven agents businesses are
     // paying for today. It is the most used node on the platform.
     //
-    // Q3 — WHAT IT NEEDS is the one place this node is genuinely different from
-    // the first two, and pretending otherwise would be worse than saying so.
-    // The Prompt Box needs nothing and the Result Viewer always needs `text`.
-    // This one needs *whatever its own prompt asks for*: an architect writing
-    // {{text}} needs text, one writing {{callerName}} needs that instead. Its
-    // door in is written by the architect, in the prompt, every time.
+    // Q3 — WHAT IT NEEDS is `text`, and nothing cleverer than that.
     //
-    // So `requiredVariables` stays empty and `needsWhateverItsPromptAsksFor`
-    // says why — because an empty list and an undescribed node look identical,
-    // and the canvas has to tell them apart to check anything honestly.
+    // This carried a special case for a while: "it needs whatever its own
+    // prompt asks for". That was an invention. A brain reads text — a file
+    // becomes text, audio becomes text, a video becomes text before it ever
+    // reaches here. It is the one node that can read anything, which is exactly
+    // why its door is the simplest on the platform rather than the cleverest.
+    //
+    // The special case is gone. Text in, text out, the same shape as every
+    // other node.
     type: "ai.llm_call",
     label: "AI Brain",
     category: "ai",
     description: "Thinks about what has happened so far and writes an answer, using the model you pick.",
     // Q5 — every dial, written down. The runner reads exactly these off the
     // node; anything not listed here is not a setting, it is a leftover.
-    requiredConfig: ["llmRequirements"],
+    requiredConfig: ["llmAnswerShouldBe"],
     backendExecutable: true,
     launchCritical: true,
     comingSoon: false,
@@ -1857,13 +1857,16 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       llmProvider: "",
       llmModel: "",
       llmSystemPrompt: "You are a helpful assistant.",
+      /* The two boxes. `llmRequirements` stays for the sixty-seven brains
+         written in the single box before this existed — they run unchanged. */
+      llmInputIs: "",
+      llmAnswerShouldBe: "",
       llmRequirements: "",
       llmTemperature: "0.7",
       llmMaxTokens: "1024",
       llmOutputFormat: "text"
     },
-    requiredVariables: [],
-    needsWhateverItsPromptAsksFor: true,
+    requiredVariables: ["text"],
     // What it really returns, taken from the runs it has already done.
     producedVariables: ["text"]
   }),
