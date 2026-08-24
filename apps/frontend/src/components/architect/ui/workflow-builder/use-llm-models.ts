@@ -17,10 +17,16 @@ import { LLM_MODELS, type LlmModelMeta } from "@coreai/shared";
 import { apiGet } from "@/lib/api";
 
 let cached: LlmModelMeta[] | null = null;
+let cachedAt = 0;
 let inFlight: Promise<LlmModelMeta[]> | null = null;
 
+/* Short, because an admin switching a model on expects to see it in the builder
+   without being told to close the tab. Long enough that opening five nodes in a
+   row is one call, not five. */
+const CACHE_MS = 60_000;
+
 async function fetchModels(): Promise<LlmModelMeta[]> {
-  if (cached) return cached;
+  if (cached && Date.now() - cachedAt < CACHE_MS) return cached;
   if (inFlight) return inFlight;
 
   inFlight = apiGet<{ models: LlmModelMeta[] }>("/architect/llm-models")
@@ -30,6 +36,7 @@ async function fetchModels(): Promise<LlmModelMeta[]> {
       // list with nothing in it is treated as a failure — the shipped models
       // are always a better answer than none.
       cached = Array.isArray(models) && models.length > 0 ? models : LLM_MODELS;
+      cachedAt = Date.now();
       return cached;
     })
     .catch(() => LLM_MODELS)

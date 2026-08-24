@@ -14,6 +14,7 @@
 
 import { LLM_MODELS, LLM_PROVIDERS, type LlmModelMeta, type LlmTaskCategory } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
+import { providerModels } from "../ai-provider-engine/provider-models";
 
 const BADGE_BY_CATEGORY: Record<LlmTaskCategory, LlmModelMeta["badge"]> = {
   thinking: "Thinking",
@@ -48,62 +49,83 @@ const CACHE_MS = 30_000;
 export async function allLlmModels(force = false): Promise<LlmModelMeta[]> {
   if (!force && cache && Date.now() - cache.at < CACHE_MS) return cache.models;
 
-  let added: LlmModelMeta[] = [];
-  let disabled = new Set<string>();
-  let offProviders = new Set<string>();
-
   try {
     const [rows, providerRows] = await Promise.all([
       prisma.adminLlmModel.findMany(),
       prisma.adminLlmProvider.findMany()
     ]);
 
-    /* A provider switched off inside the AI Brain takes all of its models with
-       it. Reaching for one switch when a provider is down beats switching off
-       eleven models one at a time and remembering to switch them back. */
-    for (const provider of providerRows) {
-      if (!provider.enabled) offProviders.add(provider.providerId);
-    }
+    const overrides = new Map(rows.map((row) => [row.modelId, row]));
+    const shipped = new Map(LLM_MODELS.map((model) => [model.id, model]));
 
-    for (const row of rows) {
-      if (!row.enabled) {
-        // An admin switching off a SHIPPED model is the other half of this
-        // feature: a model that starts refusing calls has to be removable
-        // today, not at the next release.
-        disabled.add(row.modelId);
+    /* A provider switched off takes all of its models with it. Reaching for one
+       switch when a provider is down beats switching off eleven models and
+       remembering to switch them back. */
+    const offProviders = new Set(
+      providerRows.filter((row) => !row.enabled).map((row) => row.providerId)
+    );
+
+    const models: LlmModelMeta[] = [];
+
+    for (const provider of LLM_PROVIDERS) {
+      if (offProviders.has(provider.id)) continue;
+
+      /* THE SAME LIST THE ADMIN PAGE SHOWS.
+         This used to be built from LLM_MODELS, the list compiled into the
+         platform — while the admin page listed what the provider actually
+         publishes. Those are not the same models: Anthropic returns
+         "claude-opus-4-5-20251101" and our shipped list said
+         "claude-opus-4-5". So an admin toggled one model and an architect was
+         offered a different one, and the switches appeared to do nothing.
+         One fact, one home: the provider's list is the fact. */
+      const listing = await providerModels(provider.id, force);
+      if (!listing.ok) {
+        // The provider could not be asked — its shipped models are better than
+        // nothing while its key is being fixed.
+        for (const model of LLM_MODELS) {
+          if (model.providerId !== provider.id) continue;
+          if (overrides.get(model.id)?.enabled === false) continue;
+          models.push(model);
+        }
         continue;
       }
 
-      const category = isKnownLlmCategory(row.category) ? row.category : "flagship";
-      added.push({
-        id: row.modelId,
-        providerId: row.providerId,
-        displayName: row.displayName,
-        category,
-        badge: BADGE_BY_CATEGORY[category],
-        inputPricePer1M: row.inputPricePer1M,
-        outputPricePer1M: row.outputPricePer1M,
-        multimodal: row.multimodal
-      });
+      for (const listed of listing.models) {
+        const override = overrides.get(listed.id);
+        const built = shipped.get(listed.id);
+
+        /* A model nobody has decided about is OFF. A provider lists dozens —
+           embeddings, moderation, old snapshots — and offering an architect all
+           of them is worse than offering none. */
+        const on = override?.enabled ?? Boolean(built);
+        if (!on) continue;
+
+        const category = isKnownLlmCategory(override?.category ?? "")
+          ? (override!.category as LlmTaskCategory)
+          : (built?.category ?? "flagship");
+
+        models.push({
+          id: listed.id,
+          providerId: provider.id,
+          displayName: override?.displayName || built?.displayName || listed.providerName || listed.id,
+          category,
+          badge: BADGE_BY_CATEGORY[category],
+          inputPricePer1M: override?.inputPricePer1M ?? built?.inputPricePer1M ?? null,
+          outputPricePer1M: override?.outputPricePer1M ?? built?.outputPricePer1M ?? null,
+          multimodal: override?.multimodal ?? built?.multimodal ?? false
+        });
+      }
     }
+
+    cache = { at: Date.now(), models };
+    return models;
   } catch (error) {
     // The shipped list is the floor. A database blip must never leave an
     // architect with an empty model dropdown on a node they are mid-way
     // through building.
-    console.warn("[llm-models] could not read admin models", (error as Error).message);
+    console.warn("[llm-models] could not build the model list", (error as Error).message);
     return LLM_MODELS;
   }
-
-  // An admin row for a shipped id REPLACES it rather than duplicating it —
-  // that is how a price correction or a rename gets made without a deploy.
-  const addedIds = new Set(added.map((model) => model.id));
-  const models = [
-    ...LLM_MODELS.filter((model) => !addedIds.has(model.id) && !disabled.has(model.id)),
-    ...added
-  ].filter((model) => !offProviders.has(model.providerId));
-
-  cache = { at: Date.now(), models };
-  return models;
 }
 
 export function invalidateLlmModelCache(): void {
