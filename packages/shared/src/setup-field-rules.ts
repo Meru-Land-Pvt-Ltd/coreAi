@@ -114,6 +114,7 @@ export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
        connector's own buyer form, not these setup cards. */
     "action.api_call": {},
     "tool.node_frame": {},
+    "logic.script": {},
     "ai.memory": {},
     "ai.knowledge": {
       knowledge: true

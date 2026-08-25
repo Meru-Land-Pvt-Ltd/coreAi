@@ -3613,7 +3613,75 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     // grouped and drawn — and "connector" is exactly what the palette already
     // fell back to while this node had no definition. Nothing moves.
     runtime: { nodeKind: "connector" },
-    defaultConfig: { scriptLanguage: "javascript", scriptCode: "", codeInput: "" },
+    defaultConfig: {
+      scriptLanguage: "javascript",
+      scriptCode: "",
+      codeInput: "",
+      scriptOutputKey: "script.output",
+      scriptTimeoutMs: "5000"
+    },
+    /* 020 — CODE under the laws (2026-08-25 night order). The sandbox was
+       already the finished half; question 5 is answered here, with the real
+       ceiling said out loud: fifteen seconds, never sixty. */
+    settings: [
+      {
+        key: "scriptLanguage",
+        name: "Language",
+        whatItsFor: "Which language the code is written in.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "javascript", label: "JavaScript" },
+            { value: "python", label: "Python" }
+          ]
+        },
+        default: "javascript",
+        whoFills: "architect"
+      },
+      {
+        key: "scriptCode",
+        name: "The code",
+        whatItsFor: "Runs sealed away from everything — no network, no files; what it returns travels on.",
+        type: "long text",
+        limits: { maxLength: 20000, required: true },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "codeInput",
+        name: "What it may see",
+        whatItsFor: "Only what is written here reaches the code — never the whole run.",
+        type: "long text",
+        limits: { maxLength: 4000 },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "scriptOutputKey",
+        name: "Save the result as",
+        whatItsFor: "The name later steps use to read what the code returned.",
+        type: "text",
+        limits: {},
+        default: "script.output",
+        whoFills: "architect"
+      },
+      {
+        key: "scriptTimeoutMs",
+        name: "Time limit",
+        whatItsFor: "Longer than fifteen seconds is a loop, not a calculation — the ceiling is real.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "5000", label: "5 seconds" },
+            { value: "10000", label: "10 seconds" },
+            { value: "15000", label: "15 seconds" }
+          ]
+        },
+        default: "5000",
+        whoFills: "architect"
+      }
+    ],
+    requiredVariables: [],
     producedVariables: ["script.output"]
   }),
   /* 018b — THE NODE FRAME, under the laws. It is not a step that does

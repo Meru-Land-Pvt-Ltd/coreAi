@@ -49,7 +49,8 @@ export const SOUL_COVERED_TYPES = [
   "action.api_call",
   "tool.node_frame",
   "trigger.whatsapp_message_received",
-  "action.send_whatsapp"
+  "action.send_whatsapp",
+  "logic.script"
 ] as const;
 
 export type SoulPage = {
@@ -479,6 +480,22 @@ Dry runs never send and say so. The same channel law as everywhere: this
 hand answers people who wrote on WhatsApp — never a stranger on a channel
 they did not use. The WhatsApp ear plus Brain plus this hand is the
 answering machine in its second language.`
+  },
+  {
+    slug: "19-code",
+    nodeType: "logic.script",
+    title: "Code — the sealed calculator",
+    body: `A small piece of JavaScript or Python for the jobs no node covers:
+reshaping data, arithmetic, parsing something odd. It runs SEALED — its own
+container, no network, no files, fifteen seconds at most — and only what
+the architect writes in "What it may see" ever reaches it; never the whole
+run, because the run carries a real customer's details.
+
+What the code returns travels on under "Save the result as". Reach for it
+last: a Brain reads and writes better, a Condition sorts better, and the AI
+Builder is forbidden from composing Code into agents — an architect places
+it knowingly or not at all. Same honest failure as everywhere: a timeout or
+an error says so in the log, in words.`
   },
   {
     slug: "99-combinations",
