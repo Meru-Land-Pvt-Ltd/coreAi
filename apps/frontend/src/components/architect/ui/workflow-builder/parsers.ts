@@ -63,8 +63,26 @@ export function toBuilderNodes(raw: unknown): BuilderNode[] {
   return Array.isArray(raw) ? raw.filter(isBuilderNode).map(normalizeNode) : [];
 }
 
+/**
+ * THE ONLY WAY WIRES GET ONTO THE CANVAS — and the same lesson as the nodes.
+ *
+ * A saved agent's wires came back from the database exactly as they were
+ * stored, which means without the edge type React Flow needs in order to draw
+ * OUR wire rather than its stock one. So the cross that cuts a wire appeared on
+ * anything drawn in this session and on nothing that was loaded — which is
+ * every agent that already exists, which is every agent anybody actually works
+ * on.
+ *
+ * Word for word the bug described above this function for nodes. A load path
+ * that skips the normaliser will keep producing it until every load goes
+ * through one door.
+ */
+export function normalizeEdge(edge: Edge): Edge {
+  return { ...edge, type: edge.type ?? "removable" };
+}
+
 export function toBuilderEdges(raw: unknown): Edge[] {
-  return Array.isArray(raw) ? raw.filter(isEdge) : [];
+  return Array.isArray(raw) ? raw.filter(isEdge).map(normalizeEdge) : [];
 }
 
 export function parseNodes(workflow: ArchitectWorkflow | null): BuilderNode[] {

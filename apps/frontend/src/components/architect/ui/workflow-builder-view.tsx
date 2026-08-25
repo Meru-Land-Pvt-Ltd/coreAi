@@ -94,6 +94,7 @@ import { BuilderStatusBar } from "./workflow-builder/builder-status-bar";
 import { ComponentLibrary } from "./workflow-builder/component-library";
 import { ConfigurePanel } from "./workflow-builder/configure-panel";
 import { CoreNode } from "./workflow-builder/core-node";
+import { reconnectEdge } from "@xyflow/react";
 import { createFlowEdge } from "./workflow-builder/edge-utils";
 import { RemovableEdge } from "./workflow-builder/removable-edge";
 import { BuilderIcon } from "./workflow-builder/icons";
@@ -2932,6 +2933,29 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
+                /*
+                 * A WIRE'S END CAN BE PICKED UP AND MOVED.
+                 *
+                 * The founder's words: dragging the arrow to point it somewhere
+                 * is a better idea than clicking things. Grab either end of a
+                 * wire and drop it on another step to re-point it — or drop it
+                 * on empty canvas to disconnect, the same motion in reverse of
+                 * how the wire was made. The ✕ on hover stays for people who
+                 * find that first; two honest ways beat one clever one.
+                 */
+                edgesReconnectable={!isUnderReview}
+                onReconnect={(oldEdge, connection) => {
+                  setEdges((current) => reconnectEdge(oldEdge, connection, current));
+                  setMessage("Unsaved changes");
+                }}
+                onReconnectEnd={(_, edge, __, connectionState) => {
+                  /* Dropped on nothing: the architect pulled the wire off and
+                     let go. That is a disconnect, said with the hand. */
+                  if (!connectionState.isValid) {
+                    setEdges((current) => current.filter((e) => e.id !== edge.id));
+                    setMessage("Unsaved changes");
+                  }
+                }}
                 onNodeClick={(_, node) => {
                   setSelectedNodeId(node.id);
                   if (window.innerWidth < 1280) setMobilePanel("settings");
