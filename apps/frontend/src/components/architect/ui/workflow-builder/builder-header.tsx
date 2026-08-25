@@ -279,14 +279,9 @@ export function BuilderHeader({
                   Arrange
                 </button>
               ) : null}
-              <button
-                type="button"
-                onClick={onOpenAdvanced}
-                data-testid="preview-panel-advanced-toggle"
-                className="hidden flex-none text-[11px] font-medium text-slate-400 underline-offset-4 transition hover:text-slate-600 hover:underline sm:block"
-              >
-                Advanced testing
-              </button>
+              {/* "Advanced testing" is dead — Rule 3 of the Preview Law. Its
+                  two real organs moved where they belong: the run log into
+                  Build's Run drawer, the Test Email box beside it. */}
             </>
           ) : null}
           <div className="hidden items-center gap-1 md:flex">

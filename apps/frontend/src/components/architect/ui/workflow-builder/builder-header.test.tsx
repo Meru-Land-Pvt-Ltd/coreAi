@@ -118,18 +118,9 @@ describe("BuilderHeader preview device switcher", () => {
     expect(onPreviewDeviceChange).toHaveBeenCalledWith("phone");
   });
 
-  it("opens Advanced testing from the quiet link beside the switcher", async () => {
-    const onOpenAdvanced = vi.fn();
-    const user = userEvent.setup();
-    renderHeader({
-      activeTab: "test",
-      showPreviewControls: true,
-      previewDevice: "desktop",
-      onOpenAdvanced
-    });
-
-    await user.click(screen.getByTestId("preview-panel-advanced-toggle"));
-    expect(onOpenAdvanced).toHaveBeenCalledTimes(1);
+  it("carries no Advanced testing link — Rule 3 of the Preview Law", () => {
+    renderHeader({ activeTab: "test", showPreviewControls: true });
+    expect(screen.queryByTestId("preview-panel-advanced-toggle")).toBeNull();
   });
 });
 

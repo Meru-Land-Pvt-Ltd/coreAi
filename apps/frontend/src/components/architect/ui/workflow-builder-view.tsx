@@ -97,6 +97,7 @@ import { CoreNode } from "./workflow-builder/core-node";
 import { reconnectEdge } from "@xyflow/react";
 import { createFlowEdge } from "./workflow-builder/edge-utils";
 import { RemovableEdge } from "./workflow-builder/removable-edge";
+import { BusinessMirror } from "./workflow-builder/business-mirror";
 import { BuilderIcon } from "./workflow-builder/icons";
 import { applyTidyPositions } from "./workflow-builder/layout-graph";
 import { MobileSheet } from "./workflow-builder/mobile-sheet";
@@ -489,6 +490,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [loadingLabel, setLoadingLabel] = useState("Loading Builder...");
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  /* THE PREVIEW LAW, Rule 2: Run belongs where you are. The log opens in a
+     drawer on Build instead of throwing the architect onto another tab. */
+  const [runDrawerOpen, setRunDrawerOpen] = useState(false);
   const [dryRunConfigureHints, setDryRunConfigureHints] = useState<string[]>([]);
   const [message, setMessage] = useState("Unsaved changes");
   const [publishError, setPublishError] = useState("");
@@ -659,6 +663,25 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
     [nodes, selectedNodeId]
   );
+
+  /* THE PREVIEW LAW, Rule 1: the canvas decides who is in the mirror.
+     No Face nodes and no way for a customer to speak to it → nobody ever
+     types at this agent, and the person in front of the mirror is the
+     BUSINESS. The generic chat face for such an agent was a face for a person
+     who does not exist. */
+  const selfStarting = useMemo(() => {
+    if (nodes.length === 0) return false;
+    const hasFace = nodes.some((node) => String(node.data.type ?? "").startsWith("block."));
+    if (hasFace) return false;
+    const conversational = nodes.some((node) => {
+      const type = String(node.data.type ?? "");
+      return (
+        type.startsWith("trigger.") &&
+        !["trigger.schedule", "trigger.webhook_received", "trigger.manual"].includes(type)
+      );
+    });
+    return !conversational;
+  }, [nodes]);
 
 
   // Node ids + labels whitelist {{node.prop}}-style tokens in the unknown-
@@ -2414,7 +2437,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     );
   }, [isAudioAttachment, setNodes]);
 
-  async function runAgent() {
+  async function runAgent({ stayHere = false }: { stayHere?: boolean } = {}) {
     if (blockIfUnderReview()) return;
 
     const normalizedCallerNumber = callerNumber.trim();
@@ -2657,7 +2680,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       setRunContext(result.data.run.context);
       setMessage("Dry run complete");
       setDryRunConfigureHints([]);
-      setActiveTab("test");
+      if (!stayHere) setActiveTab("test");
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Could not run test";
       setMessage(errorMessage);
@@ -2775,7 +2798,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onRedo={redo}
         onAgentNameChange={setAgentName}
         onTabChange={requestTabChange}
-        onRunTest={() => requestTabChange("test")}
+        onRunTest={() => {
+          /* Rule 2 of the Preview Law: Run never throws you onto another tab. */
+          setRunDrawerOpen(true);
+          void runAgent({ stayHere: true });
+        }}
         onSave={() => void saveAgent()}
       />
 
@@ -3013,6 +3040,73 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 <BuilderIcon name="sparkles" className="h-4 w-4" />
                 AI Builder
               </button>
+              {/* THE RUN DRAWER — Rule 2 of the Preview Law. The log arrives
+                  where the architect already is, in the words the engine wrote,
+                  with the Test Email box beside the mail it would send. */}
+              {runDrawerOpen ? (
+                <div
+                  data-testid="build-run-drawer"
+                  className="absolute right-6 top-6 z-30 flex max-h-[70vh] w-[min(26rem,90vw)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
+                >
+                  <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      {running ? "Running…" : "Run log"}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setRunDrawerOpen(false)}
+                      aria-label="Close run log"
+                      data-testid="build-run-drawer-close"
+                      className="rounded-lg p-1 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
+                    {runLogs.length === 0 && !running ? (
+                      <p className="text-xs leading-5 text-slate-500">
+                        Press Run and every step reports here — in order, in plain words.
+                      </p>
+                    ) : null}
+                    {runLogs.map((log, index) => (
+                      <div key={`${log.nodeId}-${index}`} className="flex items-start gap-2">
+                        <span
+                          className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+                            log.status === "error"
+                              ? "bg-red-500"
+                              : log.status === "skipped"
+                                ? "bg-slate-300"
+                                : log.status === "waiting"
+                                  ? "bg-amber-400"
+                                  : "bg-emerald-500"
+                          }`}
+                        />
+                        <p className="min-w-0 text-xs leading-5 text-slate-700">
+                          <span className="font-semibold text-slate-900">{log.label}</span> — {log.message}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  {hasEmailNode ? (
+                    <div className="border-t border-gray-100 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        Test Email
+                      </p>
+                      <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
+                        Put your address here and Run — the real mail lands in your inbox.
+                      </p>
+                      <input
+                        value={testEmail}
+                        onChange={(event) => setTestEmail(event.target.value)}
+                        placeholder="you@yourmail.com"
+                        data-testid="build-run-test-email"
+                        className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-400"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               {aiBuilderOpen ? (
                 <div
                   data-testid="build-ai-builder-dock"
@@ -3158,7 +3252,16 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           </section>
         ) : null}
 
-        {activeTab === "test" && testView === "preview" ? (
+        {activeTab === "test" && testView === "preview" && selfStarting ? (
+          <BusinessMirror
+            agentName={agentName}
+            logs={runLogs}
+            running={running}
+            onRun={() => void runAgent({ stayHere: true })}
+          />
+        ) : null}
+
+        {activeTab === "test" && testView === "preview" && !selfStarting ? (
           <PreviewPanel
             workflowId={currentWorkflowId}
             workflowName={agentName}

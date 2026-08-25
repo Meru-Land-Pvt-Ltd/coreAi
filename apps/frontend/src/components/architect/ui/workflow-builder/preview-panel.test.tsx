@@ -190,8 +190,9 @@ describe("PreviewPanel", () => {
     // The Face shows its own retry affordance alongside.
     expect(screen.getByTestId("agent-page-error")).toBeTruthy();
 
-    await user.click(screen.getByTestId("preview-panel-error-advanced"));
-    expect(props.onOpenAdvanced).toHaveBeenCalledTimes(1);
+    /* The card no longer points at Advanced testing — Rule 3 of the Preview
+       Law: the console it advertised is dead. */
+    expect(screen.queryByTestId("preview-panel-error-advanced")).toBeNull();
   });
 
   it("clears the snag card after the next successful reply", async () => {

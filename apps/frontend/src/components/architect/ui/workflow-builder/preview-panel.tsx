@@ -607,19 +607,7 @@ export function PreviewPanel({
           data-testid="preview-panel-error"
           className="absolute left-1/2 top-4 z-30 flex w-[min(90%,32rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-x-1.5 gap-y-1 rounded-2xl border border-amber-200 bg-amber-50/95 px-4 py-2.5 text-center text-sm leading-relaxed text-amber-900 shadow-lg backdrop-blur"
         >
-          <span>Your agent hit a snag answering. Try again or check</span>
-          <button
-            type="button"
-            onClick={onOpenAdvanced}
-            data-testid="preview-panel-error-advanced"
-            className={
-              "rounded font-semibold underline underline-offset-2 transition hover:text-amber-950" +
-              PILL_FOCUS_CLASSES
-            }
-          >
-            Advanced testing
-          </button>
-          <span>.</span>
+          <span>Your agent hit a snag answering. Try again.</span>
         </div>
       ) : null}
 
