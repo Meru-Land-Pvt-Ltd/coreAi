@@ -29,6 +29,10 @@ export const NODE_SETTINGS_PAGES: Record<string, NodeSettingsPage> = {
   "ai.memory": {
     title: "Limits",
     summary: "How long memory is kept, how much a brain reads per answer, and the biggest file it will read."
+  },
+  "logic.condition": {
+    title: "Limits",
+    summary: "How many roads out one Condition may have."
   }
 };
 

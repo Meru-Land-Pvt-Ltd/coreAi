@@ -26,11 +26,13 @@ import {
 import { nodeSettingsPage } from "@/components/admin/features/node-settings-pages";
 import { AiBrainModels } from "@/components/admin/features/node-settings/ai-brain-models";
 import { MemoryLimitsPanel } from "@/components/admin/features/node-settings/memory-limits";
+import { ConditionLimitsPanel } from "@/components/admin/features/node-settings/condition-limits";
 
 /** The settings panel for this node, if it has one. */
 function SettingsFor({ nodeType }: { nodeType: string }) {
   if (nodeType === "ai.llm_call") return <AiBrainModels />;
   if (nodeType === "ai.memory") return <MemoryLimitsPanel />;
+  if (nodeType === "logic.condition") return <ConditionLimitsPanel />;
   return null;
 }
 

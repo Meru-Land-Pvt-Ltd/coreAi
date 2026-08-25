@@ -837,3 +837,15 @@ export function getMemoryLimits() {
 export function saveMemoryLimits(limits: MemoryLimits) {
   return apiPatch<{ memoryLimits: MemoryLimits }>("/admin/memory-limits", limits);
 }
+
+/* ------------------------- Condition: the roads out ------------------------ */
+
+export function getConditionLimits() {
+  return apiGet<{ maxRoads: number; default: number; bounds: { min: number; max: number } }>(
+    "/admin/condition-limits"
+  );
+}
+
+export function saveConditionLimits(maxRoads: number) {
+  return apiPatch<{ maxRoads: number }>("/admin/condition-limits", { maxRoads });
+}

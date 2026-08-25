@@ -35,6 +35,7 @@ import {
   nodeSettingChoices
 } from "@coreai/shared";
 import { useState, useEffect, type ReactNode } from "react";
+import { useNodeLimits } from "./use-node-limits";
 import { VoicePicker } from "@/components/common/voice-picker";
 import {
   disconnectCalendlyConnector,
@@ -3722,6 +3723,7 @@ function StandardAiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
  */
 function ConditionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const { conditionRoads: maxRoads } = useNodeLimits();
 
   const operator = str("conditionOperator", "business_hours");
   const byMeaning = operator === "meaning";
@@ -3831,14 +3833,28 @@ function ConditionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
           ))}
         </div>
 
+        {/* THE LINE, DRAWN WHERE THEY ARE WORKING.
+            Nothing used to say no, so a step could grow twelve ways out: a
+            flowchart nobody can read, twelve prompts the AI door has to choose
+            between, and twelve chances to send a customer somewhere nobody
+            meant. The number is the admin's (admin/node-limits.ts), not this
+            file's — a judgement about what the platform allows should never
+            need a release. */}
         <button
           type="button"
           onClick={() => setRoads([...roads, ""])}
+          disabled={roads.length >= maxRoads}
           data-testid="condition-road-add"
-          className="mt-2 rounded-lg border border-gray-200 px-3 py-1.5 text-[13px] font-semibold text-slate-700 transition hover:border-gray-300"
+          className="mt-2 rounded-lg border border-gray-200 px-3 py-1.5 text-[13px] font-semibold text-slate-700 transition hover:border-gray-300 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Add a road
         </button>
+        {roads.length >= maxRoads ? (
+          <p className="mt-1.5 text-[11px] leading-5 text-slate-400" data-testid="condition-road-limit">
+            {maxRoads} roads is the most one step may have. More than this and it is really two
+            steps — and the more roads there are, the easier it is to send somebody down the wrong one.
+          </p>
+        ) : null}
 
         {/* Always there, never removable. A customer will eventually say
             something nobody listed, and a run that falls off the end in silence

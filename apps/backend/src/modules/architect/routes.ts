@@ -117,6 +117,7 @@ import {
 } from "./test-deployment";
 import { getVoiceAnswerStatus } from "./vapi-connector";
 import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
+import { getConditionRoadLimit, DEFAULT_CONDITION_ROADS } from "../admin/node-limits";
 import { runWorkflowTest } from "./workflow-runner";
 import { getArchitectVapiBrowserTestCallEndReason, startArchitectVapiBrowserTest } from "./vapi-browser-test";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
@@ -672,12 +673,15 @@ architectRoutes.post("/wiring-check", async (c) => {
 architectRoutes.get("/builder-nodes", async (c) => {
   const authUser = c.get("authUser");
   try {
-    const [nodes, own, paused] = await Promise.all([
+    const [nodes, own, paused, conditionRoads] = await Promise.all([
       listArchitectNodeVisibility(),
       // Nodes this architect built themselves through the Node Frame, shown
       // beside ours because to them there is no difference.
       readyFramesFor(authUser.id).catch(() => []),
-      pausedNodeTypes().catch(() => new Map<string, string>())
+      pausedNodeTypes().catch(() => new Map<string, string>()),
+      // What the platform allows on a node, so the builder can stop an
+      // architect at the line instead of letting them find it at publish.
+      getConditionRoadLimit().catch(() => DEFAULT_CONDITION_ROADS)
     ]);
     return successResponse(c, {
       nodes: nodes.map((node) => ({
@@ -691,6 +695,7 @@ architectRoutes.get("/builder-nodes", async (c) => {
       // A paused node is hidden from the palette as well: an architect cannot
       // be allowed to drag in a step that is switched off platform-wide and
       // discover it later from a customer.
+      limits: { conditionRoads },
       hiddenNodeTypes: [
         ...nodes.filter((node) => !node.visible).map((node) => node.type),
         ...paused.keys()
@@ -701,6 +706,7 @@ architectRoutes.get("/builder-nodes", async (c) => {
     console.error("[architect] builder-nodes visibility failed", error);
     return successResponse(c, {
       nodes: defaultArchitectNodePresentation(),
+      limits: { conditionRoads: DEFAULT_CONDITION_ROADS },
       hiddenNodeTypes: defaultHiddenArchitectNodeTypes(),
       connectors: builderConnectors()
     });

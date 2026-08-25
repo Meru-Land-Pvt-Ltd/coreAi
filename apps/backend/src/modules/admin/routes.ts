@@ -42,6 +42,12 @@ import {
   MEMORY_LIMIT_BOUNDS
 } from "./memory-limits";
 import {
+  CONDITION_ROADS_BOUNDS,
+  DEFAULT_CONDITION_ROADS,
+  getConditionRoadLimit,
+  saveConditionRoadLimit
+} from "./node-limits";
+import {
   DEFAULT_DOOR_BRAIN_PROVIDER,
   DOOR_BRAIN_MODEL_MAX_LENGTH,
   doorBrainModelMismatch,
@@ -396,6 +402,42 @@ adminRoutes.patch("/design-rules", async (c) => {
     { rules: { ...rules, defaultValue: DEFAULT_DESIGN_BRAIN_RULES }, ...result },
     result.restoredDefault ? "Default rules restored" : "Design Brain rules saved"
   );
+});
+
+/* ------------------------- Condition: the roads out ------------------------ */
+
+/** The most ways out one Condition may have. */
+adminRoutes.get("/condition-limits", async (c) => {
+  return successResponse(c, {
+    maxRoads: await getConditionRoadLimit(),
+    default: DEFAULT_CONDITION_ROADS,
+    bounds: CONDITION_ROADS_BOUNDS
+  });
+});
+
+adminRoutes.patch("/condition-limits", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = z
+    .object({ maxRoads: z.coerce.number().int().min(CONDITION_ROADS_BOUNDS.min).max(CONDITION_ROADS_BOUNDS.max) })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(
+      c,
+      `Pick a number between ${CONDITION_ROADS_BOUNDS.min} and ${CONDITION_ROADS_BOUNDS.max}.`,
+      422,
+      "VALIDATION_ERROR"
+    );
+  }
+
+  const saved = await saveConditionRoadLimit(parsed.data.maxRoads, authUser.id);
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "CONDITION_ROAD_LIMIT_UPDATED",
+    targetType: "NODE",
+    targetId: "logic.condition",
+    meta: { maxRoads: saved }
+  });
+  return successResponse(c, { maxRoads: saved });
 });
 
 /* --------------------------- Memory: the limits --------------------------- */
