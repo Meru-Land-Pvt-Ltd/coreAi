@@ -79,6 +79,9 @@ export const libraryGroups: LibraryGroup[] = [
       },
       paletteItem("ai.context_reply", { icon: "sparkles", accent: "violet" }),
       paletteItem("ai.memory", { icon: "database", accent: "violet" }),
+      /* NODE 011. Memory remembers conversations; this reads the business's
+         library — their documents, uploaded once at setup. */
+      { ...paletteItem("ai.knowledge", { icon: "book", accent: "violet" }), badge: "NEW" },
       {
         ...paletteItem("ai.image_generation", { icon: "image", accent: "violet" }),
         badge: "BETA"
