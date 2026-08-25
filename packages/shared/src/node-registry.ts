@@ -2383,6 +2383,11 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     comingSoon: false,
     runtime: { nodeKind: "connector", connector: "SMS", connectorAction: "send_sms" }
   }),
+  /* 018 — THE UNIVERSAL HAND, brought under the laws (2026-08-25 night
+     order). One card reaches every service on the internet. One truth an
+     architect must know and the declaration now says out loud: TEST RUNS
+     CALL THE REAL SERVICE — that is how an integration is verified — so a
+     rehearsal against a paid or destructive endpoint is a real call. */
   def({
     type: API_CALL_NODE_TYPE,
     label: "Connect to a service",
@@ -2398,6 +2403,53 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       connectorAction: API_CALL_CONNECTOR_ACTION
     },
     defaultConfig: { ...API_CALL_DEFAULT_CONFIG },
+    settings: [
+      {
+        key: "apiUrl",
+        name: "Web address",
+        whatItsFor: "Where the request goes. Test runs call the REAL service — point at a test endpoint when that matters.",
+        type: "text",
+        limits: { required: true },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "apiMethod",
+        name: "Kind of request",
+        whatItsFor: "Reading asks (GET); sending tells (POST). The service's docs say which.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "GET", label: "Read (GET)" },
+            { value: "POST", label: "Send (POST)" },
+            { value: "PUT", label: "Replace (PUT)" },
+            { value: "PATCH", label: "Update (PATCH)" },
+            { value: "DELETE", label: "Delete (DELETE)" }
+          ]
+        },
+        default: "GET",
+        whoFills: "architect"
+      },
+      {
+        key: "apiBody",
+        name: "What to send",
+        whatItsFor: "The request's content when sending — usually JSON from the service's docs.",
+        type: "long text",
+        limits: { maxLength: 8000 },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "apiOutputKey",
+        name: "Save the reply as",
+        whatItsFor: "The name later steps use to read what came back.",
+        type: "text",
+        limits: {},
+        default: API_CALL_DEFAULT_OUTPUT_KEY,
+        whoFills: "architect"
+      }
+    ],
+    requiredVariables: [],
     producedVariables: [API_CALL_DEFAULT_OUTPUT_KEY, `${API_CALL_DEFAULT_OUTPUT_KEY}_error`]
   }),
   def({
@@ -3499,6 +3551,11 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     defaultConfig: { scriptLanguage: "javascript", scriptCode: "", codeInput: "" },
     producedVariables: ["script.output"]
   }),
+  /* 018b — THE NODE FRAME, under the laws. It is not a step that does
+     something — it is the FORM a new service is described in, and the form
+     IS its settings: declared-empty here, because the frame's own wizard
+     asks the six questions. An unfilled frame refuses honestly at run time
+     instead of falling through to a stranger's handler. */
   def({
     type: NODE_FRAME_NODE_TYPE,
     label: "New connection",
@@ -3509,7 +3566,9 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     backendExecutable: true,
     launchCritical: false,
     comingSoon: false,
-    runtime: { nodeKind: "connector" }
+    runtime: { nodeKind: "connector" },
+    requiredVariables: [],
+    settings: []
   }),
   def({ type: "trigger.call_list", label: "Call this list", category: "trigger", description: "Works through a list of people one at a time — rings them, waits, tries again, and remembers who picked up.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
   /* NODE 008 — THE TIMER. The last core stone.

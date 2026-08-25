@@ -106,6 +106,10 @@ export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
     "trigger.manual": {},
     /* Checked, nothing to fill: the private link is minted at go-live. */
     "trigger.webhook": {},
+    /* Checked: the architect's key rides the node; buyer keys come from the
+       connector's own buyer form, not these setup cards. */
+    "action.api_call": {},
+    "tool.node_frame": {},
     "ai.memory": {},
     "ai.knowledge": {
       knowledge: true

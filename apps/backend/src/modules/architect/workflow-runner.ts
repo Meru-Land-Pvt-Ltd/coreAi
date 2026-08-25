@@ -3,6 +3,7 @@ import {
   API_CALL_DEFAULT_OUTPUT_KEY,
   API_CALL_MAX_PER_RUN,
   API_CALL_NODE_TYPE,
+  NODE_FRAME_NODE_TYPE,
   CALENDLY_LEGACY_TRIGGER_TYPES,
   CALENDLY_NODE_TYPES,
   CORE_CONNECTOR_ACTIONS,
@@ -5852,6 +5853,20 @@ async function runConnectorNode({
     return;
   }
 
+  /* An unfilled New Connection must refuse in its own words — falling
+     through to the SMS default handed architects SMS-jargon errors about a
+     frame they had not filled in yet. */
+  if (asString(node.data?.type) === NODE_FRAME_NODE_TYPE) {
+    logs.push(
+      createLog(
+        node,
+        "error",
+        "This connection hasn't been created yet — open the node and describe the service (where it lives, what it needs, what it gives back)."
+      )
+    );
+    return;
+  }
+
   // Normalize separator variants ("google_calendar", "Google-Calendar") to the
   // canonical space-separated form before dispatching.
   const nodeType = asString(node.data?.type);
@@ -5951,7 +5966,7 @@ async function runConnectorNode({
     connector === "http" ||
     connector === "api"
   ) {
-    await executeApiCallNode({ userId, node, context, logs });
+    await executeApiCallNode({ userId, node, context, logs, mode });
     return;
   }
 
@@ -6048,11 +6063,13 @@ function friendlyApiCallError(code: SafeFetchErrorCode, label: string): string {
  * as a run log plus `<outputKey>_error` in context, keeping the run alive.
  */
 export async function executeApiCallNode({
+  mode,
   userId,
   node,
   context,
   logs
 }: {
+  mode?: WorkflowRunMode;
   userId: string;
   node: RunnerNode;
   context: RunnerContext;
@@ -6203,7 +6220,9 @@ export async function executeApiCallNode({
     createLog(
       node,
       "success",
-      `Fetched live data from ${safeLabel} (${result.status}). Saved as ${outputKey}.`,
+      `Fetched live data from ${safeLabel} (${result.status}). Saved as ${outputKey}.${
+        mode && mode !== "live" ? " Heads up: test runs call the REAL service." : ""
+      }`,
       { status: result.status, ok: result.ok, outputKey, bytes: result.bytesRead, data: parsed }
     )
   );

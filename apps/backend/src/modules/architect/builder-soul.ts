@@ -45,7 +45,9 @@ export const SOUL_COVERED_TYPES = [
   "calendar.book_appointment",
   "trigger.calendly",
   "action.calendly",
-  "trigger.webhook"
+  "trigger.webhook",
+  "action.api_call",
+  "tool.node_frame"
 ] as const;
 
 export type SoulPage = {
@@ -411,6 +413,41 @@ architect's Practice delivery stands in and the log says sample; paste a
 real example of the other app's payload there and the whole flow is testable
 before go-live. The door is hardened for you: private tokens, duplicate
 deliveries dropped, floods rate-limited — none of it needs configuring.`
+  },
+  {
+    slug: "17-universal-hand",
+    nodeType: "action.api_call",
+    title: "Connect to a service — the universal hand",
+    body: `One card reaches every service on the internet: give it the web address
+from the service's docs, pick read or send, and the reply is saved under a
+name later steps can use ({{api.response...}} unless renamed).
+
+The one truth to respect: TEST RUNS CALL THE REAL SERVICE — that is how an
+integration is verified — so never rehearse a send against a paid or
+destructive endpoint; point it at the service's test address first. The
+platform guards the rest: spend is reserved before the network, requests to
+private addresses are refused, and every reply is shown as it arrived.
+
+Prefer a purpose-built card when one exists (Booking, Calendly, mail): it
+already knows the service's shape. Reach for the universal hand when no
+card exists — and when the service will be used again and again, build a
+New Connection instead, so it becomes a real card.`
+  },
+  {
+    slug: "17b-node-frame",
+    nodeType: "tool.node_frame",
+    title: "New connection — the form a service fills in",
+    body: `Not a step that does something — a step that BECOMES something. The
+architect describes a service Triven has no card for (where it lives, what
+key it needs, what it takes, what it gives back), and the description
+becomes a real card in their own toolkit, run by the one connector engine
+with its retries, its spending ceiling and its honesty checks already
+attached.
+
+An unfilled frame refuses honestly at run time — it never pretends. Use it
+when a service will be used more than once; use Connect to a service for a
+one-off call. Keys typed into a frame are stored encrypted and never shown
+again — the two security guards every frame is born with.`
   },
   {
     slug: "99-combinations",
