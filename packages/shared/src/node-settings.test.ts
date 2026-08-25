@@ -31,7 +31,8 @@ const PERFECTED = [
   "calendar.availability",
   "calendar.book_appointment",
   "trigger.calendly",
-  "action.calendly"
+  "action.calendly",
+  "trigger.webhook"
 ] as const;
 
 describe("the nodes we have finished answer question 5", () => {

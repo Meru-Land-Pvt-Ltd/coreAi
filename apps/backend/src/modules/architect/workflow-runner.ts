@@ -329,6 +329,8 @@ type RunnerNodeData = {
   waitDays?: unknown;
   /** Timer, patience flavor: days of silence before the canvas resumes. */
   holdFor?: unknown;
+  /** Webhook: the architect's practice delivery for builder tests. */
+  sampleBody?: unknown;
   prompt?: unknown;
   reference_image?: unknown;
   imageSize?: unknown;
@@ -2118,14 +2120,40 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
   }
 
   if (asString(node.data?.type) === WEBHOOK_NODE_TYPE) {
+    /* No real delivery in a builder test — the practice delivery stands in,
+       the promise (gives: webhook) is kept, and the log says sample. */
+    if (!context.webhook) {
+      const sampleRaw = asString(node.data?.sampleBody) || '{"message": "A sample delivery for testing."}';
+      let sampleBody: unknown = sampleRaw;
+      try {
+        sampleBody = JSON.parse(sampleRaw);
+      } catch {
+        /* Plain text practice deliveries are fine — they travel as-is. */
+      }
+      context.webhook = {
+        endpointId: "sample",
+        deliveryId: "sample",
+        receivedAt: new Date().toISOString(),
+        headers: {},
+        body: sampleBody
+      };
+      (context as Record<string, unknown>).__webhookSample = true;
+    }
     const delivery = context.webhook;
+    const sample = Boolean((context as Record<string, unknown>).__webhookSample);
     logs.push(
-      createLog(node, "success", "Data received from another app.", {
-        receivedAt: delivery?.receivedAt ?? new Date().toISOString(),
-        // The body itself is the architect's material — show it, so the Test
-        // panel teaches them exactly which {{webhook.body.x}} names exist.
-        body: delivery?.body ?? null
-      })
+      createLog(
+        node,
+        "success",
+        `Data received from another app.${sample ? " (sample — a real delivery arrives at the agent's private link by itself)" : ""}`,
+        {
+          receivedAt: delivery?.receivedAt ?? new Date().toISOString(),
+          // The body itself is the architect's material — show it, so the Test
+          // panel teaches them exactly which {{webhook.body.x}} names exist.
+          body: delivery?.body ?? null,
+          ...(sample ? { sample: true } : {})
+        }
+      )
     );
     return;
   }

@@ -677,7 +677,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       const type = String(node.data.type ?? "");
       return (
         type.startsWith("trigger.") &&
-        !["trigger.schedule", "trigger.webhook_received", "trigger.manual"].includes(type)
+        !["trigger.schedule", "trigger.webhook", "trigger.manual"].includes(type)
       );
     });
     return !conversational;

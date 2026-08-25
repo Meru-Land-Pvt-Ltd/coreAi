@@ -3436,7 +3436,45 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   def({ type: "trigger.manual", label: "Start here", category: "trigger", description: "Start a workflow manually.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
   // Two ways IN, both real. Until these shipped, an agent could only start when a
   // human typed on a page — the ceiling on every product the platform could make.
-  def({ type: "trigger.webhook", label: "When another app sends data", category: "trigger", description: "Starts when another app or website sends its data to this agent's private link.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
+  /* 017 — WEBHOOK, brought under the laws (2026-08-25 night order). The
+     backend was already hardened (hashed tokens, dedupe, rate limits); what
+     it lacked was question 5 and sample honesty — test runs now synthesize
+     the practice delivery, keep the gives-promise, and say sample. */
+  def({
+    type: "trigger.webhook",
+    label: "When another app sends data",
+    category: "trigger",
+    description: "Starts when another app or website sends its data to this agent's private link.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "trigger" },
+    defaultConfig: { sampleBody: "" },
+    settings: [
+      {
+        key: "sampleBody",
+        name: "Practice delivery",
+        whatItsFor: "Only for testing in the builder — what a real app's delivery looks like. Live deliveries arrive at the agent's private link by themselves.",
+        type: "long text",
+        limits: { maxLength: 4000 },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        /* The private link is minted per install at go-live — the platform's
+           doing, shown to the business, never typed by anyone. */
+        key: "webhookLink",
+        name: "The private link",
+        whatItsFor: "Minted for the business at go-live — they paste it into the other app once.",
+        type: "text",
+        limits: {},
+        default: "",
+        whoFills: "business"
+      }
+    ],
+    requiredVariables: []
+  }),
   // The code step. It was on the palette once and was taken off, because the
   // editor shipped without anything that ran what was typed into it. It is back
   // only now that there is a container with no network, no keys and no disk to

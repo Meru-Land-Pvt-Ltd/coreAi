@@ -104,6 +104,8 @@ export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
       deepgramTest: true
     },
     "trigger.manual": {},
+    /* Checked, nothing to fill: the private link is minted at go-live. */
+    "trigger.webhook": {},
     "ai.memory": {},
     "ai.knowledge": {
       knowledge: true

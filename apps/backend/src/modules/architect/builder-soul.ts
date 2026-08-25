@@ -44,7 +44,8 @@ export const SOUL_COVERED_TYPES = [
   "calendar.availability",
   "calendar.book_appointment",
   "trigger.calendly",
-  "action.calendly"
+  "action.calendly",
+  "trigger.webhook"
 ] as const;
 
 export type SoulPage = {
@@ -392,6 +393,24 @@ free times, reads them, proposes; the customer picks; a scheduling link or a
 booking closes it. Sample runs work on seeded event ids and say so in the
 log. It never writes into a Google calendar — that is the Booking pair's
 pen; one booking truth per business, never both families in one agent.`
+  },
+  {
+    slug: "16-webhook",
+    nodeType: "trigger.webhook",
+    title: "Webhook — when another app sends data",
+    body: `The third no-human way in (Timer and the ear are the others). At go-live
+the platform mints the agent a PRIVATE link; the business pastes it into the
+other app once, and every delivery that app sends wakes the agent with
+context.webhook — the sender's whole payload, readable as
+{{webhook.body.whatever}} in any step after it.
+
+Use it when another SYSTEM initiates: a form service, a store, a payment
+provider, an internal tool. Do not use it when a person initiates — that is
+the Prompt Box or the ear. In builder tests no real delivery exists, so the
+architect's Practice delivery stands in and the log says sample; paste a
+real example of the other app's payload there and the whole flow is testable
+before go-live. The door is hardened for you: private tokens, duplicate
+deliveries dropped, floods rate-limited — none of it needs configuring.`
   },
   {
     slug: "99-combinations",
