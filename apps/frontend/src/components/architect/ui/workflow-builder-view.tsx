@@ -18,7 +18,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { BUILDER_NODE_DRAG_TYPE } from "./workflow-builder/component-library";
-import { AiComposerPanel, type ComposedCanvas } from "./workflow-builder/ai-composer-panel";
+import { AiBuilderPanel, type ComposedCanvas } from "./workflow-builder/ai-builder-panel";
 import { useWiringCheck } from "./workflow-builder/use-wiring-check";
 import { apiPost } from "@/lib/api";
 import Link from "next/link";
@@ -259,7 +259,10 @@ export function EmptyCanvasFacePicker({
           data-testid="canvas-picker-composer"
           className="fade-enter pointer-events-auto w-full max-w-xl rounded-3xl border border-gray-200 bg-white/95 p-6 shadow-xl backdrop-blur"
         >
-          <AiComposerPanel onBuilt={onComposed} onCancel={() => setComposing(false)} />
+          {/* The same one assistant as everywhere else — on a blank canvas its
+              build hand is live, so "an AI receptionist for a dental clinic"
+              composes the whole agent. */}
+          <AiBuilderPanel workflowId={null} canvasHasSteps={false} onBuilt={onComposed} />
         </div>
       </div>
     );

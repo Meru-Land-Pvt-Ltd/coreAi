@@ -118,6 +118,7 @@ import {
 import { getVoiceAnswerStatus } from "./vapi-connector";
 import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
 import { getConditionRoadLimit, DEFAULT_CONDITION_ROADS } from "../admin/node-limits";
+import { aiBuilderAnswer } from "./ai-builder";
 import { runWorkflowTest } from "./workflow-runner";
 import { getArchitectVapiBrowserTestCallEndReason, startArchitectVapiBrowserTest } from "./vapi-browser-test";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
@@ -2780,6 +2781,39 @@ const architectPreviewRunSchema = z.object({
 // Faces). Same engine + output extraction as the public /agent-pages/:slug/run
 // endpoint, but architect-authed with ownership — and never rate-limited by
 // the public page limiter.
+/**
+ * THE AI BUILDER — one box that hears everything.
+ *
+ * Routes the architect's words to the right hand (build the canvas, edit the
+ * page, or explain), and for "why?" questions answers directly from the canvas
+ * and the last runs. The build and page hands are served by the engines that
+ * already do those jobs; this endpoint tells the caller which one to use.
+ */
+architectRoutes.post("/workflows/:workflowId/ai-builder", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const workflowId = c.req.param("workflowId");
+
+    const body = z
+      .object({ message: z.string().trim().min(1).max(4000) })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!body.success) {
+      return errorResponse(c, "Say what you want in words.", 422, "VALIDATION_ERROR");
+    }
+
+    const workflow = await prisma.workflowDefinition.findFirst({
+      where: { id: workflowId, architectUserId: authUser.id },
+      select: { id: true }
+    });
+    if (!workflow) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+
+    return successResponse(c, await aiBuilderAnswer({ workflowId, message: body.data.message }));
+  } catch (error) {
+    console.error("[architect] ai-builder failed", error);
+    return errorResponse(c, "The AI Builder could not answer just now. Try once more.", 500, "AI_BUILDER_FAILED");
+  }
+});
+
 architectRoutes.post("/workflows/:workflowId/preview-run", async (c) => {
   try {
     const authUser = c.get("authUser");

@@ -128,6 +128,23 @@ function Dial({
 
 /* -------------------------------------------------------------- the panel */
 
+/**
+ * Does this text tell the Brain to DO something, rather than describe what it
+ * is about to be handed?
+ *
+ * Deliberately dumb: a handful of verbs at the start of the text or a
+ * sentence. Cheap, instant, no model call — and wrong quietly, because it only
+ * ever shows a hint. "A question a customer typed" passes; "detect if its true
+ * and say yes or no only" does not, and that exact string is why this exists.
+ */
+function looksLikeAnOrder(text: string): boolean {
+  const trimmed = text.trim().toLowerCase();
+  if (trimmed.length < 4) return false;
+  return /(^|[.!?]\s+)(detect|say|answer|reply|respond|write|output|return|repeat|translate|summari[sz]e|classify|decide|tell|give|generate|extract|only\s+say)\b/.test(
+    trimmed
+  );
+}
+
 export function LlmNodeInspector({ selectedNode, onUpdateNodeData, incomingNodeNames }: NodePropsPanel) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -259,6 +276,21 @@ export function LlmNodeInspector({ selectedNode, onUpdateNodeData, incomingNodeN
           data-testid="llm-input-is"
           className="mt-1.5 w-full resize-y rounded-xl border border-gray-200 px-3.5 py-2.5 text-[14px] leading-7 text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
         />
+        {/* THE MISTAKE THE FOUNDER MADE, CAUGHT BEFORE THE FIRST RUN.
+            He typed the order — "detect if its true and say yes or no only" —
+            into this box, which only describes what arrives, while the answer
+            box still said "repeat it back exactly". The Brain obeyed one or the
+            other at random and looked broken. Alone, an architect leaves the
+            platform over exactly this; the box itself has to say it. */}
+        {looksLikeAnOrder(str("llmInputIs")) ? (
+          <p
+            className="mt-1.5 rounded-lg bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800"
+            data-testid="llm-input-is-order-warning"
+          >
+            This looks like an instruction. This box only describes what arrives — put what the
+            Brain should <em>do</em> in “How the answer should be” below, or it may be ignored.
+          </p>
+        ) : null}
       </div>
 
       {/* THE DATA ITSELF — nothing to type.

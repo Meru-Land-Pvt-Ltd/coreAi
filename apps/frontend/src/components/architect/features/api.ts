@@ -1709,3 +1709,16 @@ export function smartCompose(workflowId: string) {
 export function smartDesignerChat(workflowId: string, body: SmartDesignerBody) {
   return apiPost<SmartDesignerData>(`/agent-pages/manage/${workflowId}/smart-designer`, body);
 }
+
+/* ------------------------------- AI Builder ------------------------------- */
+
+/**
+ * One box that hears everything. The router says which hand a message belongs
+ * to; for "explain" the answer arrives ready.
+ */
+export function aiBuilderChat(workflowId: string, message: string) {
+  return apiPost<{ hand: "build" | "page" | "explain"; reply: string | null }>(
+    `/architect/workflows/${workflowId}/ai-builder`,
+    { message }
+  );
+}

@@ -8,7 +8,7 @@ import {
   Sparkles,
   X
 } from "lucide-react";
-import { SmartDesignerPanel } from "./smart-designer-panel";
+import { AiBuilderPanel } from "./ai-builder-panel";
 import { AgentPageShell } from "@/components/agent-page/agent-page-shell";
 import { ChatTemplate } from "@/components/agent-page/chat-template";
 import { VoiceTemplate } from "@/components/agent-page/voice-template";
@@ -666,14 +666,14 @@ export function PreviewPanel({
         }
       >
         <Sparkles className="h-4 w-4" aria-hidden="true" />
-        Smart Designer
+        AI Builder
       </button>
 
       {/* Phone-size scrim behind the Smart Designer sheet — tap to close. */}
       {smartOpen ? (
         <button
           type="button"
-          aria-label="Close Smart Designer"
+          aria-label="Close AI Builder"
           onClick={closeSmart}
           data-testid="smart-designer-backdrop"
           className="absolute inset-0 z-40 bg-slate-900/30 sm:hidden"
@@ -685,7 +685,7 @@ export function PreviewPanel({
       <section
         ref={smartPanelRef}
         role="dialog"
-        aria-label="Smart Designer"
+        aria-label="AI Builder"
         inert={!smartOpen}
         data-testid="smart-designer-dock"
         data-open={smartOpen ? "true" : "false"}
@@ -703,7 +703,7 @@ export function PreviewPanel({
               className="text-xs font-bold uppercase tracking-wider text-slate-400"
               data-testid="smart-designer-title"
             >
-              Smart Designer
+              AI Builder
             </h3>
             <p className="mt-1 text-xs leading-5 text-slate-500" data-testid="smart-designer-dock-intro">
               Generate your product&apos;s interface — then fix it by talking.
@@ -719,7 +719,7 @@ export function PreviewPanel({
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
-        <SmartDesignerPanel
+        <AiBuilderPanel
           workflowId={workflowId}
           // A composed interface exists when the saved ProductSpec does (the
           // composer writes the spec, not canvas blocks) — or when the graph

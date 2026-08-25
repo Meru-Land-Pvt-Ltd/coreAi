@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { SmartDesignerPanel } from "./smart-designer-panel";
+import { AiBuilderPanel as SmartDesignerPanel } from "./ai-builder-panel";
 
 /**
  * The Smart Designer contract:
@@ -21,10 +21,15 @@ const { smartComposeMock, smartDesignerChatMock, productChatMock } = vi.hoisted(
   productChatMock: vi.fn()
 }));
 
+/* Every chat message goes to the router first; these tests exercise the page
+   hand, so the router always answers "page". */
+const aiBuilderChatMock = vi.fn(async () => ({ success: true, data: { hand: "page", reply: null } }));
+
 vi.mock("@/components/architect/features/api", () => ({
   smartCompose: smartComposeMock,
   smartDesignerChat: smartDesignerChatMock,
-  productChat: productChatMock
+  productChat: productChatMock,
+  aiBuilderChat: (...args: unknown[]) => aiBuilderChatMock(...(args as []))
 }));
 
 function composeResult(overrides: Partial<{
@@ -268,10 +273,13 @@ describe("SmartDesignerPanel before the workflow has autosaved", () => {
     expect((screen.getByTestId("smart-designer-send") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("the chat composer waits for a composed spec", () => {
+  it("the chat is open before an interface exists — questions do not need a page", () => {
+    /* The old panel locked its box until an interface was generated, which
+       made sense when the chat could ONLY edit the interface. The AI Builder
+       also explains runs, so a stuck architect must never meet a locked box. */
     render(<SmartDesignerPanel workflowId="wf-1" />);
 
-    expect((screen.getByTestId("smart-designer-input") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByTestId("smart-designer-input") as HTMLInputElement).disabled).toBe(false);
     expect(
       (screen.getByTestId("smart-designer-generate") as HTMLButtonElement).disabled
     ).toBe(false);
