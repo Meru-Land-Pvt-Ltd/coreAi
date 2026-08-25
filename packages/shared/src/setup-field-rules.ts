@@ -115,6 +115,7 @@ export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
     "action.api_call": {},
     "tool.node_frame": {},
     "logic.script": {},
+    "flow.end": {},
     "ai.memory": {},
     "ai.knowledge": {
       knowledge: true

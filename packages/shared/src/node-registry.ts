@@ -2319,10 +2319,11 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     producedVariables: ["knowledge"]
   }),
   def({
+    /* 021 — CREATE IMAGE under the laws (2026-08-25 night order). */
     type: "ai.image_generation",
     label: "Create image",
     category: "ai",
-    description: "Generates or improves images using AI (Gemini Imagen, DALL-E, Stability). Outputs binary image Buffer and metadata JSON.",
+    description: "Draws a picture from your words — or improves one it is handed.",
     requiredConfig: [],
     backendExecutable: true,
     launchCritical: false,
@@ -2333,6 +2334,27 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       reference_image: "",
       model: "gemini-3.1-flash-image"
     },
+    settings: [
+      {
+        key: "prompt",
+        name: "What to draw",
+        whatItsFor: "Describe the picture the way you would to an artist. Test runs spend real image credits.",
+        type: "long text",
+        limits: { maxLength: 4000 },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "model",
+        name: "Which artist",
+        whatItsFor: "The image model that draws it — the platform's live list holds the choices.",
+        type: "choice",
+        limits: {},
+        default: "gemini-3.1-flash-image",
+        whoFills: "architect"
+      }
+    ],
+    requiredVariables: [],
     capability: "ai.image_generation",
     producedVariables: ["image", "prompt", "model", "revised_prompt"]
   }),
@@ -3340,9 +3362,23 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       afterCallAction: "hangup",
       callRecording: "true"
     },
+    /* 023 — END under the laws. The builder engine ends the flow and gives
+       nothing onward — the voice-era flow.status keys were written only by
+       the other engine, so the declaration stops promising them here. */
+    settings: [
+      {
+        key: "closingMessage",
+        name: "The goodbye",
+        whatItsFor: "The last thing said before the conversation closes.",
+        type: "long text",
+        limits: { maxLength: 500 },
+        default: "",
+        whoFills: "architect"
+      }
+    ],
     capability: "flow.end",
     requiredVariables: [],
-    producedVariables: ["flow.status", "flow.closing_message"]
+    producedVariables: []
   }),
 
   // ---- Product blocks ("Your Product" palette group) ----
@@ -3550,7 +3586,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   }),
 
   // ---- B. Near-term marketplace nodes (coming soon) ----
-  def({ type: "trigger.manual", label: "Start here", category: "trigger", description: "Start a workflow manually.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
+  /* 022 — START HERE under the laws: no dials, and that is an answer — the
+     Run button needs nothing. Its one lie was the null PRODUCES row while
+     the engine hands the typed message on as text; fixed in the map. */
+  def({ type: "trigger.manual", label: "Start here", category: "trigger", description: "Starts the agent when someone presses Run or sends it a message.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" }, requiredVariables: [], settings: [] }),
   // Two ways IN, both real. Until these shipped, an agent could only start when a
   // human typed on a page — the ceiling on every product the platform could make.
   /* 017 — WEBHOOK, brought under the laws (2026-08-25 night order). The
@@ -4322,7 +4361,8 @@ const PRODUCES_BY_TYPE: Record<string, string[] | null> = {
   // What the architect's own code handed back.
   [SCRIPT_NODE_TYPE]: ["script.output"],
 
-  "trigger.manual": null,
+  // The engine hands the pressed-Run message on as text — say so.
+  "trigger.manual": ["text"],
   // Fires on a clock. What happens next is the next step's business.
   [SCHEDULE_NODE_TYPE]: ["schedule", "timer"],
   // Branches the flow. The branch it took is in the run, not in an output.

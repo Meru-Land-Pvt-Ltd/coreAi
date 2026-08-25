@@ -6537,9 +6537,9 @@ function runOutputNode(node: RunnerNode, context: RunnerContext, logs: WorkflowR
   }
 
   if (isVoiceWorkflow) {
-    logs.push(
-      createLog(node, "success", "Voice booking workflow dry run completed.", context.output)
-    );
+    /* Was "dry run completed" with no mode check — a live run called a dry
+       run is a lie in the polite direction, and still a lie. */
+    logs.push(createLog(node, "success", "Flow completed.", context.output));
     return;
   }
 

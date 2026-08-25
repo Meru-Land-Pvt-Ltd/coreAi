@@ -50,7 +50,10 @@ export const SOUL_COVERED_TYPES = [
   "tool.node_frame",
   "trigger.whatsapp_message_received",
   "action.send_whatsapp",
-  "logic.script"
+  "logic.script",
+  "ai.image_generation",
+  "trigger.manual",
+  "flow.end"
 ] as const;
 
 export type SoulPage = {
@@ -496,6 +499,43 @@ last: a Brain reads and writes better, a Condition sorts better, and the AI
 Builder is forbidden from composing Code into agents — an architect places
 it knowingly or not at all. Same honest failure as everywhere: a timeout or
 an error says so in the log, in words.`
+  },
+  {
+    slug: "20-create-image",
+    nodeType: "ai.image_generation",
+    title: "Create image — the artist",
+    body: `Draws a picture from words, or improves one it is handed. Describe the
+picture the way you would to a human artist — subject, style, mood — and
+the image travels on to the Result Viewer or a Hand.
+
+Two truths to respect: test runs spend REAL image credits (there is no
+pretend drawing), and with no image key configured it refuses honestly in
+red, naming the missing key — it never fakes a picture. Use it in Face
+products (Image Studio is this node wearing a page); pair with a Brain that
+turns a customer's plain request into a proper drawing brief.`
+  },
+  {
+    slug: "21-start-here",
+    nodeType: "trigger.manual",
+    title: "Start here — the plainest way in",
+    body: `Starts the agent when someone presses Run or sends it a message; the
+typed words travel on as text. No dials at all, and that is an answer — a
+Run button needs nothing configured.
+
+Use it for inside tools and quick products where a person starts the work by
+hand. When the customer should have a proper page, give the agent a Face
+(Prompt Box + Result Viewer) instead; when the world should start it, use
+the ear, the Timer, or the webhook.`
+  },
+  {
+    slug: "22-end",
+    nodeType: "flow.end",
+    title: "End — the goodbye",
+    body: `Closes the flow with the architect's goodbye sentence. It gives nothing
+onward — it is the full stop, not a step. Most agents do not need it: a
+Result Viewer ends a Face product, and a Hand ends a self-starting one. Use
+End when a conversation-shaped flow deserves an explicit last word, and
+keep the goodbye short — nobody rereads a farewell.`
   },
   {
     slug: "99-combinations",

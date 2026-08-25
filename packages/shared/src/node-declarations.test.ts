@@ -191,7 +191,7 @@ describe("deriveDeclarations", () => {
 
     const result = deriveDeclarations(workflow);
 
-    expect(result.shows).toEqual([{ nodeId: "img", kind: "image", label: "Image Generation" }]);
+    expect(result.shows).toEqual([{ nodeId: "img", kind: "image", label: "Create image" }]);
     expect(result.shape).toBe("generation");
     expect(result.asks.map((ask) => ask.id)).toEqual(["subject"]);
   });

@@ -37,7 +37,10 @@ const PERFECTED = [
   "tool.node_frame",
   "trigger.whatsapp_message_received",
   "action.send_whatsapp",
-  "logic.script"
+  "logic.script",
+  "ai.image_generation",
+  "trigger.manual",
+  "flow.end"
 ] as const;
 
 describe("the nodes we have finished answer question 5", () => {
