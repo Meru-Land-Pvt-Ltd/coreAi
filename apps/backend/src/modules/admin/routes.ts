@@ -42,6 +42,12 @@ import {
   MEMORY_LIMIT_BOUNDS
 } from "./memory-limits";
 import {
+  defaultKnowledgeLimits,
+  getKnowledgeLimits,
+  saveKnowledgeLimits,
+  KNOWLEDGE_LIMIT_BOUNDS
+} from "./knowledge-limits";
+import {
   CONDITION_ROADS_BOUNDS,
   DEFAULT_CONDITION_ROADS,
   DEFAULT_LOOP_ROUNDS,
@@ -679,6 +685,62 @@ adminRoutes.patch("/memory-limits", async (c) => {
     meta: saved as unknown as Record<string, unknown>
   });
   return successResponse(c, { memoryLimits: saved });
+});
+
+/* --------------------------- Knowledge: the library ------------------------ */
+
+/**
+ * What the platform allows the library to cost. The architect owns the node's
+ * meaning, the business owns the facts; these three — file size, shelf length,
+ * how much one answer may carry — are bills, and bills belong to the admin.
+ */
+adminRoutes.get("/knowledge-limits", async (c) => {
+  return successResponse(c, {
+    knowledgeLimits: await getKnowledgeLimits(),
+    defaults: defaultKnowledgeLimits(),
+    bounds: KNOWLEDGE_LIMIT_BOUNDS
+  });
+});
+
+const knowledgeLimitsSchema = z.object({
+  biggestFileMb: z.coerce
+    .number()
+    .int()
+    .min(KNOWLEDGE_LIMIT_BOUNDS.biggestFileMb.min)
+    .max(KNOWLEDGE_LIMIT_BOUNDS.biggestFileMb.max),
+  maxFiles: z.coerce
+    .number()
+    .int()
+    .min(KNOWLEDGE_LIMIT_BOUNDS.maxFiles.min)
+    .max(KNOWLEDGE_LIMIT_BOUNDS.maxFiles.max),
+  charsPerAnswer: z.coerce
+    .number()
+    .int()
+    .min(KNOWLEDGE_LIMIT_BOUNDS.charsPerAnswer.min)
+    .max(KNOWLEDGE_LIMIT_BOUNDS.charsPerAnswer.max)
+});
+
+adminRoutes.patch("/knowledge-limits", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = knowledgeLimitsSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(
+      c,
+      parsed.error.issues[0]?.message ?? "Those knowledge limits are not valid",
+      422,
+      "VALIDATION_ERROR"
+    );
+  }
+
+  const saved = await saveKnowledgeLimits(parsed.data, authUser.id);
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "KNOWLEDGE_LIMITS_UPDATED",
+    targetType: "NODE",
+    targetId: "ai.knowledge",
+    meta: saved as unknown as Record<string, unknown>
+  });
+  return successResponse(c, { knowledgeLimits: saved });
 });
 
 /* ------------------- Door model (the one swappable battery) ------------------ */

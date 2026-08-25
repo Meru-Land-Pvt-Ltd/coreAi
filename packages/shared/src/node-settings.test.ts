@@ -24,7 +24,8 @@ const PERFECTED = [
   "block.file_upload",
   "trigger.schedule",
   "communication.send_email",
-  "trigger.email_received"
+  "trigger.email_received",
+  "ai.knowledge"
 ] as const;
 
 describe("the nodes we have finished answer question 5", () => {
@@ -33,7 +34,11 @@ describe("the nodes we have finished answer question 5", () => {
     const settings = (node?.settings ?? []) as NodeSetting[];
 
     it(`${node?.label} describes its settings at all`, () => {
-      expect(settings.length).toBeGreaterThan(0);
+      /* Declared is the requirement — declared-EMPTY is a real answer. The
+         ear (Email received) has no dials on purpose: its address belongs to
+         the business's Mail Setup. An undeclared settings field is the only
+         failure — it means nobody answered question 5. */
+      expect(node?.settings).toBeDefined();
     });
 
     it(`${node?.label} gives each setting the whole small form`, () => {

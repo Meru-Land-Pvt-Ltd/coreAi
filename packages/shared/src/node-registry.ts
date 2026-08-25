@@ -2084,6 +2084,61 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     producedVariables: ["memory"]
   }),
   def({
+    // NODE ELEVEN. The knowing. See docs/NODE-SOP.md.
+    //
+    // An agent that talks is not an agent that knows. The founder's own test
+    // mail proved it: the machine wrote "we'd be happy to answer your
+    // question" — polite, human, and empty, because it had nowhere to look.
+    //
+    // Memory remembers CONVERSATIONS, one drawer per customer. Knowledge is
+    // the business's LIBRARY: their prices, policies, FAQs — uploaded once at
+    // setup, the same shelf behind every answer to every customer forever.
+    // Nobody pays for polite; they pay for correct.
+    type: "ai.knowledge",
+    label: "Knowledge",
+    category: "ai",
+    description: "Answers come from the business's own documents — their prices, policies and facts.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "ai" },
+    defaultConfig: {
+      /* The architect's practice shelf — test answers in the builder before
+         any business exists. Live, the real library replaces it entirely. */
+      sampleFacts: ""
+    },
+    settings: [
+      {
+        key: "sampleFacts",
+        name: "Practice facts",
+        whatItsFor:
+          "Facts to test with in the builder. Live, the agent reads the business's own library instead — never these.",
+        type: "long text",
+        limits: { maxLength: 8000 },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        /* The real shelf. It is filled at the BUSINESS's setup — the document
+           upload that already lives there — never typed by the architect, who
+           is building for a thousand businesses and knows none of them. */
+        key: "libraryDocuments",
+        name: "Your documents",
+        whatItsFor:
+          "The business's own documents — services, policies, FAQs. Uploaded once at setup; answers are drawn from them.",
+        type: "file",
+        limits: { repeats: true },
+        default: "",
+        whoFills: "business"
+      }
+    ],
+    capability: "ai.knowledge",
+    // Q3 — the customer's question, to search with. Q4 — the matching facts.
+    requiredVariables: ["text"],
+    producedVariables: ["knowledge"]
+  }),
+  def({
     type: "ai.image_generation",
     label: "Create image",
     category: "ai",

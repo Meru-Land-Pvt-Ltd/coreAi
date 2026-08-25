@@ -3601,9 +3601,51 @@ function MemoryNodeProps({ selectedNode, onUpdateNodeData, variableNodePrefixes 
   );
 }
 
+/**
+ * KNOWLEDGE.
+ *
+ * Memory remembers conversations; this reads the business's library — the
+ * documents they upload once at setup. The architect owns only two things
+ * here: the node's name, and a practice shelf to test with before any
+ * business exists. The real facts are never typed in a builder.
+ */
+function KnowledgeNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="Name">
+        <TextInput
+          value={selectedNode.data.title}
+          onChange={set("title")}
+          placeholder="Knowledge"
+          testId="knowledge-name-input"
+        />
+      </Section>
+
+      <Section title="Practice facts" last>
+        <p className="text-[12px] leading-5 text-slate-500">
+          Only for testing here in the builder. Live, the agent answers from the business&apos;s own
+          documents — they upload them once at setup, and this box is never read again.
+        </p>
+        <TextArea
+          value={str("sampleFacts")}
+          onChange={set("sampleFacts")}
+          testId="knowledge-sample-textarea"
+          height="h-32"
+          placeholder={"A cleaning costs $80. Whitening costs $200.\nWe are closed on Sundays."}
+        />
+      </Section>
+    </>
+  );
+}
+
 function AiProps(props: NodePropsPanel) {
   if (props.selectedNode.data.type === "ai.memory") {
     return <MemoryNodeProps {...props} />;
+  }
+  if (props.selectedNode.data.type === "ai.knowledge") {
+    return <KnowledgeNodeProps {...props} />;
   }
 
   return <StandardAiProps {...props} />;

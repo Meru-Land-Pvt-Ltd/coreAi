@@ -1,5 +1,6 @@
 import { prisma } from "../../lib/prisma";
 import { detectFactIntents } from "./business-facts";
+import { getKnowledgeLimits } from "../admin/knowledge-limits";
 
 export type KnowledgeEntryRow = {
   title?: string | null;
@@ -171,8 +172,9 @@ const ENUMERATION_QUERY =
  */
 const MAX_SECTION_CHARS = 2_500;
 
-/** Total characters one retrieval may return. Whole sections are dropped to fit — never cut. */
-const RETRIEVAL_CHAR_BUDGET = 8_000;
+/* The total-characters-per-retrieval budget is the admin's charsPerAnswer
+   dial (Admin → Nodes → Knowledge → settings, default 8,000). Whole sections
+   are dropped to fit — never cut. */
 
 function queryTerms(query: string): string[] {
   return [
@@ -199,7 +201,10 @@ export async function retrieveRelevantKnowledge(params: {
   query: string;
   limit?: number;
   maxSectionChars?: number;
+  /** Override for the admin's charsPerAnswer dial (tests only). */
+  charBudget?: number;
 }): Promise<RetrievedKnowledgeSection[]> {
+  const charBudget = params.charBudget ?? (await getKnowledgeLimits()).charsPerAnswer;
   const baseTerms = queryTerms(params.query ?? "");
   // Intent detection rescues questions whose meaning lives in stop-words
   // ("Where should I come?") — the location anchor terms are injected even
@@ -260,7 +265,7 @@ export async function retrieveRelevantKnowledge(params: {
   if (enumeration && scored.length > 0) {
     const chosen = new Set(scored.map(({ row }) => `${row.sourceFileId ?? ""}#${row.chunkIndex ?? 0}`));
     let budget =
-      RETRIEVAL_CHAR_BUDGET - scored.reduce((sum, { row }) => sum + (row.content ?? "").length, 0);
+      charBudget - scored.reduce((sum, { row }) => sum + (row.content ?? "").length, 0);
 
     for (const { row, score } of [...scored]) {
       if (!row.sourceFileId || budget <= 0) continue;
@@ -313,7 +318,7 @@ export async function retrieveRelevantKnowledge(params: {
         (acc, { row }, index) => {
           const length = Math.min((row.content ?? "").length, maxSectionChars);
           // The single best section is always kept, however long it is.
-          if (index > 0 && acc.total + length > RETRIEVAL_CHAR_BUDGET) return acc;
+          if (index > 0 && acc.total + length > charBudget) return acc;
           acc.total += length;
           acc.keys.push(`${row.sourceFileId ?? ""}#${row.chunkIndex ?? 0}`);
           return acc;

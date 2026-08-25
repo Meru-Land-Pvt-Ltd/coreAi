@@ -99,6 +99,9 @@ export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
     },
     "trigger.manual": {},
     "ai.memory": {},
+    "ai.knowledge": {
+      knowledge: true
+    },
     "action.send_sms": {
       phone: true,
       smsNote: true

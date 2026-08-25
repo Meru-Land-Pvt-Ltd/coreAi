@@ -3,6 +3,7 @@ import mammoth from "mammoth";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
+import { getKnowledgeLimits } from "../admin/knowledge-limits";
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB per file
 /** Chunk target sizes — deterministic, paragraph-aligned, small overlap. */
@@ -102,6 +103,8 @@ export function validateKnowledgeUpload(input: {
   filename: string;
   mimeType: string;
   bytes: Buffer;
+  /** Admin dial (knowledgeBiggestFileMb) in bytes; the shipped 10 MB otherwise. */
+  maxFileBytes?: number;
 }): { filename: string; kind: KnowledgeFileKind } {
   const filename = sanitizeFilename(input.filename);
   const extension = extensionOf(filename);
@@ -119,8 +122,13 @@ export function validateKnowledgeUpload(input: {
     throw new KnowledgeFileError("The file is empty.", 422, "EMPTY_FILE");
   }
 
-  if (input.bytes.length > MAX_FILE_BYTES) {
-    throw new KnowledgeFileError("Files can be at most 10 MB.", 413, "FILE_TOO_LARGE");
+  const maxFileBytes = input.maxFileBytes ?? MAX_FILE_BYTES;
+  if (input.bytes.length > maxFileBytes) {
+    throw new KnowledgeFileError(
+      `Files can be at most ${Math.round(maxFileBytes / (1024 * 1024))} MB.`,
+      413,
+      "FILE_TOO_LARGE"
+    );
   }
 
   const declaredMime = (input.mimeType ?? "").toLowerCase().split(";")[0].trim();
@@ -412,12 +420,17 @@ export async function ingestKnowledgeFiles(params: {
     throw new KnowledgeFileError("Attach at least one document.", 400, "NO_FILES");
   }
 
+  /* The admin's dials (Admin → Nodes → Knowledge → settings). Defaults equal
+     the values that were hard-coded here, so the dials change nothing until
+     an admin turns one. */
+  const limits = await getKnowledgeLimits();
+
   const existingCount = await prisma.businessKnowledgeFile.count({
     where: { businessId: params.businessId }
   });
-  if (existingCount + params.files.length > env.KNOWLEDGE_MAX_FILES_PER_BUSINESS) {
+  if (existingCount + params.files.length > limits.maxFiles) {
     throw new KnowledgeFileError(
-      `You can store at most ${env.KNOWLEDGE_MAX_FILES_PER_BUSINESS} documents. Remove one and try again.`,
+      `You can store at most ${limits.maxFiles} documents. Remove one and try again.`,
       422,
       "TOO_MANY_FILES"
     );
@@ -426,7 +439,10 @@ export async function ingestKnowledgeFiles(params: {
   const results: KnowledgeFileUploadResult[] = [];
 
   for (const upload of params.files) {
-    const { filename, kind } = validateKnowledgeUpload(upload);
+    const { filename, kind } = validateKnowledgeUpload({
+      ...upload,
+      maxFileBytes: limits.biggestFileMb * 1024 * 1024
+    });
     const contentHash = createHash("sha256").update(upload.bytes).digest("hex");
 
     // Idempotent re-upload: the same bytes map to the same record. A failed

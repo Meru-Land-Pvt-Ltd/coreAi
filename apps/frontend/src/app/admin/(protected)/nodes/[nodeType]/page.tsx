@@ -31,6 +31,7 @@ import { LoopLimitsPanel } from "@/components/admin/features/node-settings/loop-
 import { FileUploadLimitsPanel } from "@/components/admin/features/node-settings/file-upload-limits";
 import { TimerLimitsPanel } from "@/components/admin/features/node-settings/timer-limits";
 import { EmailLimitsPanel } from "@/components/admin/features/node-settings/email-limits";
+import { KnowledgeLimitsPanel } from "@/components/admin/features/node-settings/knowledge-limits";
 
 /** The settings panel for this node, if it has one. */
 function SettingsFor({ nodeType }: { nodeType: string }) {
@@ -41,6 +42,7 @@ function SettingsFor({ nodeType }: { nodeType: string }) {
   if (nodeType === "block.file_upload") return <FileUploadLimitsPanel />;
   if (nodeType === "trigger.schedule") return <TimerLimitsPanel />;
   if (nodeType === "communication.send_email") return <EmailLimitsPanel />;
+  if (nodeType === "ai.knowledge") return <KnowledgeLimitsPanel />;
   return null;
 }
 

@@ -838,6 +838,29 @@ export function saveMemoryLimits(limits: MemoryLimits) {
   return apiPatch<{ memoryLimits: MemoryLimits }>("/admin/memory-limits", limits);
 }
 
+/* --------------------------- Knowledge: the library ------------------------ */
+
+export type KnowledgeLimits = {
+  /** Largest single document a business may upload, in megabytes. */
+  biggestFileMb: number;
+  /** Most documents one business may keep on the shelf. */
+  maxFiles: number;
+  /** Most characters of library one retrieval hands a Brain. */
+  charsPerAnswer: number;
+};
+
+export function getKnowledgeLimits() {
+  return apiGet<{
+    knowledgeLimits: KnowledgeLimits;
+    defaults: KnowledgeLimits;
+    bounds: Record<string, { min: number; max: number }>;
+  }>("/admin/knowledge-limits");
+}
+
+export function saveKnowledgeLimits(limits: KnowledgeLimits) {
+  return apiPatch<{ knowledgeLimits: KnowledgeLimits }>("/admin/knowledge-limits", limits);
+}
+
 /* ------------------------- Condition: the roads out ------------------------ */
 
 export function getConditionLimits() {

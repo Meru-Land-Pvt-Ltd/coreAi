@@ -67,6 +67,7 @@ import {
   listAvailableSlots
 } from "./google-calendar-connector";
 import { reserveSlotForInstant, topAlternativeLabels } from "../business/scheduling";
+import { retrieveRelevantKnowledge } from "../business/agent-knowledge";
 import { resolveOutboundPhoneNumberId, startVapiOutboundCall } from "./vapi-connector";
 import {
   calendlyBookMeetingForInvitee,
@@ -314,6 +315,8 @@ type RunnerNodeData = {
   nodeKind?: unknown;
   kind?: unknown;
   description?: unknown;
+  /** Knowledge's practice shelf — read only in builder tests, never live. */
+  sampleFacts?: unknown;
   prompt?: unknown;
   reference_image?: unknown;
   imageSize?: unknown;
@@ -512,6 +515,8 @@ type RunnerContext = {
   results?: string[];
   /** The ear's door out — the mail that woke the agent. */
   email?: { from: string; subject: string; body: string; receivedAt: string; sample?: boolean };
+  /** The library's door out — the facts that matched the customer's question. */
+  knowledge?: string;
   caller_number?: string;
   caller_name?: string;
   business?: {
@@ -1248,6 +1253,112 @@ export async function deliverMemoryToAiConfig(config: AiBrainNodeConfig, context
 /** Test-only hook: associate a memory scope with a runner context. */
 export function setMemoryScopeForContext(context: RunnerContext, scopeKey: string): void {
   memoryScopeByContext.set(context as object, scopeKey);
+}
+
+/**
+ * Automatic Knowledge → AI delivery, Memory's sibling: when a Knowledge node
+ * ran earlier in this run, the facts it found ride into every later Brain's
+ * llmContext — with the one instruction that makes a library worth having:
+ * answer from these, and say so when the answer is not here. The builder never
+ * has to reference {{knowledge}}; if they typed it somewhere themselves, its
+ * rendered expansion already sits in that field and is left alone.
+ */
+export function deliverKnowledgeToAiConfig(config: AiBrainNodeConfig, context: RunnerContext): void {
+  const knowledge = asString(context.knowledge);
+  if (!knowledge) return;
+
+  const data = (config.data ?? {}) as Record<string, unknown>;
+  const promptFields = ["instructions", "prompt", "llmRequirements", "llmPrompt", "llmSystemPrompt", "llmContext"] as const;
+  if (promptFields.some((field) => asString(data[field]).includes(knowledge))) return;
+
+  const block = [
+    "FACTS FROM THE BUSINESS'S LIBRARY — answer questions from these facts. When the answer is not in them, say the information is not on hand rather than guessing:",
+    knowledge
+  ].join("\n");
+  data.llmContext = [asString(data.llmContext), block].filter(Boolean).join("\n\n");
+  config.data = data;
+}
+
+/**
+ * NODE ELEVEN — KNOWLEDGE. The knowing.
+ *
+ * Memory remembers CONVERSATIONS, one drawer per customer. This reads the
+ * business's LIBRARY — the documents they uploaded once at setup — and hands
+ * the pieces that match the customer's question to every Brain after it.
+ *
+ * Live (a business is attached), it searches the real shelf through the same
+ * retrieval every live channel already trusts. In the builder there is no
+ * business yet, so the architect's practice facts stand in — and the log says
+ * so, because a sample that keeps quiet about being a sample is a lie.
+ */
+async function runKnowledgeNodeInRunner(params: {
+  businessId?: string;
+  installedAgentId?: string;
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+}): Promise<void> {
+  const { node, context, logs } = params;
+  const question = asString(context.text);
+
+  if (!question) {
+    context.knowledge = "";
+    logs.push(
+      createLog(node, "success", "Nothing to look up — no question has reached the library yet.", {
+        pieces: 0
+      })
+    );
+    return;
+  }
+
+  if (params.businessId) {
+    const sections = await retrieveRelevantKnowledge({
+      businessId: params.businessId,
+      installedAgentId: params.installedAgentId ?? null,
+      query: question
+    });
+    const knowledge = sections.map((section) => `${section.title}: ${section.content}`).join("\n\n");
+    context.knowledge = knowledge;
+
+    if (sections.length === 0) {
+      logs.push(
+        createLog(
+          node,
+          "success",
+          `The library has nothing matching "${question.slice(0, 80)}" — the Brain will say so rather than invent an answer.`,
+          { pieces: 0 }
+        )
+      );
+      return;
+    }
+
+    const files = [...new Set(sections.map((section) => section.sourceFilename).filter(Boolean))];
+    logs.push(
+      createLog(
+        node,
+        "success",
+        `Found ${sections.length} matching piece${sections.length === 1 ? "" : "s"} in the business's library${
+          files.length > 0 ? ` (${files.join(", ")})` : ""
+        }.`,
+        { pieces: sections.length, preview: knowledge.slice(0, 400) }
+      )
+    );
+    return;
+  }
+
+  /* Builder test — no business attached, the practice shelf stands in. */
+  const sample = asString(node.data?.sampleFacts).slice(0, 8_000);
+  context.knowledge = sample;
+  logs.push(
+    createLog(
+      node,
+      "success",
+      sample
+        ? `Handed the practice facts to the Brain (sample — live, this reads the business's own documents).`
+        : "No practice facts typed in yet — add some to test answers here. Live, this reads the business's own documents.",
+      { pieces: sample ? 1 : 0, sample: true, preview: sample.slice(0, 400) }
+    )
+  );
 }
 
 /**
@@ -7072,6 +7183,18 @@ async function executeNodeOnConfig(params: {
         return { logs: nodeLogs, runFailed: hasErr };
       }
 
+      if (asString(node.data?.type) === "ai.knowledge") {
+        await runKnowledgeNodeInRunner({
+          businessId: input?.businessId,
+          installedAgentId: input?.installedAgentId,
+          node,
+          context,
+          logs: nodeLogs
+        });
+        const hasErr = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
+        return { logs: nodeLogs, runFailed: hasErr };
+      }
+
       if (resolveDeepgramMode(asString(node.data?.type), asString(node.data?.mode)) === "stt") {
         const model = asString(node.data?.model) || "nova-3";
         const language = asString(node.data?.language) || "en";
@@ -7448,6 +7571,7 @@ async function executeNodeOnConfig(params: {
       if (shouldUseProviderEngine(node, mode)) {
         const aiConfig = toAiBrainNodeConfig(node, context);
         await deliverMemoryToAiConfig(aiConfig, context);
+        deliverKnowledgeToAiConfig(aiConfig, context);
 
         const result = await runAiBrainNode({
           workflowRunId,
