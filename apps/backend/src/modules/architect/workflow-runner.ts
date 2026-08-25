@@ -1,4 +1,5 @@
 import {
+  BLOCK_NODE_TYPES,
   API_CALL_DEFAULT_OUTPUT_KEY,
   API_CALL_MAX_PER_RUN,
   API_CALL_NODE_TYPE,
@@ -6519,6 +6520,51 @@ async function executeNodeOnConfig(params: {
       nodeLogs.push(
         createLog(node, "success", "Design Brain — it styles your page, nothing to run")
       );
+      return { logs: nodeLogs, runFailed: false };
+    }
+
+    /*
+     * THE PROMPT BOX HANDS OVER WHAT THE CUSTOMER TYPED.
+     *
+     * It declares that it gives `text` (docs/NODE-SOP.md, question 4) and for a
+     * long time it gave nothing: the words arrived on the run itself, put there
+     * by the page, and the node was skipped as decoration. Everything worked,
+     * which is exactly why nobody noticed — until our own honesty check started
+     * naming it on every single run.
+     *
+     * The value is the same value. What changes is that the node on the canvas
+     * is now the one handing it over, so what an architect can see is what
+     * actually happens. It also settles a question the old way could not
+     * answer: with two boxes on a page, which one is `text`? The box that runs.
+     *
+     * The words are read from every name a caller has ever used for them. The
+     * public product page sends `text`, the builder's preview and the one-shot
+     * Face runs send `message`, older graphs read `latestMessage`. A node that
+     * only understood the newest of those would go quiet on real customers.
+     */
+    if (asString(node.data?.type) === BLOCK_NODE_TYPES.promptComposer) {
+      const typed =
+        asString(context.text) ||
+        asString(input?.text) ||
+        asString(input?.message) ||
+        asString(context.latestMessage) ||
+        asString(input?.latestMessage) ||
+        asString((input as Record<string, unknown> | undefined)?.prompt);
+
+      if (typed) {
+        context.text = typed;
+        nodeLogs.push(
+          createLog(node, "success", "Took what your customer typed and handed it on.", { text: typed })
+        );
+      } else {
+        /* Nothing was typed — a timer or a webhook started this run, and there
+           was never a person at a keyboard. Saying "skipped" is the truth, and
+           it keeps the honesty check quiet about a promise nobody asked it to
+           keep. A skipped step does not stop the steps after it. */
+        nodeLogs.push(
+          createLog(node, "skipped", "Nobody typed anything into this box on this run.")
+        );
+      }
       return { logs: nodeLogs, runFailed: false };
     }
 

@@ -136,11 +136,14 @@ describe("workflow runner with product block nodes", () => {
     const errorLogs = result.logs.filter((log) => log.status === "error");
     expect(errorLogs).toEqual([]);
 
-    // Both block nodes were skipped with the customer-worded message — the
-    // one with nodeKind "block" and the one caught by the block.* type prefix.
+    /* The Prompt Box is the one block that is not decoration: it hands over
+       what the customer typed, under the name it has always declared it gives.
+       This test used to assert the opposite, which is how the node went on
+       promising `text` and delivering nothing for so long. */
     const promptBoxLog = result.logs.find((log) => log.nodeId === "prompt-box-1");
     expect(promptBoxLog?.status).toBe("success");
-    expect(promptBoxLog?.message).toBe(BLOCK_SKIP_MESSAGE);
+    expect(promptBoxLog?.message).toBe("Took what your customer typed and handed it on.");
+    expect((promptBoxLog?.output as { text?: string })?.text).toBe("A watercolor fox");
 
     const resultViewerLog = result.logs.find((log) => log.nodeId === "result-viewer-1");
     expect(resultViewerLog?.status).toBe("success");
