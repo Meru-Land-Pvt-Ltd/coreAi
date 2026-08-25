@@ -184,7 +184,8 @@ const termsSections: LegalSectionData[] = [
       { text: "You must not include secrets, production credentials, personal data, or customerspecific confidential information in a reusable template." },
       { text: "Triven.ai may review, test, reject, suspend, unpublish, or remove an agent for quality, security, legal, operational, or marketplace reasons." },
       { text: "Commission percentages, payout thresholds, payout schedules, supported payout methods, taxes, reserves, refunds, and adjustments are governed by the terms displayed in the Platform or a separate written agreement." },
-      { text: "You are responsible for taxes and reporting obligations associated with amounts paid to you." }
+      { text: "You are responsible for taxes and reporting obligations associated with amounts paid to you." },
+      { text: "Lessons you deliberately teach the AI Builder (\"Teach the Builder\") may be used, anonymously and without any model training, to improve the Builder's written guidance for the Platform. You can mark any lesson private to you, and you can delete your lessons at any time." }
     ]
   },
   {

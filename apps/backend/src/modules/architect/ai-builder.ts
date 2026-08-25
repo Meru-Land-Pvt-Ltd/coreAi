@@ -28,6 +28,7 @@
 import { prisma } from "../../lib/prisma";
 import { askPlatformBrain } from "./platform-brain";
 import { builderSoulText } from "./builder-soul";
+import { lessonsForPrompt } from "./builder-lessons";
 
 export type AiBuilderHand = "build" | "page" | "explain";
 
@@ -185,6 +186,8 @@ function compact(value: unknown): string {
 
 export async function aiBuilderAnswer(input: {
   workflowId: string;
+  /** Whose personal lessons ride along — the drawer is per architect. */
+  architectUserId?: string;
   message: string;
   /** The chat so far, newest last — a follow-up like "where?" is meaningless without it. */
   history?: Array<{ role: "user" | "assistant"; content: string }>;
@@ -196,9 +199,10 @@ export async function aiBuilderAnswer(input: {
 
   if (hand !== "explain") return { hand, reply: null };
 
-  const [agent, runs] = await Promise.all([
+  const [agent, runs, personalLessons] = await Promise.all([
     describeAgent(input.workflowId),
-    describeRecentRuns(input.workflowId)
+    describeRecentRuns(input.workflowId),
+    input.architectUserId ? lessonsForPrompt(input.architectUserId) : Promise.resolve("")
   ]);
 
   const reply = await askPlatformBrain({
@@ -206,7 +210,7 @@ export async function aiBuilderAnswer(input: {
        composer builds from, so both hands speak as one employee. */
     instruction: `${EXPLAIN_INSTRUCTION}
 
-${builderSoulText()}`,
+${builderSoulText()}${personalLessons ? `\n\n${personalLessons}` : ""}`,
     message: `${agent}
 
 ${runs}

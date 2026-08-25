@@ -1620,6 +1620,69 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
      wrote, what they asked, what the agent already said — with Reply-To set
      to the customer, so the human takes over the conversation in one click.
      The customer hears one honest sentence. One handover per run, ever. */
+  /* NODE 013 — APPROVAL. The probation.
+     No business trusts a new employee unsupervised on day one — human or
+     machine. This Hand holds the drafted reply and mails it to the OWNER
+     first: one click approves and it goes; Reply answers personally instead
+     (the approval mail's Reply-To is the customer). After two quiet weeks
+     the owner removes the node — autonomy is EARNED, visibly, never claimed.
+     Q3: nothing required — it holds whatever the Brain drafted. Q4: the
+     approval record. Doors: honest both ways — the customer's mail is never
+     sent without a yes, and an expired draft says so instead of vanishing. */
+  def({
+    type: "communication.approval",
+    label: "Approval",
+    category: "action",
+    description: "Holds the drafted reply until the owner clicks yes — nothing reaches the customer unapproved.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "APPROVAL" },
+    defaultConfig: {
+      approvalNote: "",
+      waitDays: "3"
+    },
+    settings: [
+      {
+        key: "approvalNote",
+        name: "A note to the owner",
+        whatItsFor: "Standing guidance shown with every draft — what to check before approving.",
+        type: "long text",
+        limits: { maxLength: 1000 },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "waitDays",
+        name: "How long to wait",
+        whatItsFor: "A draft nobody decides on expires honestly instead of sending late.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "1", label: "One day" },
+            { value: "3", label: "Three days" },
+            { value: "7", label: "A week" }
+          ]
+        },
+        default: "3",
+        whoFills: "architect"
+      },
+      {
+        /* The owner's address is the BUSINESS's — their Mail Setup at
+           install decides it, never typed by an architect. */
+        key: "approvalInbox",
+        name: "Where drafts land",
+        whatItsFor: "The business's own inbox — their Mail Setup at install decides it.",
+        type: "text",
+        limits: {},
+        default: "",
+        whoFills: "business"
+      }
+    ],
+    requiredVariables: [],
+    producedVariables: ["approval"]
+  }),
   def({
     type: "communication.escalate",
     label: "Escalate",

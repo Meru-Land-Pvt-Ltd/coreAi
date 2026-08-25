@@ -12,6 +12,7 @@ import { businessRoutes } from "./modules/business/routes";
 // [DISABLED] import { crmRoutes } from "./modules/crm/routes";
 // [DISABLED] import { handleHubSpotWebhookPost } from "./modules/crm/hubspot/webhook";
 import { mailRoutes } from "./modules/mails/routes";
+import { approvalRoutes } from "./modules/approvals/routes";
 import { adminRoutes } from "./modules/admin/routes";
 import { paymentRoutes } from "./modules/payments/routes";
 import { setupRoutes } from "./modules/setup/routes";
@@ -66,6 +67,9 @@ app.route("/integrations", integrationsRoutes);
 app.route("/api/integrations", integrationsRoutes);
 app.route("/mail", mailRoutes);
 app.route("/api/mail", mailRoutes);
+// NODE 013 — the owner's public yes/no door. Token-secured, no login.
+app.route("/approvals", approvalRoutes);
+app.route("/api/approvals", approvalRoutes);
 app.route("/admin", adminRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/payments", paymentRoutes);

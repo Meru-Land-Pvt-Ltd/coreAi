@@ -39,7 +39,8 @@ export const SOUL_COVERED_TYPES = [
   "communication.send_email",
   "trigger.email_received",
   "ai.knowledge",
-  "communication.escalate"
+  "communication.escalate",
+  "communication.approval"
 ] as const;
 
 export type SoulPage = {
@@ -288,7 +289,30 @@ to Escalate: it is the answer to "what if the AI gets it wrong?" — it knows
 when to stop, and the business sees everything it stopped on.`
   },
   {
-    slug: "13-combinations",
+    slug: "13-approval",
+    nodeType: "communication.approval",
+    title: "Approval — the probation",
+    body: `Holds the Brain's drafted reply and asks the OWNER first. The owner gets
+one mail: the draft, the architect's standing note, and a link with two
+buttons — Approve sends the held reply to the customer wearing the
+business's name; Reply answers personally instead (the approval mail's
+Reply-To is the customer). Nothing reaches the customer without a yes, and a
+draft nobody decides on expires honestly instead of sending late.
+
+Place it AFTER the Brain that writes the reply, INSTEAD of a bare Send email
+— it is the sending hand with permission attached, not a filter before one.
+Use it for new installs: no business trusts a new employee unsupervised on
+day one. After two quiet weeks of approving untouched drafts, the owner
+swaps it for Send email — autonomy is EARNED, visibly, never claimed.
+
+One draft per run — a Loop must never fill the owner's inbox with approval
+requests. Where drafts land belongs to the business's Mail Setup. Approval
+and Escalate are siblings, not twins: Escalate is the MACHINE saying "a
+human should handle this one"; Approval is the HUMAN saying "I check
+everything until I trust you."`
+  },
+  {
+    slug: "14-combinations",
     nodeType: null,
     title: "Combinations that work",
     body: `THE ANSWERING MACHINE (the flagship): Email received → Condition (sort) →
@@ -296,6 +320,8 @@ Knowledge → Brain → Send email, with Memory before the Brain — and one
 Condition road to Escalate for what a machine should not answer. Mail
 arrives, gets sorted, answered from the business's facts, remembering the
 sender; the rest goes to a human. The reply loop closes through the world.
+For a NEW install, use Approval in place of Send email — the owner approves
+every reply until the machine has earned autonomy.
 
 THE PAGE PRODUCT: Prompt Box → (Knowledge) → Brain → Result Viewer. A
 customer types, the answer appears. Add File Upload when they hand a file;

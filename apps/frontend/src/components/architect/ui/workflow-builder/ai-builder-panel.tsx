@@ -5,7 +5,8 @@ import {
   productChat,
   setAgentPurpose,
   smartCompose,
-  smartDesignerChat
+  smartDesignerChat,
+  teachBuilderLesson
 } from "@/components/architect/features/api";
 import type { DesignChatMessage } from "@/components/architect/features/types";
 import { getAuthToken } from "@/lib/auth";
@@ -167,6 +168,11 @@ export function AiBuilderPanel({
   const [composed, setComposed] = useState(hasComposedSpec);
   const [savedPurpose, setSavedPurpose] = useState(purpose);
   const [checking, setChecking] = useState(false);
+  /* Teach the Builder — the declared-intent capture of the learning loop. */
+  const [teachOpen, setTeachOpen] = useState(false);
+  const [teachDraft, setTeachDraft] = useState("");
+  const [teachPrivate, setTeachPrivate] = useState(false);
+  const [teachSaving, setTeachSaving] = useState(false);
   /* The one question, asked once. While the answer is pending, the very next
      message is the purpose — not a chat turn. */
   const [askingPurpose, setAskingPurpose] = useState(false);
@@ -316,6 +322,23 @@ export function AiBuilderPanel({
     } finally {
       setGenerating(false);
     }
+  }
+
+  async function saveLesson() {
+    if (!workflowId || teachDraft.trim().length < 8) return;
+    setTeachSaving(true);
+    const response = await teachBuilderLesson(workflowId, teachDraft.trim(), teachPrivate);
+    setTeachSaving(false);
+    if (response.success) {
+      setTeachDraft("");
+      setTeachOpen(false);
+      say({
+        role: "assistant",
+        content: "Learned. From your next build onward I'll remember it — this lesson shapes your work only."
+      });
+      return;
+    }
+    say({ role: "assistant", content: response.error ?? "That lesson could not be saved — try again.", local: true });
   }
 
   async function runCheck() {
@@ -581,6 +604,61 @@ export function AiBuilderPanel({
           <BuilderIcon name="arrow-right" className="h-4 w-4" />
         </button>
       </form>
+
+      {/* TEACH THE BUILDER — Tier 1 of the self-healing loop. A lesson exists
+          only because the architect declares it here; it rides only their own
+          future requests, and the terms carry the anonymous-sharing line. */}
+      {workflowId ? (
+        <div className="mt-2">
+          {teachOpen ? (
+            <form
+              className="rounded-lg border border-slate-200 bg-slate-50 p-2"
+              data-testid="builder-teach-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveLesson();
+              }}
+            >
+              <input
+                value={teachDraft}
+                onChange={(event) => setTeachDraft(event.target.value)}
+                maxLength={500}
+                placeholder="Next time, do this differently…"
+                data-testid="builder-teach-input"
+                className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-amber-400"
+              />
+              <div className="mt-1.5 flex items-center justify-between gap-2">
+                <label className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                  <input
+                    type="checkbox"
+                    checked={teachPrivate}
+                    onChange={(event) => setTeachPrivate(event.target.checked)}
+                    data-testid="builder-teach-private"
+                  />
+                  keep this lesson private to me
+                </label>
+                <button
+                  type="submit"
+                  disabled={teachSaving || teachDraft.trim().length < 8}
+                  data-testid="builder-teach-save"
+                  className="rounded-md bg-amber-500 px-3 py-1 text-[11px] font-semibold text-white transition hover:bg-amber-600 disabled:opacity-40"
+                >
+                  {teachSaving ? "Saving…" : "Teach it"}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setTeachOpen(true)}
+              data-testid="builder-teach-open"
+              className="text-[11px] font-medium text-slate-400 hover:text-amber-700"
+            >
+              Teach the Builder a lesson
+            </button>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

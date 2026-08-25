@@ -45,6 +45,7 @@ import { executeImageGeneration } from "../ai-provider-engine/langchain/langchai
 import { transcribeWithDeepgram, speakWithDeepgram } from "../ai-provider-engine/deepgram-stt";
 import { createTestCalendarEvent } from "./test-calendar-events";
 import { env } from "../../config/env";
+import { randomBytes } from "node:crypto";
 import { prisma } from "../../lib/prisma";
 import { sendTrackedSms } from "../notifications/sms-notification-service";
 import { getSmsConsentStatusLabel } from "../notifications/sms-consent";
@@ -322,6 +323,10 @@ type RunnerNodeData = {
   customerMessage?: unknown;
   /** Escalate: standing guidance attached to every handover mail. */
   teamNote?: unknown;
+  /** Approval: standing guidance shown to the owner with every draft. */
+  approvalNote?: unknown;
+  /** Approval: days before an undecided draft expires. */
+  waitDays?: unknown;
   prompt?: unknown;
   reference_image?: unknown;
   imageSize?: unknown;
@@ -522,6 +527,8 @@ type RunnerContext = {
   email?: { from: string; subject: string; body: string; receivedAt: string; sample?: boolean };
   /** The library's door out — the facts that matched the customer's question. */
   knowledge?: string;
+  /** Approval's door out — whether a draft is waiting for the owner's yes. */
+  approval?: { status: string; subject?: string };
   caller_number?: string;
   caller_name?: string;
   business?: {
@@ -5412,6 +5419,184 @@ async function runEscalateNode({
   );
 }
 
+/**
+ * NODE 013 — APPROVAL. The probation.
+ *
+ * The Brain drafted a reply; this Hand HOLDS it. The owner gets one mail —
+ * the draft, a note, and a link with two buttons. Approve, and the held mail
+ * goes to the customer wearing the business's name; Reply, and the owner
+ * answers personally instead (the approval mail's Reply-To is the customer).
+ * Nothing reaches the customer without a yes, and a draft nobody decides on
+ * expires honestly instead of sending late.
+ */
+async function runApprovalNode({
+  businessId,
+  installedAgentId,
+  workflowRunId,
+  architectUserId,
+  node,
+  context,
+  logs,
+  mode
+}: {
+  businessId?: string;
+  installedAgentId?: string;
+  workflowRunId?: string;
+  architectUserId?: string;
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+}): Promise<void> {
+  const contextRecord = context as Record<string, unknown>;
+
+  /* One draft per run — a Loop must never fill the owner's inbox with
+     twenty-five approval requests about one conversation. */
+  if (contextRecord.__approvalRequested) {
+    context.approval = { status: "already-requested" };
+    logs.push(
+      createLog(node, "success", "A draft is already waiting for the owner this run — one approval per run.", {
+        repeated: true
+      })
+    );
+    return;
+  }
+
+  const draft = asString(context.ai?.output) || asString(context.text);
+  if (!draft) {
+    context.approval = { status: "nothing-to-approve" };
+    logs.push(
+      createLog(node, "success", "Nothing drafted yet to approve — place this after the Brain that writes the reply.")
+    );
+    return;
+  }
+  contextRecord.__approvalRequested = true;
+
+  const customerAddress = asString(context.email?.from) || asString(context.customerEmail);
+  const businessName = context.business?.name || "your business";
+  const draftSubject = context.email?.subject
+    ? `Re: ${asString(context.email.subject)}`
+    : `A reply from ${businessName}`;
+  const approvalNote = asString(node.data?.approvalNote);
+  const waitDays = Math.max(1, Math.min(7, Number(asString(node.data?.waitDays, "3")) || 3));
+
+  const requestBody = (link: string) =>
+    [
+      "Your agent drafted this reply and is waiting for your yes.",
+      "",
+      customerAddress ? `To: ${customerAddress}` : "To: (no address captured this run)",
+      `Subject: ${draftSubject}`,
+      "",
+      `--- the draft ---`,
+      draft.slice(0, 4000),
+      `-----------------`,
+      approvalNote ? `\nYour standing note: ${approvalNote}` : "",
+      "",
+      `Approve or reject here: ${link}`,
+      "Want different words? Just reply to THIS mail — your reply goes straight to the customer.",
+      `Undecided drafts expire in ${waitDays} day${waitDays === 1 ? "" : "s"} and are never sent.`
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
+
+  const sendRequest = async (input: {
+    ownerEmail: string;
+    customerEmail: string;
+    isTest: boolean;
+  }): Promise<{ link: string } | null> => {
+    const token = randomBytes(28).toString("hex");
+    await prisma.pendingApproval.create({
+      data: {
+        token,
+        businessId: businessId ?? null,
+        installedAgentId: installedAgentId ?? null,
+        workflowRunId: workflowRunId ?? null,
+        architectUserId: architectUserId ?? null,
+        customerEmail: input.customerEmail,
+        ownerEmail: input.ownerEmail,
+        draftSubject,
+        draftBody: draft.slice(0, 10_000),
+        isTest: input.isTest,
+        expiresAt: new Date(Date.now() + waitDays * 24 * 60 * 60 * 1000)
+      }
+    });
+    const link = `${env.BACKEND_URL.replace(/\/$/, "")}/approvals/${token}`;
+    await sendPlatformEmail({
+      purpose: "notification",
+      to: input.ownerEmail,
+      subject: `Approve: ${draftSubject}`,
+      text: requestBody(link),
+      fromName: businessName,
+      ...(input.customerEmail ? { replyTo: input.customerEmail } : {})
+    });
+    return { link };
+  };
+
+  context.approval = { status: "pending", subject: draftSubject };
+
+  if (outboundSendsAllowed(context, mode) && businessId) {
+    const inbox = await resolveEscalationInbox(businessId, installedAgentId);
+    if (!inbox) {
+      logs.push(
+        createLog(node, "error", "No inbox to ask — the business has no email in their setup, so the draft cannot wait for a yes.")
+      );
+      return;
+    }
+    const counter = (contextRecord["__emailCounter"] ??= { sent: 0 }) as { sent: number };
+    const perRunCap = await getEmailPerRunLimit().catch(() => DEFAULT_EMAIL_PER_RUN);
+    if (counter.sent >= perRunCap) {
+      logs.push(createLog(node, "error", `This run already sent ${perRunCap} emails — the platform's ceiling. The approval request was not sent.`));
+      return;
+    }
+    counter.sent += 1;
+    try {
+      await sendRequest({ ownerEmail: inbox, customerEmail: customerAddress, isTest: false });
+      logs.push(
+        createLog(
+          node,
+          "success",
+          `Draft is waiting for the owner's yes — nothing reaches ${customerAddress || "the customer"} until they approve it in ${inbox}'s inbox.`,
+          { to: inbox, subject: draftSubject, draftPreview: draft.slice(0, 300) }
+        )
+      );
+    } catch (error) {
+      logs.push(createLog(node, "error", `The approval request could not be sent: ${error instanceof Error ? error.message : "unknown error"}`));
+    }
+    return;
+  }
+
+  /* Builder rehearsal: with a Test Email, the architect IS the owner AND the
+     customer — the approval mail arrives, the link works, and approving sends
+     the "customer" mail back to them, marked as a test. */
+  const testRecipient = (context.testEmail ?? "").trim().toLowerCase();
+  if (testRecipient && isValidEmailAddress(testRecipient) && isPlatformMailConfigured()) {
+    try {
+      await sendRequest({ ownerEmail: testRecipient, customerEmail: testRecipient, isTest: true });
+      logs.push(
+        createLog(
+          node,
+          "success",
+          `Test approval sent to ${testRecipient} — open it, click the link, approve, and the reply lands back in the same inbox. Live, the OWNER holds this power.`,
+          { to: testRecipient, subject: draftSubject, draftPreview: draft.slice(0, 300), sample: true }
+        )
+      );
+      return;
+    } catch (error) {
+      logs.push(createLog(node, "error", `Test approval to ${testRecipient} could not be sent: ${error instanceof Error ? error.message : "unknown error"}`));
+      return;
+    }
+  }
+
+  logs.push(
+    createLog(
+      node,
+      "success",
+      "Draft held for approval — live, the owner gets it with one Approve link, and nothing reaches the customer without their yes.",
+      { subject: draftSubject, draftPreview: draft.slice(0, 300), sample: true }
+    )
+  );
+}
+
 async function runConnectorNode({
   userId,
   node,
@@ -7359,6 +7544,20 @@ async function executeNodeOnConfig(params: {
 
 
     if (nodeKind === "connector") {
+      if (asString(node.data?.type) === "communication.approval") {
+        await runApprovalNode({
+          businessId: input?.businessId,
+          installedAgentId: input?.installedAgentId,
+          workflowRunId,
+          architectUserId: userId,
+          node,
+          context,
+          logs: nodeLogs,
+          mode
+        });
+        const hasErr = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
+        return { logs: nodeLogs, runFailed: hasErr };
+      }
       if (asString(node.data?.type) === "communication.escalate") {
         await runEscalateNode({
           businessId: input?.businessId,

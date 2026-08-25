@@ -158,6 +158,8 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(VOICE_NODE_TYPES.sendEmail, { icon: "mail", accent: "green" }),
       /* NODE 012. The judgment to stop — hands the thread to a human. */
       { ...paletteItem("communication.escalate", { icon: "life-buoy", accent: "orange" }), badge: "NEW" },
+      /* NODE 013. The probation — nothing sends without the owner's yes. */
+      { ...paletteItem("communication.approval", { icon: "check", accent: "green" }), badge: "NEW" },
       paletteItem(VOICE_NODE_TYPES.sendSms, { icon: "message", accent: "green" }),
       {
         // The sales employee's hands: it phones people who asked to be phoned.

@@ -1735,6 +1735,24 @@ export function setAgentPurpose(workflowId: string, purpose: string) {
   return apiPost<{ purpose: string }>(`/architect/workflows/${workflowId}/purpose`, { purpose });
 }
 
+/** Teach the Builder — a declared lesson that rides this architect's requests. */
+export function teachBuilderLesson(workflowId: string, note: string, keepPrivate?: boolean) {
+  return apiPost<{ lesson: { id: string; note: string } }>(
+    `/architect/workflows/${workflowId}/builder-lesson`,
+    { note, ...(keepPrivate ? { keepPrivate } : {}) }
+  );
+}
+
+export function listBuilderLessons() {
+  return apiGet<{ lessons: Array<{ id: string; note: string; status: string; createdAt: string }> }>(
+    "/architect/builder-lessons"
+  );
+}
+
+export function removeBuilderLesson(lessonId: string) {
+  return apiDelete<{ removed: boolean }>(`/architect/builder-lessons/${lessonId}`);
+}
+
 /** "Check my agent" — wires + real test runs judged against the purpose. */
 export function checkAgent(workflowId: string) {
   return apiPost<{

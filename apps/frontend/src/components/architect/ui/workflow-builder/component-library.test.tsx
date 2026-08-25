@@ -59,13 +59,13 @@ describe("library groups (Face / Brain / Hands)", () => {
     ]);
   });
 
-  it("keeps every pre-regroup item plus API Call, Timer, Webhook, the outbound call, the call list, the Node Frame, Code, the Loop, File Upload, Email received, Knowledge and Escalate (42 total)", () => {
+  it("keeps every pre-regroup item plus API Call, Timer, Webhook, the outbound call, the call list, the Node Frame, Code, the Loop, File Upload, Email received, Knowledge, Escalate and Approval (43 total)", () => {
     const testIds = libraryGroups.flatMap((group) => group.items.map((item) => item.testId));
     // The three ways IN (timer, webhook, call list) and the outbound call node
     // joined the Hands group; the old Design Brain card left with the Smart
     // Designer. The Code card left with the unsandboxed runner behind it and has
     // now come back, because there is finally a container to run it in.
-    expect(testIds).toHaveLength(42);
+    expect(testIds).toHaveLength(43);
 
     // Face: all block.* — the old Design Brain card is retired (the Smart
     // Designer generates and fixes the interface now).
@@ -115,6 +115,7 @@ describe("library groups (Face / Brain / Hands)", () => {
       tid(CALENDLY_NODE_TYPES.action),
       tid(VOICE_NODE_TYPES.sendEmail),
       tid("communication.escalate"),
+      tid("communication.approval"),
       tid(VOICE_NODE_TYPES.sendSms),
       tid(OUTBOUND_CALL_NODE_TYPE),
       tid("action.send_whatsapp"),

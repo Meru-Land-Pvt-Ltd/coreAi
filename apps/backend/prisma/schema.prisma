@@ -3294,3 +3294,55 @@ model AdminLlmProvider {
   runningEnabled Boolean @default(true)
   updatedAt  DateTime @updatedAt
 }
+
+/// NODE 013 — APPROVAL. A drafted customer reply held until the owner's yes.
+/// The row IS the probation: the draft, who it is for, the secret token in the
+/// owner's mail, and what they decided. Expired drafts are never sent.
+model PendingApproval {
+  id               String    @id @default(cuid())
+  token            String    @unique
+  businessId       String?
+  installedAgentId String?
+  workflowRunId    String?
+  architectUserId  String?
+  customerEmail    String
+  ownerEmail       String
+  draftSubject     String
+  draftBody        String
+  /// PENDING | APPROVED | REJECTED | EXPIRED
+  status           String    @default("PENDING")
+  /// A builder rehearsal: the "customer" is the architect's own test address.
+  isTest           Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  decidedAt        DateTime?
+  expiresAt        DateTime
+
+  @@index([businessId])
+  @@index([status])
+}
+
+/// THE BUILDER'S LEARNED LESSONS — the self-healing loop, Tier 1.
+/// A lesson exists ONLY because an architect deliberately taught it ("Teach
+/// the Builder" — explicit intent, never a silent canvas diff). PERSONAL
+/// lessons ride only their author's own requests. Statuses beyond PERSONAL
+/// (CANDIDATE/SHADOW/SHARED/SUSPENDED) are the shared tier's lifecycle —
+/// its gates activate when there are independent architects to corroborate.
+model BuilderLesson {
+  id              String    @id @default(cuid())
+  architectUserId String
+  workflowId      String?
+  /// The architect's own words — capped, delimited as data when injected.
+  note            String
+  /// Node types on the canvas when taught — context for future distillation.
+  canvasTypesJson Json?
+  /// PERSONAL | CANDIDATE | SHADOW | SHARED | SUSPENDED
+  status          String    @default("PERSONAL")
+  /// "Keep this lesson private to me" — never eligible for the shared tier.
+  shareOptOut     Boolean   @default(false)
+  /// Which brain verified/used it — lessons are model-relative.
+  modelId         String?
+  createdAt       DateTime  @default(now())
+  lastUsedAt      DateTime?
+
+  @@index([architectUserId, status])
+}

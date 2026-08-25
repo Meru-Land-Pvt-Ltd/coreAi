@@ -120,6 +120,7 @@ import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoiceP
 import { getConditionRoadLimit, DEFAULT_CONDITION_ROADS } from "../admin/node-limits";
 import { aiBuilderAnswer } from "./ai-builder";
 import { checkAgent } from "./agent-check";
+import { deleteBuilderLesson, listBuilderLessons, saveBuilderLesson } from "./builder-lessons";
 import { refuseUploadIfBeyondLimits } from "./upload-limits";
 import { runWorkflowTest } from "./workflow-runner";
 import { getArchitectVapiBrowserTestCallEndReason, startArchitectVapiBrowserTest } from "./vapi-browser-test";
@@ -2834,6 +2835,7 @@ architectRoutes.post("/workflows/:workflowId/ai-builder", async (c) => {
       c,
       await aiBuilderAnswer({
         workflowId,
+        architectUserId: authUser.id,
         message: body.data.message,
         ...(body.data.history ? { history: body.data.history } : {})
       })
@@ -2842,6 +2844,55 @@ architectRoutes.post("/workflows/:workflowId/ai-builder", async (c) => {
     console.error("[architect] ai-builder failed", error);
     return errorResponse(c, "The AI Builder could not answer just now. Try once more.", 500, "AI_BUILDER_FAILED");
   }
+});
+
+/**
+ * TEACH THE BUILDER — Tier 1 of the self-healing loop.
+ *
+ * A lesson exists only because the architect declared it (the adversary
+ * panel's first law: no silent canvas diff is ever a correction). It rides
+ * only this architect's own requests from the next compose onward.
+ */
+architectRoutes.post("/workflows/:workflowId/builder-lesson", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+  const body = z
+    .object({ note: z.string().trim().min(1).max(500), keepPrivate: z.boolean().optional() })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return errorResponse(c, "Say the lesson in a sentence.", 422, "VALIDATION_ERROR");
+
+  const workflow = await prisma.workflowDefinition.findFirst({
+    where: { id: workflowId, architectUserId: authUser.id },
+    select: { workflowJson: true }
+  });
+  if (!workflow) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+
+  const graph = workflow.workflowJson as { nodes?: Array<{ data?: { type?: unknown } }> };
+  const canvasTypes = [
+    ...new Set((graph.nodes ?? []).map((node) => String(node.data?.type ?? "")).filter(Boolean))
+  ];
+
+  const saved = await saveBuilderLesson({
+    architectUserId: authUser.id,
+    workflowId,
+    note: body.data.note,
+    canvasTypes,
+    keepPrivate: body.data.keepPrivate ?? false
+  });
+  if ("refused" in saved) return errorResponse(c, saved.refused, 422, "LESSON_REFUSED");
+  return successResponse(c, { lesson: saved });
+});
+
+architectRoutes.get("/builder-lessons", async (c) => {
+  const authUser = c.get("authUser");
+  return successResponse(c, { lessons: await listBuilderLessons(authUser.id) });
+});
+
+architectRoutes.delete("/builder-lessons/:lessonId", async (c) => {
+  const authUser = c.get("authUser");
+  const removed = await deleteBuilderLesson(authUser.id, c.req.param("lessonId"));
+  if (!removed) return errorResponse(c, "Lesson not found", 404, "LESSON_NOT_FOUND");
+  return successResponse(c, { removed: true });
 });
 
 /**

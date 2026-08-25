@@ -195,6 +195,7 @@ export function NodeInspector({
     panel = <BookCalendarAppointmentProps {...base} calendar={calendar} ownership={ownership} />;
   } else if (type === VOICE_NODE_TYPES.sendEmail) panel = <SendEmailProps {...base} />;
   else if (type === "communication.escalate") panel = <EscalateProps {...base} />;
+  else if (type === "communication.approval") panel = <ApprovalProps {...base} />;
   else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
   else if (type === "trigger.whatsapp_message_received") panel = <WhatsAppTriggerProps {...base} />;
   else if (type === OUTBOUND_CALL_NODE_TYPE) panel = <OutboundCallProps {...base} />;
@@ -1837,6 +1838,57 @@ function EscalateProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
           height="h-24"
           placeholder="Check the refunds sheet before promising anything."
         />
+      </Section>
+    </>
+  );
+}
+
+/**
+ * APPROVAL — the probation, in three plain controls.
+ *
+ * The node holds the Brain's draft and asks the owner first. The architect
+ * owns a note to the owner and how long a draft may wait; where drafts land
+ * belongs to the business's Mail Setup, never typed here.
+ */
+function ApprovalProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const WAIT = nodeSettingChoices("communication.approval", "waitDays");
+
+  return (
+    <>
+      <Section title="Name">
+        <TextInput
+          value={selectedNode.data.title}
+          onChange={set("title")}
+          placeholder="Approval"
+          testId="approval-name-input"
+        />
+      </Section>
+
+      <Section title="A note to the owner">
+        <p className="text-[12px] leading-5 text-slate-500">
+          Shown with every draft — what to check before approving. The owner approves with one
+          click, or just replies to answer the customer personally.
+        </p>
+        <TextArea
+          value={str("approvalNote")}
+          onChange={set("approvalNote")}
+          testId="approval-note-textarea"
+          height="h-24"
+          placeholder="Check promised dates against the calendar before approving."
+        />
+      </Section>
+
+      <Section title="How long to wait" last>
+        <SelectBox
+          value={str("waitDays", "3")}
+          onChange={set("waitDays")}
+          options={WAIT}
+          testId="approval-wait-select"
+        />
+        <p className="mt-2 text-[12px] leading-5 text-slate-500">
+          A draft nobody decides on expires honestly — it is never sent late.
+        </p>
       </Section>
     </>
   );

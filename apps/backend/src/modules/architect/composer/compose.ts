@@ -23,6 +23,7 @@ import type { AIExecuteRequest, AIMessage } from "../../ai-provider-engine/types
 import { checkPlan, type ComposerPlan } from "./check-plan";
 import { composerMenu, menuAsText, type MenuEntry } from "./node-menu";
 import { builderSoulText } from "../builder-soul";
+import { lessonsForPrompt } from "../builder-lessons";
 
 /** What the architect sees while it works. */
 export type ComposerProgress = {
@@ -36,7 +37,7 @@ export type ComposerResult =
 
 const MAX_ATTEMPTS = 3;
 
-function systemPrompt(menu: string): string {
+function systemPrompt(menu: string, personalLessons: string): string {
   return [
     "You assemble agents for Triven, out of steps that already exist.",
     "",
@@ -69,6 +70,7 @@ function systemPrompt(menu: string): string {
        LLM is briefed on its first breath. This is where "where to start, how
        much per node, where to end" comes from. */
     builderSoulText(),
+    ...(personalLessons ? ["", personalLessons] : []),
     "",
     "OUTPUT",
     'Return ONLY JSON: { "summary": string, "nodes": [...], "edges": [...], "asksTheBusiness": [string] }',
@@ -116,7 +118,10 @@ export async function composeOrchestration(input: {
   }
 
   say("Looking at every step available to you");
-  const menu = await composerMenu(input.architectUserId, input.hiddenNodeTypes ?? []);
+  const [menu, personalLessons] = await Promise.all([
+    composerMenu(input.architectUserId, input.hiddenNodeTypes ?? []),
+    lessonsForPrompt(input.architectUserId)
+  ]);
   if (menu.length === 0) {
     return { ok: false, message: "There are no steps available to build with." };
   }
@@ -131,7 +136,7 @@ export async function composeOrchestration(input: {
 
     const request: AIExecuteRequest = {
       capability: "llm",
-      systemPrompt: systemPrompt(menuAsText(menu)),
+      systemPrompt: systemPrompt(menuAsText(menu), personalLessons),
       conversationHistory: [],
       messages: [...messages],
       // Low, because this is arithmetic dressed as writing: which step, wired

@@ -14,12 +14,24 @@
  */
 
 import { useEffect, useState } from "react";
-import { getBuilderSoulMeta } from "@/components/admin/features/api";
+import {
+  getBuilderSoulMeta,
+  removeAdminBuilderLesson
+} from "@/components/admin/features/api";
+
+type SoulLesson = {
+  id: string;
+  note: string;
+  status: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+};
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
 
 export function BuilderSoulCard() {
   const [meta, setMeta] = useState<{ pages: number; totalChars: number; coveredNodes: number } | null>(null);
+  const [lessons, setLessons] = useState<SoulLesson[]>([]);
   const [downloading, setDownloading] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -33,12 +45,18 @@ export function BuilderSoulCard() {
           totalChars: response.data.totalChars,
           coveredNodes: response.data.coveredNodes
         });
+        setLessons(response.data.lessons ?? []);
       }
     });
     return () => {
       alive = false;
     };
   }, []);
+
+  async function removeLesson(id: string) {
+    const response = await removeAdminBuilderLesson(id);
+    if (response.success) setLessons((current) => current.filter((lesson) => lesson.id !== id));
+  }
 
   async function download() {
     setDownloading(true);
@@ -100,6 +118,34 @@ export function BuilderSoulCard() {
           {downloading ? "Preparing…" : "Download as ZIP"}
         </button>
       </div>
+
+      {/* The learned lessons — anonymous, listed, one click from gone. These
+          never enter the zip: an architect's corrections are not exportable. */}
+      {lessons.length > 0 ? (
+        <div className="mt-4 border-t border-gray-100 pt-3" data-testid="builder-soul-lessons">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            Learned lessons ({lessons.length})
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {lessons.map((lesson) => (
+              <li key={lesson.id} className="flex items-start justify-between gap-3">
+                <p className="min-w-0 text-[12px] leading-5 text-slate-600">
+                  {lesson.note}
+                  <span className="ml-1.5 text-[10px] uppercase text-slate-400">{lesson.status}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void removeLesson(lesson.id)}
+                  data-testid={`builder-soul-lesson-remove-${lesson.id}`}
+                  className="shrink-0 text-[11px] font-medium text-red-500 hover:underline"
+                >
+                  remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 }

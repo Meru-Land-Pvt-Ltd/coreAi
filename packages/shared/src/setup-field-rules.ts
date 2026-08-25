@@ -83,6 +83,9 @@ export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
     "communication.escalate": {
       mail: true
     },
+    "communication.approval": {
+      mail: true
+    },
     "trigger.telegram_message": {
       telegram: true,
       businessProfile: true

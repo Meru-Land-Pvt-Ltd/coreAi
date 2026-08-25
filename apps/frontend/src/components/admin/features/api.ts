@@ -868,7 +868,19 @@ export function getBuilderSoulMeta() {
     pages: Array<{ name: string; chars: number }>;
     totalChars: number;
     coveredNodes: number;
+    lessons: Array<{
+      id: string;
+      note: string;
+      status: string;
+      createdAt: string;
+      lastUsedAt: string | null;
+    }>;
   }>("/admin/builder-soul");
+}
+
+/** The undo the learning loop rests on: one click, lesson gone. */
+export function removeAdminBuilderLesson(lessonId: string) {
+  return apiDelete<{ removed: boolean }>(`/admin/builder-lessons/${lessonId}`);
 }
 
 /* ------------------------- Condition: the roads out ------------------------ */

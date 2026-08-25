@@ -755,11 +755,44 @@ adminRoutes.patch("/knowledge-limits", async (c) => {
  */
 adminRoutes.get("/builder-soul", async (c) => {
   const files = builderSoulFiles();
+  /* The learned lessons ride beside the Soul but never inside its zip —
+     an architect's corrections are not exportable property. Anonymous here:
+     the admin sees WHAT was learned, never who taught it. */
+  const lessons = await prisma.builderLesson
+    .findMany({
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: { id: true, note: true, status: true, createdAt: true, lastUsedAt: true }
+    })
+    .catch(() => []);
   return successResponse(c, {
     pages: files.map((file) => ({ name: file.name, chars: file.content.length })),
     totalChars: files.reduce((sum, file) => sum + file.content.length, 0),
-    coveredNodes: SOUL_COVERED_TYPES.length
+    coveredNodes: SOUL_COVERED_TYPES.length,
+    lessons: lessons.map((lesson) => ({
+      id: lesson.id,
+      note: lesson.note.slice(0, 200),
+      status: lesson.status,
+      createdAt: lesson.createdAt.toISOString(),
+      lastUsedAt: lesson.lastUsedAt?.toISOString() ?? null
+    }))
   });
+});
+
+/** The undo the whole learning design rests on: one click, lesson gone. */
+adminRoutes.delete("/builder-lessons/:lessonId", async (c) => {
+  const authUser = c.get("authUser");
+  const lessonId = c.req.param("lessonId");
+  const removed = await prisma.builderLesson.deleteMany({ where: { id: lessonId } });
+  if (removed.count === 0) return errorResponse(c, "Lesson not found", 404, "LESSON_NOT_FOUND");
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "BUILDER_LESSON_REMOVED",
+    targetType: "BUILDER_SOUL",
+    targetId: lessonId,
+    meta: {}
+  });
+  return successResponse(c, { removed: true });
 });
 
 adminRoutes.get("/builder-soul.zip", async (c) => {
