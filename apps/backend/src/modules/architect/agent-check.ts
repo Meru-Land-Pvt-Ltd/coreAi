@@ -25,9 +25,7 @@
 
 import { checkWiring } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
-import { getProviderEngine } from "../ai-provider-engine/provider-engine";
-import { resolveConfiguredLlmProvider } from "../ai-provider-engine/llm-credentials";
-import type { AIExecuteRequest } from "../ai-provider-engine/types";
+import { askPlatformBrain } from "./platform-brain";
 import { runWorkflowTest } from "./workflow-runner";
 import { resolveRunOutput } from "../agent-pages/run-output";
 
@@ -44,39 +42,8 @@ export type AgentCheckReport = {
 
 const LLM_TIMEOUT_MS = 25_000;
 
-/** One capped model call, flagship tier — same policy as the AI Builder. */
 async function ask(instruction: string, message: string, maxTokens: number): Promise<string | null> {
-  const resolved = resolveConfiguredLlmProvider("mistral");
-  if (!resolved) return null;
-
-  const FLAGSHIP: Record<string, string> = {
-    mistral: "mistral-large-latest",
-    claude: "claude-opus-4-5",
-    openai: "gpt-5.4"
-  };
-
-  const request: AIExecuteRequest = {
-    capability: "llm",
-    systemPrompt: instruction,
-    conversationHistory: [],
-    messages: [{ role: "user", content: message.slice(0, 16_000) }],
-    temperature: 0,
-    maxTokens,
-    task: "agent-check",
-    ...(FLAGSHIP[resolved.providerId] ? { model: FLAGSHIP[resolved.providerId] } : {})
-  };
-
-  try {
-    const response = await Promise.race([
-      getProviderEngine().executeWithProvider(resolved.providerId, request),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), LLM_TIMEOUT_MS))
-    ]);
-    if (response.status === "error") return null;
-    return String(response.text ?? "").trim() || null;
-  } catch (error) {
-    console.warn("[agent-check] model unavailable", (error as Error).message);
-    return null;
-  }
+  return askPlatformBrain({ instruction, message, maxTokens, timeoutMs: LLM_TIMEOUT_MS, task: "agent-check" });
 }
 
 /** Test messages invented from the purpose — including one that should NOT fit it. */

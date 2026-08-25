@@ -26,9 +26,7 @@
  */
 
 import { prisma } from "../../lib/prisma";
-import { getProviderEngine } from "../ai-provider-engine/provider-engine";
-import { resolveConfiguredLlmProvider } from "../ai-provider-engine/llm-credentials";
-import type { AIExecuteRequest } from "../ai-provider-engine/types";
+import { askPlatformBrain } from "./platform-brain";
 
 export type AiBuilderHand = "build" | "page" | "explain";
 
@@ -182,54 +180,6 @@ function compact(value: unknown): string {
 
 /* ----------------------------------------------------------------- the ask */
 
-/**
- * One model call that must not be precious: the door battery first, and when
- * that provider is down — which is exactly when an architect is most confused —
- * any working provider rather than silence.
- */
-async function ask(
-  instruction: string,
-  message: string,
-  maxTokens: number,
-  timeoutMs: number,
-  history: Array<{ role: "user" | "assistant"; content: string }> = []
-): Promise<string | null> {
-  const resolved = resolveConfiguredLlmProvider("mistral");
-  if (!resolved) return null;
-
-  /* The strongest model each provider has, never its cheapest. This assistant
-     is the platform's face at the exact moment an architect is most confused —
-     a dumb answer here does more damage than the model saves in pennies. */
-  const FLAGSHIP: Record<string, string> = {
-    mistral: "mistral-large-latest",
-    claude: "claude-opus-4-5",
-    openai: "gpt-5.4"
-  };
-
-  const request: AIExecuteRequest = {
-    capability: "llm",
-    systemPrompt: instruction,
-    conversationHistory: history.slice(-10).map((turn) => ({ role: turn.role, content: turn.content.slice(0, 2000) })),
-    messages: [{ role: "user", content: message.slice(0, 24_000) }],
-    temperature: 0,
-    maxTokens,
-    task: "ai-builder",
-    ...(FLAGSHIP[resolved.providerId] ? { model: FLAGSHIP[resolved.providerId] } : {})
-  };
-
-  try {
-    const response = await Promise.race([
-      getProviderEngine().executeWithProvider(resolved.providerId, request),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), timeoutMs))
-    ]);
-    if (response.status === "error") return null;
-    return String(response.text ?? "").trim() || null;
-  } catch (error) {
-    console.warn("[ai-builder] could not answer", (error as Error).message);
-    return null;
-  }
-}
-
 /* ---------------------------------------------------------------- entrance */
 
 export async function aiBuilderAnswer(input: {
@@ -240,7 +190,7 @@ export async function aiBuilderAnswer(input: {
 }): Promise<AiBuilderAnswer> {
   const message = input.message.trim();
 
-  const said = (await ask(ROUTER_INSTRUCTION, message, 10, ROUTER_TIMEOUT_MS))?.toLowerCase() ?? "";
+  const said = (await askPlatformBrain({ instruction: ROUTER_INSTRUCTION, message, maxTokens: 10, timeoutMs: ROUTER_TIMEOUT_MS, task: "ai-builder-router" }))?.toLowerCase() ?? "";
   const hand: AiBuilderHand = said.includes("build") ? "build" : said.includes("page") ? "page" : "explain";
 
   if (hand !== "explain") return { hand, reply: null };
@@ -250,13 +200,18 @@ export async function aiBuilderAnswer(input: {
     describeRecentRuns(input.workflowId)
   ]);
 
-  const reply = await ask(
-    EXPLAIN_INSTRUCTION,
-    `${agent}\n\n${runs}\n\nTHE PERSON ASKS: ${message}`,
-    400,
-    EXPLAIN_TIMEOUT_MS,
-    input.history ?? []
-  );
+  const reply = await askPlatformBrain({
+    instruction: EXPLAIN_INSTRUCTION,
+    message: `${agent}
+
+${runs}
+
+THE PERSON ASKS: ${message}`,
+    maxTokens: 400,
+    timeoutMs: EXPLAIN_TIMEOUT_MS,
+    task: "ai-builder-explain",
+    history: input.history ?? []
+  });
 
   return {
     hand,
