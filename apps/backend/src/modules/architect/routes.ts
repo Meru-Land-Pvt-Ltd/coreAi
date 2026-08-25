@@ -119,6 +119,7 @@ import { getVoiceAnswerStatus } from "./vapi-connector";
 import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
 import { getConditionRoadLimit, DEFAULT_CONDITION_ROADS } from "../admin/node-limits";
 import { aiBuilderAnswer } from "./ai-builder";
+import { checkAgent } from "./agent-check";
 import { runWorkflowTest } from "./workflow-runner";
 import { getArchitectVapiBrowserTestCallEndReason, startArchitectVapiBrowserTest } from "./vapi-browser-test";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
@@ -2795,7 +2796,13 @@ architectRoutes.post("/workflows/:workflowId/ai-builder", async (c) => {
     const workflowId = c.req.param("workflowId");
 
     const body = z
-      .object({ message: z.string().trim().min(1).max(4000) })
+      .object({
+        message: z.string().trim().min(1).max(4000),
+        history: z
+          .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(4000) }))
+          .max(10)
+          .optional()
+      })
       .safeParse(await c.req.json().catch(() => null));
     if (!body.success) {
       return errorResponse(c, "Say what you want in words.", 422, "VALIDATION_ERROR");
@@ -2807,10 +2814,56 @@ architectRoutes.post("/workflows/:workflowId/ai-builder", async (c) => {
     });
     if (!workflow) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
 
-    return successResponse(c, await aiBuilderAnswer({ workflowId, message: body.data.message }));
+    return successResponse(
+      c,
+      await aiBuilderAnswer({
+        workflowId,
+        message: body.data.message,
+        ...(body.data.history ? { history: body.data.history } : {})
+      })
+    );
   } catch (error) {
     console.error("[architect] ai-builder failed", error);
     return errorResponse(c, "The AI Builder could not answer just now. Try once more.", 500, "AI_BUILDER_FAILED");
+  }
+});
+
+/**
+ * The agent's purpose — what the architect said they were building, asked once
+ * by the AI Builder. Stored on `description`: one fact, one home, and the same
+ * field the marketplace listing already reads.
+ */
+architectRoutes.post("/workflows/:workflowId/purpose", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+  const body = z
+    .object({ purpose: z.string().trim().min(3).max(600) })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!body.success) {
+    return errorResponse(c, "Say what you are building in a sentence.", 422, "VALIDATION_ERROR");
+  }
+
+  const updated = await prisma.workflowDefinition.updateMany({
+    where: { id: workflowId, architectUserId: authUser.id },
+    data: { description: body.data.purpose }
+  });
+  if (updated.count === 0) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+  return successResponse(c, { purpose: body.data.purpose });
+});
+
+/**
+ * "Check my agent" — wires, then real test runs invented from the purpose,
+ * each judged against it. See agent-check.ts for why a check must know the
+ * goal before it can be called a check.
+ */
+architectRoutes.post("/workflows/:workflowId/check", async (c) => {
+  try {
+    const authUser = c.get("authUser");
+    const workflowId = c.req.param("workflowId");
+    return successResponse(c, await checkAgent({ userId: authUser.id, workflowId }));
+  } catch (error) {
+    console.error("[architect] agent check failed", error);
+    return errorResponse(c, "The check could not finish. Try once more.", 500, "AGENT_CHECK_FAILED");
   }
 });
 

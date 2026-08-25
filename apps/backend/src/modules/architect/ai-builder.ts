@@ -66,10 +66,21 @@ const EXPLAIN_INSTRUCTION = [
   "out of connected steps. They are confused or curious about their own agent. You are given the agent's",
   "steps (with the exact words they typed into each) and what the most recent runs actually did.",
   "",
-  "Answer in AT MOST three short sentences, in plain simple words — no jargon, no field names in code",
-  "style. If a step's own written instructions are causing the problem, quote the words they typed and",
-  "say exactly which box to change and what to put there instead. If nothing is wrong, say what is",
-  "actually happening in one sentence.",
+  "THE PLATFORM'S OWN WORDS — use these and no others:",
+  '- An AI Brain step has exactly two boxes: "What is coming in" (describes what arrives) and',
+  '  "How the answer should be" (the order — what to write back). Name the box you mean.',
+  '- "Prompt Box" is a DIFFERENT step — the box a customer types into on the page. Never use',
+  "  \"prompt box\" to mean a Brain's boxes.",
+  "- Data flows between steps by itself. NEVER suggest typing {{anything}} in braces.",
+  '- To point somewhere: click the step on the canvas, its boxes open on the right.',
+  "",
+  "Answer in AT MOST three short sentences, in plain simple words. If a step's own written",
+  "instructions are causing the problem, quote the words they typed, name the exact box, and give",
+  "the exact words to put there instead. If nothing is wrong, say what is actually happening in one",
+  "sentence.",
+  "",
+  'When they ask "where", answer with the click-path: which step to click and which box to look at.',
+  "Read the conversation so far — never answer a follow-up by repeating your previous answer.",
   "",
   "Never invent a run that did not happen. If the runs given to you do not show the problem, say what",
   "you would need them to try next — one concrete test."
@@ -79,7 +90,7 @@ const EXPLAIN_INSTRUCTION = [
 async function describeAgent(workflowId: string): Promise<string> {
   const workflow = await prisma.workflowDefinition.findUnique({
     where: { id: workflowId },
-    select: { name: true, workflowJson: true }
+    select: { name: true, description: true, workflowJson: true }
   });
   if (!workflow) return "(the agent could not be loaded)";
 
@@ -88,7 +99,13 @@ async function describeAgent(workflowId: string): Promise<string> {
   const edges = Array.isArray(graph?.edges) ? graph.edges : [];
 
   const names = new Map<string, string>();
-  const lines: string[] = [`AGENT: ${workflow.name}`, "", "STEPS:"];
+  const lines: string[] = [
+    `AGENT: ${workflow.name}`,
+    /* The yardstick everything tallies against — the architect's own sentence. */
+    ...(workflow.description?.trim() ? [`PURPOSE (what the architect said they are building): ${workflow.description.trim()}`] : []),
+    "",
+    "STEPS:"
+  ];
 
   for (const node of nodes) {
     const data = node.data ?? {};
@@ -170,18 +187,34 @@ function compact(value: unknown): string {
  * that provider is down — which is exactly when an architect is most confused —
  * any working provider rather than silence.
  */
-async function ask(instruction: string, message: string, maxTokens: number, timeoutMs: number): Promise<string | null> {
+async function ask(
+  instruction: string,
+  message: string,
+  maxTokens: number,
+  timeoutMs: number,
+  history: Array<{ role: "user" | "assistant"; content: string }> = []
+): Promise<string | null> {
   const resolved = resolveConfiguredLlmProvider("mistral");
   if (!resolved) return null;
+
+  /* The strongest model each provider has, never its cheapest. This assistant
+     is the platform's face at the exact moment an architect is most confused —
+     a dumb answer here does more damage than the model saves in pennies. */
+  const FLAGSHIP: Record<string, string> = {
+    mistral: "mistral-large-latest",
+    claude: "claude-opus-4-5",
+    openai: "gpt-5.4"
+  };
 
   const request: AIExecuteRequest = {
     capability: "llm",
     systemPrompt: instruction,
-    conversationHistory: [],
+    conversationHistory: history.slice(-10).map((turn) => ({ role: turn.role, content: turn.content.slice(0, 2000) })),
     messages: [{ role: "user", content: message.slice(0, 24_000) }],
     temperature: 0,
     maxTokens,
-    task: "ai-builder"
+    task: "ai-builder",
+    ...(FLAGSHIP[resolved.providerId] ? { model: FLAGSHIP[resolved.providerId] } : {})
   };
 
   try {
@@ -202,6 +235,8 @@ async function ask(instruction: string, message: string, maxTokens: number, time
 export async function aiBuilderAnswer(input: {
   workflowId: string;
   message: string;
+  /** The chat so far, newest last — a follow-up like "where?" is meaningless without it. */
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
 }): Promise<AiBuilderAnswer> {
   const message = input.message.trim();
 
@@ -219,7 +254,8 @@ export async function aiBuilderAnswer(input: {
     EXPLAIN_INSTRUCTION,
     `${agent}\n\n${runs}\n\nTHE PERSON ASKS: ${message}`,
     400,
-    EXPLAIN_TIMEOUT_MS
+    EXPLAIN_TIMEOUT_MS,
+    input.history ?? []
   );
 
   return {

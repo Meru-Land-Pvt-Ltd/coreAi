@@ -452,6 +452,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [googleDisclosureOpen, setGoogleDisclosureOpen] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgentName);
   const [tagline, setTagline] = useState(defaultAgentDescription);
+  /* The AI Builder on the Build tab — the founder's call: one assistant, every
+     screen, never hunt for it. */
+  const [aiBuilderOpen, setAiBuilderOpen] = useState(false);
   const [price, setPrice] = useState("149");
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState("");
@@ -2987,6 +2990,51 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                   </ControlButton>
                 </Controls>
               </ReactFlow>
+
+              {/* THE AI BUILDER, ON THE BUILD TAB TOO. It lived only behind
+                  Preview, which meant the one screen where mistakes are MADE
+                  had no way to ask about them. Same one assistant, same box. */}
+              <button
+                type="button"
+                onClick={() => setAiBuilderOpen((open) => !open)}
+                data-testid="build-ai-builder-toggle"
+                className="absolute bottom-6 right-6 z-30 flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-amber-600"
+              >
+                <BuilderIcon name="sparkles" className="h-4 w-4" />
+                AI Builder
+              </button>
+              {aiBuilderOpen ? (
+                <div
+                  data-testid="build-ai-builder-dock"
+                  className="absolute bottom-20 right-6 z-30 flex h-[min(34rem,70vh)] w-[min(24rem,90vw)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
+                >
+                  <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">AI Builder</p>
+                    <button
+                      type="button"
+                      onClick={() => setAiBuilderOpen(false)}
+                      aria-label="Close AI Builder"
+                      data-testid="build-ai-builder-close"
+                      className="rounded-lg p-1 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <AiBuilderPanel
+                    workflowId={currentWorkflowId}
+                    canvasHasSteps={nodes.length > 0}
+                    /* The default tagline is boilerplate, not a decision — an
+                       agent still carrying it has not been given a purpose. */
+                    purpose={tagline === defaultAgentDescription ? "" : tagline}
+                    onPurposeSaved={setTagline}
+                    onApplied={() => undefined}
+                    onBuilt={(canvas) => {
+                      setNodes(toBuilderNodes(canvas.nodes));
+                      setEdges(toBuilderEdges(canvas.edges));
+                    }}
+                  />
+                </div>
+              ) : null}
 
               {wiring.known && wiring.problems.length > 0 ? (
                 <div

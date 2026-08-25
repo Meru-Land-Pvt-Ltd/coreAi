@@ -75,7 +75,7 @@ describe("SmartDesignerPanel generate", () => {
     smartComposeMock.mockResolvedValue(composeResult());
     const onApplied = vi.fn();
     const user = userEvent.setup();
-    render(<SmartDesignerPanel workflowId="wf-1" onApplied={onApplied} />);
+    render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" onApplied={onApplied} />);
 
     await user.click(screen.getByTestId("smart-designer-generate"));
 
@@ -92,7 +92,7 @@ describe("SmartDesignerPanel generate", () => {
     let resolveCompose: (value: unknown) => void = () => {};
     smartComposeMock.mockReturnValue(new Promise((resolve) => (resolveCompose = resolve)));
     const user = userEvent.setup();
-    render(<SmartDesignerPanel workflowId="wf-1" />);
+    render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" />);
 
     await user.click(screen.getByTestId("smart-designer-generate"));
 
@@ -110,7 +110,7 @@ describe("SmartDesignerPanel generate", () => {
   it("renders the merged count when the composer merged inputs", async () => {
     smartComposeMock.mockResolvedValue(composeResult({ merged: 4 }));
     const user = userEvent.setup();
-    render(<SmartDesignerPanel workflowId="wf-1" />);
+    render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" />);
 
     await user.click(screen.getByTestId("smart-designer-generate"));
 
@@ -122,7 +122,7 @@ describe("SmartDesignerPanel generate", () => {
   it("stays quiet about merging when nothing merged", async () => {
     smartComposeMock.mockResolvedValue(composeResult({ merged: 0 }));
     const user = userEvent.setup();
-    render(<SmartDesignerPanel workflowId="wf-1" />);
+    render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" />);
 
     await user.click(screen.getByTestId("smart-designer-generate"));
 
@@ -136,7 +136,7 @@ describe("SmartDesignerPanel generate", () => {
     smartComposeMock.mockResolvedValue({ success: false });
     const onApplied = vi.fn();
     const user = userEvent.setup();
-    render(<SmartDesignerPanel workflowId="wf-1" onApplied={onApplied} />);
+    render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" onApplied={onApplied} />);
 
     await user.click(screen.getByTestId("smart-designer-generate"));
 
@@ -158,7 +158,7 @@ describe("SmartDesignerPanel feedback chat", () => {
   it("an applied fix renders as a reply and fires onApplied", async () => {
     smartDesignerChatMock.mockResolvedValue(designerResult());
     const onApplied = vi.fn();
-    render(<SmartDesignerPanel workflowId="wf-1" hasComposedSpec onApplied={onApplied} />);
+    render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" hasComposedSpec onApplied={onApplied} />);
 
     await sendFeedback("this box isn't capturing email separately");
 
@@ -185,7 +185,7 @@ describe("SmartDesignerPanel feedback chat", () => {
       data: { reply: "Privacy page added.", pagesCreated: ["privacy"] }
     });
     const onApplied = vi.fn();
-    render(<SmartDesignerPanel workflowId="wf-1" hasComposedSpec onApplied={onApplied} />);
+    render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" hasComposedSpec onApplied={onApplied} />);
 
     await sendFeedback("add a privacy policy page");
 
@@ -209,7 +209,7 @@ describe("SmartDesignerPanel feedback chat", () => {
     );
     productChatMock.mockResolvedValue({ success: false });
     const onApplied = vi.fn();
-    render(<SmartDesignerPanel workflowId="wf-1" hasComposedSpec onApplied={onApplied} />);
+    render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" hasComposedSpec onApplied={onApplied} />);
 
     await sendFeedback("add a privacy policy page");
 
@@ -221,7 +221,7 @@ describe("SmartDesignerPanel feedback chat", () => {
 
   it("caps the history it sends at the last 10 turns", async () => {
     smartDesignerChatMock.mockResolvedValue(designerResult());
-    render(<SmartDesignerPanel workflowId="wf-1" hasComposedSpec />);
+    render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" hasComposedSpec />);
 
     // 6 completed turns put 12 bubbles on screen; the 7th send must trim.
     for (let turn = 1; turn <= 6; turn += 1) {
@@ -247,7 +247,7 @@ describe("SmartDesignerPanel feedback chat", () => {
   it("keeps local failure lines out of the history", async () => {
     smartDesignerChatMock.mockResolvedValueOnce({ success: false });
     smartDesignerChatMock.mockResolvedValueOnce(designerResult());
-    render(<SmartDesignerPanel workflowId="wf-1" hasComposedSpec />);
+    render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" hasComposedSpec />);
 
     await sendFeedback("first ask");
     await waitFor(() => expect(smartDesignerChatMock).toHaveBeenCalledTimes(1));
@@ -277,7 +277,7 @@ describe("SmartDesignerPanel before the workflow has autosaved", () => {
     /* The old panel locked its box until an interface was generated, which
        made sense when the chat could ONLY edit the interface. The AI Builder
        also explains runs, so a stuck architect must never meet a locked box. */
-    render(<SmartDesignerPanel workflowId="wf-1" />);
+    render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" />);
 
     expect((screen.getByTestId("smart-designer-input") as HTMLInputElement).disabled).toBe(false);
     expect(

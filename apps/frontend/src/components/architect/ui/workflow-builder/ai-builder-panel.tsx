@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
   aiBuilderChat,
+  checkAgent,
   productChat,
+  setAgentPurpose,
   smartCompose,
   smartDesignerChat
 } from "@/components/architect/features/api";
@@ -135,8 +137,10 @@ export function AiBuilderPanel({
   workflowId,
   hasComposedSpec = false,
   canvasHasSteps = true,
+  purpose = "",
   onApplied,
-  onBuilt
+  onBuilt,
+  onPurposeSaved
 }: {
   /** Saved workflow id — null while a brand-new agent has not autosaved yet. */
   workflowId: string | null;
@@ -144,10 +148,16 @@ export function AiBuilderPanel({
   hasComposedSpec?: boolean;
   /** False only on a blank canvas, where "build me…" may compose from scratch. */
   canvasHasSteps?: boolean;
+  /** What the architect said they are building — the yardstick every check
+   *  tallies against. Empty until they answer the one question. */
+  purpose?: string;
   /** Called after the page engine lands a change so the preview refetches. */
   onApplied?: (result: { graphChanged?: boolean }) => void;
   /** Called with the composed canvas when the build hand runs. */
   onBuilt?: (canvas: ComposedCanvas) => void;
+  /** Called when the purpose is saved — the builder's own autosave writes the
+   *  description too, and must learn the new value or clobber it. */
+  onPurposeSaved?: (purpose: string) => void;
 }) {
   const [messages, setMessages] = useState<BuilderBubble[]>([]);
   const [draft, setDraft] = useState("");
@@ -155,6 +165,14 @@ export function AiBuilderPanel({
   const [generating, setGenerating] = useState(false);
   const [progressStage, setProgressStage] = useState(0);
   const [composed, setComposed] = useState(hasComposedSpec);
+  const [savedPurpose, setSavedPurpose] = useState(purpose);
+  const [checking, setChecking] = useState(false);
+  /* The one question, asked once. While the answer is pending, the very next
+     message is the purpose — not a chat turn. */
+  const [askingPurpose, setAskingPurpose] = useState(false);
+  useEffect(() => {
+    if (purpose) setSavedPurpose(purpose);
+  }, [purpose]);
   // The saved spec loads AFTER this panel mounts — one-way sync, a spec that
   // exists never un-composes the panel.
   useEffect(() => {
@@ -166,7 +184,22 @@ export function AiBuilderPanel({
   useEffect(() => {
     const list = listRef.current;
     if (list) list.scrollTop = list.scrollHeight;
-  }, [messages, sending, generating]);
+  }, [messages, sending, generating, checking]);
+
+  /* THE ONE QUESTION. Asked once per agent, never again once answered — the
+     answer becomes the agent's purpose, and every check tallies against it. */
+  const askedRef = useRef(false);
+  useEffect(() => {
+    if (askedRef.current || savedPurpose || !workflowId || !canvasHasSteps) return;
+    askedRef.current = true;
+    setAskingPurpose(true);
+    say({
+      role: "assistant",
+      content:
+        'One question before anything else — what are we building? One sentence, e.g. "an agent that answers yes/no questions". I will test everything against it.'
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflowId, savedPurpose, canvasHasSteps]);
 
   useEffect(() => {
     return () => {
@@ -285,6 +318,30 @@ export function AiBuilderPanel({
     }
   }
 
+  async function runCheck() {
+    if (!workflowId || checking || sending || generating) return;
+    setChecking(true);
+    say({ role: "assistant", content: "Checking — wires first, then I run real tests against your purpose…" });
+    try {
+      const result = await checkAgent(workflowId);
+      const report = result.success ? result.data : undefined;
+      if (!report) {
+        say({ role: "assistant", content: "The check could not finish. Try once more.", local: true });
+        return;
+      }
+      say({
+        role: "assistant",
+        content: report.lines
+          .map((line) => `${line.kind === "ok" ? "✓" : line.kind === "problem" ? "✗" : "—"} ${line.text}`)
+          .join("\n")
+      });
+    } catch {
+      say({ role: "assistant", content: "The check could not finish. Try once more.", local: true });
+    } finally {
+      setChecking(false);
+    }
+  }
+
   async function send(instruction: string) {
     const trimmed = instruction.trim().slice(0, MAX_INSTRUCTION_LENGTH);
     if (!trimmed || !chatReady) return;
@@ -305,13 +362,36 @@ export function AiBuilderPanel({
 
     say({ role: "user", content: trimmed });
     setDraft("");
+
+    /* The answer to the one question is the purpose, not a chat turn. */
+    if (askingPurpose) {
+      setSending(true);
+      try {
+        const saved = await setAgentPurpose(workflowId, trimmed);
+        if (saved.success) {
+          setSavedPurpose(trimmed);
+          setAskingPurpose(false);
+          onPurposeSaved?.(trimmed);
+          say({
+            role: "assistant",
+            content: "Saved — that's our yardstick now. Press Check my agent any time, or ask me anything."
+          });
+        } else {
+          say({ role: "assistant", content: saved.error ?? CHAT_FALLBACK_REPLY, local: true });
+        }
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
     setSending(true);
 
     try {
       /* The router first: which hand does this message belong to? A router
          that cannot answer routes to "explain" server-side — the cheapest
          wrong answer. */
-      const routed = await aiBuilderChat(workflowId, trimmed);
+      const routed = await aiBuilderChat(workflowId, trimmed, history);
       const answer = routed.success ? routed.data : undefined;
 
       if (!answer) {
@@ -343,6 +423,18 @@ export function AiBuilderPanel({
           Your agent is still saving — one moment.
         </p>
       )}
+
+      {workflowId && canvasHasSteps ? (
+        <button
+          type="button"
+          onClick={() => void runCheck()}
+          disabled={checking || sending || generating}
+          data-testid="ai-builder-check"
+          className="mb-3 w-full rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+        >
+          {checking ? "Checking your agent…" : "Check my agent"}
+        </button>
+      ) : null}
 
       {composed ? null : (
         <div className="mb-3" data-testid="smart-designer-intro">
@@ -399,7 +491,7 @@ export function AiBuilderPanel({
               <div key={message.id} className="flex flex-col items-start">
                 <p
                   data-testid="smart-designer-message-assistant"
-                  className="max-w-[85%] rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-800"
+                  className="max-w-[85%] whitespace-pre-line rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-800"
                 >
                   {message.content}
                 </p>

@@ -1716,9 +1716,26 @@ export function smartDesignerChat(workflowId: string, body: SmartDesignerBody) {
  * One box that hears everything. The router says which hand a message belongs
  * to; for "explain" the answer arrives ready.
  */
-export function aiBuilderChat(workflowId: string, message: string) {
+export function aiBuilderChat(
+  workflowId: string,
+  message: string,
+  history?: Array<{ role: "user" | "assistant"; content: string }>
+) {
   return apiPost<{ hand: "build" | "page" | "explain"; reply: string | null }>(
     `/architect/workflows/${workflowId}/ai-builder`,
-    { message }
+    { message, ...(history?.length ? { history } : {}) }
   );
+}
+
+export function setAgentPurpose(workflowId: string, purpose: string) {
+  return apiPost<{ purpose: string }>(`/architect/workflows/${workflowId}/purpose`, { purpose });
+}
+
+/** "Check my agent" — wires + real test runs judged against the purpose. */
+export function checkAgent(workflowId: string) {
+  return apiPost<{
+    lines: Array<{ kind: "ok" | "problem" | "note"; text: string }>;
+    passed: number;
+    failed: number;
+  }>(`/architect/workflows/${workflowId}/check`, {});
 }
