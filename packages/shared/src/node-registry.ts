@@ -68,6 +68,58 @@ export type NodeDoorSpec = {
   exit?: NodeDoorJob;
 };
 
+/**
+ * ONE SETTING, WRITTEN DOWN ONCE.
+ *
+ * Question 5 of docs/NODE-SOP.md asks for a small form per setting: what it is
+ * called, what it is for, its type, its limits, its default, and who fills it
+ * in. Until now there was nowhere to put any of that — a node could only
+ * declare `defaultConfig`, a bare pair of values — so every setting on this
+ * platform lived inside one React panel and nothing else could read it.
+ *
+ * That is not paperwork. The Smart Designer reads `limits` to draw the control
+ * correctly: a box that stops at 200 characters because the setting says 200.
+ * The AI Composer reads them to fill a setting in without inventing a value.
+ * The admin Nodes page reads them to show what a node can be told to do. A
+ * setting nobody wrote down is a setting none of them can handle.
+ */
+export type NodeSettingType = "text" | "long text" | "number" | "choice" | "on/off" | "file";
+
+export type NodeSettingLimits = {
+  /** Longest the answer may be, in characters. */
+  maxLength?: number;
+  min?: number;
+  max?: number;
+  /** The node cannot run without it. */
+  required?: boolean;
+  /** For "choice": everything that may be picked. */
+  choices?: Array<{ value: string; label: string }>;
+  /**
+   * The architect may add more than one of these — the Condition's roads out.
+   * The SOP's six types describe one answer each; a repeating answer needs
+   * saying out loud rather than pretending to be a single text box.
+   */
+  repeats?: boolean;
+};
+
+export type NodeSetting = {
+  /** The field written onto the node, e.g. "maxMemoryTokens". */
+  key: string;
+  /** What the setting is called, in the words on the screen. */
+  name: string;
+  /** One line, plain words. */
+  whatItsFor: string;
+  type: NodeSettingType;
+  limits?: NodeSettingLimits;
+  /** What it is before anyone touches it. */
+  default: string | number | boolean;
+  /**
+   * Who knows the answer. Never ask an architect for something only the
+   * business knows — their opening hours, their phone number, their prices.
+   */
+  whoFills: "architect" | "business";
+};
+
 export type NodeDefinition = {
   /** Stable type slug, e.g. "action.send_sms". */
   type: string;
@@ -94,6 +146,14 @@ export type NodeDefinition = {
   doors?: NodeDoorSpec;
   /** Default builder config applied when the node is dropped on the canvas. */
   defaultConfig?: Record<string, unknown>;
+  /**
+   * Question 5 of the SOP: every dial on this node, described once, here.
+   *
+   * Undefined means nobody has described this node's settings yet — which is
+   * different from a node that genuinely has none, and the difference matters
+   * for exactly the same reason `producesNothing` exists.
+   */
+  settings?: NodeSetting[];
   /** Agent-runtime capability slug, e.g. "calendar.check_availability". */
   capability?: string;
   /** Variables that must exist in the runtime context before this node can execute. */
@@ -258,6 +318,21 @@ export const BLOCK_NODE_TYPES = {
 export type BlockNodeType = (typeof BLOCK_NODE_TYPES)[keyof typeof BLOCK_NODE_TYPES];
 
 /** True for any product-block node slug ("block.*"), known or future. */
+/**
+ * The choices for one "choice" setting, ready for a dropdown.
+ *
+ * Exists so a panel never types the list a second time. A setting whose
+ * options are fetched live (models, brains) declares none, and gets an empty
+ * list back rather than a stale guess.
+ */
+export function nodeSettingChoices(
+  nodeType: string,
+  settingKey: string
+): Array<{ value: string; label: string }> {
+  const setting = getNodeDefinition(nodeType)?.settings?.find((entry) => entry.key === settingKey);
+  return setting?.limits?.choices ? [...setting.limits.choices] : [];
+}
+
 export function isBlockNodeType(type: string | null | undefined): boolean {
   return (type ?? "").startsWith("block.");
 }
@@ -1866,6 +1941,45 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       llmMaxTokens: "1024",
       llmOutputFormat: "text"
     },
+    settings: [
+      {
+        key: "llmProvider",
+        name: "Brain",
+        whatItsFor: "Whose AI does the thinking — Claude, OpenAI, Mistral.",
+        type: "choice",
+        limits: { required: true },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "llmModel",
+        name: "Model",
+        whatItsFor: "Which of that brain's models to use.",
+        type: "choice",
+        limits: { required: true },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "llmInputIs",
+        name: "What is coming in",
+        whatItsFor: "Tell it what it is being handed, the way you would tell a person.",
+        type: "long text",
+        limits: { maxLength: 4000 },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "llmAnswerShouldBe",
+        name: "How the answer should be",
+        whatItsFor: "What you want back, and anything it must never do.",
+        type: "long text",
+        limits: { maxLength: 8000, required: true },
+        default: "",
+        whoFills: "architect"
+      }
+    ],
+
     requiredVariables: ["text"],
     // What it really returns, taken from the runs it has already done.
     producedVariables: ["text"]
@@ -1913,6 +2027,33 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
          exactly where somebody said their name and what they wanted. */
       maxMemoryTokens: "4000"
     },
+    settings: [
+      {
+        key: "customMemoryNotes",
+        name: "Always remember",
+        whatItsFor: "Things worth remembering every time, whatever else happened.",
+        type: "long text",
+        limits: { maxLength: 4000 },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "maxMemoryTokens",
+        name: "How much to keep",
+        whatItsFor: "How much it holds before it starts summarising to fit.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "1000", label: "Just the last few turns" },
+            { value: "4000", label: "The whole conversation" },
+            { value: "16000", label: "Everything, in detail" }
+          ]
+        },
+        default: "4000",
+        whoFills: "architect"
+      }
+    ],
+
     capability: "ai.memory",
     // Q3 — what just happened. Q4 — everything remembered so far.
     requiredVariables: ["text"],
@@ -2322,6 +2463,27 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
          than arithmetic. Empty for a plain rule, which never calls a model. */
       conditionQuestion: ""
     },
+    settings: [
+      {
+        key: "conditionQuestion",
+        name: "How it decides",
+        whatItsFor: "The one question it asks about whatever arrived.",
+        type: "long text",
+        limits: { maxLength: 500, required: true },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "conditionChoices",
+        name: "The roads out",
+        whatItsFor: "The names of the ways out. Anything else is always there and cannot be removed.",
+        type: "text",
+        limits: { maxLength: 40, repeats: true, required: true },
+        default: "Yes",
+        whoFills: "architect"
+      }
+    ],
+
     // Q3 — it needs something to look at, the same as any other node.
     requiredVariables: ["text"],
     /* Q4 — it does not hand on a value, it chooses a road. But the road it
@@ -2583,6 +2745,18 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     comingSoon: false,
     runtime: { nodeKind: "block" },
     defaultConfig: { placeholder: "Describe what you want…" },
+    settings: [
+      {
+        key: "placeholder",
+        name: "Hint text",
+        whatItsFor: "The faint words inside the box, before your customer types.",
+        type: "text",
+        limits: { maxLength: 120 },
+        default: "Describe what you want…",
+        whoFills: "architect"
+      }
+    ],
+
     producedVariables: ["text"]
   }),
   def({
@@ -2645,6 +2819,25 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     comingSoon: false,
     runtime: { nodeKind: "block" },
     defaultConfig: { kind: "auto" },
+    settings: [
+      {
+        key: "kind",
+        name: "How to show it",
+        whatItsFor: "Let it decide, or force words, a picture, or a file.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "auto", label: "Decide for me" },
+            { value: "text", label: "Words" },
+            { value: "image", label: "A picture" },
+            { value: "file", label: "A file to download" }
+          ]
+        },
+        default: "auto",
+        whoFills: "architect"
+      }
+    ],
+
     requiredVariables: ["text"],
     producedVariables: [],
     producesNothing: true

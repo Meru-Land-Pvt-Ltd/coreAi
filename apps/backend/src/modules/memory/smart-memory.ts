@@ -4,6 +4,7 @@ import { env } from "../../config/env";
 import { embedTexts, getLastEmbeddingError } from "../ai-provider-engine/embeddings";
 import { isPineconeConfigured, getPineconeIndex, formatTenantNamespace } from "../../lib/pinecone-client";
 import { buildSparseVector, prepareHybridQueryVectors } from "./sparse-encoder";
+import { getMemoryLimits } from "../admin/memory-limits";
 import {
   extractDocumentText,
   normalizeExtractedText,
@@ -261,8 +262,12 @@ export async function extractAttachmentText(att: MemoryAttachment): Promise<stri
     return att.data ? `[unreadable attachment: ${decoded.name}]` : "";
   }
 
-  if (decoded.bytes.length > 5 * 1024 * 1024) {
-    return `[attachment too large: ${decoded.name} - skipped]`;
+  /* The biggest file memory will try to read. It was 5 MB compiled into this
+     file until the admin Nodes page took ownership of it — reading a hundred
+     megabyte video into a text drawer costs real money and remembers nothing. */
+  const { biggestFileMb } = await getMemoryLimits().catch(() => ({ biggestFileMb: 5 }));
+  if (decoded.bytes.length > biggestFileMb * 1024 * 1024) {
+    return `[attachment too large: ${decoded.name} — over ${biggestFileMb} MB, skipped]`;
   }
 
   const textualMime =
@@ -368,16 +373,39 @@ export function buildTimelineSummary(records: TimelineRecord[], totalRecords: nu
       ? `[TIMELINE SUMMARY] (chronological overview sampled across all ${totalRecords} stored memory records)`
       : "[TIMELINE SUMMARY] (chronological overview of stored memory)";
 
+  /** A turn shorter than this comes back whole, never clipped. */
+  const wholeUnderWords = env.MEMORY_TIMELINE_WHOLE_UNDER_WORDS || 60;
+
   const lines: string[] = [];
   const alreadySaid = new Set<string>();
   let words = header.split(/\s+/).length;
 
-  for (const record of records) {
+  /*
+   * NEWEST FIRST, THEN PUT BACK IN ORDER.
+   *
+   * The budget used to be spent walking from the oldest record forward, so a
+   * long conversation kept its opening pleasantries and lost everything said
+   * in the last ten minutes — the exact opposite of what a person needs to
+   * answer the question in front of them. Newest wins the budget; the lines
+   * are flipped back into time order at the end so the story still reads
+   * forwards.
+   */
+  for (const record of [...records].reverse()) {
     const label = record.sourceLabel || record.sourceType;
 
     const contentWords = record.content.replace(/\s+/g, " ").trim().split(" ");
-    const snippet = contentWords.slice(0, snippetWordsLimit).join(" ");
-    const line = `• ${label}: ${snippet}${contentWords.length > snippetWordsLimit ? "…" : ""}`;
+    /*
+     * SHORT TURNS COME BACK WHOLE.
+     *
+     * Every line used to be cut to eighteen words. A customer's message is
+     * usually shorter than that limit is long, and short pieces are never
+     * embedded either (they are under the vector threshold) — so the clipped
+     * line was the ONLY way they could ever come back. Memory remembered the
+     * first eighteen words of a complaint and genuinely lost the rest.
+     */
+    const keepWords = contentWords.length <= wholeUnderWords ? contentWords.length : snippetWordsLimit;
+    const snippet = contentWords.slice(0, keepWords).join(" ");
+    const line = `• ${label}: ${snippet}${contentWords.length > keepWords ? "…" : ""}`;
 
     /*
      * Repeats are dropped by what they SAY, not by the label above them.
@@ -398,7 +426,8 @@ export function buildTimelineSummary(records: TimelineRecord[], totalRecords: nu
   }
 
   if (lines.length === 0) return "";
-  return `${header}\n${lines.join("\n")}`;
+  // Back into the order things actually happened.
+  return `${header}\n${lines.reverse().join("\n")}`;
 }
 
 export function buildVectorMemoryString(params: {
@@ -756,7 +785,12 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
   }): Promise<ResolvedSmartMemory> {
     const resolveStart = Date.now();
     try {
-      const topK = env.MEMORY_SEARCH_TOP_K || 10;
+      /* How much a brain may be handed per answer, and whether search by
+         meaning runs at all — both owned by the admin Nodes page, because both
+         are money on every answer of every agent. */
+      const limits = await getMemoryLimits().catch(() => null);
+      const topK = limits?.piecesPerAnswer || env.MEMORY_SEARCH_TOP_K || 10;
+      const searchOn = limits ? limits.searchByMeaning : true;
       const sampleLimit = env.MEMORY_TIMELINE_SAMPLE_LIMIT || 400;
 
       /*
@@ -769,7 +803,10 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
        * because the clever half of remembering was unavailable.
        */
       const [retrieved, timelineRecords, totalRecords] = await Promise.all([
-        deps.searchChunks(params.scopeKey, params.query, topK).catch((error: unknown) => {
+        (searchOn
+          ? deps.searchChunks(params.scopeKey, params.query, topK)
+          : Promise.resolve([] as StoredMemoryChunk[])
+        ).catch((error: unknown) => {
           console.log(
             `[WORKFLOW_PERF] [SmartMemory Search Unavailable] reason="${error instanceof Error ? error.message : "unknown"}" — the timeline still stands`
           );

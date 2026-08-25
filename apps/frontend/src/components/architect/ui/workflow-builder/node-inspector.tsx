@@ -31,7 +31,8 @@ import {
   type SalesTuningControl,
   OUTBOUND_CALL_NODE_TYPE,
   SCHEDULE_NODE_TYPE,
-  WEBHOOK_NODE_TYPE
+  WEBHOOK_NODE_TYPE,
+  nodeSettingChoices
 } from "@coreai/shared";
 import { useState, useEffect, type ReactNode } from "react";
 import { VoicePicker } from "@/components/common/voice-picker";
@@ -3553,11 +3554,10 @@ function CalendlyTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel
 function MemoryNodeProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
 
-  const KEEP = [
-    { value: "1000", label: "Just the last few turns" },
-    { value: "4000", label: "The whole conversation" },
-    { value: "16000", label: "Everything, in detail" }
-  ];
+  /* The choices come from the node's own declaration (question 5 of the SOP),
+     not from a list typed again here. One fact, one home — the panel, the
+     Composer and the admin Nodes page all read the same line. */
+  const KEEP = nodeSettingChoices("ai.memory", "maxMemoryTokens");
 
   return (
     <>

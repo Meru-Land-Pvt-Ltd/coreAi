@@ -5715,16 +5715,69 @@ async function runMemoryNodeInRunner({
     });
   }
 
+  /*
+   * IT MUST BE ABLE TO SAY "I DID NOTHING".
+   *
+   * The SOP's sixth question asks for this by name, and Memory could not: it
+   * reported success and said "Remembered what has happened so far" even when
+   * there was nothing whatsoever to remember. An architect watching a run saw a
+   * green line and believed the node was working, which is the most expensive
+   * kind of wrong on this platform.
+   */
+  if (!smartMemory.storedRecords && NOTHING_YET.test(smartMemory.memory)) {
+    logs.push(createLog(node, "skipped", "There was nothing to remember yet."));
+    return;
+  }
+
+  /*
+   * WHAT AN ARCHITECT NEEDS TO SEE.
+   *
+   * Not "success". Whether the drawer is filling up, and whether anything was
+   * turned away at the door — because those are the two moments where a second
+   * Memory node, or a smaller scope, is the right answer, and nothing on the
+   * screen has ever said so.
+   */
+  const turnedAway = countTurnedAway(attachments);
+  const facts: string[] = [];
+  if (shortened) facts.push("it was full, so it was shortened to keep the facts and drop the small talk");
+  if (turnedAway) facts.push(`${turnedAway} ${turnedAway === 1 ? "file" : "files"} could not be remembered`);
+
   logs.push(
     createLog(
       node,
       "success",
-      shortened
-        ? "Remembered what has happened so far, shortened to keep the facts and drop the small talk."
+      facts.length
+        ? `Remembered what has happened so far — ${facts.join(", and ")}.`
         : "Remembered what has happened so far.",
-      { memory: compactMemoryText }
+      {
+        memory: compactMemoryText,
+        /* Read by the builder so the node itself can show its state, rather
+           than the architect having to open a run log to find out. */
+        memoryState: {
+          pieces: smartMemory.storedRecords,
+          shortened: Boolean(shortened),
+          turnedAway
+        }
+      }
     )
   );
+}
+
+/** A memory with nothing in it says so in exactly these words. */
+const NOTHING_YET = /\(No prior step history or documents stored\)/;
+
+/**
+ * Files memory could not read: a picture, a video, anything over 5 MB.
+ *
+ * Counted rather than named here because the names are already in the record
+ * itself; what the architect needs on the canvas is that something was turned
+ * away at all.
+ */
+function countTurnedAway(attachments: Array<{ name?: string; mimeType?: string; data?: string }>): number {
+  return attachments.filter((att) => {
+    const mime = (att?.mimeType ?? "").toLowerCase();
+    return mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/");
+  }).length;
 }
 
 /* ------------------------------------------------------------------------ */

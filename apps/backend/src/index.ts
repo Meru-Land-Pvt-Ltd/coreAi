@@ -1,3 +1,4 @@
+import { startMemoryRetentionWorker, stopMemoryRetentionWorker } from "./modules/memory/retention-worker";
 import { serve } from "@hono/node-server";
 import { env } from "./config/env";
 import { app } from "./app";
@@ -53,6 +54,9 @@ const server = serve(
     frameRefresh = startArchitectFrameRefresh();
     // Explains faults nobody has explained yet. Costs nothing while things work.
     startSelfHealingWorker();
+    // Forgets on purpose: memory older than the admin's limit is deleted daily.
+    // Off unless an admin sets a limit — keep-forever remains the default.
+    startMemoryRetentionWorker();
     // [DISABLED:non-handoff] reminder + retention workers and quality sweep.
     // startReminderWorker();
     // startRetentionSweepWorker();
@@ -92,6 +96,7 @@ async function shutdown(signal: string) {
   stopEarningReleaseWorker();
   stopScheduleWorker();
   stopConnectorHealthWorker();
+  stopMemoryRetentionWorker();
   if (frameRefresh) clearInterval(frameRefresh);
   stopSelfHealingWorker();
   // [DISABLED:non-handoff]

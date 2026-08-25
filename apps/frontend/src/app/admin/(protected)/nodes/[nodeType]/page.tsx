@@ -25,10 +25,12 @@ import {
 } from "@/components/admin/features/api";
 import { nodeSettingsPage } from "@/components/admin/features/node-settings-pages";
 import { AiBrainModels } from "@/components/admin/features/node-settings/ai-brain-models";
+import { MemoryLimitsPanel } from "@/components/admin/features/node-settings/memory-limits";
 
 /** The settings panel for this node, if it has one. */
 function SettingsFor({ nodeType }: { nodeType: string }) {
   if (nodeType === "ai.llm_call") return <AiBrainModels />;
+  if (nodeType === "ai.memory") return <MemoryLimitsPanel />;
   return null;
 }
 

@@ -198,6 +198,8 @@ const envSchema = z.object({
   MEMORY_TIMELINE_MAX_WORDS: z.coerce.number().int().positive().default(500),
   MEMORY_TIMELINE_SAMPLE_LIMIT: z.coerce.number().int().positive().default(400),
   MEMORY_TIMELINE_SNIPPET_WORDS: z.coerce.number().int().positive().default(18),
+  /** A turn shorter than this comes back whole rather than clipped. */
+  MEMORY_TIMELINE_WHOLE_UNDER_WORDS: z.coerce.number().int().positive().default(60),
   MEMORY_CHUNK_TARGET_CHARS: z.coerce.number().int().positive().default(2000),
   MEMORY_CHUNK_MAX_CHARS: z.coerce.number().int().positive().default(2500),
 

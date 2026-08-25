@@ -25,6 +25,10 @@ export const NODE_SETTINGS_PAGES: Record<string, NodeSettingsPage> = {
   "ai.llm_call": {
     title: "Models",
     summary: "Which AI models architects can pick, and adding new ones without a release."
+  },
+  "ai.memory": {
+    title: "Limits",
+    summary: "How long memory is kept, how much a brain reads per answer, and the biggest file it will read."
   }
 };
 

@@ -815,3 +815,25 @@ export function patchLlmModel(
     patch
   );
 }
+
+/* --------------------------- Memory: the limits --------------------------- */
+
+export type MemoryLimits = {
+  /** Days before a stored memory is deleted. 0 = keep forever. */
+  keepForDays: number;
+  biggestFileMb: number;
+  piecesPerAnswer: number;
+  searchByMeaning: boolean;
+};
+
+export function getMemoryLimits() {
+  return apiGet<{
+    memoryLimits: MemoryLimits;
+    defaults: MemoryLimits;
+    bounds: Record<string, { min: number; max: number }>;
+  }>("/admin/memory-limits");
+}
+
+export function saveMemoryLimits(limits: MemoryLimits) {
+  return apiPatch<{ memoryLimits: MemoryLimits }>("/admin/memory-limits", limits);
+}

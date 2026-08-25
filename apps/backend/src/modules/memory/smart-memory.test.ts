@@ -385,6 +385,37 @@ describe("the timeline keeps every turn", () => {
     expect(timeline).toContain("Wednesday");
   });
 
+  test("a short turn comes back whole, not clipped to eighteen words", () => {
+    /*
+     * Every line used to be cut at eighteen words, and short pieces are never
+     * embedded either — so the clipped line was the ONLY way a customer's
+     * message could come back. Memory kept the first eighteen words of a
+     * complaint and genuinely lost the rest.
+     */
+    const complaint =
+      "latestMessage: my crown fell out on Sunday evening and nobody has called me back since, " +
+      "and I have now taken two days off work waiting for you";
+    const timeline = buildTimelineSummary([makeTimelineRecord({ sourceLabel: "Key variables", content: complaint })], 1);
+    expect(timeline).toContain("two days off work");
+    expect(timeline).not.toContain("…");
+  });
+
+  test("when the budget runs out, the newest turns are the ones kept", () => {
+    // Spent oldest-first, a long conversation kept its opening pleasantries and
+    // lost the last ten minutes — the opposite of what answers the question in
+    // front of you.
+    const records = Array.from({ length: 300 }, (_, i) =>
+      makeTimelineRecord({
+        sourceLabel: "Key variables",
+        content: `turn ${i} ${"filler ".repeat(20)}`,
+        createdAt: new Date(Date.UTC(2026, 0, 1 + i))
+      })
+    );
+    const timeline = buildTimelineSummary(records, 300);
+    expect(timeline).toContain("turn 299");
+    expect(timeline).not.toContain("turn 0 ");
+  });
+
   test("the same line twice is still only said once", () => {
     const line = { sourceLabel: "Key variables", content: "latestMessage: hello" };
     const timeline = buildTimelineSummary([makeTimelineRecord(line), makeTimelineRecord(line)], 2);
