@@ -21,7 +21,8 @@ const PERFECTED = [
   "logic.condition",
   "ai.memory",
   "logic.loop",
-  "block.file_upload"
+  "block.file_upload",
+  "trigger.schedule"
 ] as const;
 
 describe("the nodes we have finished answer question 5", () => {

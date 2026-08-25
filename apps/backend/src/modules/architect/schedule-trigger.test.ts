@@ -130,3 +130,16 @@ describe("scheduleNodesOf", () => {
     expect(scheduleNodesOf({ nodes: [{ id: "a", data: { type: "trigger.manual" } }], edges: [] })).toEqual([]);
   });
 });
+
+describe("the admin's floor under every Timer", () => {
+  it("an hourly clock cannot tick faster than the floor", () => {
+    const after = new Date("2026-08-25T10:00:00Z");
+    const next = computeNextRunAt(
+      { cadence: "hourly", hourLocal: 0, minuteLocal: 0, weekdayLocal: null, timeZone: "UTC" },
+      after,
+      120
+    );
+    // The architect asked for hourly; the admin said two hours; two hours wins.
+    expect(next.getTime() - after.getTime()).toBe(120 * 60_000);
+  });
+});

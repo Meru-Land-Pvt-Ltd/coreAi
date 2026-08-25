@@ -29,6 +29,7 @@ import { MemoryLimitsPanel } from "@/components/admin/features/node-settings/mem
 import { ConditionLimitsPanel } from "@/components/admin/features/node-settings/condition-limits";
 import { LoopLimitsPanel } from "@/components/admin/features/node-settings/loop-limits";
 import { FileUploadLimitsPanel } from "@/components/admin/features/node-settings/file-upload-limits";
+import { TimerLimitsPanel } from "@/components/admin/features/node-settings/timer-limits";
 
 /** The settings panel for this node, if it has one. */
 function SettingsFor({ nodeType }: { nodeType: string }) {
@@ -37,6 +38,7 @@ function SettingsFor({ nodeType }: { nodeType: string }) {
   if (nodeType === "logic.condition") return <ConditionLimitsPanel />;
   if (nodeType === "logic.loop") return <LoopLimitsPanel />;
   if (nodeType === "block.file_upload") return <FileUploadLimitsPanel />;
+  if (nodeType === "trigger.schedule") return <TimerLimitsPanel />;
   return null;
 }
 

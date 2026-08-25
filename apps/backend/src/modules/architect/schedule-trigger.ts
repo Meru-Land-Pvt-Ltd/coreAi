@@ -13,6 +13,7 @@ import { checkUsageCapAndNotify } from "../business/usage-cap";
 import { isInstalledAgentActivityPaused } from "./twilio-business-routing";
 import { parseRunnerWorkflowJson, runWorkflowTest } from "./workflow-runner";
 import { syncWebhookEndpointsForInstalledAgent } from "../webhooks/inbound-webhook";
+import { getTimerFloorMinutes } from "../admin/node-limits";
 
 /**
  * THE TIMER — the first way an agent starts with no human present.
@@ -63,7 +64,7 @@ type CadenceInput = {
  * the arithmetic is done on the calendar and converted, never by adding 24
  * hours — that would drift by an hour twice a year across a DST change.
  */
-export function computeNextRunAt(schedule: CadenceInput, after: Date): Date {
+export function computeNextRunAt(schedule: CadenceInput, after: Date, floorMinutes = SCHEDULE_MIN_INTERVAL_MINUTES): Date {
   // A stored zone can be junk (old row, hand-edited profile, renamed zone).
   // Intl throws on an unknown zone, and a throw inside the sweep would stop
   // every OTHER business's clock too — so an unusable zone quietly becomes the
@@ -75,7 +76,9 @@ export function computeNextRunAt(schedule: CadenceInput, after: Date): Date {
   if (cadence === "hourly") {
     // The floor between runs is one hour: a tighter clock multiplies model
     // spend with nobody watching the bill.
-    const next = new Date(after.getTime() + SCHEDULE_MIN_INTERVAL_MINUTES * 60_000);
+    /* The floor is the admin's dial now, never below the shipped hour by
+       default — an agent waking every minute is a bill nobody watches. */
+    const next = new Date(after.getTime() + floorMinutes * 60_000);
     next.setUTCSeconds(0, 0);
     return next;
   }
@@ -148,6 +151,7 @@ export function scheduleNodesOf(workflowJson: unknown): Array<{
  * does stop the agent.
  */
 export async function syncSchedulesForInstalledAgent(installedAgentId: string): Promise<void> {
+  const adminFloor = await getTimerFloorMinutes().catch(() => SCHEDULE_MIN_INTERVAL_MINUTES);
   const agent = await prisma.installedAgent.findUnique({
     where: { id: installedAgentId },
     select: {
@@ -179,7 +183,7 @@ export async function syncSchedulesForInstalledAgent(installedAgentId: string): 
   }
 
   for (const node of nodes) {
-    const nextRunAt = computeNextRunAt({ ...node, timeZone }, now);
+    const nextRunAt = computeNextRunAt({ ...node, timeZone }, now, adminFloor);
     await prisma.scheduledAgentRun.upsert({
       where: { installedAgentId_nodeId: { installedAgentId: agent.id, nodeId: node.nodeId } },
       create: {
@@ -251,6 +255,7 @@ export async function syncSchedulesForWorkflow(workflowId: string): Promise<void
  * time. `now` is injectable so the behaviour is testable without waiting.
  */
 export async function runScheduleSweep(now: Date = new Date()): Promise<{ claimed: number; ran: number }> {
+  const adminFloor = await getTimerFloorMinutes().catch(() => SCHEDULE_MIN_INTERVAL_MINUTES);
   const due = await prisma.scheduledAgentRun.findMany({
     where: { status: "ACTIVE", nextRunAt: { lte: now } },
     orderBy: { nextRunAt: "asc" },
@@ -276,7 +281,7 @@ export async function runScheduleSweep(now: Date = new Date()): Promise<{ claime
 
   for (const row of due) {
     const dueAt = row.nextRunAt;
-    const nextRunAt = computeNextRunAt(row, now);
+    const nextRunAt = computeNextRunAt(row, now, adminFloor);
 
     // The claim IS the lock: only the sweep that still sees the old nextRunAt
     // wins, so a second instance (or an overlapping tick) does nothing.

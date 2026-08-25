@@ -41,6 +41,10 @@ export const NODE_SETTINGS_PAGES: Record<string, NodeSettingsPage> = {
   "block.file_upload": {
     title: "Limits",
     summary: "Whether customers may hand agents pictures, and the biggest file the platform reads."
+  },
+  "trigger.schedule": {
+    title: "Limits",
+    summary: "The fastest any agent may wake itself — the platform's floor under every Timer."
   }
 };
 

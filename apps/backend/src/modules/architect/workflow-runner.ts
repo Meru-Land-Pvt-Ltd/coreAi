@@ -1929,13 +1929,18 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
   // the bottom and logs a red "Missing caller phone number" on a run that was
   // in fact perfectly fine.
   if (asString(node.data?.type) === SCHEDULE_NODE_TYPE) {
-    logs.push(
-      createLog(node, "success", "Timer fired.", {
-        cadence: context.schedule?.cadence ?? asString(node.data?.cadence, "daily"),
-        timeZone: context.schedule?.timeZone ?? asString(node.data?.timeZone, ""),
-        dueAt: context.schedule?.dueAt ?? new Date().toISOString()
-      })
-    );
+    /* The Timer's door out, written as declared: when and why it fired, so a
+       later step can say "your Monday report" without guessing — and so the
+       honesty check sees the promise kept rather than an empty hand. */
+    context.schedule = {
+      scheduleId: context.schedule?.scheduleId ?? "preview",
+      nodeId: context.schedule?.nodeId ?? node.id,
+      cadence: context.schedule?.cadence ?? asString(node.data?.cadence, "daily"),
+      timeZone: context.schedule?.timeZone ?? asString(node.data?.timeZone, ""),
+      dueAt: context.schedule?.dueAt ?? new Date().toISOString()
+    };
+    (context as Record<string, unknown>)["schedule"] = context.schedule;
+    logs.push(createLog(node, "success", "Timer fired.", context.schedule));
     return;
   }
 

@@ -869,3 +869,13 @@ export function getFileUploadLimits() {
 export function saveFileUploadLimits(imagesAllowed: boolean) {
   return apiPatch<{ imagesAllowed: boolean }>("/admin/file-upload-limits", { imagesAllowed });
 }
+
+/* ------------------------------ Timer: the floor --------------------------- */
+
+export function getTimerLimits() {
+  return apiGet<{ floorMinutes: number; default: number; bounds: { min: number; max: number } }>("/admin/timer-limits");
+}
+
+export function saveTimerLimits(floorMinutes: number) {
+  return apiPatch<{ floorMinutes: number }>("/admin/timer-limits", { floorMinutes });
+}

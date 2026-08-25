@@ -3023,7 +3023,94 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     runtime: { nodeKind: "connector" }
   }),
   def({ type: "trigger.call_list", label: "Call this list", category: "trigger", description: "Works through a list of people one at a time — rings them, waits, tries again, and remembers who picked up.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
-  def({ type: "trigger.schedule", label: "On a schedule", category: "trigger", description: "Runs by itself — every hour, every day, or every week.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" } }),
+  /* NODE 008 — THE TIMER. The last core stone.
+     Seven nodes made a complete machine that still only ever acted when spoken
+     to. The clock is what turned computers from tools into workers — the
+     machine that acts when nobody is there. The founder named it, and closed
+     the set: in, out, think, choose, remember, repeat, receive, and now wake
+     by itself. Everything after this is a Hand. */
+  def({
+    type: "trigger.schedule",
+    label: "Timer",
+    category: "trigger",
+    description: "Wakes your agent by itself — every hour, every day, or every week. Nobody presses anything.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "trigger" },
+    /* Q3: nothing — time itself is the caller. Q4: when and why it fired, so a
+       later step can say "your Monday report" without guessing the day. */
+    requiredVariables: [],
+    producedVariables: ["schedule"],
+    defaultConfig: {
+      cadence: "daily",
+      weekday: "1",
+      hour: "9",
+      minute: "0"
+    },
+    settings: [
+      {
+        key: "cadence",
+        name: "Runs",
+        whatItsFor: "How often the agent wakes by itself.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "hourly", label: "Every hour" },
+            { value: "daily", label: "Every day" },
+            { value: "weekly", label: "Every week" }
+          ]
+        },
+        default: "daily",
+        whoFills: "architect"
+      },
+      {
+        key: "weekday",
+        name: "On",
+        whatItsFor: "Which day, when it runs weekly.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "1", label: "Monday" },
+            { value: "2", label: "Tuesday" },
+            { value: "3", label: "Wednesday" },
+            { value: "4", label: "Thursday" },
+            { value: "5", label: "Friday" },
+            { value: "6", label: "Saturday" },
+            { value: "0", label: "Sunday" }
+          ]
+        },
+        default: "1",
+        whoFills: "architect"
+      },
+      {
+        key: "hour",
+        name: "Hour",
+        whatItsFor: "The hour it wakes, on the business's own clock once installed.",
+        type: "number",
+        limits: { min: 0, max: 23 },
+        default: "9",
+        whoFills: "architect"
+      },
+      {
+        key: "minute",
+        name: "Minute",
+        whatItsFor: "The minute past the hour.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "0", label: ":00" },
+            { value: "15", label: ":15" },
+            { value: "30", label: ":30" },
+            { value: "45", label: ":45" }
+          ]
+        },
+        default: "0",
+        whoFills: "architect"
+      }
+    ]
+  }),
 
   // ---- C. Later advanced nodes (coming soon) ----
 ];
@@ -3529,7 +3616,7 @@ const PRODUCES_BY_TYPE: Record<string, string[] | null> = {
 
   "trigger.manual": null,
   // Fires on a clock. What happens next is the next step's business.
-  [SCHEDULE_NODE_TYPE]: null,
+  [SCHEDULE_NODE_TYPE]: ["schedule"],
   // Branches the flow. The branch it took is in the run, not in an output.
   /* It chooses a road rather than handing on a value — but which road, and one
      line of why, are worth having. See the definition above. */

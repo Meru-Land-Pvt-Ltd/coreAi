@@ -38,7 +38,7 @@ const HAND_WRITTEN_CATALOG: ArchitectNodeCatalogItem[] = [
   { type: "trigger.whatsapp_message_received", group: "Triggers", label: "WhatsApp message", defaultVisible: true },
   { type: "trigger.calendly", group: "Triggers", label: "Calendly booking", defaultVisible: true },
   { type: "trigger.manual", group: "Triggers", label: "Start here", defaultVisible: true },
-  { type: "trigger.schedule", group: "Triggers", label: "On a schedule", defaultVisible: true },
+  { type: "trigger.schedule", group: "Triggers", label: "Timer", defaultVisible: true },
   { type: "action.start_vapi_call", group: "Actions", label: "Call this person", defaultVisible: true },
   { type: "tool.node_frame", group: "Actions", label: "New connection", defaultVisible: true },
   { type: "logic.script", group: "Actions", label: "Code", defaultVisible: true },

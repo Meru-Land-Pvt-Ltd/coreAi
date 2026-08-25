@@ -49,6 +49,10 @@ import {
   getConditionRoadLimit,
   getFileUploadImagesAllowed,
   getLoopRoundLimit,
+  getTimerFloorMinutes,
+  saveTimerFloorMinutes,
+  DEFAULT_TIMER_FLOOR_MINUTES,
+  TIMER_FLOOR_BOUNDS,
   saveConditionRoadLimit,
   saveFileUploadImagesAllowed,
   saveLoopRoundLimit
@@ -408,6 +412,36 @@ adminRoutes.patch("/design-rules", async (c) => {
     { rules: { ...rules, defaultValue: DEFAULT_DESIGN_BRAIN_RULES }, ...result },
     result.restoredDefault ? "Default rules restored" : "Design Brain rules saved"
   );
+});
+
+/* ------------------------------ Timer: the floor --------------------------- */
+
+/** The fastest any agent may wake itself — the platform-wide floor. */
+adminRoutes.get("/timer-limits", async (c) => {
+  return successResponse(c, {
+    floorMinutes: await getTimerFloorMinutes(),
+    default: DEFAULT_TIMER_FLOOR_MINUTES,
+    bounds: TIMER_FLOOR_BOUNDS
+  });
+});
+
+adminRoutes.patch("/timer-limits", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = z
+    .object({ floorMinutes: z.coerce.number().int().min(TIMER_FLOOR_BOUNDS.min).max(TIMER_FLOOR_BOUNDS.max) })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, `Pick between ${TIMER_FLOOR_BOUNDS.min} minutes and a day.`, 422, "VALIDATION_ERROR");
+  }
+  const saved = await saveTimerFloorMinutes(parsed.data.floorMinutes, authUser.id);
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "TIMER_FLOOR_UPDATED",
+    targetType: "NODE",
+    targetId: "trigger.schedule",
+    meta: { floorMinutes: saved }
+  });
+  return successResponse(c, { floorMinutes: saved });
 });
 
 /* ------------------------------ Loop: the rounds --------------------------- */

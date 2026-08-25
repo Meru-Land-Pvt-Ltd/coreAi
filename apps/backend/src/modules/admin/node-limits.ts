@@ -158,3 +158,51 @@ export async function saveLoopRoundLimit(value: number, updatedByUserId: string)
   invalidateLoopLimitCache();
   return safe;
 }
+
+/* ------------------------------ Timer: the floor --------------------------- */
+
+export const TIMER_FLOOR_KEY = "timerFloorMinutes";
+
+/** Sixty: the shipped floor. An agent waking every minute is a bill nobody
+ *  watches; an admin can tighten to 15 for a trusted platform, never below. */
+export const DEFAULT_TIMER_FLOOR_MINUTES = 60;
+export const TIMER_FLOOR_BOUNDS = { min: 15, max: 1440 } as const;
+
+let cachedFloor: number | null = null;
+let cachedFloorAt = 0;
+
+export function invalidateTimerFloorCache(): void {
+  cachedFloor = null;
+  cachedFloorAt = 0;
+}
+
+export async function getTimerFloorMinutes(): Promise<number> {
+  if (cachedFloor !== null && Date.now() - cachedFloorAt < CACHE_TTL_MS) return cachedFloor;
+  try {
+    const row = await prisma.platformApiSetting.findUnique({
+      where: { key: TIMER_FLOOR_KEY },
+      select: { valueEncrypted: true }
+    });
+    const value = row ? Number(row.valueEncrypted) : DEFAULT_TIMER_FLOOR_MINUTES;
+    cachedFloor = Number.isFinite(value)
+      ? Math.min(TIMER_FLOOR_BOUNDS.max, Math.max(TIMER_FLOOR_BOUNDS.min, Math.round(value)))
+      : DEFAULT_TIMER_FLOOR_MINUTES;
+    cachedFloorAt = Date.now();
+    return cachedFloor;
+  } catch {
+    return cachedFloor ?? DEFAULT_TIMER_FLOOR_MINUTES;
+  }
+}
+
+export async function saveTimerFloorMinutes(value: number, updatedByUserId: string): Promise<number> {
+  const safe = Number.isFinite(value)
+    ? Math.min(TIMER_FLOOR_BOUNDS.max, Math.max(TIMER_FLOOR_BOUNDS.min, Math.round(value)))
+    : DEFAULT_TIMER_FLOOR_MINUTES;
+  await prisma.platformApiSetting.upsert({
+    where: { key: TIMER_FLOOR_KEY },
+    update: { valueEncrypted: String(safe), secret: false, updatedByUserId },
+    create: { key: TIMER_FLOOR_KEY, valueEncrypted: String(safe), secret: false, updatedByUserId }
+  });
+  invalidateTimerFloorCache();
+  return safe;
+}
