@@ -57,6 +57,11 @@ export function WorkflowBuilderStyles() {
       .core-port.react-flow__handle:hover { transform: translate(-50%, -50%) scale(1.4) !important; box-shadow: 0 0 0 4px rgba(99,102,241,.18), 0 2px 5px rgba(0,0,0,.25); }
       .core-port.react-flow__handle-bottom:hover { transform: translate(-50%, 50%) scale(1.4) !important; }
 
+      /* The cross that cuts a wire lives in the edge label layer. Without this
+         it paints UNDER the steps, and the middle of a wire is very often
+         directly behind one — a cross you can see and cannot click. */
+      .react-flow__edgelabel-renderer { z-index: 1200; }
+
       .workflow-edge path.react-flow__edge-path {
         stroke-dasharray: 6 7;
         animation: core-edge-flow 1s linear infinite;

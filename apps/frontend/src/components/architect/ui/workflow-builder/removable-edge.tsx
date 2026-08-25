@@ -104,7 +104,11 @@ export function RemovableEdge({
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
             pointerEvents: "all",
             opacity: showCut ? 1 : 0,
-            transition: "opacity .12s ease"
+            transition: "opacity .12s ease",
+            /* Above the steps. The middle of a wire is very often underneath a
+               node — two steps in a column put it directly behind the lower one
+               — and a cross you can see but cannot click is worse than none. */
+            zIndex: 1200
           }}
           className="flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-slate-400 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
         >
