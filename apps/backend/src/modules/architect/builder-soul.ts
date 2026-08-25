@@ -47,7 +47,9 @@ export const SOUL_COVERED_TYPES = [
   "action.calendly",
   "trigger.webhook",
   "action.api_call",
-  "tool.node_frame"
+  "tool.node_frame",
+  "trigger.whatsapp_message_received",
+  "action.send_whatsapp"
 ] as const;
 
 export type SoulPage = {
@@ -448,6 +450,35 @@ An unfilled frame refuses honestly at run time — it never pretends. Use it
 when a service will be used more than once; use Connect to a service for a
 one-off call. Keys typed into a frame are stored encrypted and never shown
 again — the two security guards every frame is born with.`
+  },
+  {
+    slug: "18-whatsapp-ear",
+    nodeType: "trigger.whatsapp_message_received",
+    title: "WhatsApp received — the second ear",
+    body: `Wakes the agent when a WhatsApp message arrives on the connected number.
+The sender's words travel on as text exactly like the mail ear's, so
+Conditions sort them and Brains read them with no wiring tricks; the sender
+rides as contact.name and contact.phone.
+
+Same laws as the mail ear: in builder tests the message is a sample and the
+log says so; live messages arrive from the connected number by themselves.
+Reply on the channel they arrived on — a WhatsApp customer gets a WhatsApp
+answer, through Send WhatsApp. Group chats are ignored by default; an agent
+answering into a group is rarely wanted.`
+  },
+  {
+    slug: "18b-whatsapp-hand",
+    nodeType: "action.send_whatsapp",
+    title: "Send WhatsApp — the second voice",
+    body: `Replies on WhatsApp — usually to the person who just messaged, whose
+number is already in the conversation, so Send to fills itself. The Brain's
+answer is the message; the Words box is for a fixed line when no Brain
+writes one.
+
+Dry runs never send and say so. The same channel law as everywhere: this
+hand answers people who wrote on WhatsApp — never a stranger on a channel
+they did not use. The WhatsApp ear plus Brain plus this hand is the
+answering machine in its second language.`
   },
   {
     slug: "99-combinations",

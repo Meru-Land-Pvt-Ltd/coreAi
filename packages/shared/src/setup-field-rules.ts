@@ -104,6 +104,10 @@ export const SETUP_FIELD_RULES: SetupFieldRulesConfig = {
       deepgramTest: true
     },
     "trigger.manual": {},
+    /* Checked: the WhatsApp connection is the architect's today; buyer-scoped
+       connections are written but switched off (see the morning list). */
+    "trigger.whatsapp_message_received": {},
+    "action.send_whatsapp": {},
     /* Checked, nothing to fill: the private link is minted at go-live. */
     "trigger.webhook": {},
     /* Checked: the architect's key rides the node; buyer keys come from the

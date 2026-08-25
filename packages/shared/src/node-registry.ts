@@ -1784,6 +1784,41 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       ignoreGroups: "true",
       ignoreStatusMessages: "true"
     },
+    /* 019 — the WhatsApp ear, question 5 answered (2026-08-25 night order). */
+    settings: [
+      {
+        key: "listenFor",
+        name: "Listens to",
+        whatItsFor: "Which messages wake the agent.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "all", label: "Everything" },
+            { value: "text", label: "Text only" }
+          ]
+        },
+        default: "all",
+        whoFills: "architect"
+      },
+      {
+        key: "ignoreGroups",
+        name: "Group chats",
+        whatItsFor: "Off means group messages are ignored — an agent answering into a group is rarely wanted.",
+        type: "on/off",
+        limits: {},
+        default: "true",
+        whoFills: "architect"
+      },
+      {
+        key: "whatsappConnection",
+        name: "Whose WhatsApp",
+        whatItsFor: "The connected WhatsApp number this ear listens on — connected once, not typed.",
+        type: "text",
+        limits: {},
+        default: "",
+        whoFills: "business"
+      }
+    ],
     capability: "trigger.whatsapp",
     requiredVariables: [],
     producedVariables: [
@@ -2452,11 +2487,12 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     requiredVariables: [],
     producedVariables: [API_CALL_DEFAULT_OUTPUT_KEY, `${API_CALL_DEFAULT_OUTPUT_KEY}_error`]
   }),
+  /* 019b — the WhatsApp hand, question 5 answered (2026-08-25 night order). */
   def({
     type: "action.send_whatsapp",
     label: "Send WhatsApp",
     category: "action",
-    description: "Sends a WhatsApp text message via Meta Cloud API.",
+    description: "Replies on WhatsApp — usually to the person who just messaged.",
     requiredConfig: ["connectionId", "recipient"],
     backendExecutable: true,
     launchCritical: false,
@@ -2474,6 +2510,35 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       templateName: "",
       languageCode: "en_US"
     },
+    settings: [
+      {
+        key: "recipient",
+        name: "Send to",
+        whatItsFor: "Usually the person who just messaged — filled in from the conversation by itself.",
+        type: "text",
+        limits: { required: true },
+        default: "{{contact.phone}}",
+        whoFills: "architect"
+      },
+      {
+        key: "message",
+        name: "Words",
+        whatItsFor: "What to say. Leave the Brain's answer in charge by keeping it simple.",
+        type: "long text",
+        limits: { maxLength: 4000 },
+        default: "Hello {{contact.name}}",
+        whoFills: "architect"
+      },
+      {
+        key: "whatsappConnection",
+        name: "Whose WhatsApp",
+        whatItsFor: "The connected WhatsApp number this hand sends from — connected once, not typed.",
+        type: "text",
+        limits: {},
+        default: "",
+        whoFills: "business"
+      }
+    ],
     capability: "whatsapp.send",
     requiredVariables: ["contact.phone"],
     producedVariables: ["whatsapp.status", "whatsapp.wamid"]

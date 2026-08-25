@@ -34,7 +34,9 @@ const PERFECTED = [
   "action.calendly",
   "trigger.webhook",
   "action.api_call",
-  "tool.node_frame"
+  "tool.node_frame",
+  "trigger.whatsapp_message_received",
+  "action.send_whatsapp"
 ] as const;
 
 describe("the nodes we have finished answer question 5", () => {

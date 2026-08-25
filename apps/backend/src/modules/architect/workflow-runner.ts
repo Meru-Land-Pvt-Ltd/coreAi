@@ -2249,12 +2249,14 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
       return;
     }
 
+    const whatsappIsSample = !context.whatsapp?.message?.id;
     logs.push(
-      createLog(node, "success", "WhatsApp message received.", {
+      createLog(node, "success", `WhatsApp message received.${whatsappIsSample ? " (sample — live messages arrive from the connected number by themselves)" : ""}`, {
         connectionId,
         contact: context.contact ?? context.whatsapp?.contact ?? { name: context.caller_name ?? null, phone: contactPhone },
         message: context.message ?? context.whatsapp?.message ?? { id: "dry-run", type: "text", text: messageText, mediaUrl: null },
-        timestamp: context.whatsapp?.timestamp ?? new Date().toISOString()
+        timestamp: context.whatsapp?.timestamp ?? new Date().toISOString(),
+        ...(whatsappIsSample ? { sample: true } : {})
       })
     );
     return;
