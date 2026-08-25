@@ -59,19 +59,20 @@ describe("library groups (Face / Brain / Hands)", () => {
     ]);
   });
 
-  it("keeps every pre-regroup item plus API Call, Timer, Webhook, the outbound call, the call list, the Node Frame and Code (37 total)", () => {
+  it("keeps every pre-regroup item plus API Call, Timer, Webhook, the outbound call, the call list, the Node Frame, Code, the Loop and File Upload (39 total)", () => {
     const testIds = libraryGroups.flatMap((group) => group.items.map((item) => item.testId));
     // The three ways IN (timer, webhook, call list) and the outbound call node
     // joined the Hands group; the old Design Brain card left with the Smart
     // Designer. The Code card left with the unsandboxed runner behind it and has
     // now come back, because there is finally a container to run it in.
-    expect(testIds).toHaveLength(37);
+    expect(testIds).toHaveLength(39);
 
     // Face: all block.* — the old Design Brain card is retired (the Smart
     // Designer generates and fixes the interface now).
     const faceIds = libraryGroups[0].items.map((item) => item.testId);
     expect(faceIds).toEqual([
       tid(BLOCK_NODE_TYPES.promptComposer),
+      tid("block.file_upload"),
       tid(BLOCK_NODE_TYPES.presetGallery),
       tid(BLOCK_NODE_TYPES.modelPicker),
       tid(BLOCK_NODE_TYPES.actionButton),
@@ -90,7 +91,8 @@ describe("library groups (Face / Brain / Hands)", () => {
       tid(DEEPGRAM_NODE_TYPES.stt),
       tid(DEEPGRAM_NODE_TYPES.tts),
       "library-ai-llm-call",
-      tid("logic.condition")
+      tid("logic.condition"),
+      tid("logic.loop")
     ]);
 
     // Hands: listen-items first, then act-items
