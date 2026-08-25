@@ -38,7 +38,7 @@ import { decideConditionRoad } from "./condition-door";
 import { shortenMemory } from "./memory-door";
 import { extractAttachmentText } from "../memory/smart-memory";
 import { askPlatformBrain } from "./platform-brain";
-import { getLoopRoundLimit, DEFAULT_LOOP_ROUNDS } from "../admin/node-limits";
+import { getLoopRoundLimit, DEFAULT_LOOP_ROUNDS, getEmailPerRunLimit, DEFAULT_EMAIL_PER_RUN } from "../admin/node-limits";
 import { safeFetch, SafeFetchError, type SafeFetchErrorCode } from "../../lib/safe-fetch";
 import { getArchitectSecretValue, getPlatformYouTubeKey } from "./architect-secrets";
 import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
@@ -4396,6 +4396,26 @@ async function runEmailConnectorNode({
     return;
   }
 
+  /*
+   * THE CANNON GUARD. A Loop wired into this hand could send a mail per item,
+   * per round, forever. The admin owns the ceiling for one run; past it, the
+   * node says so in a sentence and stops — a refused mail is recoverable, a
+   * sent campaign is not.
+   */
+  const counter = ((context as Record<string, unknown>)["__emailCounter"] ??= { sent: 0 }) as { sent: number };
+  const perRunCap = await getEmailPerRunLimit().catch(() => DEFAULT_EMAIL_PER_RUN);
+  if (counter.sent >= perRunCap) {
+    logs.push(
+      createLog(
+        node,
+        "error",
+        `This run already sent ${perRunCap} emails — the platform's ceiling for one run. The rest were not sent.`
+      )
+    );
+    return;
+  }
+  counter.sent += 1;
+
   const business = context.business;
   const appointmentIso =
     context.calendarAppointment?.startAt || asString(context.appointmentStartAt) || "";
@@ -6482,6 +6502,10 @@ export async function runWorkflowTest({
   context.workflowRunId = workflowRunId;
 
   graphByContext.set(context as object, { nodes: parsedWorkflow.nodes, edges: parsedWorkflow.edges });
+  /* One counter OBJECT for the whole run, created here so every Loop round's
+     context copy shares the same reference — a per-copy number would reset to
+     zero each round and the email ceiling would never fire. */
+  (context as Record<string, unknown>)["__emailCounter"] = { sent: 0 };
 
   let executionOrder = 0;
   let runFailed = false;

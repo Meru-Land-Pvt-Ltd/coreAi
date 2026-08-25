@@ -1785,84 +1785,73 @@ function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar
   );
 }
 
+/**
+ * SEND EMAIL — the body's first Hand, in four plain controls.
+ *
+ * The old panel spoke our language: "Purpose: BOOKING_CONFIRMATION", an HTML
+ * body, a fallback dropdown, a variables lecture. An architect wants to say
+ * who gets it and what it says — everything else is the engine's business.
+ * The choices come from the node's own declaration (SOP question 5).
+ */
 function SendEmailProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const sendTo = str("recipientType", "customer");
 
   return (
     <>
-      <Section title="Recipient">
-        <RequirementNotice title="Buyer email setup" testId="send-email-buyer-requirement">
-          To, CC, and BCC are configured by the buyer after installing this agent. During testing, use the Test Email
-          field on the Test tab to receive this email yourself.
-        </RequirementNotice>
+      <Section title="Name">
+        <TextInput value={selectedNode.data.title} onChange={set("title")} placeholder="Send email" testId="send-email-name-input" />
       </Section>
 
-      <Section title="Message">
-        <Label>Purpose</Label>
+      <Section title="Send to">
         <SelectBox
-          value={str("purpose", "auto")}
-          onChange={set("purpose")}
-          options={[
-            { value: "auto", label: "Auto (confirmation when booked, follow-up otherwise)" },
-            { value: "BOOKING_CONFIRMATION", label: "Appointment confirmation" },
-            { value: "CUSTOMER_FOLLOW_UP", label: "Follow-up" },
-            { value: "CALL_SUMMARY", label: "Call summary" },
-            { value: "INTERNAL_NOTIFICATION", label: "Internal notification" }
-          ]}
+          value={sendTo}
+          onChange={set("recipientType")}
+          options={nodeSettingChoices("communication.send_email", "recipientType")}
+          testId="send-email-to-select"
         />
+        {sendTo === "custom" ? (
+          <div className="mt-3">
+            <TextInput
+              value={str("customRecipient")}
+              onChange={set("customRecipient")}
+              placeholder="manager@business.com"
+              testId="send-email-custom-input"
+            />
+          </div>
+        ) : (
+          <p className="mt-1.5 text-[11px] leading-5 text-slate-400">
+            The real addresses come from the business after they install — never typed here.
+          </p>
+        )}
+      </Section>
 
-        <div className="mt-4">
-          <Label>Subject</Label>
-          <TextInput
-            value={str("subjectTemplate")}
-            onChange={set("subjectTemplate")}
-            placeholder="e.g. Your {{serviceName}} appointment with {{businessName}}"
-          />
-        </div>
+      <Section title="Subject">
+        <TextInput
+          value={str("subjectTemplate")}
+          onChange={set("subjectTemplate")}
+          placeholder="Leave empty and a sensible one is written for you"
+          maxLength={150}
+          testId="send-email-subject-input"
+        />
+      </Section>
 
-        <div className="mt-4">
-          <Label>Text body</Label>
-          <TextArea height="h-32" value={str("bodyTemplate")} onChange={set("bodyTemplate")} />
-        </div>
-
-        <div className="mt-4">
-          <Label>HTML body (optional)</Label>
-          <TextArea mono height="h-32" value={str("htmlTemplate")} onChange={set("htmlTemplate")} />
-        </div>
-
-        <p className="mt-2 text-[11px] leading-5 text-slate-400" data-testid="send-email-variables">
-          Allowed variables: {EMAIL_TEMPLATE_VARIABLES.map((name) => `{{${name}}}`).join(", ")}. Unknown variables are
-          removed at send time and HTML is sanitized.
+      <Section title="Words" last>
+        <TextArea
+          height="h-32"
+          value={str("bodyTemplate")}
+          onChange={set("bodyTemplate")}
+          placeholder="Leave empty and the Brain's answer is sent."
+          testId="send-email-words-textarea"
+        />
+        <p className="mt-1.5 text-[11px] leading-5 text-slate-400">
+          It goes out wearing the business's name, and replies land in their real inbox. Test it
+          with the Test Email box on the Test tab — you get the mail yourself.
         </p>
-      </Section>
-
-      <Section title="Failure handling" last>
-        <Label>If sending fails</Label>
-        <SelectBox
-          value={str("continueOnFailure", "true")}
-          onChange={set("continueOnFailure")}
-          options={[
-            { value: "true", label: "Continue the workflow" },
-            { value: "false", label: "Stop this branch" }
-          ]}
-        />
-
-        <div className="mt-4">
-          <Label>Fallback</Label>
-          <SelectBox
-            value={str("fallbackBehavior", "skip")}
-            onChange={set("fallbackBehavior")}
-            options={[
-              { value: "skip", label: "Skip silently" },
-              { value: "notify_team", label: "Notify the team by email" }
-            ]}
-          />
-        </div>
       </Section>
     </>
   );
 }
-
 function useWhatsAppConnections() {
   const [connections, setConnections] = useState<WhatsAppConnection[]>([]);
   const [loading, setLoading] = useState(true);

@@ -30,6 +30,7 @@ import { ConditionLimitsPanel } from "@/components/admin/features/node-settings/
 import { LoopLimitsPanel } from "@/components/admin/features/node-settings/loop-limits";
 import { FileUploadLimitsPanel } from "@/components/admin/features/node-settings/file-upload-limits";
 import { TimerLimitsPanel } from "@/components/admin/features/node-settings/timer-limits";
+import { EmailLimitsPanel } from "@/components/admin/features/node-settings/email-limits";
 
 /** The settings panel for this node, if it has one. */
 function SettingsFor({ nodeType }: { nodeType: string }) {
@@ -39,6 +40,7 @@ function SettingsFor({ nodeType }: { nodeType: string }) {
   if (nodeType === "logic.loop") return <LoopLimitsPanel />;
   if (nodeType === "block.file_upload") return <FileUploadLimitsPanel />;
   if (nodeType === "trigger.schedule") return <TimerLimitsPanel />;
+  if (nodeType === "communication.send_email") return <EmailLimitsPanel />;
   return null;
 }
 

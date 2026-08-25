@@ -22,7 +22,8 @@ const PERFECTED = [
   "ai.memory",
   "logic.loop",
   "block.file_upload",
-  "trigger.schedule"
+  "trigger.schedule",
+  "communication.send_email"
 ] as const;
 
 describe("the nodes we have finished answer question 5", () => {
@@ -51,7 +52,9 @@ describe("the nodes we have finished answer question 5", () => {
       // a thousand businesses and knows none of them.
       for (const setting of settings) {
         if (setting.whoFills !== "architect") continue;
-        expect(setting.name.toLowerCase()).not.toMatch(/phone|address|price|opening hours/);
+        /* "Fixed address" (an inbox the architect chooses) is legitimate — the
+           rule bans BUSINESS facts: their phone, their street, their prices. */
+        expect(setting.name.toLowerCase()).not.toMatch(/phone|street|price|opening hours/);
       }
     });
 

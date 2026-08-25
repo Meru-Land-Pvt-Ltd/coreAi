@@ -879,3 +879,13 @@ export function getTimerLimits() {
 export function saveTimerLimits(floorMinutes: number) {
   return apiPatch<{ floorMinutes: number }>("/admin/timer-limits", { floorMinutes });
 }
+
+/* ------------------------- Send email: the cannon guard -------------------- */
+
+export function getEmailLimits() {
+  return apiGet<{ maxPerRun: number; default: number; bounds: { min: number; max: number } }>("/admin/email-limits");
+}
+
+export function saveEmailLimits(maxPerRun: number) {
+  return apiPatch<{ maxPerRun: number }>("/admin/email-limits", { maxPerRun });
+}

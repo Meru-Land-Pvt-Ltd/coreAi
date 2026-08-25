@@ -53,6 +53,10 @@ import {
   saveTimerFloorMinutes,
   DEFAULT_TIMER_FLOOR_MINUTES,
   TIMER_FLOOR_BOUNDS,
+  getEmailPerRunLimit,
+  saveEmailPerRunLimit,
+  DEFAULT_EMAIL_PER_RUN,
+  EMAIL_PER_RUN_BOUNDS,
   saveConditionRoadLimit,
   saveFileUploadImagesAllowed,
   saveLoopRoundLimit
@@ -412,6 +416,35 @@ adminRoutes.patch("/design-rules", async (c) => {
     { rules: { ...rules, defaultValue: DEFAULT_DESIGN_BRAIN_RULES }, ...result },
     result.restoredDefault ? "Default rules restored" : "Design Brain rules saved"
   );
+});
+
+/* ------------------------- Send email: the cannon guard -------------------- */
+
+adminRoutes.get("/email-limits", async (c) => {
+  return successResponse(c, {
+    maxPerRun: await getEmailPerRunLimit(),
+    default: DEFAULT_EMAIL_PER_RUN,
+    bounds: EMAIL_PER_RUN_BOUNDS
+  });
+});
+
+adminRoutes.patch("/email-limits", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = z
+    .object({ maxPerRun: z.coerce.number().int().min(EMAIL_PER_RUN_BOUNDS.min).max(EMAIL_PER_RUN_BOUNDS.max) })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, `Pick between ${EMAIL_PER_RUN_BOUNDS.min} and ${EMAIL_PER_RUN_BOUNDS.max}.`, 422, "VALIDATION_ERROR");
+  }
+  const saved = await saveEmailPerRunLimit(parsed.data.maxPerRun, authUser.id);
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "EMAIL_PER_RUN_LIMIT_UPDATED",
+    targetType: "NODE",
+    targetId: "communication.send_email",
+    meta: { maxPerRun: saved }
+  });
+  return successResponse(c, { maxPerRun: saved });
 });
 
 /* ------------------------------ Timer: the floor --------------------------- */

@@ -206,3 +206,51 @@ export async function saveTimerFloorMinutes(value: number, updatedByUserId: stri
   invalidateTimerFloorCache();
   return safe;
 }
+
+/* --------------------------- Send email: the cannon guard ------------------ */
+
+export const EMAIL_PER_RUN_KEY = "emailMaxPerRun";
+
+/** A Loop plus a hand is a cannon. Twenty-five mails in one run is already a
+ *  campaign, not a notification — and campaigns deserve their own product. */
+export const DEFAULT_EMAIL_PER_RUN = 25;
+export const EMAIL_PER_RUN_BOUNDS = { min: 1, max: 200 } as const;
+
+let cachedEmailCap: number | null = null;
+let cachedEmailCapAt = 0;
+
+export function invalidateEmailCapCache(): void {
+  cachedEmailCap = null;
+  cachedEmailCapAt = 0;
+}
+
+export async function getEmailPerRunLimit(): Promise<number> {
+  if (cachedEmailCap !== null && Date.now() - cachedEmailCapAt < CACHE_TTL_MS) return cachedEmailCap;
+  try {
+    const row = await prisma.platformApiSetting.findUnique({
+      where: { key: EMAIL_PER_RUN_KEY },
+      select: { valueEncrypted: true }
+    });
+    const value = row ? Number(row.valueEncrypted) : DEFAULT_EMAIL_PER_RUN;
+    cachedEmailCap = Number.isFinite(value)
+      ? Math.min(EMAIL_PER_RUN_BOUNDS.max, Math.max(EMAIL_PER_RUN_BOUNDS.min, Math.round(value)))
+      : DEFAULT_EMAIL_PER_RUN;
+    cachedEmailCapAt = Date.now();
+    return cachedEmailCap;
+  } catch {
+    return cachedEmailCap ?? DEFAULT_EMAIL_PER_RUN;
+  }
+}
+
+export async function saveEmailPerRunLimit(value: number, updatedByUserId: string): Promise<number> {
+  const safe = Number.isFinite(value)
+    ? Math.min(EMAIL_PER_RUN_BOUNDS.max, Math.max(EMAIL_PER_RUN_BOUNDS.min, Math.round(value)))
+    : DEFAULT_EMAIL_PER_RUN;
+  await prisma.platformApiSetting.upsert({
+    where: { key: EMAIL_PER_RUN_KEY },
+    update: { valueEncrypted: String(safe), secret: false, updatedByUserId },
+    create: { key: EMAIL_PER_RUN_KEY, valueEncrypted: String(safe), secret: false, updatedByUserId }
+  });
+  invalidateEmailCapCache();
+  return safe;
+}

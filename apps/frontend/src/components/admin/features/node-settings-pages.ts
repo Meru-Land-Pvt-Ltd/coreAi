@@ -45,6 +45,10 @@ export const NODE_SETTINGS_PAGES: Record<string, NodeSettingsPage> = {
   "trigger.schedule": {
     title: "Limits",
     summary: "The fastest any agent may wake itself — the platform's floor under every Timer."
+  },
+  "communication.send_email": {
+    title: "Limits",
+    summary: "The most emails one run may send — a Loop wired into this hand must never become a cannon."
   }
 };
 

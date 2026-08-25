@@ -2724,11 +2724,20 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     requiredVariables: ["customer.phone"],
     producedVariables: ["sms.status", "sms.body"]
   }),
+  /* NODE 009 — SEND EMAIL. The body's first Hand.
+     Eight stones made a complete machine with no hands at all: one sense, a
+     full brain, a whole face, and no way to touch the world. History's answer
+     was exact — the first thing a computer ever did that a business paid for
+     was print the morning report. This is the printer.
+     It wears the business's name; replies land in the business's real inbox;
+     and when the business has connected their Gmail, it sends from their own
+     address — the credential is a declared KIND (Node Frame), so the upgrade
+     changes nothing on any canvas. */
   def({
     type: VOICE_NODE_TYPES.sendEmail,
     label: "Send email",
     category: "action",
-    description: "Send confirmations, follow-ups, and internal notifications from the buyer's Triven proxy email.",
+    description: "Emails someone, wearing the business's name — replies land in the business's real inbox.",
     requiredConfig: [],
     backendExecutable: false,
     launchCritical: false,
@@ -2753,9 +2762,55 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       continueOnFailure: "true",
       fallbackBehavior: "skip"
     },
+    settings: [
+      {
+        key: "recipientType",
+        name: "Send to",
+        whatItsFor: "Who gets the mail: the customer from the run, the business team, or one fixed address.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "customer", label: "The customer" },
+            { value: "team", label: "The business team" },
+            { value: "custom", label: "A fixed address" }
+          ]
+        },
+        default: "customer",
+        whoFills: "architect"
+      },
+      {
+        key: "customRecipient",
+        name: "Fixed address",
+        whatItsFor: "Only when Send to is a fixed address — e.g. a manager's inbox.",
+        type: "text",
+        limits: { maxLength: 200 },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "subjectTemplate",
+        name: "Subject",
+        whatItsFor: "The mail's subject line. Leave empty and a sensible one is written for you.",
+        type: "text",
+        limits: { maxLength: 150 },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "bodyTemplate",
+        name: "Words",
+        whatItsFor: "What the mail says. Leave empty and the Brain's answer is sent.",
+        type: "long text",
+        limits: { maxLength: 4000 },
+        default: "",
+        whoFills: "architect"
+      }
+    ],
     capability: "email.send",
     requiredVariables: [],
-    producedVariables: ["email.status", "email.subject"]
+    /* What the engine actually writes: context.sentEmail on every path —
+       Gmail, platform, dry run. Declared as written, so honesty holds. */
+    producedVariables: ["sentEmail"]
   }),
   def({
     type: VOICE_NODE_TYPES.endFlow,
