@@ -24,3 +24,4 @@ firebase-admin*.json
 # TypeScript incremental build cache — a build artifact, never source.
 # It was tracked, so every local typecheck dirtied the tree and blocked deploys.
 apps/frontend/tsconfig.tsbuildinfo
+.last-deployed-commit
