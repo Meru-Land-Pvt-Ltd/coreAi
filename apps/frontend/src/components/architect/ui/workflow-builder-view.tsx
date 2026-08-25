@@ -455,6 +455,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   /* The AI Builder on the Build tab — the founder's call: one assistant, every
      screen, never hunt for it. */
   const [aiBuilderOpen, setAiBuilderOpen] = useState(false);
+  /* DECLARED purpose only — what the architect told the AI Builder. Never the
+     description: that is a marketing tagline many old agents already carry,
+     and tallying against one produced confident nonsense. */
+  const [agentPurpose, setAgentPurpose] = useState("");
   const [price, setPrice] = useState("149");
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState("");
@@ -1318,6 +1322,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       setWorkflow(loadedWorkflow);
       setAgentName(loadedWorkflow.name || defaultAgentName);
       setTagline(loadedWorkflow.description || defaultAgentDescription);
+      setAgentPurpose(loadedWorkflow.purpose ?? "");
       setNodes(parsedNodes);
       setEdges(parsedEdges);
       setSelectedNodeId(parsedNodes[0]?.id ?? null);
@@ -3023,10 +3028,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                   <AiBuilderPanel
                     workflowId={currentWorkflowId}
                     canvasHasSteps={nodes.length > 0}
-                    /* The default tagline is boilerplate, not a decision — an
-                       agent still carrying it has not been given a purpose. */
-                    purpose={tagline === defaultAgentDescription ? "" : tagline}
-                    onPurposeSaved={setTagline}
+                    purpose={agentPurpose}
+                    onPurposeSaved={setAgentPurpose}
                     onApplied={() => undefined}
                     onBuilt={(canvas) => {
                       setNodes(toBuilderNodes(canvas.nodes));
@@ -3170,6 +3173,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
             onSendChat={sendPreviewChat}
             onStartVoice={startPreviewVoice}
             onRunOnce={runPreviewOnce}
+            purpose={agentPurpose}
+            onPurposeSaved={setAgentPurpose}
             onOpenAdvanced={() => setTestView("advanced")}
             onDesignApplied={handleDesignApplied}
           />

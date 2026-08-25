@@ -88,7 +88,7 @@ const EXPLAIN_INSTRUCTION = [
 async function describeAgent(workflowId: string): Promise<string> {
   const workflow = await prisma.workflowDefinition.findUnique({
     where: { id: workflowId },
-    select: { name: true, description: true, workflowJson: true }
+    select: { name: true, purpose: true, workflowJson: true }
   });
   if (!workflow) return "(the agent could not be loaded)";
 
@@ -100,7 +100,7 @@ async function describeAgent(workflowId: string): Promise<string> {
   const lines: string[] = [
     `AGENT: ${workflow.name}`,
     /* The yardstick everything tallies against — the architect's own sentence. */
-    ...(workflow.description?.trim() ? [`PURPOSE (what the architect said they are building): ${workflow.description.trim()}`] : []),
+    ...(workflow.purpose?.trim() ? [`PURPOSE (what the architect said they are building): ${workflow.purpose.trim()}`] : []),
     "",
     "STEPS:"
   ];

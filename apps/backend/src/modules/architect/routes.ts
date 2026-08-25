@@ -2845,7 +2845,7 @@ architectRoutes.post("/workflows/:workflowId/purpose", async (c) => {
 
   const updated = await prisma.workflowDefinition.updateMany({
     where: { id: workflowId, architectUserId: authUser.id },
-    data: { description: body.data.purpose }
+    data: { purpose: body.data.purpose }
   });
   if (updated.count === 0) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
   return successResponse(c, { purpose: body.data.purpose });

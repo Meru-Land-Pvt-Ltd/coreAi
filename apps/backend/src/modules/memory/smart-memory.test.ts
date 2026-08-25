@@ -416,6 +416,22 @@ describe("the timeline keeps every turn", () => {
     expect(timeline).not.toContain("turn 0 ");
   });
 
+  test("a 200-word complaint keeps its substance, not its opening line", () => {
+    /* Long turns were clipped to eighteen words — the appointment, the promise
+       and the account number all live in the middle of a long message. */
+    const longComplaint =
+      "latestMessage: " +
+      "I am writing about my visit on Tuesday. ".repeat(3) +
+      "My account number is AX-2231 and I was promised a refund of forty pounds by Friday. " +
+      "word ".repeat(150);
+    const timeline = buildTimelineSummary(
+      [makeTimelineRecord({ sourceLabel: "Key variables", content: longComplaint })],
+      1
+    );
+    expect(timeline).toContain("AX-2231");
+    expect(timeline).toContain("forty pounds");
+  });
+
   test("the same line twice is still only said once", () => {
     const line = { sourceLabel: "Key variables", content: "latestMessage: hello" };
     const timeline = buildTimelineSummary([makeTimelineRecord(line), makeTimelineRecord(line)], 2);

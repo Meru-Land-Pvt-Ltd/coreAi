@@ -96,6 +96,11 @@ model WorkflowDefinition {
   id                   String                 @id @default(cuid())
   name                 String
   description          String?
+  /// What the architect TOLD the AI Builder they are building — the yardstick
+  /// every check tallies against. Never inferred from description: a stale
+  /// marketing tagline is not a declared goal, and the difference between the
+  /// two is a check that helps and a check that spouts nonsense.
+  purpose              String?
   workflowJson         Json
   configureJson        Json?
   marketplaceJson      Json?

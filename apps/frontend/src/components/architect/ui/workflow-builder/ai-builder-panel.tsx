@@ -424,6 +424,32 @@ export function AiBuilderPanel({
         </p>
       )}
 
+      {/* THE YARDSTICK, NEVER INVISIBLE. The Check once tallied an agent
+          against a stale description nobody could see, and the report read as
+          pure nonsense. Whatever is being measured against is on screen, with
+          the way to change it one click away. */}
+      {savedPurpose && workflowId ? (
+        <div
+          className="mb-2 flex items-start justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2"
+          data-testid="ai-builder-purpose"
+        >
+          <p className="text-[11px] leading-4 text-slate-500">
+            Testing against: <span className="font-semibold text-slate-700">{savedPurpose}</span>
+          </p>
+          <button
+            type="button"
+            data-testid="ai-builder-purpose-change"
+            onClick={() => {
+              setAskingPurpose(true);
+              say({ role: "assistant", content: "Tell me the new purpose — one sentence." });
+            }}
+            className="shrink-0 text-[11px] font-semibold text-amber-700 hover:underline"
+          >
+            change
+          </button>
+        </div>
+      ) : null}
+
       {workflowId && canvasHasSteps ? (
         <button
           type="button"

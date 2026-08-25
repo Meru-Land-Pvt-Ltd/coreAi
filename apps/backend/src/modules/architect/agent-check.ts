@@ -104,7 +104,7 @@ export async function checkAgent(input: {
 }): Promise<AgentCheckReport> {
   const workflow = await prisma.workflowDefinition.findFirst({
     where: { id: input.workflowId, architectUserId: input.userId },
-    select: { name: true, description: true, workflowJson: true }
+    select: { name: true, purpose: true, workflowJson: true }
   });
   if (!workflow) return { lines: [{ kind: "problem", text: "This agent could not be loaded." }], passed: 0, failed: 1 };
 
@@ -129,7 +129,11 @@ export async function checkAgent(input: {
   }
 
   /* ---------------------------------------------------------- the purpose */
-  const purpose = (workflow.description ?? "").trim();
+  /* DECLARED only. A description is a marketing tagline many old agents carry;
+     testing against one produced confident nonsense about subscriber charts.
+     If nobody told the AI Builder what this agent is for, the honest answer is
+     to say so and ask — like a person would. */
+  const purpose = (workflow.purpose ?? "").trim();
   if (!purpose) {
     lines.push({
       kind: "note",

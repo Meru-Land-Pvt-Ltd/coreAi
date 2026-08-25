@@ -403,7 +403,11 @@ export function buildTimelineSummary(records: TimelineRecord[], totalRecords: nu
      * line was the ONLY way they could ever come back. Memory remembered the
      * first eighteen words of a complaint and genuinely lost the rest.
      */
-    const keepWords = contentWords.length <= wholeUnderWords ? contentWords.length : snippetWordsLimit;
+    /* A long turn keeps the first sixty words, not eighteen. A customer who
+       writes a 200-word complaint was being remembered as its opening line —
+       the appointment, the promise, the account number all live in the middle.
+       Sixty holds the substance; the newest-first budget keeps the total sane. */
+    const keepWords = contentWords.length <= wholeUnderWords ? contentWords.length : Math.max(snippetWordsLimit, wholeUnderWords);
     const snippet = contentWords.slice(0, keepWords).join(" ");
     const line = `• ${label}: ${snippet}${contentWords.length > keepWords ? "…" : ""}`;
 

@@ -33,6 +33,8 @@ export type ArchitectWorkflow = {
   id: string;
   name: string;
   description: string | null;
+  /** What the architect TOLD the AI Builder they are building — never inferred. */
+  purpose?: string | null;
   workflowJson: {
     nodes: unknown[];
     edges: unknown[];

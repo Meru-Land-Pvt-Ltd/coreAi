@@ -119,6 +119,9 @@ export type PreviewPanelProps = {
   ) => Promise<PreviewChatResult>;
   onStartVoice: () => Promise<PreviewVoiceResult>;
   onRunOnce: (prompt: string, sessionId?: string) => Promise<PreviewRunResult>;
+  /** The declared purpose, and where a newly saved one is reported. */
+  purpose?: string;
+  onPurposeSaved?: (purpose: string) => void;
   onOpenAdvanced: () => void;
   /**
    * Called after the floating Design Brain lands a styling change so the
@@ -211,6 +214,8 @@ export function PreviewPanel({
   onSendChat,
   onStartVoice,
   onRunOnce,
+  purpose = "",
+  onPurposeSaved,
   onOpenAdvanced,
   onDesignApplied
 }: PreviewPanelProps) {
@@ -721,6 +726,8 @@ export function PreviewPanel({
         </div>
         <AiBuilderPanel
           workflowId={workflowId}
+          purpose={purpose}
+          onPurposeSaved={onPurposeSaved}
           // A composed interface exists when the saved ProductSpec does (the
           // composer writes the spec, not canvas blocks) — or when the graph
           // carries product blocks. Checking only blocks locked the chat
