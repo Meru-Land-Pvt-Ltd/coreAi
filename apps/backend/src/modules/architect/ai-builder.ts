@@ -27,6 +27,7 @@
 
 import { prisma } from "../../lib/prisma";
 import { askPlatformBrain } from "./platform-brain";
+import { builderSoulText } from "./builder-soul";
 
 export type AiBuilderHand = "build" | "page" | "explain";
 
@@ -201,7 +202,11 @@ export async function aiBuilderAnswer(input: {
   ]);
 
   const reply = await askPlatformBrain({
-    instruction: EXPLAIN_INSTRUCTION,
+    /* The Builder Soul rides with every explanation — the same map the
+       composer builds from, so both hands speak as one employee. */
+    instruction: `${EXPLAIN_INSTRUCTION}
+
+${builderSoulText()}`,
     message: `${agent}
 
 ${runs}

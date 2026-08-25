@@ -8,6 +8,7 @@ import {
 } from "@/components/admin/features/design-rules";
 import { DoorBrainCard } from "@/components/admin/ui/door-brain-card";
 import { SmartDesignerBrainCard } from "@/components/admin/ui/smart-designer-brain-card";
+import { BuilderSoulCard } from "@/components/admin/ui/builder-soul-card";
 
 /**
  * Admin → Design Brain rules.
@@ -193,6 +194,9 @@ export default function DesignRulesPage() {
 
       <DoorBrainCard />
       <SmartDesignerBrainCard />
+      {/* The brain above is the swappable battery; this is the identity it
+          wears. Same screen on purpose. */}
+      <BuilderSoulCard />
     </main>
   );
 }

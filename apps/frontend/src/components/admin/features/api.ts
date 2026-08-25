@@ -861,6 +861,16 @@ export function saveKnowledgeLimits(limits: KnowledgeLimits) {
   return apiPatch<{ knowledgeLimits: KnowledgeLimits }>("/admin/knowledge-limits", limits);
 }
 
+/* ----------------------------- The Builder Soul ---------------------------- */
+
+export function getBuilderSoulMeta() {
+  return apiGet<{
+    pages: Array<{ name: string; chars: number }>;
+    totalChars: number;
+    coveredNodes: number;
+  }>("/admin/builder-soul");
+}
+
 /* ------------------------- Condition: the roads out ------------------------ */
 
 export function getConditionLimits() {

@@ -22,6 +22,7 @@ import { getProviderEngine } from "../../ai-provider-engine/provider-engine";
 import type { AIExecuteRequest, AIMessage } from "../../ai-provider-engine/types";
 import { checkPlan, type ComposerPlan } from "./check-plan";
 import { composerMenu, menuAsText, type MenuEntry } from "./node-menu";
+import { builderSoulText } from "../builder-soul";
 
 /** What the architect sees while it works. */
 export type ComposerProgress = {
@@ -63,6 +64,11 @@ function systemPrompt(menu: string): string {
     "- Use as few steps as will genuinely do the job. An extra step that reaches a real person is not",
     "  an extra feature; it is a second text message to somebody's customer.",
     "- Give every step a short title in the architect's own words, not the type name.",
+    "",
+    /* The Builder Soul rides with every request — fetched fresh, so a swapped
+       LLM is briefed on its first breath. This is where "where to start, how
+       much per node, where to end" comes from. */
+    builderSoulText(),
     "",
     "OUTPUT",
     'Return ONLY JSON: { "summary": string, "nodes": [...], "edges": [...], "asksTheBusiness": [string] }',

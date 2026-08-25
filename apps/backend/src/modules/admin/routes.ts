@@ -47,6 +47,8 @@ import {
   saveKnowledgeLimits,
   KNOWLEDGE_LIMIT_BOUNDS
 } from "./knowledge-limits";
+import JSZip from "jszip";
+import { builderSoulFiles, SOUL_COVERED_TYPES } from "../architect/builder-soul";
 import {
   CONDITION_ROADS_BOUNDS,
   DEFAULT_CONDITION_ROADS,
@@ -741,6 +743,32 @@ adminRoutes.patch("/knowledge-limits", async (c) => {
     meta: saved as unknown as Record<string, unknown>
   });
   return successResponse(c, { knowledgeLimits: saved });
+});
+
+/* --------------------------- The Builder Soul ------------------------------ */
+
+/**
+ * The file that makes any brain become the AI Builder. It rides with every
+ * Builder request automatically; these routes exist so an admin can SEE it
+ * and take it away as a zip — the platform's intelligence is property, and
+ * property you cannot hold in your hand is a rumour.
+ */
+adminRoutes.get("/builder-soul", async (c) => {
+  const files = builderSoulFiles();
+  return successResponse(c, {
+    pages: files.map((file) => ({ name: file.name, chars: file.content.length })),
+    totalChars: files.reduce((sum, file) => sum + file.content.length, 0),
+    coveredNodes: SOUL_COVERED_TYPES.length
+  });
+});
+
+adminRoutes.get("/builder-soul.zip", async (c) => {
+  const zip = new JSZip();
+  for (const file of builderSoulFiles()) zip.file(file.name, file.content);
+  const buffer = await zip.generateAsync({ type: "nodebuffer" });
+  c.header("Content-Type", "application/zip");
+  c.header("Content-Disposition", 'attachment; filename="builder-soul.zip"');
+  return c.body(new Uint8Array(buffer));
 });
 
 /* ------------------- Door model (the one swappable battery) ------------------ */
