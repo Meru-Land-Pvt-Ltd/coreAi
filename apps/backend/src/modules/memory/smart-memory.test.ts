@@ -312,8 +312,36 @@ describe("resolve path (AI consumer)", () => {
     expect(calls.searchQueries).toEqual(["You are a dental receptionist. Answer pricing questions about implants."]);
   });
 
-  test("similarity search failure falls back to the raw string", async () => {
+  test("a failed similarity search does not take the timeline down with it", async () => {
+    /*
+     * These used to be one Promise.all, so Pinecone being unset threw away the
+     * timeline as well — and the timeline is nothing but a database read of
+     * what this conversation already said. The agent forgot everything because
+     * the clever half of remembering was unavailable.
+     */
+    const { deps } = makeFakeDeps({
+      searchError: true,
+      timelineRecords: [makeTimelineRecord({ sourceLabel: "Intake form", content: "Ana wants Tuesday at 3pm" })]
+    });
+    const builder = createSmartMemoryBuilder(deps);
+    const result = await builder.resolveForQuery({ scopeKey: "s", query: "q", rawMemory: RAW });
+    expect(result.retrievedChunks).toBe(0);
+    expect(result.memory).toContain("Ana wants Tuesday at 3pm");
+  });
+
+  test("with neither search nor timeline, the run's own memory is kept", async () => {
+    // An empty "(no prior history)" would be worse than what we already hold.
+    const { deps } = makeFakeDeps({ searchError: true, timelineRecords: [] });
+    const builder = createSmartMemoryBuilder(deps);
+    const result = await builder.resolveForQuery({ scopeKey: "s", query: "q", rawMemory: RAW });
+    expect(result.memory).toBe(RAW);
+  });
+
+  test("a database failure still falls back to the raw string", async () => {
     const { deps } = makeFakeDeps({ searchError: true });
+    deps.sampleRecordsForTimeline = async () => {
+      throw new Error("db down");
+    };
     const builder = createSmartMemoryBuilder(deps);
     const result = await builder.resolveForQuery({ scopeKey: "s", query: "q", rawMemory: RAW });
     expect(result.mode).toBe("raw_fallback");
@@ -335,6 +363,32 @@ describe("timeline summary", () => {
     expect(timeline).toContain("[TIMELINE SUMMARY]");
     expect(timeline).toContain("sampled across all 5000 stored memory records");
     expect(timeline.match(/Step 0:/g)?.length ?? 0).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("the timeline keeps every turn", () => {
+  test("two turns with the same label both survive", () => {
+    /*
+     * The old rule skipped any record whose label matched the one before it. In
+     * a conversation every record is labelled "Key variables", so the customer's
+     * first line survived and everything they said afterwards silently vanished
+     * — which reads exactly like memory working until somebody tests it.
+     */
+    const timeline = buildTimelineSummary(
+      [
+        makeTimelineRecord({ sourceLabel: "Key variables", content: "latestMessage: My name is Ana, Tuesday at 3pm" }),
+        makeTimelineRecord({ sourceLabel: "Key variables", content: "latestMessage: actually make it Wednesday" })
+      ],
+      2
+    );
+    expect(timeline).toContain("Ana");
+    expect(timeline).toContain("Wednesday");
+  });
+
+  test("the same line twice is still only said once", () => {
+    const line = { sourceLabel: "Key variables", content: "latestMessage: hello" };
+    const timeline = buildTimelineSummary([makeTimelineRecord(line), makeTimelineRecord(line)], 2);
+    expect(timeline.match(/hello/g)?.length).toBe(1);
   });
 });
 

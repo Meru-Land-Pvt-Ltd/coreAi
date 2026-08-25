@@ -2803,7 +2803,23 @@ architectRoutes.post("/workflows/:workflowId/preview-run", async (c) => {
       userId: authUser.id,
       workflowId,
       workflowJson: workflow.workflowJson,
-      input: { message: input.prompt, businessName: workflow.name },
+      input: {
+        message: input.prompt,
+        businessName: workflow.name,
+        /*
+         * THE THREAD THAT MAKES MEMORY POSSIBLE.
+         *
+         * The preview has always sent a session id and this route has always
+         * thrown it away, so the engine fell back to keying memory by the run
+         * id — a brand new drawer every single time. An architect testing a
+         * Memory node in the builder could never see it remember anything,
+         * because there was nothing to remember from.
+         *
+         * Prefixed the same way the public page does it, so a preview session
+         * and a real visitor's session can never land in the same drawer.
+         */
+        ...(input.sessionId ? { testSessionId: `preview:${workflowId}:${input.sessionId}` } : {})
+      },
       mode: "test"
     });
 

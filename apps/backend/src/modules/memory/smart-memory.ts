@@ -369,17 +369,28 @@ export function buildTimelineSummary(records: TimelineRecord[], totalRecords: nu
       : "[TIMELINE SUMMARY] (chronological overview of stored memory)";
 
   const lines: string[] = [];
+  const alreadySaid = new Set<string>();
   let words = header.split(/\s+/).length;
-  let previousLabel = "";
 
   for (const record of records) {
     const label = record.sourceLabel || record.sourceType;
-    if (label === previousLabel) continue;
-    previousLabel = label;
 
     const contentWords = record.content.replace(/\s+/g, " ").trim().split(" ");
     const snippet = contentWords.slice(0, snippetWordsLimit).join(" ");
     const line = `• ${label}: ${snippet}${contentWords.length > snippetWordsLimit ? "…" : ""}`;
+
+    /*
+     * Repeats are dropped by what they SAY, not by the label above them.
+     *
+     * This used to skip any record whose label matched the one before it. In a
+     * conversation every record carries the same label — "Key variables" — so
+     * the first turn survived and every turn after it silently vanished. The
+     * agent then remembered a customer's opening line and nothing else they
+     * ever said, which reads exactly like memory working until you test it.
+     */
+    if (alreadySaid.has(line)) continue;
+    alreadySaid.add(line);
+
     const lineWords = line.split(/\s+/).length;
     if (words + lineWords > maxWords) break;
     words += lineWords;
@@ -748,8 +759,22 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
       const topK = env.MEMORY_SEARCH_TOP_K || 10;
       const sampleLimit = env.MEMORY_TIMELINE_SAMPLE_LIMIT || 400;
 
+      /*
+       * SEARCH AND TIMELINE STAND ON THEIR OWN FEET.
+       *
+       * These were one Promise.all, so a search-by-meaning failure — Pinecone
+       * unset, an embedding call refused, a network blip — threw away the
+       * timeline too, and the timeline is nothing but a database read of what
+       * this conversation has already said. The agent then forgot everything
+       * because the clever half of remembering was unavailable.
+       */
       const [retrieved, timelineRecords, totalRecords] = await Promise.all([
-        deps.searchChunks(params.scopeKey, params.query, topK),
+        deps.searchChunks(params.scopeKey, params.query, topK).catch((error: unknown) => {
+          console.log(
+            `[WORKFLOW_PERF] [SmartMemory Search Unavailable] reason="${error instanceof Error ? error.message : "unknown"}" — the timeline still stands`
+          );
+          return [] as StoredMemoryChunk[];
+        }),
         deps.sampleRecordsForTimeline(params.scopeKey, sampleLimit),
         deps.countRecords(params.scopeKey).catch(() => 0)
       ]);
@@ -757,6 +782,12 @@ export function createSmartMemoryBuilder(deps: SmartMemoryDeps) {
       const timeline = buildTimelineSummary(timelineRecords, totalRecords);
       const resolveMs = Date.now() - resolveStart;
       console.log(`[WORKFLOW_PERF] [SmartMemory Query] duration=${resolveMs}ms retrievedChunks=${retrieved.length}`);
+
+      /* Nothing found either way. The run's own compact string is a real answer
+         and an empty "(no prior history)" is not, so the raw one is kept. */
+      if (retrieved.length === 0 && !timeline) {
+        return { memory: params.rawMemory, mode: "raw", retrievedChunks: 0 };
+      }
 
       return {
         memory: buildVectorMemoryString({ retrieved, timeline }),
