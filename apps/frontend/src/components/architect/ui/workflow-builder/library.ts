@@ -60,6 +60,7 @@ export const libraryGroups: LibraryGroup[] = [
          Old canvases that still carry a design.brain node keep rendering; the
          registry type and the runner's clean skip for it are untouched. */
       paletteItem(BLOCK_NODE_TYPES.promptComposer, { icon: "edit", accent: "rose", kind: "PRODUCT" }),
+      { ...paletteItem("block.file_upload", { icon: "file", accent: "rose", kind: "PRODUCT" }), badge: "NEW" },
       paletteItem(BLOCK_NODE_TYPES.presetGallery, { icon: "gallery", accent: "rose", kind: "PRODUCT" }),
       paletteItem(BLOCK_NODE_TYPES.modelPicker, { icon: "sliders", accent: "rose", kind: "PRODUCT" }),
       paletteItem(BLOCK_NODE_TYPES.actionButton, { icon: "pointer-click", accent: "rose", kind: "PRODUCT" }),
@@ -107,7 +108,8 @@ export const libraryGroups: LibraryGroup[] = [
         }
       },
       /* Deciding by business hours is thinking, not acting — it lives here. */
-      paletteItem("logic.condition", { icon: "diamond", accent: "orange", kind: "BUSINESS HOURS" })
+      paletteItem("logic.condition", { icon: "diamond", accent: "orange", kind: "BUSINESS HOURS" }),
+      { ...paletteItem("logic.loop", { icon: "git-branch", accent: "orange", kind: "REPEAT" }), badge: "NEW" }
     ]
   },
   /* Listen-items (things that start the agent) first, then act-items (things

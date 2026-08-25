@@ -36,6 +36,9 @@ import {
 import { executeScript } from "../agent-runtime/script-executor";
 import { decideConditionRoad } from "./condition-door";
 import { shortenMemory } from "./memory-door";
+import { extractAttachmentText } from "../memory/smart-memory";
+import { askPlatformBrain } from "./platform-brain";
+import { getLoopRoundLimit, DEFAULT_LOOP_ROUNDS } from "../admin/node-limits";
 import { safeFetch, SafeFetchError, type SafeFetchErrorCode } from "../../lib/safe-fetch";
 import { getArchitectSecretValue, getPlatformYouTubeKey } from "./architect-secrets";
 import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
@@ -396,6 +399,8 @@ type RunnerNodeData = {
   /** The fork in the road: how it decides, what it is deciding, and the roads out. */
   conditionOperator?: unknown;
   conditionQuestion?: unknown;
+  loopSplit?: unknown;
+  loopMaxRounds?: unknown;
   conditionChoices?: unknown;
   outputKey?: unknown;
   leadSource?: unknown;
@@ -499,6 +504,10 @@ type RunnerEdge = {
 };
 
 type RunnerContext = {
+  /** The customer's uploaded file — its name, and its words when it has any. */
+  file?: { name: string; text: string };
+  /** The Loop's door out — every round's answer, in order. */
+  results?: string[];
   caller_number?: string;
   caller_name?: string;
   business?: {
@@ -1179,6 +1188,13 @@ function createLog(
 }
 
 /**
+ * The run's whole graph, keyed by its context object — so a node that must
+ * execute OTHER nodes (the Loop runs its downstream steps once per item) can
+ * reach them without threading the graph through every executor signature.
+ */
+const graphByContext = new WeakMap<object, { nodes: RunnerNode[]; edges: RunnerEdge[] }>();
+
+/**
  * Memory scope for the active run, keyed by the run's context object. A
  * WeakMap (not a context key) so workflow-controlled writes — e.g. an LLM
  * node with llmOutputKey — can never redirect memory resolution to another
@@ -1316,9 +1332,16 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
     : rawMaxTokens;
 
   const existingLlmContext = renderTemplate(node.data?.llmContext, context);
+  /* A document's words, presented plainly. The customer handed a file so the
+     agent could answer about it — burying that behind another hop would make
+     File Upload furniture twice. */
+  const fileContext = context.file?.text
+    ? `The customer attached a file named "${context.file.name}". Its contents:\n${context.file.text.slice(0, 12_000)}`
+    : "";
+
   const combinedLlmContext = existingLlmContext && existingLlmContext.includes(bName)
-    ? existingLlmContext
-    : [existingLlmContext, businessContextSummary].filter(Boolean).join("\n\n");
+    ? [existingLlmContext, fileContext].filter(Boolean).join("\n\n")
+    : [existingLlmContext, businessContextSummary, fileContext].filter(Boolean).join("\n\n");
 
   // The customer's own words this run (one-shot Face runs, Telegram, SMS…).
   // Carried separately so the provider mapping can present them as the
@@ -1326,9 +1349,19 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
   // inside the workflow author's prompt template.
   const customerMessage = asString(context.latestMessage);
 
+  /* THE BRAIN'S EYES. The run's attachments (a customer's uploaded picture)
+     ride into the provider request through the same field the request builder
+     already reads — but only when the node has none of its own, so a brain an
+     architect gave a reference file keeps exactly that file. */
+  const runAttachments =
+    !Array.isArray(node.data?.attachments) || node.data.attachments.length === 0
+      ? (context.attachments as unknown[] | undefined)
+      : undefined;
+
   const data = isLlmCall
     ? {
         ...node.data,
+        ...(runAttachments?.length ? { attachments: runAttachments } : {}),
         provider: node.data?.llmProvider ?? node.data?.provider,
         model: node.data?.llmModel ?? node.data?.model,
         instructions: renderTemplate(node.data?.llmSystemPrompt ?? node.data?.instructions, context),
@@ -2388,6 +2421,151 @@ export function conditionRoads(node: RunnerNode): string[] {
   return roads.some((road) => road.toLowerCase() === ANYTHING_ELSE.toLowerCase())
     ? roads
     : [...roads, ANYTHING_ELSE];
+}
+
+/** Every node strictly downstream of a Loop — the steps the Loop itself runs. */
+function nodesOwnedByLoops(nodes: RunnerNode[], edges: RunnerEdge[]): Set<string> {
+  const owned = new Set<string>();
+  const loops = nodes.filter((node) => asString(node.data?.type) === "logic.loop");
+  for (const loop of loops) {
+    const queue = [loop.id];
+    while (queue.length) {
+      const current = queue.shift() as string;
+      for (const edge of edges) {
+        if (edge.source !== current || owned.has(edge.target) || edge.target === loop.id) continue;
+        owned.add(edge.target);
+        queue.push(edge.target);
+      }
+    }
+  }
+  return owned;
+}
+
+/** The list, split the way the architect chose. AI splitting costs a model
+ *  call and is only used when they asked for it — same law as the Condition. */
+async function splitIntoItems(text: string, how: string): Promise<string[]> {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  if (how === "lines") {
+    return trimmed.split(/\r?\n+/).map((item) => item.trim()).filter(Boolean);
+  }
+  if (how === "ai") {
+    const said = await askPlatformBrain({
+      instruction:
+        'Split what you are given into its list of items. Answer as JSON and nothing else: {"items": ["...", "..."]}',
+      message: trimmed.slice(0, 8000),
+      maxTokens: 500,
+      timeoutMs: 20_000,
+      task: "loop-entry-door"
+    });
+    try {
+      const parsed = JSON.parse(String(said).replace(/^```[a-z]*\n?/i, "").replace(/```$/i, "")) as { items?: unknown[] };
+      const items = (parsed.items ?? []).map(String).map((item) => item.trim()).filter(Boolean);
+      if (items.length) return items;
+    } catch {
+      /* fall through to commas — an unreachable door must not stop the run */
+    }
+  }
+  return trimmed.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+/**
+ * THE LOOP — the machine's third leg.
+ *
+ * Splits what arrived into items and runs its downstream steps once per item,
+ * one after another — never in parallel, so order survives and no provider is
+ * hammered. Each round gets `item` and `itemNumber`; the rounds' answers are
+ * collected into `results` and handed on joined, so the step after the loop
+ * (and the customer's page) sees one assembled answer.
+ */
+async function runLoopNode(params: SingleNodeParams): Promise<{ logs: WorkflowRunLog[]; runFailed: boolean }> {
+  const { node, context } = params;
+  const logs: WorkflowRunLog[] = [];
+
+  const graph = graphByContext.get(context as object);
+  if (!graph) {
+    logs.push(createLog(node, "error", "The Loop could not see the rest of the canvas."));
+    return { logs, runFailed: true };
+  }
+
+  const arrived = asString(context.text) || asString(context.latestMessage);
+  const how = asString(node.data?.loopSplit, "commas");
+  const askedRounds = Number(asString(node.data?.loopMaxRounds, "10")) || 10;
+  const adminCap = await getLoopRoundLimit().catch(() => DEFAULT_LOOP_ROUNDS);
+  const maxRounds = Math.min(askedRounds, adminCap);
+
+  const items = (await splitIntoItems(arrived, how)).slice(0, maxRounds);
+  if (items.length === 0) {
+    logs.push(createLog(node, "skipped", "There was nothing to work through — no items arrived."));
+    return { logs, runFailed: false };
+  }
+
+  const ownedIds = nodesOwnedByLoops([node, ...graph.nodes.filter((n) => n.id !== node.id)], graph.edges);
+  const ownedNodes = graph.nodes.filter((n) => ownedIds.has(n.id) && n.id !== node.id);
+
+  if (ownedNodes.some((n) => asString(n.data?.type) === "logic.loop")) {
+    logs.push(createLog(node, "error", "One Loop inside another isn't supported yet — use two agents."));
+    return { logs, runFailed: true };
+  }
+  if (ownedNodes.length === 0) {
+    logs.push(createLog(node, "error", "Nothing is wired after the Loop, so there is nothing to repeat."));
+    return { logs, runFailed: true };
+  }
+
+  const waves = groupNodesIntoExecutionWaves(ownedNodes, graph.edges);
+  const results: string[] = [];
+  let anyFailed = false;
+
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    logs.push(createLog(node, "success", `Round ${index + 1} of ${items.length} — item: "${item.slice(0, 80)}"`));
+
+    /* Each round works on its own copy of the run, so one round's answer never
+       bleeds into the next round's question. Memory scope carries over — the
+       drawer belongs to the conversation, not the round. */
+    const scratch: RunnerContext = { ...context, conditionResults: { ...(context.conditionResults ?? {}) } };
+    scratch.text = item;
+    (scratch as Record<string, unknown>)["item"] = item;
+    (scratch as Record<string, unknown>)["itemNumber"] = index + 1;
+    delete scratch.ai;
+    graphByContext.set(scratch as object, graph);
+    const scope = memoryScopeByContext.get(context as object);
+    if (scope) memoryScopeByContext.set(scratch as object, scope);
+
+    for (const wave of waves) {
+      const switchedOff = nodesSwitchedOffByConditions(ownedNodes, graph.edges, scratch.conditionResults ?? {});
+      for (const inner of wave) {
+        if (switchedOff.has(inner.id)) continue;
+        const result = await executeSingleNodeInRunner({ ...params, node: inner, context: scratch });
+        logs.push(...result.logs);
+        if (result.runFailed) anyFailed = true;
+      }
+    }
+
+    const roundAnswer =
+      asString((scratch as Record<string, unknown>)["lastOutput"]) ||
+      asString(((scratch as Record<string, unknown>)["ai"] as { output?: unknown } | undefined)?.output) ||
+      asString(scratch.text);
+    results.push(roundAnswer);
+  }
+
+  const joined = results.join("\n");
+  context.results = results;
+  (context as Record<string, unknown>)["results"] = results;
+  context.ai = { output: joined };
+  context.lastOutput = joined;
+  context.text = joined;
+
+  logs.push(
+    createLog(
+      node,
+      "success",
+      `Worked through ${items.length} ${items.length === 1 ? "item" : "items"} and handed on all the answers.`,
+      { results }
+    )
+  );
+  return { logs, runFailed: anyFailed };
 }
 
 function runConditionNode(node: RunnerNode, context: RunnerContext, logs: WorkflowRunLog[]) {
@@ -6298,6 +6476,8 @@ export async function runWorkflowTest({
   });
   context.workflowRunId = workflowRunId;
 
+  graphByContext.set(context as object, { nodes: parsedWorkflow.nodes, edges: parsedWorkflow.edges });
+
   let executionOrder = 0;
   let runFailed = false;
   const workflowStart = Date.now();
@@ -6320,7 +6500,11 @@ export async function runWorkflowTest({
         parsedWorkflow.edges,
         context.conditionResults ?? {}
       );
-      const liveWave = wave.filter((node) => !switchedOff.has(node.id));
+      /* Steps downstream of a Loop belong to the Loop: it runs them itself,
+         once per item. The main pass leaves them alone — no skip lines,
+         because their logs arrive from the rounds. */
+      const loopOwned = nodesOwnedByLoops(parsedWorkflow.nodes, parsedWorkflow.edges);
+      const liveWave = wave.filter((node) => !switchedOff.has(node.id) && !loopOwned.has(node.id));
       for (const node of wave) {
         if (!switchedOff.has(node.id)) continue;
         logs.push(
@@ -6618,6 +6802,57 @@ async function executeNodeOnConfig(params: {
           createLog(node, "skipped", "Nobody typed anything into this box on this run.")
         );
       }
+      return { logs: nodeLogs, runFailed: false };
+    }
+
+    /*
+     * THE FILE UPLOAD HANDS THE FILE OVER.
+     *
+     * The page has carried an upload field for months — storing only the
+     * file's NAME. The engine heard "the customer attached menu.pdf" while
+     * the menu itself never left the browser. This is where it becomes real:
+     * a document's text is extracted and handed on as `file`; an image is
+     * left whole for the Brain's own eyes (the provider request already
+     * carries attachments); video never gets this far — the page refuses it
+     * with a sentence.
+     */
+    if (asString(node.data?.type) === "block.file_upload") {
+      const uploads = (Array.isArray(input?.attachments) ? input.attachments : []) as Array<{
+        name?: string;
+        mimeType?: string;
+        data?: string;
+      }>;
+      const upload = uploads[0];
+
+      if (!upload?.data) {
+        nodeLogs.push(createLog(node, "skipped", "No file was attached on this run."));
+        return { logs: nodeLogs, runFailed: false };
+      }
+
+      const name = asString(upload.name, "file");
+      const mime = asString(upload.mimeType).toLowerCase();
+      const isImage = mime.startsWith("image/");
+
+      let text = "";
+      if (!isImage) {
+        text = await extractAttachmentText({ name, mimeType: mime, data: upload.data }).catch(
+          () => `[unreadable file: ${name}]`
+        );
+      }
+
+      context.file = { name, text };
+      (context as Record<string, unknown>)["file"] = context.file;
+
+      nodeLogs.push(
+        createLog(
+          node,
+          "success",
+          isImage
+            ? `Took the customer's picture "${name}" and handed it to the Brain's eyes.`
+            : `Read the customer's file "${name}" and handed its words on.`,
+          { file: { name, text: text.slice(0, 400) } }
+        )
+      );
       return { logs: nodeLogs, runFailed: false };
     }
 
@@ -7194,6 +7429,22 @@ async function executeNodeOnConfig(params: {
       }
       const hasErr = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
       return { logs: nodeLogs, runFailed: hasErr || runFailed };
+    }
+
+    if (asString(node.data?.type) === "logic.loop") {
+      return await runLoopNode({
+        node,
+        context,
+        userId,
+        input,
+        mode,
+        chain,
+        workflowRunId,
+        workflowId,
+        threadId,
+        executionOrder,
+        doorBudget: chain.doorBudget
+      });
     }
 
     if (nodeKind === "condition") {

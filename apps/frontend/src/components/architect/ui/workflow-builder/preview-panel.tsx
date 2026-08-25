@@ -118,7 +118,11 @@ export type PreviewPanelProps = {
     sessionId?: string
   ) => Promise<PreviewChatResult>;
   onStartVoice: () => Promise<PreviewVoiceResult>;
-  onRunOnce: (prompt: string, sessionId?: string) => Promise<PreviewRunResult>;
+  onRunOnce: (
+    prompt: string,
+    sessionId?: string,
+    attachments?: Array<{ name: string; mimeType: string; data: string }>
+  ) => Promise<PreviewRunResult>;
   /** The declared purpose, and where a newly saved one is reported. */
   purpose?: string;
   onPurposeSaved?: (purpose: string) => void;
@@ -343,9 +347,9 @@ export function PreviewPanel({
         }
       },
 
-      async runOnce({ prompt, sessionId }) {
+      async runOnce({ prompt, sessionId, attachments }) {
         try {
-          const result = await onRunOnce(prompt, sessionId);
+          const result = await onRunOnce(prompt, sessionId, attachments);
           setEngineSnag("error" in result);
           return result;
         } catch {

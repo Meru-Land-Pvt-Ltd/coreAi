@@ -44,8 +44,14 @@ import {
 import {
   CONDITION_ROADS_BOUNDS,
   DEFAULT_CONDITION_ROADS,
+  DEFAULT_LOOP_ROUNDS,
+  LOOP_ROUNDS_BOUNDS,
   getConditionRoadLimit,
-  saveConditionRoadLimit
+  getFileUploadImagesAllowed,
+  getLoopRoundLimit,
+  saveConditionRoadLimit,
+  saveFileUploadImagesAllowed,
+  saveLoopRoundLimit
 } from "./node-limits";
 import {
   DEFAULT_DOOR_BRAIN_PROVIDER,
@@ -402,6 +408,65 @@ adminRoutes.patch("/design-rules", async (c) => {
     { rules: { ...rules, defaultValue: DEFAULT_DESIGN_BRAIN_RULES }, ...result },
     result.restoredDefault ? "Default rules restored" : "Design Brain rules saved"
   );
+});
+
+/* ------------------------------ Loop: the rounds --------------------------- */
+
+/** The most rounds one Loop may run — the platform's runaway-bill guard. */
+adminRoutes.get("/loop-limits", async (c) => {
+  return successResponse(c, {
+    maxRounds: await getLoopRoundLimit(),
+    default: DEFAULT_LOOP_ROUNDS,
+    bounds: LOOP_ROUNDS_BOUNDS
+  });
+});
+
+adminRoutes.patch("/loop-limits", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = z
+    .object({ maxRounds: z.coerce.number().int().min(LOOP_ROUNDS_BOUNDS.min).max(LOOP_ROUNDS_BOUNDS.max) })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, `Pick a number between ${LOOP_ROUNDS_BOUNDS.min} and ${LOOP_ROUNDS_BOUNDS.max}.`, 422, "VALIDATION_ERROR");
+  }
+  const saved = await saveLoopRoundLimit(parsed.data.maxRounds, authUser.id);
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "LOOP_ROUND_LIMIT_UPDATED",
+    targetType: "NODE",
+    targetId: "logic.loop",
+    meta: { maxRounds: saved }
+  });
+  return successResponse(c, { maxRounds: saved });
+});
+
+/* --------------------------- File Upload: pictures ------------------------- */
+
+adminRoutes.get("/file-upload-limits", async (c) => {
+  const { biggestFileMb } = await getMemoryLimits();
+  return successResponse(c, {
+    imagesAllowed: await getFileUploadImagesAllowed(),
+    /* The size dial is Memory's — one fact, one home. Shown here read-only
+       with a pointer, never as a second control that could drift. */
+    biggestFileMb
+  });
+});
+
+adminRoutes.patch("/file-upload-limits", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = z
+    .object({ imagesAllowed: z.boolean() })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return errorResponse(c, "Send imagesAllowed as true or false.", 422, "VALIDATION_ERROR");
+  const saved = await saveFileUploadImagesAllowed(parsed.data.imagesAllowed, authUser.id);
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "FILE_UPLOAD_IMAGES_UPDATED",
+    targetType: "NODE",
+    targetId: "block.file_upload",
+    meta: { imagesAllowed: saved }
+  });
+  return successResponse(c, { imagesAllowed: saved });
 });
 
 /* ------------------------- Condition: the roads out ------------------------ */

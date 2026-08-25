@@ -970,7 +970,11 @@ export function runArchitectWorkflowTest(
  */
 export function previewRunArchitectWorkflow(
   workflowId: string,
-  body: { prompt: string; sessionId?: string }
+  body: {
+    prompt: string;
+    sessionId?: string;
+    attachments?: Array<{ name: string; mimeType: string; data: string }>;
+  }
 ) {
   return apiPost<{
     output: {

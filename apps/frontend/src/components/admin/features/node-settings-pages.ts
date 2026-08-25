@@ -33,6 +33,14 @@ export const NODE_SETTINGS_PAGES: Record<string, NodeSettingsPage> = {
   "logic.condition": {
     title: "Limits",
     summary: "How many roads out one Condition may have."
+  },
+  "logic.loop": {
+    title: "Limits",
+    summary: "The most rounds one Loop may run — every round can cost an AI call."
+  },
+  "block.file_upload": {
+    title: "Limits",
+    summary: "Whether customers may hand agents pictures, and the biggest file the platform reads."
   }
 };
 

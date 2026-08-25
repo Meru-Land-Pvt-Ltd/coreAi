@@ -2422,6 +2422,62 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     },
     defaultConfig: { nextWorkflowId: "" }
   }),
+  /* NODE — LOOP. The third leg every computer stands on.
+     Do things in order (the wires), choose (the Condition), and REPEAT — and
+     the platform had no repeat. An agent could serve one customer at a time
+     but never work through a list: "for each of these fifty leads, score it"
+     was impossible on the canvas. This is that leg. */
+  def({
+    type: "logic.loop",
+    label: "Loop",
+    category: "logic",
+    description: "Runs the steps after it once for every item in a list, then hands on all the answers together.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    /* "condition" is the runner's word for a logic node that steers the flow —
+       the Loop steers it round in circles rather than down a road. */
+    runtime: { nodeKind: "condition" },
+    defaultConfig: {
+      loopSplit: "commas",
+      loopMaxRounds: "10"
+    },
+    requiredVariables: ["text"],
+    producedVariables: ["results"],
+    settings: [
+      {
+        key: "loopSplit",
+        name: "How to split",
+        whatItsFor: "How the list arrives: apples, pears, plums — or one per line — or let AI find the items.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "commas", label: "By commas" },
+            { value: "lines", label: "One per line" },
+            { value: "ai", label: "Let AI find the items" }
+          ]
+        },
+        default: "commas",
+        whoFills: "architect"
+      },
+      {
+        key: "loopMaxRounds",
+        name: "Most rounds",
+        whatItsFor: "The most items it will work through in one run. Every round can cost an AI call.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "5", label: "5 rounds" },
+            { value: "10", label: "10 rounds" },
+            { value: "25", label: "25 rounds" }
+          ]
+        },
+        default: "10",
+        whoFills: "architect"
+      }
+    ]
+  }),
   def({
     // NODE FOUR. The fork in the road. See docs/NODE-SOP.md.
     //
@@ -2760,6 +2816,50 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     ],
 
     producedVariables: ["text"]
+  }),
+  /* NODE — FILE UPLOAD. The machine can finally be handed something.
+     Its only sense was typed words: a dentist could not give it a price list,
+     a customer could not show it a photo. The page has carried an upload FIELD
+     for months — but it stored only the file's NAME, and the engine heard
+     "the customer attached menu.pdf" while the menu itself never left the
+     browser. Furniture, not a sense. This makes it real: documents arrive as
+     words, images arrive to the Brain's own eyes, video is refused in one
+     plain sentence until a model here can watch one. */
+  def({
+    type: "block.file_upload",
+    label: "File Upload",
+    category: "product",
+    description: "Lets your customer hand the agent a file — documents become words, pictures reach the Brain's eyes.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "block" },
+    defaultConfig: {
+      placeholder: "Add a file…",
+      required: "false"
+    },
+    requiredVariables: [],
+    producedVariables: ["file"],
+    settings: [
+      {
+        key: "placeholder",
+        name: "Hint text",
+        whatItsFor: "The words on the upload area before your customer picks a file.",
+        type: "text",
+        limits: { maxLength: 80 },
+        default: "Add a file…",
+        whoFills: "architect"
+      },
+      {
+        key: "required",
+        name: "Must attach?",
+        whatItsFor: "On, your customer cannot press Generate without a file.",
+        type: "on/off",
+        default: false,
+        whoFills: "architect"
+      }
+    ]
   }),
   def({
     type: BLOCK_NODE_TYPES.presetGallery,

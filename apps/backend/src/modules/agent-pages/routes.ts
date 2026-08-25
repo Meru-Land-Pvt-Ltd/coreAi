@@ -16,6 +16,7 @@ import { resolveDesign } from "./design";
 import { registerAgentPageManageRoutes } from "./manage-routes";
 import { agentPageRemainingToday, consumeAgentPageLimit, refundAgentPageUse } from "./rate-limit";
 import { resolveRunOutput } from "./run-output";
+import { refuseUploadIfBeyondLimits } from "../architect/upload-limits";
 import type { AgentPageTemplate } from "./slug";
 
 /**
@@ -317,7 +318,18 @@ const runBodySchema = z.object({
    * The buyer's public widget key, sent by the embed loader. Absent on the
    * marketplace page, which stays a demo exactly as before.
    */
-  installKey: z.string().trim().max(120).optional()
+  installKey: z.string().trim().max(120).optional(),
+  /** File Upload's door out — the customer's one file, as a data URL. */
+  attachments: z
+    .array(
+      z.object({
+        name: z.string().trim().max(200),
+        mimeType: z.string().trim().max(100),
+        data: z.string().max(15_000_000)
+      })
+    )
+    .max(1)
+    .optional()
 });
 
 /** One sandboxed one-shot run for media/form templates (rate-limited). */
@@ -325,6 +337,13 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
   const slug = c.req.param("slug");
 
   const parsed = runBodySchema.safeParse(await c.req.json().catch(() => ({})));
+
+  /* The admin's upload dials, enforced at the public door too — the page and
+     the preview must never drift apart on what they accept. */
+  if (parsed.success && parsed.data.attachments?.length) {
+    const refusal = await refuseUploadIfBeyondLimits(parsed.data.attachments[0]);
+    if (refusal) return errorResponse(c, refusal, 422, "UPLOAD_REFUSED");
+  }
   if (!parsed.success) {
     return errorResponse(
       c,
@@ -392,6 +411,7 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
             // typed nothing did not write anything, and handing on an empty
             // string would say they did.
             ...(parsed.data.text ? { text: parsed.data.text } : {}),
+            ...(parsed.data.attachments?.length ? { attachments: parsed.data.attachments } : {}),
             // Marks the run as coming from a public widget: real calendar and
             // real leads, but no texts, calls, emails or WhatsApp — the page
             // is public and a stranger must never reach outward on this bill.
@@ -409,6 +429,7 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
             message: parsed.data.prompt,
             // See above: only when they actually typed something.
             ...(parsed.data.text ? { text: parsed.data.text } : {}),
+            ...(parsed.data.attachments?.length ? { attachments: parsed.data.attachments } : {}),
             businessName: page.listing.name
           },
           mode: "test"

@@ -19,7 +19,9 @@ const PERFECTED = [
   "block.output_stage",
   "ai.llm_call",
   "logic.condition",
-  "ai.memory"
+  "ai.memory",
+  "logic.loop",
+  "block.file_upload"
 ] as const;
 
 describe("the nodes we have finished answer question 5", () => {

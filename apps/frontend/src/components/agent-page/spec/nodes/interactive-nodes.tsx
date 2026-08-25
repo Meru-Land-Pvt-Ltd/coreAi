@@ -285,12 +285,39 @@ export const UploadNodeView = memo(function UploadNodeView({
   const stored = wired && run ? run.values[node.id] : undefined;
   const fileName = stored?.value ?? localName;
 
+  const [refused, setRefused] = useState<string | null>(null);
+
   function accept(file: File | undefined) {
     if (!file) return;
-    setLocalName(file.name);
-    if (wired && run) {
-      run.setValue(node.id, { value: file.name, detail: humanSize(file.size) });
+
+    /* Video is the one honest refusal: no model in the engine can watch one
+       yet. Said here, in a sentence, instead of swallowing the file and
+       answering nothing. */
+    if (file.type.startsWith("video/")) {
+      setRefused("Videos can't be read yet — a document or a picture works.");
+      return;
     }
+    if (file.size > 5 * 1024 * 1024) {
+      setRefused("That file is over 5 MB — a smaller one works.");
+      return;
+    }
+    setRefused(null);
+    setLocalName(file.name);
+
+    /* The file itself rides along as a data URL. Without this the engine only
+       ever heard the file's NAME — the upload field was furniture. */
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (wired && run) {
+        run.setValue(node.id, {
+          value: file.name,
+          detail: humanSize(file.size),
+          data: typeof reader.result === "string" ? reader.result : undefined,
+          mimeType: file.type || "application/octet-stream"
+        });
+      }
+    };
+    reader.readAsDataURL(file);
   }
 
   function clear() {
@@ -354,6 +381,11 @@ export const UploadNodeView = memo(function UploadNodeView({
       <span className="text-sm font-semibold" style={{ color: ink.ink }}>
         {node.label ?? "Add a file"}
       </span>
+      {refused ? (
+        <span className="text-xs" style={{ color: ink.subtle }} data-testid={`spec-upload-refused-${node.id}`}>
+          {refused}
+        </span>
+      ) : null}
       <input
         ref={inputRef}
         id={fieldId}

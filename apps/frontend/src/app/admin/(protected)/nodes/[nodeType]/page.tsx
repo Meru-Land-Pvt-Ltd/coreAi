@@ -27,12 +27,16 @@ import { nodeSettingsPage } from "@/components/admin/features/node-settings-page
 import { AiBrainModels } from "@/components/admin/features/node-settings/ai-brain-models";
 import { MemoryLimitsPanel } from "@/components/admin/features/node-settings/memory-limits";
 import { ConditionLimitsPanel } from "@/components/admin/features/node-settings/condition-limits";
+import { LoopLimitsPanel } from "@/components/admin/features/node-settings/loop-limits";
+import { FileUploadLimitsPanel } from "@/components/admin/features/node-settings/file-upload-limits";
 
 /** The settings panel for this node, if it has one. */
 function SettingsFor({ nodeType }: { nodeType: string }) {
   if (nodeType === "ai.llm_call") return <AiBrainModels />;
   if (nodeType === "ai.memory") return <MemoryLimitsPanel />;
   if (nodeType === "logic.condition") return <ConditionLimitsPanel />;
+  if (nodeType === "logic.loop") return <LoopLimitsPanel />;
+  if (nodeType === "block.file_upload") return <FileUploadLimitsPanel />;
   return null;
 }
 

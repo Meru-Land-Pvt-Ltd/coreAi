@@ -216,8 +216,10 @@ export function NodeInspector({
   else if (type === BLOCK_NODE_TYPES.outputStage) panel = <ResultViewerBlockProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.continueChain) panel = <ContinueButtonBlockProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.historyShelf) panel = <HistoryShelfBlockProps {...base} />;
+  else if (type === "block.file_upload") panel = <FileUploadBlockProps {...base} />;
   else if (selectedNode.data.nodeKind === "trigger") panel = <TriggerProps {...base} />;
   else if (selectedNode.data.nodeKind === "ai") panel = <AiProps {...base} />;
+  else if (type === "logic.loop") panel = <LoopProps {...base} />;
   else if (selectedNode.data.nodeKind === "condition") panel = <ConditionProps {...base} />;
   else if (selectedNode.data.nodeKind === "connector") {
     panel = <ConnectorProps {...base} calendar={calendar} ownership={ownership} />;
@@ -3724,6 +3726,95 @@ function StandardAiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
  * Asking a model whether we are inside business hours would put a cost and a
  * delay on the commonest rule on the platform, so the two are kept apart.
  */
+/**
+ * THE LOOP — the machine's third leg, in three plain controls.
+ *
+ * Name, how the list arrives, and how many rounds at most. The choices come
+ * from the node's own declaration (SOP question 5) — the panel, the Composer
+ * and the admin page all read the same lines.
+ */
+function LoopProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="Name">
+        <TextInput value={selectedNode.data.title} onChange={set("title")} placeholder="Loop" testId="loop-name-input" />
+      </Section>
+
+      <Section title="How the list arrives">
+        <SelectBox
+          value={str("loopSplit", "commas")}
+          onChange={set("loopSplit")}
+          options={nodeSettingChoices("logic.loop", "loopSplit")}
+          testId="loop-split-select"
+        />
+        <p className="mt-1.5 text-[11px] leading-5 text-slate-400">
+          It splits whatever arrives into items and runs the steps after it once per item — in
+          order, one at a time. Only &ldquo;Let AI find the items&rdquo; costs an AI call.
+        </p>
+      </Section>
+
+      <Section title="Most rounds" last>
+        <SelectBox
+          value={str("loopMaxRounds", "10")}
+          onChange={set("loopMaxRounds")}
+          options={nodeSettingChoices("logic.loop", "loopMaxRounds")}
+          testId="loop-rounds-select"
+        />
+        <p className="mt-1.5 text-[11px] leading-5 text-slate-400">
+          The ceiling for one run. Every round can cost an AI call, so a pasted spreadsheet can
+          never become a runaway bill.
+        </p>
+      </Section>
+    </>
+  );
+}
+
+/**
+ * FILE UPLOAD — the page's door for documents and pictures.
+ *
+ * Two dials for the architect. What kinds and how big belong to the admin —
+ * never asked here, per the SOP's own rule.
+ */
+function FileUploadBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="Name">
+        <TextInput value={selectedNode.data.title} onChange={set("title")} placeholder="File Upload" testId="file-upload-name-input" />
+      </Section>
+
+      <Section title="Hint text">
+        <TextInput
+          value={str("placeholder", "Add a file…")}
+          onChange={set("placeholder")}
+          placeholder="Add a file…"
+          maxLength={80}
+          testId="file-upload-hint-input"
+        />
+        <p className="mt-1.5 text-[11px] leading-5 text-slate-400">
+          The words on the upload area before your customer picks a file. Documents are read as
+          words; pictures go to the Brain&apos;s own eyes; videos are refused with a sentence.
+        </p>
+      </Section>
+
+      <Section title="Must attach?" last>
+        <SelectBox
+          value={str("required", "false")}
+          onChange={set("required")}
+          options={[
+            { value: "false", label: "Optional" },
+            { value: "true", label: "Required before Generate" }
+          ]}
+          testId="file-upload-required-select"
+        />
+      </Section>
+    </>
+  );
+}
+
 function ConditionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, set } = fields(selectedNode, onUpdateNodeData);
   const { conditionRoads: maxRoads } = useNodeLimits();

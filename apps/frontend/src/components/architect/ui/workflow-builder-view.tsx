@@ -2329,7 +2329,11 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   }
 
   /** One-shot engine for the media/form Faces — sandboxed architect preview run. */
-  async function runPreviewOnce(prompt: string, sessionId?: string): Promise<PreviewRunResult> {
+  async function runPreviewOnce(
+    prompt: string,
+    sessionId?: string,
+    attachments?: Array<{ name: string; mimeType: string; data: string }>
+  ): Promise<PreviewRunResult> {
     if (blockIfUnderReview()) return { error: REVIEW_LOCK_MESSAGE };
 
     try {
@@ -2341,7 +2345,8 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
       const result = await previewRunArchitectWorkflow(currentWorkflowIdRef.current, {
         prompt,
-        ...(sessionId ? { sessionId } : {})
+        ...(sessionId ? { sessionId } : {}),
+        ...(attachments?.length ? { attachments } : {})
       });
 
       if (!result.success || !result.data) {

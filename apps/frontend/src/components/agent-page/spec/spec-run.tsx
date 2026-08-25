@@ -276,6 +276,8 @@ export type SpecRunRequest = {
   displayPrompt: string;
   /** The Prompt Box's door out — what the customer typed, nothing added. */
   text: string;
+  /** The customer's uploaded file, riding with the run. One file today. */
+  attachments?: Array<{ name: string; mimeType: string; data: string }>;
 };
 
 export type SpecRunValue = {
@@ -283,6 +285,15 @@ export type SpecRunValue = {
   value: string;
   /** Display-only detail (a file's size), never sent to the engine. */
   detail?: string;
+  /**
+   * The file itself, as a data URL — engine-only, never rendered.
+   *
+   * For months the upload field stored only the file's NAME: the engine heard
+   * "the customer attached menu.pdf" while the menu never left the browser.
+   * This is the menu.
+   */
+  data?: string;
+  mimeType?: string;
 };
 
 export type SpecRunContextValue = {
@@ -425,7 +436,12 @@ export function SpecRunProvider({
       try {
         let result: Awaited<ReturnType<AgentPageRuntime["runOnce"]>>;
         try {
-          result = await runtime.runOnce({ prompt: request.prompt, text: request.text, sessionId });
+          result = await runtime.runOnce({
+            prompt: request.prompt,
+            text: request.text,
+            sessionId,
+            ...(request.attachments?.length ? { attachments: request.attachments } : {})
+          });
         } catch {
           // Both runtimes resolve with { error } today — but a thrown rejection
           // must never strand a channel in a forever-shimmer with no retry.
@@ -504,7 +520,19 @@ export function SpecRunProvider({
       // A button with nothing to say and no label would send an empty prompt.
       if (!prompt.trim()) return;
 
-      void performRun({ channel, prompt, displayPrompt, text });
+      /* The file rides with the run — the whole point of the upload field. */
+      const attachments = fields
+        .filter((field) => field.kind === "upload")
+        .map((field) => values[field.specNodeId])
+        .filter((stored): stored is SpecRunValue => Boolean(stored?.data))
+        .map((stored) => ({
+          name: stored.value,
+          mimeType: stored.mimeType ?? "application/octet-stream",
+          data: stored.data as string
+        }))
+        .slice(0, 1);
+
+      void performRun({ channel, prompt, displayPrompt, text, ...(attachments.length ? { attachments } : {}) });
     },
     [fields, values, limitReached, performRun]
   );

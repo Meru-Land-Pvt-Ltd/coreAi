@@ -120,6 +120,7 @@ import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoiceP
 import { getConditionRoadLimit, DEFAULT_CONDITION_ROADS } from "../admin/node-limits";
 import { aiBuilderAnswer } from "./ai-builder";
 import { checkAgent } from "./agent-check";
+import { refuseUploadIfBeyondLimits } from "./upload-limits";
 import { runWorkflowTest } from "./workflow-runner";
 import { getArchitectVapiBrowserTestCallEndReason, startArchitectVapiBrowserTest } from "./vapi-browser-test";
 import { runArchitectConversationTest } from "./workflow-conversation-test";
@@ -2775,7 +2776,22 @@ const architectPreviewRunSchema = z.object({
     .min(1, "Prompt is required")
     .max(4000, "Prompt is too long (4000 characters max)"),
   /** Accepted for parity with the public page runtime; one-shot runs are stateless. */
-  sessionId: z.string().trim().max(64).optional()
+  sessionId: z.string().trim().max(64).optional(),
+  /**
+   * The customer's uploaded file — File Upload's door out. One file today; a
+   * data URL, sized by the admin's own dial (checked in the handler, where the
+   * dial can be read — a schema cannot ask the database).
+   */
+  attachments: z
+    .array(
+      z.object({
+        name: z.string().trim().max(200),
+        mimeType: z.string().trim().max(100),
+        data: z.string().max(15_000_000)
+      })
+    )
+    .max(1)
+    .optional()
 });
 
 // One sandboxed one-shot run for the builder's Test tab preview (media/form
@@ -2892,6 +2908,13 @@ architectRoutes.post("/workflows/:workflowId/preview-run", async (c) => {
     // Dry-runs have no installed business, so the workflow's own name stands
     // in — saved text like {{business.name}} resolves to the agent's name
     // instead of leaking a raw placeholder into the preview.
+    /* The admin's dials, enforced at the door: the biggest file the platform
+       reads, and whether pictures are allowed at all. */
+    if (input.attachments?.length) {
+      const refusal = await refuseUploadIfBeyondLimits(input.attachments[0]);
+      if (refusal) return errorResponse(c, refusal, 422, "UPLOAD_REFUSED");
+    }
+
     const result = await runWorkflowTest({
       userId: authUser.id,
       workflowId,
@@ -2899,6 +2922,7 @@ architectRoutes.post("/workflows/:workflowId/preview-run", async (c) => {
       input: {
         message: input.prompt,
         businessName: workflow.name,
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         /*
          * THE THREAD THAT MAKES MEMORY POSSIBLE.
          *

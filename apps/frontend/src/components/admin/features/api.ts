@@ -849,3 +849,23 @@ export function getConditionLimits() {
 export function saveConditionLimits(maxRoads: number) {
   return apiPatch<{ maxRoads: number }>("/admin/condition-limits", { maxRoads });
 }
+
+/* ------------------------------ Loop: the rounds --------------------------- */
+
+export function getLoopLimits() {
+  return apiGet<{ maxRounds: number; default: number; bounds: { min: number; max: number } }>("/admin/loop-limits");
+}
+
+export function saveLoopLimits(maxRounds: number) {
+  return apiPatch<{ maxRounds: number }>("/admin/loop-limits", { maxRounds });
+}
+
+/* --------------------------- File Upload: pictures ------------------------- */
+
+export function getFileUploadLimits() {
+  return apiGet<{ imagesAllowed: boolean; biggestFileMb: number }>("/admin/file-upload-limits");
+}
+
+export function saveFileUploadLimits(imagesAllowed: boolean) {
+  return apiPatch<{ imagesAllowed: boolean }>("/admin/file-upload-limits", { imagesAllowed });
+}

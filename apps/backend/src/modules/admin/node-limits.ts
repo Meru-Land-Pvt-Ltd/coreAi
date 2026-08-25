@@ -72,3 +72,89 @@ export async function saveConditionRoadLimit(value: number, updatedByUserId: str
   invalidateNodeLimitsCache();
   return safe;
 }
+
+/* ------------------------- File Upload: pictures ------------------------- */
+
+export const FILE_UPLOAD_IMAGES_KEY = "fileUploadImagesAllowed";
+
+let cachedImages: boolean | null = null;
+let cachedImagesAt = 0;
+
+export function invalidateFileUploadCache(): void {
+  cachedImages = null;
+  cachedImagesAt = 0;
+}
+
+/** May customers hand agents pictures? On by default — the founder's call. */
+export async function getFileUploadImagesAllowed(): Promise<boolean> {
+  if (cachedImages !== null && Date.now() - cachedImagesAt < CACHE_TTL_MS) return cachedImages;
+  try {
+    const row = await prisma.platformApiSetting.findUnique({
+      where: { key: FILE_UPLOAD_IMAGES_KEY },
+      select: { valueEncrypted: true }
+    });
+    cachedImages = row ? row.valueEncrypted !== "off" : true;
+    cachedImagesAt = Date.now();
+    return cachedImages;
+  } catch {
+    return cachedImages ?? true;
+  }
+}
+
+export async function saveFileUploadImagesAllowed(allowed: boolean, updatedByUserId: string): Promise<boolean> {
+  await prisma.platformApiSetting.upsert({
+    where: { key: FILE_UPLOAD_IMAGES_KEY },
+    update: { valueEncrypted: allowed ? "on" : "off", secret: false, updatedByUserId },
+    create: { key: FILE_UPLOAD_IMAGES_KEY, valueEncrypted: allowed ? "on" : "off", secret: false, updatedByUserId }
+  });
+  invalidateFileUploadCache();
+  return allowed;
+}
+
+/* ----------------------------- Loop: the rounds ---------------------------- */
+
+export const LOOP_ROUNDS_KEY = "loopMaxRounds";
+
+/** Twenty-five: far above any sensible product, low enough that a pasted
+ *  spreadsheet cannot become a runaway bill — every round can be an AI call. */
+export const DEFAULT_LOOP_ROUNDS = 25;
+export const LOOP_ROUNDS_BOUNDS = { min: 1, max: 100 } as const;
+
+let cachedLoop: number | null = null;
+let cachedLoopAt = 0;
+
+export function invalidateLoopLimitCache(): void {
+  cachedLoop = null;
+  cachedLoopAt = 0;
+}
+
+export async function getLoopRoundLimit(): Promise<number> {
+  if (cachedLoop !== null && Date.now() - cachedLoopAt < CACHE_TTL_MS) return cachedLoop;
+  try {
+    const row = await prisma.platformApiSetting.findUnique({
+      where: { key: LOOP_ROUNDS_KEY },
+      select: { valueEncrypted: true }
+    });
+    const value = row ? Number(row.valueEncrypted) : DEFAULT_LOOP_ROUNDS;
+    cachedLoop = Number.isFinite(value)
+      ? Math.min(LOOP_ROUNDS_BOUNDS.max, Math.max(LOOP_ROUNDS_BOUNDS.min, Math.round(value)))
+      : DEFAULT_LOOP_ROUNDS;
+    cachedLoopAt = Date.now();
+    return cachedLoop;
+  } catch {
+    return cachedLoop ?? DEFAULT_LOOP_ROUNDS;
+  }
+}
+
+export async function saveLoopRoundLimit(value: number, updatedByUserId: string): Promise<number> {
+  const safe = Number.isFinite(value)
+    ? Math.min(LOOP_ROUNDS_BOUNDS.max, Math.max(LOOP_ROUNDS_BOUNDS.min, Math.round(value)))
+    : DEFAULT_LOOP_ROUNDS;
+  await prisma.platformApiSetting.upsert({
+    where: { key: LOOP_ROUNDS_KEY },
+    update: { valueEncrypted: String(safe), secret: false, updatedByUserId },
+    create: { key: LOOP_ROUNDS_KEY, valueEncrypted: String(safe), secret: false, updatedByUserId }
+  });
+  invalidateLoopLimitCache();
+  return safe;
+}
