@@ -220,6 +220,7 @@ export function NodeInspector({
   else if (selectedNode.data.nodeKind === "trigger") panel = <TriggerProps {...base} />;
   else if (selectedNode.data.nodeKind === "ai") panel = <AiProps {...base} />;
   else if (type === "logic.loop") panel = <LoopProps {...base} />;
+  else if (type === "trigger.email_received") panel = <EmailReceivedProps {...base} />;
   else if (selectedNode.data.nodeKind === "condition") panel = <ConditionProps {...base} />;
   else if (selectedNode.data.nodeKind === "connector") {
     panel = <ConnectorProps {...base} calendar={calendar} ownership={ownership} />;
@@ -3801,6 +3802,36 @@ function FileUploadBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel
           ]}
           testId="file-upload-required-select"
         />
+      </Section>
+    </>
+  );
+}
+
+/**
+ * EMAIL RECEIVED — the ear. Nothing to configure, and that is the design:
+ * the agent's address belongs to the BUSINESS's Mail Setup, never typed here.
+ * The panel's job is to tell the story in three lines.
+ */
+function EmailReceivedProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="Name">
+        <TextInput value={selectedNode.data.title} onChange={set("title")} placeholder="Email received" testId="email-received-name-input" />
+      </Section>
+
+      <Section title="How it works" last>
+        <p className="text-[13px] leading-6 text-slate-600" data-testid="email-received-story">
+          When the business installs this agent, they get their own Triven address at setup. They
+          add one forwarding rule in their existing inbox — Gmail, anything — and from then on,
+          every email their business receives starts these steps. The mail arrives as{" "}
+          <span className="font-semibold text-slate-800">who wrote, the subject, and the words</span>{" "}
+          — ready for a Condition to sort and a Brain to answer.
+        </p>
+        <p className="mt-2 text-[12px] leading-5 text-slate-400">
+          Testing here uses a sample mail, and says so. Real mail needs nothing from you.
+        </p>
       </Section>
     </>
   );

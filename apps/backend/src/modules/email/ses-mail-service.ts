@@ -686,7 +686,104 @@ export async function routeInboundEmailToBusiness(input: InboundEmailInput): Pro
   //     .catch((error) => console.error("[email-ai] reply attempt failed (inbound stored)", error));
   // }
 
+  /*
+   * NODE 010 — THE EAR FIRES.
+   *
+   * Routing and forwarding are bookkeeping; this is the point of the limb:
+   * when the alias belongs to an installed agent whose canvas carries the
+   * "Email received" trigger, the mail STARTS THE WORKFLOW — live, under the
+   * business, with the sender as the memory drawer's key so the same customer
+   * is remembered across mails. Fire-and-forget: a failed run is logged, but
+   * the inbound mail is already stored and forwarded — the ear must never
+   * lose the letter because the brain stumbled.
+   */
+  if (!isLoop && alias.installedAgentId) {
+    void startEmailTriggeredRun({
+      installedAgentId: alias.installedAgentId,
+      fromEmail: input.fromEmail,
+      subject: input.subject,
+      body: textBody ?? "",
+      inboundMessageId: stored.id
+    }).catch((error) =>
+      console.error("[email-trigger] run failed", { messageId: stored.id, error: (error as Error).message })
+    );
+  }
+
   return { routed: true, businessId: alias.businessId, forwarded, messageId: stored.id };
+}
+
+/** Does this agent's canvas carry the ear? */
+function workflowHasEmailTrigger(workflowJson: unknown): boolean {
+  const nodes = (workflowJson as { nodes?: Array<{ data?: { type?: unknown } }> })?.nodes;
+  return Array.isArray(nodes) && nodes.some((node) => node?.data?.type === "trigger.email_received");
+}
+
+async function startEmailTriggeredRun(input: {
+  installedAgentId: string;
+  fromEmail: string;
+  subject: string;
+  body: string;
+  inboundMessageId: string;
+}): Promise<void> {
+  const agent = await prisma.installedAgent.findUnique({
+    where: { id: input.installedAgentId },
+    select: {
+      id: true,
+      status: true,
+      businessId: true,
+      workflowId: true,
+      listingId: true,
+      workflow: { select: { workflowJson: true } },
+      business: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          ownerId: true,
+          profile: { select: { calendarId: true, timeZone: true, services: true, bookingUrl: true, teamPhone: true } }
+        }
+      }
+    }
+  });
+  if (!agent || !workflowHasEmailTrigger(agent.workflow.workflowJson)) return;
+  if (agent.status !== "ACTIVE") return;
+
+  const { runWorkflowTest } = await import("../architect/workflow-runner.js");
+  const profile = agent.business.profile;
+
+  await runWorkflowTest({
+    userId: agent.business.ownerId,
+    workflowId: agent.workflowId,
+    workflowJson: agent.workflow.workflowJson,
+    mode: "live",
+    executionMode: "LIVE",
+    /* One inbound mail, one run — a duplicate SNS delivery throws on the
+       unique pair instead of running the agent twice for the same letter. */
+    callProvider: "EMAIL",
+    externalCallId: input.inboundMessageId,
+    input: {
+      businessId: agent.businessId,
+      businessOwnerId: agent.business.ownerId,
+      installedAgentId: agent.id,
+      listingId: agent.listingId ?? undefined,
+      businessName: agent.business.name,
+      businessType: agent.business.type ?? undefined,
+      bookingUrl: profile?.bookingUrl ?? undefined,
+      teamPhone: profile?.teamPhone ?? undefined,
+      calendarId: profile?.calendarId ?? undefined,
+      timeZone: profile?.timeZone ?? undefined,
+      services: profile?.services ?? [],
+      /* The sender keys the memory drawer: the same customer writing twice is
+         remembered, two different customers never share a drawer. */
+      callerNumber: input.fromEmail,
+      email: {
+        from: input.fromEmail,
+        subject: input.subject,
+        body: input.body,
+        receivedAt: new Date().toISOString()
+      }
+    } as never
+  });
 }
 
 const MAX_INBOUND_RAW_BYTES = 2 * 1024 * 1024;

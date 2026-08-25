@@ -34,6 +34,7 @@ const HAND_WRITTEN_CATALOG: ArchitectNodeCatalogItem[] = [
   { type: "trigger.phone_call", group: "Triggers", label: "Incoming call", defaultVisible: true },
   { type: "trigger.telegram_message", group: "Triggers", label: "Telegram message", defaultVisible: true },
   { type: "trigger.twilio_inbound_sms", group: "Triggers", label: "Text message", defaultVisible: true },
+  { type: "trigger.email_received", group: "Triggers", label: "Email received", defaultVisible: true },
   { type: "trigger.twilio_missed_call", group: "Triggers", label: "Missed call", defaultVisible: true },
   { type: "trigger.whatsapp_message_received", group: "Triggers", label: "WhatsApp message", defaultVisible: true },
   { type: "trigger.calendly", group: "Triggers", label: "Calendly booking", defaultVisible: true },

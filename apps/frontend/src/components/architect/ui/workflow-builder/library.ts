@@ -122,6 +122,7 @@ export const libraryGroups: LibraryGroup[] = [
       // Listens
       paletteItem(VOICE_NODE_TYPES.phoneCallTrigger, { icon: "phone", accent: "amber" }),
       paletteItem(TELEGRAM_NODE_TYPES.trigger, { icon: "telegram", accent: "blue", kind: "TELEGRAM BOT" }),
+{ ...paletteItem("trigger.email_received", { icon: "mail", accent: "green", kind: "LISTENS" }), badge: "NEW" },
       paletteItem("trigger.twilio_inbound_sms", { icon: "message", accent: "amber" }),
       paletteItem("trigger.twilio_missed_call", { icon: "phone", accent: "amber" }),
       {

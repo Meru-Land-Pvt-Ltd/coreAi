@@ -23,7 +23,8 @@ const PERFECTED = [
   "logic.loop",
   "block.file_upload",
   "trigger.schedule",
-  "communication.send_email"
+  "communication.send_email",
+  "trigger.email_received"
 ] as const;
 
 describe("the nodes we have finished answer question 5", () => {

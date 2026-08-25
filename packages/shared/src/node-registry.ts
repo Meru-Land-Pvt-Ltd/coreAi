@@ -1588,6 +1588,30 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     comingSoon: false,
     runtime: { nodeKind: "trigger" }
   }),
+  /* NODE 010 — EMAIL RECEIVED. The ear of the email limb.
+     Send email was the hand; this is the other half: every mail the business
+     receives wakes the agent. The trick that costs zero Google paperwork,
+     forever: every mail system on earth has a forwarding button — the
+     business copies their inbox to their agent's Triven address, and the
+     inbox starts answering itself. */
+  def({
+    type: "trigger.email_received",
+    label: "Email received",
+    category: "trigger",
+    description: "Wakes your agent the moment an email arrives at the business.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "trigger" },
+    /* Q3: nothing — the world writes to us. Q4: the mail itself, so the
+       Condition can sort it and the Brain can read it. Q5: no dials, and that
+       is an answer — the agent's address belongs to the BUSINESS's Mail
+       Setup, never typed by the architect. */
+    requiredVariables: [],
+    producedVariables: ["email"],
+    settings: []
+  }),
   def({
     type: "trigger.twilio_inbound_sms",
     label: "Text message",
@@ -3651,6 +3675,7 @@ const PRODUCES_BY_TYPE: Record<string, string[] | null> = {
    */
   [VOICE_NODE_TYPES.phoneCallTrigger]: ["callerNumber"],
   "trigger.twilio_inbound_sms": ["inboundSms"],
+  "trigger.email_received": ["email"],
   "trigger.twilio_missed_call": ["missedCall"],
   "trigger.call_list": ["callerNumber"],
   [WEBHOOK_NODE_TYPE]: ["webhook"],

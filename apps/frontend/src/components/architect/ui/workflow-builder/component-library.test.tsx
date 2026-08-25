@@ -59,13 +59,13 @@ describe("library groups (Face / Brain / Hands)", () => {
     ]);
   });
 
-  it("keeps every pre-regroup item plus API Call, Timer, Webhook, the outbound call, the call list, the Node Frame, Code, the Loop and File Upload (39 total)", () => {
+  it("keeps every pre-regroup item plus API Call, Timer, Webhook, the outbound call, the call list, the Node Frame, Code, the Loop, File Upload and Email received (40 total)", () => {
     const testIds = libraryGroups.flatMap((group) => group.items.map((item) => item.testId));
     // The three ways IN (timer, webhook, call list) and the outbound call node
     // joined the Hands group; the old Design Brain card left with the Smart
     // Designer. The Code card left with the unsandboxed runner behind it and has
     // now come back, because there is finally a container to run it in.
-    expect(testIds).toHaveLength(39);
+    expect(testIds).toHaveLength(40);
 
     // Face: all block.* — the old Design Brain card is retired (the Smart
     // Designer generates and fixes the interface now).
@@ -100,6 +100,7 @@ describe("library groups (Face / Brain / Hands)", () => {
     expect(handIds).toEqual([
       tid(VOICE_NODE_TYPES.phoneCallTrigger),
       tid(TELEGRAM_NODE_TYPES.trigger),
+      tid("trigger.email_received"),
       tid("trigger.twilio_inbound_sms"),
       tid("trigger.twilio_missed_call"),
       tid("trigger.whatsapp_message_received"),

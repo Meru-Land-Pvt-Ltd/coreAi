@@ -154,6 +154,8 @@ export type WorkflowRunLog = {
 type WorkflowRunMode = "test" | "live";
 
 export type WorkflowRunInput = {
+  /** The mail that woke a live run — the ear's delivery from the inbound door. */
+  email?: { from: string; subject: string; body: string; receivedAt?: string };
   callerNumber?: string;
   callerName?: string;
   businessId?: string;
@@ -508,6 +510,8 @@ type RunnerContext = {
   file?: { name: string; text: string };
   /** The Loop's door out — every round's answer, in order. */
   results?: string[];
+  /** The ear's door out — the mail that woke the agent. */
+  email?: { from: string; subject: string; body: string; receivedAt: string; sample?: boolean };
   caller_number?: string;
   caller_name?: string;
   business?: {
@@ -1676,6 +1680,16 @@ function seedMissedCallContext(
    * going to be touched.
    */
   if (optionalString(input?.text)) context.text = optionalString(input?.text);
+  /* The inbound door's delivery: the mail that woke a live run. */
+  if (input?.email && typeof input.email === "object") {
+    const mail = input.email as { from?: unknown; subject?: unknown; body?: unknown; receivedAt?: unknown };
+    context.email = {
+      from: asString(mail.from, "unknown@unknown"),
+      subject: asString(mail.subject, "(no subject)"),
+      body: asString(mail.body),
+      receivedAt: asString(mail.receivedAt) || new Date().toISOString()
+    };
+  }
   if (optionalString(input?.testEmail)) context.testEmail = optionalString(input?.testEmail);
   if (input?.useTestCalendar === true) context.useTestCalendar = true;
   if (optionalString(input?.testSessionId)) context.testSessionId = optionalString(input?.testSessionId);
@@ -1941,6 +1955,35 @@ function runTriggerNode(node: RunnerNode, context: RunnerContext, logs: Workflow
     };
     (context as Record<string, unknown>)["schedule"] = context.schedule;
     logs.push(createLog(node, "success", "Timer fired.", context.schedule));
+    return;
+  }
+
+  if (asString(node.data?.type) === "trigger.email_received") {
+    /* A test Run has no real mail — a synthesized sample keeps the builder's
+       Run honest and useful, and says out loud that it is a sample. Live, the
+       inbound door supplies the real thing before this ever runs. */
+    if (!context.email) {
+      context.email = {
+        from: "customer@example.com",
+        subject: "A question for you",
+        body: asString(context.latestMessage) || "Hello — I have a quick question about your services.",
+        receivedAt: new Date().toISOString(),
+        sample: true
+      };
+    }
+    (context as Record<string, unknown>)["email"] = context.email;
+    /* The mail's words are what downstream steps read — same door-out law as
+       the Prompt Box: the value travels under the name it was promised. */
+    if (!asString(context.text)) context.text = context.email.body;
+    if (!asString(context.latestMessage)) context.latestMessage = context.email.body;
+    logs.push(
+      createLog(
+        node,
+        "success",
+        `Email received from ${context.email.from} — "${context.email.subject}"${context.email.sample ? " (sample — live mail arrives by itself)" : ""}`,
+        context.email
+      )
+    );
     return;
   }
 
