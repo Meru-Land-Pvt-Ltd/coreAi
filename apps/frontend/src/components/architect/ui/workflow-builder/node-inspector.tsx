@@ -1025,7 +1025,9 @@ function nodeOverview(node: BuilderNode): StepOverview {
     return {
       tone: connector === "SMS" ? "green" : connector === "Google Calendar" ? "blue" : "slate",
       summary: definition?.description ?? "Connects this workflow to another service or platform action.",
-      needs: required.length ? required : [connector ? `${connector} configuration` : "Connector configuration"],
+      /* "EMAIL configuration" was engineer-speak wearing a chip. A hand with no
+         declared needs takes what the run carries — say that. */
+      needs: required.length ? required : ["What the run carries"],
       creates: produced.length ? produced : ["Action result"],
       setup: [connector ? `${connector} access is resolved during buyer setup or deployment` : "Connection setup depends on this action"]
     };
