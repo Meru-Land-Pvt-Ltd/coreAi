@@ -190,6 +190,8 @@ export type LibraryItem = {
   icon: string;
   accent: NodeAccent;
   badge?: LibraryItemBadge;
+  /** Era leftover, greyed and untouchable — the one-line reason on hover. */
+  parked?: string;
   overrides?: Partial<BuilderNodeData>;
   testId?: string;
 };

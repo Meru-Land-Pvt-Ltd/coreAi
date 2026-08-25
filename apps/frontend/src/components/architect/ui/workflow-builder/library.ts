@@ -1,5 +1,6 @@
 import {
   getNodeDefinition,
+  PARKED_NODE_TYPES,
   API_CALL_NODE_TYPE,
   CALL_LIST_NODE_TYPE,
   NODE_FRAME_NODE_TYPE,
@@ -39,6 +40,8 @@ function paletteItem(
     icon: presentation.icon,
     accent: presentation.accent,
     testId: def?.testId,
+    /* Era leftovers stay visible but greyed — the palette tells the truth. */
+    ...(PARKED_NODE_TYPES[type] ? { parked: PARKED_NODE_TYPES[type] } : {}),
     overrides
   };
 }

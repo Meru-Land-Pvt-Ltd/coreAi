@@ -22,6 +22,7 @@ import {
   SCRIPT_NODE_TYPE,
   ARCHITECT_NODE_CATALOG,
   getNodeDefinition,
+  isParkedNodeType,
   type NodeDefinition
 } from "@coreai/shared";
 import { allConnectors } from "../../connectors/registry";
@@ -121,6 +122,9 @@ export async function composerMenu(architectUserId: string, hiddenTypes: string[
      * The step stays on the palette for an architect who chooses it knowingly.
      */
     if (item.type === SCRIPT_NODE_TYPE) continue;
+    /* Parked cards are era leftovers — greyed on the palette, and never
+       composed into something new. The founder's grey-out, honoured here. */
+    if (isParkedNodeType(item.type)) continue;
     entries.push(entryFor(definition));
   }
 

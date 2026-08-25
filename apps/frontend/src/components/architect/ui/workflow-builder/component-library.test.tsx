@@ -59,6 +59,15 @@ describe("library groups (Face / Brain / Hands)", () => {
     ]);
   });
 
+
+  it("parked cards stay visible, carry their reason, and the composer never sees them", () => {
+    const items = libraryGroups.flatMap((group) => group.items);
+    const parked = items.filter((item) => item.parked);
+    // The founder's grey-out: nine era leftovers, visible but untouchable.
+    expect(parked).toHaveLength(9);
+    for (const item of parked) expect((item.parked ?? "").length).toBeGreaterThan(10);
+  });
+
   it("keeps every pre-regroup item plus API Call, Timer, Webhook, the outbound call, the call list, the Node Frame, Code, the Loop, File Upload, Email received, Knowledge, Escalate and Approval (43 total)", () => {
     const testIds = libraryGroups.flatMap((group) => group.items.map((item) => item.testId));
     // The three ways IN (timer, webhook, call list) and the outbound call node

@@ -54,7 +54,10 @@ describe("what the composer is allowed to build with", () => {
     // The five a receptionist is made of were once filtered out by accident and
     // the composer chose WhatsApp for somebody who telephoned. Never again.
     expect(menu.length).toBeGreaterThan(5);
-    expect(menu.some((entry) => entry.type === "communication.send_sms")).toBe(true);
+    expect(menu.some((entry) => entry.type === "communication.send_email")).toBe(true);
+    // Parked era leftovers are greyed on the palette and never composed.
+    expect(menu.some((entry) => entry.type === "communication.send_sms")).toBe(false);
+    expect(menu.some((entry) => entry.type === "ai.voice_conversation")).toBe(false);
   });
 
   it("does not offer a step an admin has paused", async () => {

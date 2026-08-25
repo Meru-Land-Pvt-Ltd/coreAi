@@ -76,6 +76,57 @@ export function SidebarNodeCard({ item, onAddNode }: SidebarNodeCardProps) {
   const palette = cardPalette(item.icon);
   const description = item.helper.trim();
 
+  /* PARKED — an era leftover the founder ordered greyed, not hidden. Full
+     grey, no drag, no click; the hover line says why. The palette tells the
+     truth about what exists without inviting anyone to build on it. */
+  if (item.parked) {
+    return (
+      <div className="group/card relative">
+        <div
+          data-testid={item.testId}
+          data-parked="true"
+          aria-disabled="true"
+          title={`${item.label} — ${item.parked}`}
+          style={{ backgroundColor: "#F1F5F9", color: "#94A3B8" }}
+          className="comp h-[78px] w-full cursor-not-allowed select-none overflow-hidden rounded-2xl px-3 py-2.5 text-left opacity-80 grayscale"
+        >
+          <span className="flex h-full w-full items-center justify-between gap-2">
+            <span className="flex min-w-0 flex-1 flex-col justify-center gap-3">
+              <span className="flex items-center gap-1.5">
+                <BuilderIcon name={item.icon} className="h-5 w-5 shrink-0 text-current" />
+                <span
+                  className="inline-flex h-[18px] items-center rounded-md px-2 text-[9px] font-bold uppercase tracking-wide"
+                  style={{ backgroundColor: "#E2E8F0", color: "#64748B", fontFamily: NOTEBOOKLM_FONT_STACK }}
+                  data-testid="architect-ui-workflow-builder-component-library-item-parked"
+                >
+                  Parked
+                </span>
+              </span>
+              <span className="min-w-0 overflow-visible">
+                <span
+                  className="block truncate text-[12px] font-bold leading-5 tracking-[0.01em] text-current"
+                  style={{ fontFamily: NOTEBOOKLM_FONT_STACK }}
+                >
+                  {item.label}
+                </span>
+              </span>
+            </span>
+          </span>
+        </div>
+        <span
+          role="tooltip"
+          className={cn(
+            "pointer-events-none absolute left-0 top-full z-50 mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left text-[11px] font-medium leading-snug text-slate-600 shadow-[0_8px_20px_-8px_rgba(15,23,42,0.28)]",
+            "opacity-0 transition-opacity duration-150 group-hover/card:opacity-100"
+          )}
+          style={{ fontFamily: NOTEBOOKLM_FONT_STACK }}
+        >
+          {item.parked}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className="group/card relative">
       <button

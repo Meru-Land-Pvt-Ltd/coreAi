@@ -1567,6 +1567,30 @@ export const CUSTOM_INSTRUCTION_SUGGESTIONS: string[] = [
   "Confirm email address for follow-up details"
 ];
 
+/**
+ * PARKED CARDS — era leftovers the founder ordered greyed, not hidden.
+ *
+ * Visible so the palette tells the truth about what exists; untouchable so
+ * nobody builds on them. Each carries the one-line reason a person reads on
+ * hover. The composer menu excludes them — the AI Builder never composes a
+ * parked card. Un-parking a card is deleting one line here.
+ */
+export const PARKED_NODE_TYPES: Record<string, string> = {
+  "trigger.twilio_missed_call": "Retired — the missed-call product was closed.",
+  "trigger.phone_call": "Parked with the voice era.",
+  "ai.deepgram_stt": "Parked with the voice era.",
+  "ai.deepgram_tts": "Parked with the voice era.",
+  "action.start_vapi_call": "Parked — outbound calling awaits consent and telephony sign-off.",
+  "communication.send_sms": "Parked — SMS awaits carrier registration.",
+  "trigger.twilio_inbound_sms": "Parked — SMS awaits carrier registration.",
+  "ai.voice_conversation": "A whole product, not a node — it lives in templates.",
+  "ai.context_reply": "Folds into the AI Brain."
+};
+
+export function isParkedNodeType(type: string): boolean {
+  return type in PARKED_NODE_TYPES;
+}
+
 function slug(type: string) {
   return `node-${type.replace(/[._]/g, "-")}`;
 }
