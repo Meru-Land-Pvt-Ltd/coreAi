@@ -3288,21 +3288,29 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     type: "trigger.schedule",
     label: "Timer",
     category: "trigger",
-    description: "Wakes your agent by itself — every hour, every day, or every week. Nobody presses anything.",
+    /* THE TIMER GREW UP — the Settings Law's first ruling (2026-08-25).
+       Patience ("Wait") was almost node fourteen; the founder stopped it:
+       time is a power this card already owns, and patience is time's second
+       flavor. Its position on the canvas is its mode — placed at the start it
+       is the alarm clock; placed MID-WIRE it holds that one conversation and
+       wakes on the customer's reply or on silence. No toggle. */
+    description: "Wakes your agent by itself — or, placed mid-flow, holds the conversation until a reply or the time runs out.",
     requiredConfig: [],
     backendExecutable: true,
     launchCritical: false,
     comingSoon: false,
     runtime: { nodeKind: "trigger" },
     /* Q3: nothing — time itself is the caller. Q4: when and why it fired, so a
-       later step can say "your Monday report" without guessing the day. */
+       later step can say "your Monday report" without guessing the day; and
+       mid-wire, the patience door's report of what the waking carried. */
     requiredVariables: [],
-    producedVariables: ["schedule"],
+    producedVariables: ["schedule", "timer"],
     defaultConfig: {
       cadence: "daily",
       weekday: "1",
       hour: "9",
-      minute: "0"
+      minute: "0",
+      holdFor: "2"
     },
     settings: [
       {
@@ -3362,6 +3370,24 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
           ]
         },
         default: "0",
+        whoFills: "architect"
+      },
+      {
+        /* The patience flavor — read only when the Timer sits mid-wire. */
+        key: "holdFor",
+        name: "How long to hold",
+        whatItsFor:
+          "Placed mid-flow, how many days of silence before the steps after it run. A reply from the customer wakes the agent by itself and cancels the hold.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "1", label: "One day" },
+            { value: "2", label: "Two days" },
+            { value: "3", label: "Three days" },
+            { value: "7", label: "A week" }
+          ]
+        },
+        default: "2",
         whoFills: "architect"
       }
     ]
@@ -3872,7 +3898,7 @@ const PRODUCES_BY_TYPE: Record<string, string[] | null> = {
 
   "trigger.manual": null,
   // Fires on a clock. What happens next is the next step's business.
-  [SCHEDULE_NODE_TYPE]: ["schedule"],
+  [SCHEDULE_NODE_TYPE]: ["schedule", "timer"],
   // Branches the flow. The branch it took is in the run, not in an output.
   /* It chooses a road rather than handing on a value — but which road, and one
      line of why, are worth having. See the definition above. */

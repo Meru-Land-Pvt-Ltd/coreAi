@@ -3346,3 +3346,28 @@ model BuilderLesson {
 
   @@index([architectUserId, status])
 }
+
+/// TIMER, THE PATIENCE FLAVOR — one held conversation, waiting for a reply
+/// or a timeout. Cancelled the moment the customer writes back (the ear
+/// handles their reply as a fresh run); fired by the sweeper on silence.
+model HeldConversation {
+  id               String    @id @default(cuid())
+  workflowId       String
+  nodeId           String
+  businessId       String?
+  installedAgentId String?
+  architectUserId  String?
+  /// The customer this conversation belongs to — lowercased email.
+  threadKey        String
+  subject          String    @default("")
+  /// The minimal context the resumption needs: text, aiOutput, email, businessName.
+  contextJson      Json
+  dueAt            DateTime
+  /// HELD | CANCELLED | FIRED
+  status           String    @default("HELD")
+  createdAt        DateTime  @default(now())
+  firedAt          DateTime?
+
+  @@index([status, dueAt])
+  @@index([installedAgentId, threadKey, status])
+}

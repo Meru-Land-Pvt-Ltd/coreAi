@@ -748,6 +748,20 @@ async function startEmailTriggeredRun(input: {
   if (!agent || !workflowHasEmailTrigger(agent.workflow.workflowJson)) return;
   if (agent.status !== "ACTIVE") return;
 
+  /* The Timer's patience: a reply IS the waking. Any conversation held for
+     this sender is cancelled — the ear handles their mail as a fresh run,
+     and the silence follow-up must never fire after they answered. */
+  await prisma.heldConversation
+    .updateMany({
+      where: {
+        installedAgentId: input.installedAgentId,
+        threadKey: input.fromEmail.toLowerCase(),
+        status: "HELD"
+      },
+      data: { status: "CANCELLED" }
+    })
+    .catch(() => undefined);
+
   const { runWorkflowTest } = await import("../architect/workflow-runner.js");
   const profile = agent.business.profile;
 

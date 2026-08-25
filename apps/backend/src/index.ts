@@ -1,4 +1,5 @@
 import { startMemoryRetentionWorker, stopMemoryRetentionWorker } from "./modules/memory/retention-worker";
+import { startHeldConversationsWorker, stopHeldConversationsWorker } from "./modules/architect/held-conversations-worker";
 import { serve } from "@hono/node-server";
 import { env } from "./config/env";
 import { app } from "./app";
@@ -57,6 +58,8 @@ const server = serve(
     // Forgets on purpose: memory older than the admin's limit is deleted daily.
     // Off unless an admin sets a limit — keep-forever remains the default.
     startMemoryRetentionWorker();
+    // The Timer's patience: held conversations wake on silence, every 5 min.
+    startHeldConversationsWorker();
     // [DISABLED:non-handoff] reminder + retention workers and quality sweep.
     // startReminderWorker();
     // startRetentionSweepWorker();
@@ -97,6 +100,7 @@ async function shutdown(signal: string) {
   stopScheduleWorker();
   stopConnectorHealthWorker();
   stopMemoryRetentionWorker();
+  stopHeldConversationsWorker();
   if (frameRefresh) clearInterval(frameRefresh);
   stopSelfHealingWorker();
   // [DISABLED:non-handoff]

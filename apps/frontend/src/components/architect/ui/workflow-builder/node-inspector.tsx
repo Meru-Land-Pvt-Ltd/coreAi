@@ -2133,9 +2133,25 @@ function ScheduleTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel
         </div>
       </Section>
 
+      {/* THE SETTINGS LAW's first ruling: patience is the Timer's second
+          flavor, read only when the card sits mid-wire. */}
+      <Section title="Placed mid-flow: how long to hold">
+        <p className="text-[12px] leading-5 text-slate-500" data-testid="schedule-hold-intro">
+          Dropped in the middle of a flow, the Timer holds that conversation. A reply from the
+          customer wakes the agent by itself and cancels the hold; this is how much silence runs
+          the steps after it — the follow-up.
+        </p>
+        <SelectBox
+          value={str("holdFor", "2")}
+          onChange={set("holdFor")}
+          options={nodeSettingChoices("trigger.schedule", "holdFor")}
+          testId="schedule-hold-select"
+        />
+      </Section>
+
       <Section title="How often" last>
         <p className="mb-3 text-xs leading-5 text-slate-500" data-testid="schedule-trigger-intro">
-          This agent runs by itself, with nobody watching. Times follow the
+          Placed at the start, this agent runs by itself, with nobody watching. Times follow the
           business&apos;s own clock once they install it.
         </p>
 

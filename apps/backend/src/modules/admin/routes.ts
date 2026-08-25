@@ -65,6 +65,10 @@ import {
   saveEmailPerRunLimit,
   DEFAULT_EMAIL_PER_RUN,
   EMAIL_PER_RUN_BOUNDS,
+  getTimerMaxHoldDays,
+  saveTimerMaxHoldDays,
+  DEFAULT_TIMER_MAX_HOLD_DAYS,
+  TIMER_MAX_HOLD_BOUNDS,
   saveConditionRoadLimit,
   saveFileUploadImagesAllowed,
   saveLoopRoundLimit
@@ -521,28 +525,43 @@ adminRoutes.patch("/email-limits", async (c) => {
 adminRoutes.get("/timer-limits", async (c) => {
   return successResponse(c, {
     floorMinutes: await getTimerFloorMinutes(),
+    maxHoldDays: await getTimerMaxHoldDays(),
     default: DEFAULT_TIMER_FLOOR_MINUTES,
-    bounds: TIMER_FLOOR_BOUNDS
+    defaultMaxHoldDays: DEFAULT_TIMER_MAX_HOLD_DAYS,
+    bounds: TIMER_FLOOR_BOUNDS,
+    holdBounds: TIMER_MAX_HOLD_BOUNDS
   });
 });
 
 adminRoutes.patch("/timer-limits", async (c) => {
   const authUser = c.get("authUser");
   const parsed = z
-    .object({ floorMinutes: z.coerce.number().int().min(TIMER_FLOOR_BOUNDS.min).max(TIMER_FLOOR_BOUNDS.max) })
+    .object({
+      floorMinutes: z.coerce.number().int().min(TIMER_FLOOR_BOUNDS.min).max(TIMER_FLOOR_BOUNDS.max),
+      maxHoldDays: z.coerce
+        .number()
+        .int()
+        .min(TIMER_MAX_HOLD_BOUNDS.min)
+        .max(TIMER_MAX_HOLD_BOUNDS.max)
+        .optional()
+    })
     .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
     return errorResponse(c, `Pick between ${TIMER_FLOOR_BOUNDS.min} minutes and a day.`, 422, "VALIDATION_ERROR");
   }
   const saved = await saveTimerFloorMinutes(parsed.data.floorMinutes, authUser.id);
+  const savedHold =
+    parsed.data.maxHoldDays !== undefined
+      ? await saveTimerMaxHoldDays(parsed.data.maxHoldDays, authUser.id)
+      : await getTimerMaxHoldDays();
   await logAdminAction({
     adminUserId: authUser.id,
     action: "TIMER_FLOOR_UPDATED",
     targetType: "NODE",
     targetId: "trigger.schedule",
-    meta: { floorMinutes: saved }
+    meta: { floorMinutes: saved, maxHoldDays: savedHold }
   });
-  return successResponse(c, { floorMinutes: saved });
+  return successResponse(c, { floorMinutes: saved, maxHoldDays: savedHold });
 });
 
 /* ------------------------------ Loop: the rounds --------------------------- */

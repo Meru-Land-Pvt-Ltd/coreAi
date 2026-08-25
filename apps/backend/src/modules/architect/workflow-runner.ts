@@ -38,7 +38,7 @@ import { decideConditionRoad } from "./condition-door";
 import { shortenMemory } from "./memory-door";
 import { extractAttachmentText } from "../memory/smart-memory";
 import { askPlatformBrain } from "./platform-brain";
-import { getLoopRoundLimit, DEFAULT_LOOP_ROUNDS, getEmailPerRunLimit, DEFAULT_EMAIL_PER_RUN } from "../admin/node-limits";
+import { getLoopRoundLimit, DEFAULT_LOOP_ROUNDS, getEmailPerRunLimit, DEFAULT_EMAIL_PER_RUN, getTimerMaxHoldDays, DEFAULT_TIMER_MAX_HOLD_DAYS } from "../admin/node-limits";
 import { safeFetch, SafeFetchError, type SafeFetchErrorCode } from "../../lib/safe-fetch";
 import { getArchitectSecretValue, getPlatformYouTubeKey } from "./architect-secrets";
 import { executeImageGeneration } from "../ai-provider-engine/langchain/langchain-image-executor";
@@ -327,6 +327,8 @@ type RunnerNodeData = {
   approvalNote?: unknown;
   /** Approval: days before an undecided draft expires. */
   waitDays?: unknown;
+  /** Timer, patience flavor: days of silence before the canvas resumes. */
+  holdFor?: unknown;
   prompt?: unknown;
   reference_image?: unknown;
   imageSize?: unknown;
@@ -529,6 +531,8 @@ type RunnerContext = {
   knowledge?: string;
   /** Approval's door out — whether a draft is waiting for the owner's yes. */
   approval?: { status: string; subject?: string };
+  /** The Timer's patience door out — what the waking carried. */
+  timer?: { wokeWith: "silence" | "reply"; heldFor: string; sample?: boolean };
   caller_number?: string;
   caller_name?: string;
   business?: {
@@ -5420,6 +5424,186 @@ async function runEscalateNode({
 }
 
 /**
+ * THE TIMER'S PATIENCE — the mid-wire flavor (the Settings Law's first ruling).
+ *
+ * Holds ONE conversation. If the customer replies, the ear wakes the agent as
+ * a fresh run and the hold is cancelled — reality answered, no machinery
+ * needed. If silence outlasts the wait, the sweeper resumes the canvas FROM
+ * this node with the exit door's honest report: "N days, still silence."
+ */
+async function runTimerHoldNode({
+  businessId,
+  installedAgentId,
+  workflowId,
+  node,
+  context,
+  logs,
+  mode
+}: {
+  businessId?: string;
+  installedAgentId?: string;
+  workflowId: string;
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+}): Promise<void> {
+  const askedDays = Number(asString(node.data?.holdFor, "2")) || 2;
+  const capDays = await getTimerMaxHoldDays().catch(() => DEFAULT_TIMER_MAX_HOLD_DAYS);
+  const days = Math.max(1, Math.min(capDays, Math.round(askedDays)));
+  const customer = asString(context.email?.from) || asString(context.customerEmail);
+
+  if (outboundSendsAllowed(context, mode) && businessId && customer) {
+    await prisma.heldConversation.create({
+      data: {
+        workflowId,
+        nodeId: node.id,
+        businessId,
+        installedAgentId: installedAgentId ?? null,
+        threadKey: customer.toLowerCase(),
+        subject: asString(context.email?.subject),
+        contextJson: {
+          text: asString(context.text).slice(0, 4000),
+          aiOutput: asString(context.ai?.output).slice(0, 4000),
+          email: context.email ?? null,
+          businessName: context.business?.name ?? ""
+        },
+        dueAt: new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+      }
+    });
+    (context as Record<string, unknown>).__heldAtTimer = true;
+    logs.push(
+      createLog(
+        node,
+        "success",
+        `Holding this conversation — it wakes the moment ${customer} replies, or after ${days} day${days === 1 ? "" : "s"} of silence.`,
+        { heldFor: `${days} days`, threadKey: customer }
+      )
+    );
+    return;
+  }
+
+  /* Builder test — a test cannot wait two days, and says so. The exit door's
+     silence report is handed on so the nudge path is testable right now. */
+  context.timer = { wokeWith: "silence", heldFor: `${days} days`, sample: true };
+  context.text = asString(context.text);
+  logs.push(
+    createLog(
+      node,
+      "success",
+      `Held, then woke with silence (sample — live, the wait is real: ${days} day${days === 1 ? "" : "s"}, cancelled the moment they reply). The steps after run as the follow-up.`,
+      { wokeWith: "silence", heldFor: `${days} days`, sample: true }
+    )
+  );
+}
+
+/**
+ * The sweeper's half: silence outlasted the wait — resume the canvas FROM the
+ * timer node, with the exit door reporting honestly what the waking carried.
+ * Reuses the Loop's muscles: downstream ownership, waves, one node executor.
+ */
+export async function resumeHeldConversation(holdId: string): Promise<void> {
+  const hold = await prisma.heldConversation.findUnique({ where: { id: holdId } });
+  if (!hold || hold.status !== "HELD") return;
+  const claimed = await prisma.heldConversation.updateMany({
+    where: { id: holdId, status: "HELD" },
+    data: { status: "FIRED", firedAt: new Date() }
+  });
+  if (claimed.count === 0) return;
+
+  const workflow = await prisma.workflowDefinition.findUnique({
+    where: { id: hold.workflowId },
+    select: { workflowJson: true, architectUserId: true }
+  });
+  if (!workflow) return;
+
+  const parsed = parseRunnerWorkflowJson(workflow.workflowJson);
+  const timerNode = parsed.nodes.find((candidate) => candidate.id === hold.nodeId);
+  if (!timerNode) return;
+
+  const snapshot = (hold.contextJson ?? {}) as {
+    text?: string;
+    aiOutput?: string;
+    email?: RunnerContext["email"];
+    businessName?: string;
+  };
+  const heldDays = Math.max(1, Math.round((Date.now() - hold.createdAt.getTime()) / 86_400_000));
+
+  const context: RunnerContext = {
+    text: snapshot.text ?? "",
+    ...(snapshot.email ? { email: snapshot.email } : {}),
+    ...(snapshot.aiOutput ? { ai: { output: snapshot.aiOutput } } : {}),
+    business: { name: snapshot.businessName || "your business" },
+    customerEmail: hold.threadKey,
+    timer: { wokeWith: "silence", heldFor: `${heldDays} day${heldDays === 1 ? "" : "s"}` },
+    conditionResults: {}
+  };
+  (context as Record<string, unknown>)["__emailCounter"] = { sent: 0 };
+  graphByContext.set(context as object, parsed);
+
+  /* Downstream of the timer only — the ear and everything before it already
+     happened, days ago. */
+  const downstream = new Set<string>();
+  const queue = [hold.nodeId];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const edge of parsed.edges) {
+      if (edge.source === current && !downstream.has(edge.target)) {
+        downstream.add(edge.target);
+        queue.push(edge.target);
+      }
+    }
+  }
+  const ownedNodes = parsed.nodes.filter((candidate) => downstream.has(candidate.id));
+  if (ownedNodes.length === 0) return;
+
+  const waves = groupNodesIntoExecutionWaves(ownedNodes, parsed.edges);
+  const doorBudget = createDoorBudget();
+  const baseParams = {
+    userId: workflow.architectUserId ?? "",
+    input: {
+      businessId: hold.businessId ?? undefined,
+      installedAgentId: hold.installedAgentId ?? undefined
+    } as WorkflowRunInput,
+    mode: "live" as WorkflowRunMode,
+    chain: { depth: 0, visited: [hold.workflowId], workflowId: hold.workflowId, doorBudget },
+    workflowRunId: `held-${hold.id}`,
+    workflowId: hold.workflowId,
+    executionOrder: 0,
+    doorBudget
+  };
+
+  console.log(`[timer-hold] waking held conversation ${hold.id} after ${heldDays}d of silence`);
+  for (const wave of waves) {
+    const switchedOff = nodesSwitchedOffByConditions(ownedNodes, parsed.edges, context.conditionResults ?? {});
+    for (const inner of wave) {
+      if (switchedOff.has(inner.id)) continue;
+      try {
+        await executeSingleNodeInRunner({ ...baseParams, node: inner, context });
+      } catch (error) {
+        console.error(`[timer-hold] node ${inner.id} failed on wake`, error);
+        return;
+      }
+    }
+  }
+}
+
+/** The sweeper the worker calls: fire every hold whose silence is complete. */
+export async function fireDueHeldConversations(): Promise<number> {
+  const due = await prisma.heldConversation.findMany({
+    where: { status: "HELD", dueAt: { lte: new Date() } },
+    select: { id: true },
+    take: 25
+  });
+  for (const hold of due) {
+    await resumeHeldConversation(hold.id).catch((error) =>
+      console.error(`[timer-hold] resume ${hold.id} failed`, error)
+    );
+  }
+  return due.length;
+}
+
+/**
  * NODE 013 — APPROVAL. The probation.
  *
  * The Brain drafted a reply; this Hand HOLDS it. The owner gets one mail —
@@ -7144,6 +7328,9 @@ export async function runWorkflowTest({
       }
 
       if (runFailed) break;
+      /* A live mid-wire Timer held the conversation — the rest of the canvas
+         runs when it wakes, not now. Holding is success, not failure. */
+      if ((context as Record<string, unknown>).__heldAtTimer) break;
     }
 
     const totalWorkflowMs = Date.now() - workflowStart;
@@ -7465,6 +7652,27 @@ async function executeNodeOnConfig(params: {
     }
 
     if (nodeKind === "trigger") {
+      /* THE TIMER'S SECOND FLAVOR — the Settings Law's first ruling. Placed
+         at the start it is the alarm clock; placed MID-WIRE it is patience:
+         hold this conversation, wake on a reply or on silence. Its position
+         on the canvas is its mode — no toggle. */
+      if (asString(node.data?.type) === SCHEDULE_NODE_TYPE) {
+        const graph = graphByContext.get(context as object);
+        const midWire = Boolean(graph?.edges.some((edge) => edge.target === node.id));
+        if (midWire) {
+          await runTimerHoldNode({
+            businessId: input?.businessId,
+            installedAgentId: input?.installedAgentId,
+            workflowId,
+            node,
+            context,
+            logs: nodeLogs,
+            mode
+          });
+          const hasErr = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
+          return { logs: nodeLogs, runFailed: hasErr };
+        }
+      }
       runTriggerNode(node, context, nodeLogs);
       const triggerFiles = Array.isArray(input?.attachments)
         ? input.attachments.map((att: any) => ({

@@ -208,15 +208,23 @@ never silently dropped.`
     slug: "08-timer",
     nodeType: "trigger.schedule",
     title: "Timer — the agent that wakes itself",
-    body: `A trigger with no human: every hour, every day, every week — the agent wakes
-and runs. Cadence and time zone are the architect's; the admin holds the
-floor under how often anything may wake (a bill nobody watches must not tick
-every minute).
+    body: `Time is ONE power with two flavors, and the Timer's position on the canvas
+is its mode — no toggle (the Settings Law's first ruling: patience was
+almost a fourteenth node; it is the Timer grown up).
 
-A Timer agent has no customer at a page, so it should have NO Face blocks —
-its product usually leaves by a Hand (a morning report by email). Its preview
-is the business mirror: the setup box and the exact mail they will receive.
-Combine: Timer → Knowledge/Brain → Send email is the standing daily report.`
+PLACED AT THE START — the alarm clock: every hour, day or week the agent
+wakes and runs. Cadence and time zone are the architect's; the admin holds
+the floor under how often anything may wake. A Timer agent has no customer
+at a page, so no Face blocks — its product leaves by a Hand (the morning
+report by email).
+
+PLACED MID-WIRE — the patience: it holds THAT conversation. If the customer
+replies, the ear wakes the agent by itself and the hold is cancelled —
+reality answers, no machinery. If silence outlasts "How long to hold", the
+steps after the Timer run as the follow-up, and its door reports honestly
+what the waking carried ("2 days, still silence"). Combine: ear → Brain →
+Send email → Timer (hold 2 days) → Brain → Send email is the follow-up that
+never forgets. The admin caps the longest hold.`
   },
   {
     slug: "09-send-email",
@@ -329,6 +337,10 @@ add Memory when the conversation continues.
 
 THE STANDING REPORT: Timer → Knowledge/Brain → Send email. Wakes by itself,
 writes from the library, mails the business. No Face at all.
+
+THE FOLLOW-UP THAT NEVER FORGETS: … → Send email → Timer mid-wire (hold 2
+days) → Brain → Send email. A reply cancels the hold by itself; silence
+runs the gentle nudge. One nudge, never a barrage — the mail cap counts.
 
 THE LIST WORKER: any trigger → Loop → Brain → (a Hand). Five questions, five
 answers, joined; mind the cannon guard when the Hand is email.

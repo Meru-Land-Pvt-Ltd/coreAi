@@ -918,11 +918,22 @@ export function saveFileUploadLimits(imagesAllowed: boolean) {
 /* ------------------------------ Timer: the floor --------------------------- */
 
 export function getTimerLimits() {
-  return apiGet<{ floorMinutes: number; default: number; bounds: { min: number; max: number } }>("/admin/timer-limits");
+  /* floorMinutes = the alarm-clock floor; maxHoldDays = the patience ceiling. */
+  return apiGet<{
+    floorMinutes: number;
+    maxHoldDays: number;
+    default: number;
+    defaultMaxHoldDays: number;
+    bounds: { min: number; max: number };
+    holdBounds: { min: number; max: number };
+  }>("/admin/timer-limits");
 }
 
-export function saveTimerLimits(floorMinutes: number) {
-  return apiPatch<{ floorMinutes: number }>("/admin/timer-limits", { floorMinutes });
+export function saveTimerLimits(floorMinutes: number, maxHoldDays?: number) {
+  return apiPatch<{ floorMinutes: number; maxHoldDays: number }>("/admin/timer-limits", {
+    floorMinutes,
+    ...(maxHoldDays !== undefined ? { maxHoldDays } : {})
+  });
 }
 
 /* ------------------------- Send email: the cannon guard -------------------- */

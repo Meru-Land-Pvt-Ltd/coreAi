@@ -254,3 +254,51 @@ export async function saveEmailPerRunLimit(value: number, updatedByUserId: strin
   invalidateEmailCapCache();
   return safe;
 }
+
+/* ---------------------- Timer: the longest patience ------------------------ */
+
+export const TIMER_MAX_HOLD_KEY = "timerMaxHoldDays";
+
+/** A week: long enough for any honest follow-up, short enough that a held
+ *  conversation is never a surprise from a forgotten month. */
+export const DEFAULT_TIMER_MAX_HOLD_DAYS = 7;
+export const TIMER_MAX_HOLD_BOUNDS = { min: 1, max: 30 } as const;
+
+let cachedHold: number | null = null;
+let cachedHoldAt = 0;
+
+export function invalidateTimerHoldCache(): void {
+  cachedHold = null;
+  cachedHoldAt = 0;
+}
+
+export async function getTimerMaxHoldDays(): Promise<number> {
+  if (cachedHold !== null && Date.now() - cachedHoldAt < CACHE_TTL_MS) return cachedHold;
+  try {
+    const row = await prisma.platformApiSetting.findUnique({
+      where: { key: TIMER_MAX_HOLD_KEY },
+      select: { valueEncrypted: true }
+    });
+    const value = row ? Number(row.valueEncrypted) : DEFAULT_TIMER_MAX_HOLD_DAYS;
+    cachedHold = Number.isFinite(value)
+      ? Math.min(TIMER_MAX_HOLD_BOUNDS.max, Math.max(TIMER_MAX_HOLD_BOUNDS.min, Math.round(value)))
+      : DEFAULT_TIMER_MAX_HOLD_DAYS;
+    cachedHoldAt = Date.now();
+    return cachedHold;
+  } catch {
+    return cachedHold ?? DEFAULT_TIMER_MAX_HOLD_DAYS;
+  }
+}
+
+export async function saveTimerMaxHoldDays(value: number, updatedByUserId: string): Promise<number> {
+  const safe = Number.isFinite(value)
+    ? Math.min(TIMER_MAX_HOLD_BOUNDS.max, Math.max(TIMER_MAX_HOLD_BOUNDS.min, Math.round(value)))
+    : DEFAULT_TIMER_MAX_HOLD_DAYS;
+  await prisma.platformApiSetting.upsert({
+    where: { key: TIMER_MAX_HOLD_KEY },
+    update: { valueEncrypted: String(safe), secret: false, updatedByUserId },
+    create: { key: TIMER_MAX_HOLD_KEY, valueEncrypted: String(safe), secret: false, updatedByUserId }
+  });
+  invalidateTimerHoldCache();
+  return safe;
+}
