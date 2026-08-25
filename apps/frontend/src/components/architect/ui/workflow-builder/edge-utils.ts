@@ -25,6 +25,11 @@ export function createFlowEdge({
     target,
     sourceHandle,
     label,
+    /* Every wire can be cut. Joining two steps took one drag; separating them
+       used to take knowing that a wire can be clicked and that Delete then
+       removes it — written in grey in the corner of the canvas, where nobody
+       reads it. */
+    type: "removable",
     animated: true,
     className: `workflow-edge ${styles.edgeClass}`,
     markerEnd: { type: MarkerType.ArrowClosed, color: styles.edge },

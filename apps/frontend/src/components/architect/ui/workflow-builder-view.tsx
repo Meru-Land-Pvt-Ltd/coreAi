@@ -13,6 +13,7 @@ import {
   type Edge,
   type NodeProps,
   type NodeTypes,
+  type EdgeTypes,
   type ReactFlowInstance
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -94,6 +95,7 @@ import { ComponentLibrary } from "./workflow-builder/component-library";
 import { ConfigurePanel } from "./workflow-builder/configure-panel";
 import { CoreNode } from "./workflow-builder/core-node";
 import { createFlowEdge } from "./workflow-builder/edge-utils";
+import { RemovableEdge } from "./workflow-builder/removable-edge";
 import { BuilderIcon } from "./workflow-builder/icons";
 import { applyTidyPositions } from "./workflow-builder/layout-graph";
 import { MobileSheet } from "./workflow-builder/mobile-sheet";
@@ -566,6 +568,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     []
   );
 
+  /* Every wire carries a cross when you point at it — see removable-edge.tsx. */
+  const edgeTypes = useMemo<EdgeTypes>(() => ({ removable: RemovableEdge }), []);
+
   /*
    * THE CANVAS CHECKS ITSELF.
    *
@@ -644,6 +649,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     [nodes, selectedNodeId]
   );
 
+
   // Node ids + labels whitelist {{node.prop}}-style tokens in the unknown-
   // variable warnings shown while writing prompts/first messages.
   const variableNodePrefixes = useMemo(
@@ -656,6 +662,68 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   const listingStatus = workflow?.listings?.[0]?.status;
   const isUnderReview = listingStatus === "PENDING_REVIEW";
+
+  /**
+   * COPY THE STEP I AM LOOKING AT — ⌘D, or Ctrl+D.
+   *
+   * A brain briefed over ten minutes, a Condition with six roads named by hand:
+   * building the second one meant doing the whole thing again from a blank node.
+   * The copy lands slightly below and to the right, unwired and selected, so the
+   * next thing an architect does is drag it where they want it.
+   *
+   * Nothing is copied while somebody is typing — ⌘D inside a prompt box would
+   * take the words they are writing and put a node on the canvas instead.
+   */
+  /* Read inside the shortcut so the listener is bound once and still sees the
+     canvas as it is now, rather than as it was when the key handler was made. */
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  const selectedNodeIdRef = useRef(selectedNodeId);
+  selectedNodeIdRef.current = selectedNodeId;
+
+  const duplicateSelected = useCallback(() => {
+    if (isUnderReview) return;
+    const original = nodesRef.current.find((node) => node.id === selectedNodeIdRef.current);
+    if (!original) return;
+
+    const id = `${String(original.data.nodeKind ?? "node")}-${Date.now()}`;
+    setNodes((current) => [
+      ...current,
+      {
+        ...original,
+        id,
+        selected: false,
+        position: { x: original.position.x + 48, y: original.position.y + 64 },
+        // A deep-enough copy that editing the copy never edits the original.
+        data: JSON.parse(JSON.stringify(original.data)) as BuilderNodeData
+      }
+    ]);
+    setSelectedNodeId(id);
+    setMessage("Unsaved changes");
+  }, [isUnderReview, setNodes]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "d" && event.key !== "D") return;
+      if (!event.metaKey && !event.ctrlKey) return;
+
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT" ||
+        target?.isContentEditable;
+      if (typing) return;
+
+      // The browser's own ⌘D is "bookmark this page", which is never what an
+      // architect means with a step selected on a canvas.
+      event.preventDefault();
+      duplicateSelected();
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [duplicateSelected]);
   const isLive = listingStatus === "APPROVED";
   const isPublishLocked = isUnderReview || isLive;
 
@@ -1686,7 +1754,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   function addNodeFromLibrary(
     nodeKind: NodeKind,
     overrides?: Partial<BuilderNodeData>,
-    position?: { x: number; y: number }
+    position?: { x: number; y: number },
+    /** Dropped onto this wire: cut it and join the new step into the gap. */
+    onEdgeId?: string | null
   ) {
     if (blockIfUnderReview()) return;
 
@@ -1703,9 +1773,47 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
     };
 
     setNodes((currentNodes) => [...currentNodes, newNode]);
+
+    if (onEdgeId) {
+      setEdges((currentEdges) => {
+        const cut = currentEdges.find((edge) => edge.id === onEdgeId);
+        if (!cut) return currentEdges;
+        return [
+          ...currentEdges.filter((edge) => edge.id !== onEdgeId),
+          /* The first half keeps the original wire's handle, so a road out of a
+             Condition still leaves by the road the architect chose. */
+          createFlowEdge({
+            id: `${cut.source}-${id}-${Date.now()}`,
+            source: cut.source,
+            target: id,
+            ...(cut.sourceHandle ? { sourceHandle: cut.sourceHandle } : {}),
+            ...(typeof cut.label === "string" ? { label: cut.label } : {})
+          }),
+          createFlowEdge({ id: `${id}-${cut.target}-${Date.now() + 1}`, source: id, target: cut.target })
+        ];
+      });
+    }
+
     setSelectedNodeId(id);
     setMobilePanel(null);
     setMessage("Unsaved changes");
+  }
+
+  /**
+   * The wire under the pointer, if there is one.
+   *
+   * React Flow draws a wide invisible path on every edge for pointing at, and
+   * that path is what the browser reports here — so this is the same wire the
+   * architect saw light up, rather than a guess from coordinates and distances.
+   */
+  function edgeUnderPointer(clientX: number, clientY: number): string | null {
+    if (typeof document === "undefined") return null;
+    for (const element of document.elementsFromPoint(clientX, clientY)) {
+      const edge = element.closest?.(".react-flow__edge");
+      const id = edge?.getAttribute("data-id");
+      if (id) return id;
+    }
+    return null;
   }
 
   async function importTemplate(slug: string) {
@@ -2782,6 +2890,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 nodes={checkedNodes}
                 edges={edges}
                 nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
                 onInit={(instance) => {
                   flowInstanceRef.current = instance;
                 }}
@@ -2805,7 +2914,17 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                       x: event.clientX,
                       y: event.clientY
                     });
-                    addNodeFromLibrary(payload.nodeKind, payload.overrides, position);
+                    /* Dropped ON a wire? Then the architect is putting a step in
+                       the middle of something that already works, and that is
+                       what they mean — not a loose step floating on top of a
+                       line. The wire is cut and the new step is joined into the
+                       gap it left. */
+                    addNodeFromLibrary(
+                      payload.nodeKind,
+                      payload.overrides,
+                      position,
+                      edgeUnderPointer(event.clientX, event.clientY)
+                    );
                   } catch {
                     // Not our payload — ignore.
                   }
