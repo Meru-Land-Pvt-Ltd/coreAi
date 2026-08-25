@@ -889,3 +889,28 @@ export function getEmailLimits() {
 export function saveEmailLimits(maxPerRun: number) {
   return apiPatch<{ maxPerRun: number }>("/admin/email-limits", { maxPerRun });
 }
+
+/* ---------------------------- Send email: domains -------------------------- */
+
+export type MailDomain = {
+  domain: string;
+  dnsRecords: Array<{ type: "CNAME"; name: string; value: string }>;
+  isDefault: boolean;
+  status: "verified" | "waiting" | "failed";
+};
+
+export function getMailDomains() {
+  return apiGet<{ domains: MailDomain[] }>("/admin/mail-domains");
+}
+
+export function addMailDomain(domain: string) {
+  return apiPost<{ domain: MailDomain }>("/admin/mail-domains", { domain });
+}
+
+export function setDefaultMailDomain(domain: string) {
+  return apiPatch<{ ok: boolean }>("/admin/mail-domains/default", { domain });
+}
+
+export function removeMailDomain(domain: string) {
+  return apiDelete<{ ok: boolean }>(`/admin/mail-domains/${encodeURIComponent(domain)}`);
+}

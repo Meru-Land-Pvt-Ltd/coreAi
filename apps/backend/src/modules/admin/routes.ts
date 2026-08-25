@@ -62,6 +62,12 @@ import {
   saveLoopRoundLimit
 } from "./node-limits";
 import {
+  addMailDomain,
+  listMailDomains,
+  removeMailDomain,
+  setDefaultMailDomain
+} from "./mail-domains";
+import {
   DEFAULT_DOOR_BRAIN_PROVIDER,
   DOOR_BRAIN_MODEL_MAX_LENGTH,
   doorBrainModelMismatch,
@@ -416,6 +422,60 @@ adminRoutes.patch("/design-rules", async (c) => {
     { rules: { ...rules, defaultValue: DEFAULT_DESIGN_BRAIN_RULES }, ...result },
     result.restoredDefault ? "Default rules restored" : "Design Brain rules saved"
   );
+});
+
+/* ---------------------------- Send email: domains -------------------------- */
+
+/** The spare-domain pool — the main domain never carries agent mail. */
+adminRoutes.get("/mail-domains", async (c) => {
+  return successResponse(c, { domains: await listMailDomains() });
+});
+
+adminRoutes.post("/mail-domains", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = z
+    .object({ domain: z.string().trim().min(4).max(253) })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return errorResponse(c, "Type a domain — e.g. trivenmail.com", 422, "VALIDATION_ERROR");
+
+  try {
+    const added = await addMailDomain(parsed.data.domain, authUser.id);
+    await logAdminAction({
+      adminUserId: authUser.id,
+      action: "MAIL_DOMAIN_ADDED",
+      targetType: "NODE",
+      targetId: "communication.send_email",
+      meta: { domain: added.domain }
+    });
+    return successResponse(c, { domain: added });
+  } catch (error) {
+    return errorResponse(c, (error as Error).message, 422, "MAIL_DOMAIN_REJECTED");
+  }
+});
+
+adminRoutes.patch("/mail-domains/default", async (c) => {
+  const authUser = c.get("authUser");
+  const parsed = z.object({ domain: z.string().trim() }).safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return errorResponse(c, "Say which domain.", 422, "VALIDATION_ERROR");
+  try {
+    await setDefaultMailDomain(parsed.data.domain, authUser.id);
+    return successResponse(c, { ok: true });
+  } catch (error) {
+    return errorResponse(c, (error as Error).message, 422, "MAIL_DOMAIN_REJECTED");
+  }
+});
+
+adminRoutes.delete("/mail-domains/:domain", async (c) => {
+  const authUser = c.get("authUser");
+  await removeMailDomain(c.req.param("domain"), authUser.id);
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "MAIL_DOMAIN_REMOVED",
+    targetType: "NODE",
+    targetId: "communication.send_email",
+    meta: { domain: c.req.param("domain") }
+  });
+  return successResponse(c, { ok: true });
 });
 
 /* ------------------------- Send email: the cannon guard -------------------- */

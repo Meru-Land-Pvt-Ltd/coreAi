@@ -4,6 +4,7 @@ import { SESv2Client, SendEmailCommand } from "@aws-sdk/client-sesv2";
 import PDFDocument from "pdfkit";
 import { buildRawMimeMessage } from "./mime";
 import { env, isProduction } from "../config/env";
+import { getDefaultSendingDomain } from "../modules/admin/mail-domains";
 
 const verificationCodeExpirationMinutes = Number(
   process.env.VERIFICATION_CODE_EXPIRATION_MINUTES ?? 10
@@ -36,7 +37,27 @@ export type PlatformEmailInput = {
   text: string;
   html?: string;
   attachments?: PlatformEmailAttachment[];
+  /**
+   * Whose name the mail wears — the agent's or the business's. The founder
+   * caught a test mail arriving as "Triven Confirmation": our internal
+   * identity on a business's message. The mail must wear THEIR name; we are
+   * only the carrier.
+   */
+  fromName?: string;
+  /**
+   * Where replies land. The founder caught Reply-To pointing at our own
+   * support desk — a patient replying to a dentist would have written to us.
+   * The core promise is that replies land in the business's real inbox.
+   */
+  replyTo?: string;
 };
+
+/** The bare address inside "Name <addr>" — or the string itself. */
+function extractEmailAddress(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const match = /<([^>]+)>/.exec(value);
+  return (match ? match[1] : value).trim() || undefined;
+}
 
 let sesClient: SESv2Client | null = null;
 
@@ -79,7 +100,21 @@ export function isPlatformMailConfigured(): boolean {
 }
 
 export async function sendPlatformEmail(input: PlatformEmailInput): Promise<void> {
-  const from = fromAddressFor(input.purpose);
+  const base = fromAddressFor(input.purpose);
+  /* The admin's dedicated sending domain, when one is verified — the main
+     domain never carries agent mail, so a spam-listed agent burns a spare
+     domain and never the brand. Falls back to the shipped sender. */
+  const pooledDomain = await getDefaultSendingDomain().catch(() => null);
+  const baseEmail = extractEmailAddress(base);
+  const sendEmailAddress = pooledDomain && baseEmail ? `${baseEmail.split("@")[0]}@${pooledDomain}` : baseEmail;
+  const from =
+    input.fromName && sendEmailAddress
+      ? `"${input.fromName.replace(/"/g, "'")}" <${sendEmailAddress}>`
+      : pooledDomain && sendEmailAddress
+        ? base?.includes("<")
+          ? `${base.slice(0, base.indexOf("<"))}<${sendEmailAddress}>`
+          : sendEmailAddress
+        : base;
 
   if (!isPlatformMailConfigured() || !from) {
     console.warn(
@@ -100,7 +135,10 @@ export async function sendPlatformEmail(input: PlatformEmailInput): Promise<void
     html: input.html,
     attachments: input.attachments,
     // OTP mail is intentionally no-reply; everything else offers a reply path.
-    replyTo: input.purpose !== "otp" && env.SES_REPLY_TO ? env.SES_REPLY_TO : undefined
+    replyTo:
+      input.purpose !== "otp"
+        ? input.replyTo ?? (env.SES_REPLY_TO ? env.SES_REPLY_TO : undefined)
+        : undefined
   });
 
   await getSesClient().send(

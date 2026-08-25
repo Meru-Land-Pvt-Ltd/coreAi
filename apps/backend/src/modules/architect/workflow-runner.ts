@@ -4472,17 +4472,28 @@ async function runEmailConnectorNode({
         ? sanitizeOutboundHtml(fillEmailTemplate(emailConfig.htmlTemplate, testVars))
         : undefined;
 
+      /* Empty Words means the Brain's answer is the mail — the same law as
+         SMS. The founder's first real mail arrived carrying its own subject
+         as the body because this fallback was missing. */
+      const brainWords = asString(context.ai?.output);
+      const finalTestBody = testBody || brainWords || testSubject;
+
       try {
         // Platform sender: architect tests have no business Mail Setup/alias.
         await sendPlatformEmail({
           purpose: "confirmation",
           to: testRecipient,
           subject: `[Test] ${testSubject}`,
-          text: testBody || testSubject,
-          html: testHtml
+          text: finalTestBody,
+          html: testHtml,
+          /* The mail wears the agent's name — never "Triven Confirmation",
+             our internal identity on a business's message. */
+          fromName: asString(context.businessName) || business?.name || "Your agent",
+          /* Replies land with the person testing — never our support desk. */
+          replyTo: testRecipient
         });
 
-        context.sentEmail = { id: null, to: testRecipient, subject: testSubject, body: testBody || testSubject };
+        context.sentEmail = { id: null, to: testRecipient, subject: testSubject, body: finalTestBody };
 
         logs.push(
           createLog(node, "success", `Test email sent to ${testRecipient} — check the inbox to verify it. Live sends use the buyer-configured recipients.`, {
@@ -4518,17 +4529,19 @@ async function runEmailConnectorNode({
       id: null,
       to: recipientPreview,
       subject,
-      body: textBody || "(body template is empty — the standard confirmation copy is used live)"
+      /* The Business Mirror draws this as the inbox sample — it must be the
+         truth: the Brain's words when Words is empty, never a placeholder. */
+      body: textBody || asString(context.ai?.output) || "(body template is empty — the standard confirmation copy is used live)"
     };
 
     logs.push(
-      createLog(node, "success", "Dry run passed — no email was sent. Enter a Test Email on the Test tab to receive this email for real.", {
+      createLog(node, "success", "Dry run passed — no email was sent. Put your address in the Test Email box and Run — the real mail lands in your inbox.", {
         recipientType: emailConfig.recipientType,
         to: recipientPreview,
         ...(emailConfig.cc.length ? { cc: emailConfig.cc } : {}),
         ...(emailConfig.bcc.length ? { bcc: emailConfig.bcc } : {}),
         subject,
-        bodyPreview: textBody.slice(0, 400),
+        bodyPreview: (textBody || asString(context.ai?.output)).slice(0, 400),
         purpose: emailConfig.purpose
       })
     );
