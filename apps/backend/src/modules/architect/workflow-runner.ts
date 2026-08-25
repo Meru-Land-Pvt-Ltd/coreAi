@@ -1976,6 +1976,9 @@ function seedMissedCallContext(
     if (!context.calendlyEventUuid) {
       context.calendlyEventUuid = eventUuid;
       context.calendly_event_uuid = eventUuid;
+      /* Honesty flag: this run is working on SEEDED sample ids, and every
+         Calendly log line downstream says so. */
+      (context as Record<string, unknown>).__calendlySeeded = true;
     }
     if (!context.calendlyInviteeUuid) {
       context.calendlyInviteeUuid = inviteeUuid;
@@ -4053,7 +4056,16 @@ async function runCalendlyConnectorNode({
       action,
       result
     };
-    logs.push(createLog(node, "success", `Calendly ${action} completed`, { result }));
+    logs.push(
+      createLog(
+        node,
+        "success",
+        `Calendly — ${action.replace(/_/g, " ")} completed${
+          (context as Record<string, unknown>).__calendlySeeded ? " (sample event — live bookings carry real ids)" : ""
+        }`,
+        { result }
+      )
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Calendly action failed";
     const permissionDenied = /not allowed to view this event|permission|forbidden/i.test(message);

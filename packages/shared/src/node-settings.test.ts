@@ -27,7 +27,11 @@ const PERFECTED = [
   "trigger.email_received",
   "ai.knowledge",
   "communication.escalate",
-  "communication.approval"
+  "communication.approval",
+  "calendar.availability",
+  "calendar.book_appointment",
+  "trigger.calendly",
+  "action.calendly"
 ] as const;
 
 describe("the nodes we have finished answer question 5", () => {

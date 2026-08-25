@@ -40,7 +40,11 @@ export const SOUL_COVERED_TYPES = [
   "trigger.email_received",
   "ai.knowledge",
   "communication.escalate",
-  "communication.approval"
+  "communication.approval",
+  "calendar.availability",
+  "calendar.book_appointment",
+  "trigger.calendly",
+  "action.calendly"
 ] as const;
 
 export type SoulPage = {
@@ -320,7 +324,77 @@ human should handle this one"; Approval is the HUMAN saying "I check
 everything until I trust you."`
   },
   {
-    slug: "14-combinations",
+    slug: "14-booking",
+    nodeType: "calendar.availability",
+    title: "The Booking pair — the close of the sale",
+    body: `Two cards, one job: Check Availability looks in the business's own
+calendar and offers open times; Book appointment writes the visit in. For a
+service business the appointment IS the sale — everything else walks the
+customer to the door; these two open it.
+
+Check Availability gives calendarAvailability (the open times); Book gives
+calendarAppointment (what was written). Place them after the Brain that
+understood what the customer wants; the Brain reads the offered times and
+proposes, the customer picks, Book writes it. Whose calendar is the
+BUSINESS's — connected once at setup through their own Google sign-in,
+never configured by an architect.
+
+Test runs are honest: availability shows example times and says so; booking
+dry-runs without touching a real calendar. Booking plus Approval is the
+careful install: the owner confirms each appointment until trust is earned.
+Calendly is the sibling path for businesses who live on Calendly instead.`
+  },
+  {
+    slug: "14b-book-appointment",
+    nodeType: "calendar.book_appointment",
+    title: "Book appointment — the pen that writes the visit",
+    body: `The second half of the Booking pair. Check Availability offers the open
+times; this card writes the chosen one into the business's own calendar and
+gives calendarAppointment — what was written, when, for whom. The customer
+hears the confirmation sentence the architect chose, and the calendar's own
+reminder does the remembering.
+
+Always place it AFTER the conversation knows the what and the when — a Brain
+that understood the request, availability that offered real times. Booking
+with neither is a guess written in ink. Test runs never touch a real
+calendar and say so. Pair it with Approval on a new install: the owner
+confirms each appointment until the machine has earned the pen.`
+  },
+  {
+    slug: "15-calendly",
+    nodeType: "trigger.calendly",
+    title: "The Calendly pair — bookings through their Calendly",
+    body: `For businesses who already live on Calendly. Two cards: Calendly booking
+(a trigger — wakes the agent when a meeting is booked, cancelled, moved, or
+a routing form is filled; gives the invitee and the meeting) and Calendly
+action (asks or tells their Calendly — free times, meeting details, a
+booking link).
+
+Whose Calendly is the BUSINESS's — they connect it once at setup with their
+own sign-in; the platform verifies every webhook signature before an agent
+wakes. Sample runs carry seeded event ids and say so in the log.
+
+Choose this family over the Booking pair when the business books through
+Calendly links; choose the Booking pair when they book straight into a
+calendar. Never both in one agent — one booking truth per business.`
+  },
+  {
+    slug: "15b-calendly-action",
+    nodeType: "action.calendly",
+    title: "Calendly action — asking their Calendly",
+    body: `The doing half of the Calendly pair. One dial — "What it does" — picks the
+job: find free times, read a meeting's details, list invitees, make a
+one-off booking link. The panel's live pickers fill whatever that job needs,
+against the business's own connected Calendly.
+
+Use it after a Brain that knows what the customer wants: the Brain asks for
+free times, reads them, proposes; the customer picks; a scheduling link or a
+booking closes it. Sample runs work on seeded event ids and say so in the
+log. It never writes into a Google calendar — that is the Booking pair's
+pen; one booking truth per business, never both families in one agent.`
+  },
+  {
+    slug: "99-combinations",
     nodeType: null,
     title: "Combinations that work",
     body: `THE ANSWERING MACHINE (the flagship): Email received → Condition (sort) →

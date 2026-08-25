@@ -2789,24 +2789,61 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   // ---- Executable integrations (not launch-critical) ----
 
   // ---- Calendly connector (one trigger + one action; options in node props) ----
+  /* 015 — THE CALENDLY PAIR, brought under the laws (2026-08-25 night order).
+     The healthiest limb of the old era: real OAuth in both builder and
+     install wizard, a signature-verified live webhook, a humane panel. What
+     it lacked was the SOP's fifth answer and honest sample logs — fixed in
+     this pass. The twelve legacy calendly_* slugs stay as corpse maps for
+     old canvases; these two cards are the family. */
   def({
     type: CALENDLY_NODE_TYPES.trigger,
     label: "Calendly booking",
     category: "trigger",
-    description: "Starts on a Calendly webhook event. Choose the event in node properties.",
+    description: "Wakes your agent when a Calendly meeting is booked, cancelled, or moved.",
     requiredConfig: ["calendlyEvent"],
     backendExecutable: true,
     launchCritical: false,
     comingSoon: false,
     runtime: { nodeKind: "trigger", connector: "Calendly" },
     defaultConfig: { calendlyEvent: "meeting_booked" },
-    producedVariables: ["calendly.invitee", "calendly.event"]
+    settings: [
+      {
+        key: "calendlyEvent",
+        name: "Wakes on",
+        whatItsFor: "Which Calendly moment starts the agent.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "meeting_booked", label: "A meeting is booked" },
+            { value: "meeting_cancelled", label: "A meeting is cancelled" },
+            { value: "meeting_rescheduled", label: "A meeting is moved" },
+            { value: "routing_form_submitted", label: "A routing form is filled" }
+          ]
+        },
+        default: "meeting_booked",
+        whoFills: "architect"
+      },
+      {
+        /* Whose Calendly this listens to is the BUSINESS's — connected once
+           at setup through their own Calendly sign-in. */
+        key: "calendlyConnection",
+        name: "Whose Calendly",
+        whatItsFor: "The business connects their own Calendly once at setup.",
+        type: "text",
+        limits: {},
+        default: "",
+        whoFills: "business"
+      }
+    ],
+    requiredVariables: [],
+    // What the webhook run actually carries: who booked, and which meeting.
+    producedVariables: ["calendly.invitee", "calendly.event", "calendly.scheduledEvent"]
   }),
   def({
     type: CALENDLY_NODE_TYPES.action,
     label: "Calendly action",
     category: "integration",
-    description: "Run a Calendly API action. Choose the action in node properties.",
+    description: "Asks or tells the business's Calendly — free times, meeting details, a booking link.",
     requiredConfig: ["connectorAction"],
     backendExecutable: true,
     launchCritical: false,
@@ -2821,6 +2858,30 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       calendlyTimezone: "America/New_York",
       calendlyStatus: "active"
     },
+    settings: [
+      {
+        /* The one real dial: which job this step does. The panel's live
+           pickers fill the rest per action — declared there, chosen there. */
+        key: "connectorAction",
+        name: "What it does",
+        whatItsFor: "Which Calendly job this step performs — find free times, read a meeting, make a booking link.",
+        type: "choice",
+        /* Choices come from the live Calendly catalog in the panel — the
+           platform, not this file, holds that list. */
+        limits: {},
+        default: "get_my_profile",
+        whoFills: "architect"
+      },
+      {
+        key: "calendlyConnection",
+        name: "Whose Calendly",
+        whatItsFor: "The business connects their own Calendly once at setup.",
+        type: "text",
+        limits: {},
+        default: "",
+        whoFills: "business"
+      }
+    ],
     // Defaults for get_my_profile; the builder overrides via getCalendlyActionIo(connectorAction).
     requiredVariables: getCalendlyActionIo("get_my_profile").requiredVariables,
     producedVariables: getCalendlyActionIo("get_my_profile").producedVariables
@@ -2873,13 +2934,20 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     requiredVariables: [],
     producedVariables: ["ai.reply", "customer.name", "customer.phone", "service", "selected.slot"]
   }),
+  /* DO1 — THE BOOKING PAIR, brought under the laws (2026-08-25 night order).
+     The close of the sale: everything else walks the customer to the shop's
+     door; these two open it. The engine was already honest (test runs say
+     "example times"); the declarations were not — backendExecutable lied,
+     the gives named voice-era keys the run never writes, and question 5 was
+     unanswered. Fixed here. Whose calendar is the BUSINESS's — connected
+     once at setup, never typed by an architect. */
   def({
     type: VOICE_NODE_TYPES.calendarAvailability,
     label: "Check Availability",
     category: "integration",
-    description: "Check open Google Calendar slots.",
+    description: "Looks in the business's own calendar and offers open times.",
     requiredConfig: [],
-    backendExecutable: false,
+    backendExecutable: true,
     launchCritical: false,
     comingSoon: false,
     runtime: {
@@ -2888,17 +2956,78 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       connectorAction: VOICE_TOOL_NAMES.checkAvailability
     },
     defaultConfig: { bufferMinutes: "10", maxAdvanceDays: "30", slotsToOffer: "3" },
+    settings: [
+      {
+        key: "slotsToOffer",
+        name: "Times to offer",
+        whatItsFor: "How many open times the customer is offered at once.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "2", label: "Two" },
+            { value: "3", label: "Three" },
+            { value: "5", label: "Five" }
+          ]
+        },
+        default: "3",
+        whoFills: "architect"
+      },
+      {
+        key: "bufferMinutes",
+        name: "Breathing room",
+        whatItsFor: "Minutes kept free between one appointment and the next.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "0", label: "None" },
+            { value: "10", label: "10 minutes" },
+            { value: "15", label: "15 minutes" },
+            { value: "30", label: "30 minutes" }
+          ]
+        },
+        default: "10",
+        whoFills: "architect"
+      },
+      {
+        key: "maxAdvanceDays",
+        name: "How far ahead",
+        whatItsFor: "The furthest into the future a customer may book.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "7", label: "A week" },
+            { value: "14", label: "Two weeks" },
+            { value: "30", label: "A month" },
+            { value: "60", label: "Two months" }
+          ]
+        },
+        default: "30",
+        whoFills: "architect"
+      },
+      {
+        /* Whose calendar this reads is the BUSINESS's — connected once at
+           setup through their own Google sign-in. */
+        key: "calendarConnection",
+        name: "Whose calendar",
+        whatItsFor: "The business connects their own calendar once at setup.",
+        type: "text",
+        limits: {},
+        default: "",
+        whoFills: "business"
+      }
+    ],
     capability: "calendar.check_availability",
     requiredVariables: [],
-    producedVariables: ["calendar.available_slots", "calendar.requested_date", "calendar.timezone"]
+    // What the run ACTUALLY writes (workflow-runner: context.calendarAvailability).
+    producedVariables: ["calendarAvailability"]
   }),
   def({
     type: VOICE_NODE_TYPES.bookAppointment,
     label: "Book appointment",
     category: "integration",
-    description: "Create a Google Calendar event.",
+    description: "Writes the appointment into the business's own calendar.",
     requiredConfig: [],
-    backendExecutable: false,
+    backendExecutable: true,
     launchCritical: false,
     comingSoon: false,
     runtime: {
@@ -2913,15 +3042,58 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       reminderTiming: "120",
       confirmationMessage: "You're all set for [Service] on [Date] at [Time]."
     },
+    settings: [
+      {
+        key: "confirmationMessage",
+        name: "What the customer hears",
+        whatItsFor: "Said back to the customer after a successful booking.",
+        type: "long text",
+        limits: { maxLength: 300 },
+        default: "You're all set for [Service] on [Date] at [Time].",
+        whoFills: "architect"
+      },
+      {
+        key: "reminderEnabled",
+        name: "Reminder",
+        whatItsFor: "Whether the calendar reminds the customer before the visit.",
+        type: "on/off",
+        limits: {},
+        default: "true",
+        whoFills: "architect"
+      },
+      {
+        key: "reminderTiming",
+        name: "Reminder lead",
+        whatItsFor: "How long before the visit the reminder arrives.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "30", label: "30 minutes before" },
+            { value: "60", label: "An hour before" },
+            { value: "120", label: "Two hours before" },
+            { value: "1440", label: "A day before" }
+          ]
+        },
+        default: "120",
+        whoFills: "architect"
+      },
+      {
+        key: "calendarConnection",
+        name: "Whose calendar",
+        whatItsFor: "The business connects their own calendar once at setup.",
+        type: "text",
+        limits: {},
+        default: "",
+        whoFills: "business"
+      }
+    ],
     capability: "calendar.book_appointment",
-    requiredVariables: ["customer.name", "customer.phone", "selected.slot", "service"],
-    producedVariables: [
-      "appointment.status",
-      "appointment.confirmation_id",
-      "appointment.date",
-      "appointment.time",
-      "appointment.calendar_event_id"
-    ]
+    // Generous on purpose: details arrive from the conversation or the node's
+    // own boxes, and a missing one fails honestly at run time — not with a
+    // wall of red wires drawn for the voice era.
+    requiredVariables: [],
+    // What the run ACTUALLY writes (workflow-runner: context.calendarAppointment).
+    producedVariables: ["calendarAppointment"]
   }),
   def({
     type: VOICE_NODE_TYPES.sendSms,
