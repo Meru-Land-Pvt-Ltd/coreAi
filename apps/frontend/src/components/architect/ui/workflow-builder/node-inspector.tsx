@@ -36,6 +36,9 @@ import {
 } from "@coreai/shared";
 import { useState, useEffect, type ReactNode } from "react";
 import { useNodeLimits } from "./use-node-limits";
+
+/** How long a hand-written rule may be. Kept with the declaration in the registry. */
+const CONDITION_QUESTION_MAX = 300;
 import { VoicePicker } from "@/components/common/voice-picker";
 import {
   disconnectCalendlyConnector,
@@ -3746,9 +3749,14 @@ function ConditionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
           value={operator}
           onChange={set("conditionOperator")}
           testId="condition-operator"
+          /* "Other" is last, and it says what it does: you write the rule.
+             It used to sit second in the list called "Read what arrived and
+             decide" — the one option that lets an architect describe a rule in
+             their own words, named so badly that nobody would ever find it.
+             A list of ten fixed rules with no visible way to write your own
+             reads as a platform that does not allow one. */
           options={[
             { value: "business_hours", label: "Are we open right now?" },
-            { value: "meaning", label: "Read what arrived and decide" },
             { value: "contains", label: "Something contains…" },
             { value: "not_contains", label: "Something does not contain…" },
             { value: "equals", label: "Something is exactly…" },
@@ -3756,25 +3764,40 @@ function ConditionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
             { value: "is_empty", label: "Something is empty" },
             { value: "is_not_empty", label: "Something has a value" },
             { value: "greater_than", label: "A number is more than…" },
-            { value: "less_than", label: "A number is less than…" }
+            { value: "less_than", label: "A number is less than…" },
+            { value: "meaning", label: "Other — I write the rule myself" }
           ]}
         />
 
         {byMeaning ? (
           <div className="mt-4">
-            <Label>What is it deciding?</Label>
+            <Label>Write the rule</Label>
             <textarea
               value={str("conditionQuestion")}
               onChange={(event) => set("conditionQuestion")(event.target.value)}
               placeholder="Is this customer complaining, asking a question, or is it spam?"
               rows={3}
+              /* Short on purpose. This is one question, not a brief — a rule
+                 that needs three paragraphs is an AI Brain followed by a
+                 Condition, and it will decide better as two steps than as one. */
+              maxLength={CONDITION_QUESTION_MAX}
               data-testid="condition-question"
               className="mt-1 w-full resize-y rounded-xl border border-gray-200 px-3 py-2.5 text-sm leading-6 text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-amber-300 focus:ring-4 focus:ring-amber-100"
             />
-            <p className="mt-1.5 text-[11px] leading-5 text-slate-400">
-              It reads whatever arrived and picks one of the roads below. Only this kind of rule
-              uses AI — the others are instant and cost nothing.
-            </p>
+            <div className="mt-1.5 flex items-start justify-between gap-3">
+              <p className="text-[11px] leading-5 text-slate-400">
+                Write it in your own words. It reads whatever arrived and picks one of the roads
+                below. Only this kind of rule uses AI — the others are instant and cost nothing.
+              </p>
+              <span
+                className={`shrink-0 text-[11px] tabular-nums ${
+                  str("conditionQuestion").length >= CONDITION_QUESTION_MAX ? "text-amber-600" : "text-slate-300"
+                }`}
+                data-testid="condition-question-count"
+              >
+                {str("conditionQuestion").length}/{CONDITION_QUESTION_MAX}
+              </span>
+            </div>
           </div>
         ) : operator !== "business_hours" ? (
           <>

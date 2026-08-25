@@ -2466,10 +2466,12 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     settings: [
       {
         key: "conditionQuestion",
-        name: "How it decides",
-        whatItsFor: "The one question it asks about whatever arrived.",
+        name: "Write the rule",
+        whatItsFor: "The one question it asks about whatever arrived, in the architect's own words.",
         type: "long text",
-        limits: { maxLength: 500, required: true },
+        /* 300 on purpose. A rule that needs more than that is an AI Brain
+           followed by a Condition, and it will decide better as two steps. */
+        limits: { maxLength: 300, required: true },
         default: "",
         whoFills: "architect"
       },
