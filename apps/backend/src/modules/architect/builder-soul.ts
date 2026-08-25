@@ -38,7 +38,8 @@ export const SOUL_COVERED_TYPES = [
   "trigger.schedule",
   "communication.send_email",
   "trigger.email_received",
-  "ai.knowledge"
+  "ai.knowledge",
+  "communication.escalate"
 ] as const;
 
 export type SoulPage = {
@@ -266,13 +267,35 @@ it to the customer. Any agent that answers questions about the business
 should carry this node — polite without it, correct with it.`
   },
   {
-    slug: "12-combinations",
+    slug: "12-escalate",
+    nodeType: "communication.escalate",
+    title: "Escalate — the judgment to stop",
+    body: `Hands the conversation to a human. When reached, it mails the WHOLE
+thread to the business's own inbox — who wrote, what they asked, what the
+agent already said — with Reply-To set to the customer, so the human takes
+over in one click. The customer reads one honest sentence ("I'm passing this
+to the team"), which becomes the run's text for any Send email after it.
+
+Escalate does NOT decide. The Condition or Brain before it decides — angry
+customer, money on the table, a question the library cannot answer — and one
+road leads here. Putting judgment inside a Hand would be a hidden Brain, and
+the platform forbids hidden Brains.
+
+One handover per run, ever — a Loop cannot mail the owner twenty-five times.
+Where handovers land belongs to the BUSINESS's Mail Setup, never typed by an
+architect. Every serious agent that answers customers should carry one road
+to Escalate: it is the answer to "what if the AI gets it wrong?" — it knows
+when to stop, and the business sees everything it stopped on.`
+  },
+  {
+    slug: "13-combinations",
     nodeType: null,
     title: "Combinations that work",
     body: `THE ANSWERING MACHINE (the flagship): Email received → Condition (sort) →
-Knowledge → Brain → Send email, with Memory before the Brain. Mail arrives,
-gets sorted, answered from the business's facts, remembering the sender. The
-reply loop closes through the world.
+Knowledge → Brain → Send email, with Memory before the Brain — and one
+Condition road to Escalate for what a machine should not answer. Mail
+arrives, gets sorted, answered from the business's facts, remembering the
+sender; the rest goes to a human. The reply loop closes through the world.
 
 THE PAGE PRODUCT: Prompt Box → (Knowledge) → Brain → Result Viewer. A
 customer types, the answer appears. Add File Upload when they hand a file;

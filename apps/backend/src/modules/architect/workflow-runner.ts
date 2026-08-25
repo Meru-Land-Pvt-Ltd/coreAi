@@ -68,6 +68,7 @@ import {
 } from "./google-calendar-connector";
 import { reserveSlotForInstant, topAlternativeLabels } from "../business/scheduling";
 import { retrieveRelevantKnowledge } from "../business/agent-knowledge";
+import { recordUnansweredQuestion } from "../business/knowledge-v2/unanswered-questions";
 import { resolveOutboundPhoneNumberId, startVapiOutboundCall } from "./vapi-connector";
 import {
   calendlyBookMeetingForInvitee,
@@ -317,6 +318,10 @@ type RunnerNodeData = {
   description?: unknown;
   /** Knowledge's practice shelf — read only in builder tests, never live. */
   sampleFacts?: unknown;
+  /** Escalate: the honest sentence the customer reads during a handover. */
+  customerMessage?: unknown;
+  /** Escalate: standing guidance attached to every handover mail. */
+  teamNote?: unknown;
   prompt?: unknown;
   reference_image?: unknown;
   imageSize?: unknown;
@@ -5206,6 +5211,207 @@ async function runStandardConnectorNode({
   logs.push(createLog(node, "success", result.message, result.outputs));
 }
 
+/**
+ * NODE 012 — ESCALATE. The judgment to stop.
+ *
+ * It does not decide — the Condition before it decides. When reached, it
+ * hands the whole thread to the business's own inbox: who wrote, what they
+ * asked, what the agent already said, with Reply-To set to the customer so
+ * the human takes over the conversation in one click. The customer hears one
+ * honest sentence, which becomes the run's text for any Send email after it.
+ *
+ * One handover per run, ever — a Loop must never mail the owner twenty-five
+ * times. And every escalation is recorded as an unanswered question, so the
+ * business can one day read what its library could not answer.
+ */
+const DEFAULT_ESCALATE_SENTENCE = "I'm passing this to the team — they'll reply to you personally.";
+
+/** Live only: the business's own inbox — their setup's recipients, else the owner. */
+async function resolveEscalationInbox(
+  businessId: string,
+  installedAgentId?: string
+): Promise<string | null> {
+  try {
+    if (installedAgentId) {
+      const install = await prisma.installedAgent.findUnique({
+        where: { id: installedAgentId },
+        select: { configJson: true }
+      });
+      const config = (install?.configJson ?? {}) as { emailRecipients?: unknown };
+      const recipients = Array.isArray(config.emailRecipients)
+        ? config.emailRecipients.map(String)
+        : typeof config.emailRecipients === "string"
+          ? [config.emailRecipients]
+          : [];
+      const first = recipients.map((value) => value.trim()).find((value) => isValidEmailAddress(value));
+      if (first) return first;
+    }
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      select: { owner: { select: { email: true } } }
+    });
+    const ownerEmail = business?.owner?.email?.trim() ?? "";
+    return isValidEmailAddress(ownerEmail) ? ownerEmail : null;
+  } catch {
+    return null;
+  }
+}
+
+async function runEscalateNode({
+  businessId,
+  installedAgentId,
+  node,
+  context,
+  logs,
+  mode
+}: {
+  businessId?: string;
+  installedAgentId?: string;
+  node: RunnerNode;
+  context: RunnerContext;
+  logs: WorkflowRunLog[];
+  mode: WorkflowRunMode;
+}): Promise<void> {
+  /* One handover per run, ever. A refused repeat is success, not failure —
+     the human already has the thread. */
+  const contextRecord = context as Record<string, unknown>;
+  if (contextRecord.__escalated) {
+    logs.push(
+      createLog(node, "success", "Already handed to a human once this run — one handover per run, ever.", {
+        repeated: true
+      })
+    );
+    return;
+  }
+  contextRecord.__escalated = true;
+
+  const customerAddress = asString(context.email?.from) || asString(context.customerEmail);
+  const customerAsked = asString(context.email?.body) || asString(context.text);
+  const agentSaid = asString(context.ai?.output);
+  const teamNote = asString(node.data?.teamNote);
+  const businessName = context.business?.name || "your business";
+
+  const subject = `Your agent needs you${context.email?.subject ? `: ${asString(context.email.subject)}` : ""}`;
+  const body = [
+    "Your agent handed this conversation to you.",
+    "",
+    customerAddress ? `From: ${customerAddress}` : "From: (no address captured this run)",
+    customerAsked ? `They wrote: ${customerAsked.slice(0, 2000)}` : "They wrote: (nothing captured)",
+    agentSaid ? `\nWhat the agent already said: ${agentSaid.slice(0, 1000)}` : "",
+    teamNote ? `\nYour standing note: ${teamNote}` : "",
+    "",
+    customerAddress
+      ? "Reply to this email and your answer goes straight to the customer."
+      : "The customer left no reply address — reach them the way they reached you."
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+
+  /* The honest sentence the customer reads — and the run's new text, so a
+     Send email after this node carries it without any wiring tricks. */
+  const sentence = asString(node.data?.customerMessage) || DEFAULT_ESCALATE_SENTENCE;
+  context.text = sentence;
+  context.ai = { output: sentence };
+  context.lastOutput = sentence;
+  contextRecord.escalation = { subject, at: new Date().toISOString() };
+
+  /* Every handover is also a gap the library could not close — recorded so
+     the business can one day read what its customers ask in vain. */
+  if (businessId && customerAsked) {
+    void recordUnansweredQuestion({
+      businessId,
+      installedAgentId: installedAgentId ?? null,
+      channel: "ESCALATION",
+      question: customerAsked
+    }).catch(() => undefined);
+  }
+
+  if (outboundSendsAllowed(context, mode) && businessId) {
+    const inbox = await resolveEscalationInbox(businessId, installedAgentId);
+    if (!inbox) {
+      logs.push(
+        createLog(
+          node,
+          "error",
+          "No inbox to hand over to — the business has no email in their setup. The customer was still told a human will reply."
+        )
+      );
+      return;
+    }
+    /* The cannon guard counts this mail too — one shared ceiling per run. */
+    const counter = (contextRecord["__emailCounter"] ??= { sent: 0 }) as { sent: number };
+    const perRunCap = await getEmailPerRunLimit().catch(() => DEFAULT_EMAIL_PER_RUN);
+    if (counter.sent >= perRunCap) {
+      logs.push(
+        createLog(node, "error", `This run already sent ${perRunCap} emails — the platform's ceiling. The handover was not sent.`)
+      );
+      return;
+    }
+    counter.sent += 1;
+    try {
+      await sendPlatformEmail({
+        purpose: "notification",
+        to: inbox,
+        subject,
+        text: body,
+        fromName: businessName,
+        ...(customerAddress ? { replyTo: customerAddress } : {})
+      });
+      logs.push(
+        createLog(node, "success", `Handed to a human — the thread is in ${inbox}'s inbox. Replying there answers the customer directly.`, {
+          to: inbox,
+          subject,
+          bodyPreview: body.slice(0, 400)
+        })
+      );
+    } catch (error) {
+      logs.push(
+        createLog(node, "error", `The handover mail could not be sent: ${error instanceof Error ? error.message : "unknown error"}`)
+      );
+    }
+    return;
+  }
+
+  /* Builder test. A Test Email address turns the dry preview into a real
+     delivery, so the architect holds the exact handover mail in their hands. */
+  const testRecipient = (context.testEmail ?? "").trim().toLowerCase();
+  if (testRecipient && isValidEmailAddress(testRecipient) && isPlatformMailConfigured()) {
+    try {
+      await sendPlatformEmail({
+        purpose: "notification",
+        to: testRecipient,
+        subject,
+        text: body,
+        fromName: businessName,
+        replyTo: testRecipient
+      });
+      logs.push(
+        createLog(
+          node,
+          "success",
+          `Test handover sent to ${testRecipient} — check the inbox. Live, this lands in the business's own inbox (their Mail Setup decides the address).`,
+          { to: testRecipient, subject, bodyPreview: body.slice(0, 400), sample: true }
+        )
+      );
+      return;
+    } catch (error) {
+      logs.push(
+        createLog(node, "error", `Test handover to ${testRecipient} could not be sent: ${error instanceof Error ? error.message : "unknown error"}`)
+      );
+      return;
+    }
+  }
+
+  logs.push(
+    createLog(
+      node,
+      "success",
+      "Handover drafted — live, the whole thread lands in the business's own inbox (their Mail Setup decides the address), and the customer reads your honest sentence.",
+      { subject, bodyPreview: body.slice(0, 400), customerHears: sentence, sample: true }
+    )
+  );
+}
+
 async function runConnectorNode({
   userId,
   node,
@@ -7153,6 +7359,18 @@ async function executeNodeOnConfig(params: {
 
 
     if (nodeKind === "connector") {
+      if (asString(node.data?.type) === "communication.escalate") {
+        await runEscalateNode({
+          businessId: input?.businessId,
+          installedAgentId: input?.installedAgentId,
+          node,
+          context,
+          logs: nodeLogs,
+          mode
+        });
+        const hasErr = nodeLogs.some((l) => l.nodeId === node.id && l.status === "error");
+        return { logs: nodeLogs, runFailed: hasErr };
+      }
       await runConnectorNode({
         userId,
         node,

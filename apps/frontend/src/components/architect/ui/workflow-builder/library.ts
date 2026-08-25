@@ -156,6 +156,8 @@ export const libraryGroups: LibraryGroup[] = [
       paletteItem(VOICE_NODE_TYPES.bookAppointment, { icon: "calendar", accent: "blue" }),
       paletteItem(CALENDLY_NODE_TYPES.action, { icon: "calendly", accent: "blue", kind: "CALENDLY" }),
       paletteItem(VOICE_NODE_TYPES.sendEmail, { icon: "mail", accent: "green" }),
+      /* NODE 012. The judgment to stop — hands the thread to a human. */
+      { ...paletteItem("communication.escalate", { icon: "life-buoy", accent: "orange" }), badge: "NEW" },
       paletteItem(VOICE_NODE_TYPES.sendSms, { icon: "message", accent: "green" }),
       {
         // The sales employee's hands: it phones people who asked to be phoned.

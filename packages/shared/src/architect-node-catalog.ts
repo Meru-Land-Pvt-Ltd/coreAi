@@ -49,6 +49,7 @@ const HAND_WRITTEN_CATALOG: ArchitectNodeCatalogItem[] = [
   { type: "ai.context_reply", group: "AI", label: "AI Text Reply", defaultVisible: true },
   { type: "ai.memory", group: "AI", label: "Memory Node", defaultVisible: true },
   { type: "ai.knowledge", group: "AI", label: "Knowledge", defaultVisible: true },
+  { type: "communication.escalate", group: "Actions", label: "Escalate", defaultVisible: true },
   { type: "ai.image_generation", group: "AI", label: "Create image", defaultVisible: true },
   { type: "ai.deepgram_stt", group: "AI", label: "Deepgram STT", defaultVisible: true },
   { type: "ai.deepgram_tts", group: "AI", label: "Deepgram TTS", defaultVisible: true },

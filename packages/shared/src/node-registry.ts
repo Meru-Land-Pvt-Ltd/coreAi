@@ -1612,6 +1612,64 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     producedVariables: ["email"],
     settings: []
   }),
+  /* NODE 012 — ESCALATE. The judgment to stop.
+     009 gave the machine a voice, 010 an ear, 011 a mind — this gives it the
+     one skill that makes an employee trustable: knowing when to get the
+     manager. It does not decide (the Condition before it decides); when
+     reached, it hands the whole thread to the business's own inbox — who
+     wrote, what they asked, what the agent already said — with Reply-To set
+     to the customer, so the human takes over the conversation in one click.
+     The customer hears one honest sentence. One handover per run, ever. */
+  def({
+    type: "communication.escalate",
+    label: "Escalate",
+    category: "action",
+    description: "Hands the conversation to a human — the whole thread lands in the business's own inbox.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "connector", connector: "ESCALATE" },
+    defaultConfig: {
+      customerMessage: "I'm passing this to the team — they'll reply to you personally.",
+      teamNote: ""
+    },
+    settings: [
+      {
+        key: "customerMessage",
+        name: "What to tell the customer",
+        whatItsFor: "The one honest sentence the customer reads while a human takes over.",
+        type: "long text",
+        limits: { maxLength: 500 },
+        default: "I'm passing this to the team — they'll reply to you personally.",
+        whoFills: "architect"
+      },
+      {
+        key: "teamNote",
+        name: "A note for the team",
+        whatItsFor: "Standing guidance attached to every handover — what the human should check before replying.",
+        type: "long text",
+        limits: { maxLength: 2000 },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        /* Where handovers land is the BUSINESS's — their Mail Setup at
+           install decides it, never typed by an architect. */
+        key: "escalationInbox",
+        name: "Where handovers land",
+        whatItsFor: "The business's own inbox — their Mail Setup at install decides it.",
+        type: "text",
+        limits: {},
+        default: "",
+        whoFills: "business"
+      }
+    ],
+    // Q3: nothing required — it hands over whatever the run carries.
+    // Q4: the handover record, and the honest sentence as the run's new text.
+    requiredVariables: [],
+    producedVariables: ["escalation", "text"]
+  }),
   def({
     type: "trigger.twilio_inbound_sms",
     label: "Text message",

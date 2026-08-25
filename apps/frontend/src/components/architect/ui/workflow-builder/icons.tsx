@@ -1,4 +1,4 @@
-import { BookOpen, Code2, FileText, Image as ImageIcon, MapPin, Pencil, Trash2, Wand2 } from "lucide-react";
+import { BookOpen, Code2, FileText, Image as ImageIcon, LifeBuoy, MapPin, Pencil, Trash2, Wand2 } from "lucide-react";
 
 export function BuilderIcon({
   name,
@@ -16,6 +16,7 @@ export function BuilderIcon({
   }
   if (name === "code") return <Code2 className={className} aria-hidden="true" />;
   if (name === "book") return <BookOpen className={className} aria-hidden="true" />;
+  if (name === "life-buoy") return <LifeBuoy className={className} aria-hidden="true" />;
   if (name === "image") return <ImageIcon className={className} aria-hidden="true" />;
   if (name === "file") return <FileText className={className} aria-hidden="true" />;
   if (name === "map-pin") return <MapPin className={className} aria-hidden="true" />;

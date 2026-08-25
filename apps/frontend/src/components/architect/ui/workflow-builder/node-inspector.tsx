@@ -194,6 +194,7 @@ export function NodeInspector({
   } else if (type === VOICE_NODE_TYPES.bookAppointment) {
     panel = <BookCalendarAppointmentProps {...base} calendar={calendar} ownership={ownership} />;
   } else if (type === VOICE_NODE_TYPES.sendEmail) panel = <SendEmailProps {...base} />;
+  else if (type === "communication.escalate") panel = <EscalateProps {...base} />;
   else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
   else if (type === "trigger.whatsapp_message_received") panel = <WhatsAppTriggerProps {...base} />;
   else if (type === OUTBOUND_CALL_NODE_TYPE) panel = <OutboundCallProps {...base} />;
@@ -1783,6 +1784,59 @@ function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar
             placeholder="Said after a successful booking"
           />
         </div>
+      </Section>
+    </>
+  );
+}
+
+/**
+ * ESCALATE — the judgment to stop, in two plain controls.
+ *
+ * The node does not decide; the Condition before it decides. The architect
+ * owns only two sentences: what the customer reads while a human takes over,
+ * and standing guidance for the team. Where handovers land belongs to the
+ * business's Mail Setup — never typed here.
+ */
+function EscalateProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+
+  return (
+    <>
+      <Section title="Name">
+        <TextInput
+          value={selectedNode.data.title}
+          onChange={set("title")}
+          placeholder="Escalate"
+          testId="escalate-name-input"
+        />
+      </Section>
+
+      <Section title="What to tell the customer">
+        <p className="text-[12px] leading-5 text-slate-500">
+          The one honest sentence the customer reads while a human takes over.
+        </p>
+        <TextArea
+          value={str("customerMessage")}
+          onChange={set("customerMessage")}
+          testId="escalate-customer-textarea"
+          height="h-20"
+          placeholder="I'm passing this to the team — they'll reply to you personally."
+        />
+      </Section>
+
+      <Section title="A note for the team" last>
+        <p className="text-[12px] leading-5 text-slate-500">
+          Attached to every handover mail — what the human should check before replying. The whole
+          thread lands in the business&apos;s own inbox, and replying there answers the customer
+          directly.
+        </p>
+        <TextArea
+          value={str("teamNote")}
+          onChange={set("teamNote")}
+          testId="escalate-team-textarea"
+          height="h-24"
+          placeholder="Check the refunds sheet before promising anything."
+        />
       </Section>
     </>
   );
