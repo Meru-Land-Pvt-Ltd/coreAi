@@ -4378,6 +4378,14 @@ function businessAddressLine(business: RunnerContext["business"]): string {
   return parts.join(", ");
 }
 
+/** Who the live mail actually goes to, said by name in one plain phrase. */
+function liveRecipientPreview(config: { recipientType?: string; customRecipient?: string; recipientVariable?: string }): string {
+  if (config.recipientType === "custom") return config.customRecipient || "the fixed address (not filled in yet)";
+  if (config.recipientType === "team") return "the business team's address from their setup";
+  if (config.recipientType === "variable") return `whatever address the run carries in ${config.recipientVariable || "customer.email"}`;
+  return "the customer's email captured during the run";
+}
+
 async function runEmailConnectorNode({
   node,
   context,
@@ -4496,7 +4504,10 @@ async function runEmailConnectorNode({
         context.sentEmail = { id: null, to: testRecipient, subject: testSubject, body: finalTestBody };
 
         logs.push(
-          createLog(node, "success", `Test email sent to ${testRecipient} — check the inbox to verify it. Live sends use the buyer-configured recipients.`, {
+          /* The founder saw two addresses on screen and could not tell what
+             the second one was FOR. The log now says it: exactly who the live
+             mail goes to, by name — never a vague "configured recipients". */
+          createLog(node, "success", `Test email sent to ${testRecipient} — check the inbox to verify it. Live, this would email ${liveRecipientPreview(emailConfig)}.`, {
             to: testRecipient,
             subject: testSubject,
             bodyPreview: (testBody || testSubject).slice(0, 400),
