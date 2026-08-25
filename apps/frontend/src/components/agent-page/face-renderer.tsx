@@ -398,6 +398,32 @@ export function FaceRenderer({
     (block) => block.type === BLOCK_NODE_TYPES.actionButton
   );
 
+  /* The customer's one file, held until the next run carries it. The upload
+     block stored only the file's NAME for months — the engine heard "the
+     customer attached menu.pdf" while the menu never left the browser. */
+  const [upload, setUpload] = useState<{ name: string; mimeType: string; data: string } | null>(null);
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
+
+  function acceptUpload(file: File | undefined) {
+    if (!file) return;
+    if (file.type.startsWith("video/")) {
+      setUploadNote("Videos can't be read yet — a document or a picture works.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadNote("That file is over 5 MB — a smaller one works.");
+      return;
+    }
+    setUploadNote(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setUpload({ name: file.name, mimeType: file.type || "application/octet-stream", data: reader.result });
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
   const running = pendingRun !== null;
   const activeResult =
     results.find((result) => result.id === activeResultId) ??
@@ -411,7 +437,12 @@ export function FaceRenderer({
     try {
       // basePrompt is the customer's own words with nothing added — which is
       // exactly what the Prompt Box says it gives. See docs/NODE-SOP.md.
-      result = await runtime.runOnce({ prompt: request.prompt, text: request.basePrompt, sessionId });
+      result = await runtime.runOnce({
+        prompt: request.prompt,
+        text: request.basePrompt,
+        sessionId,
+        ...(upload ? { attachments: [upload] } : {})
+      });
     } catch {
       // Both runtimes resolve with { error } today — but a thrown rejection
       // must never strand the page in a forever-shimmer with no retry.
@@ -844,6 +875,50 @@ export function FaceRenderer({
           />
         );
       }
+
+      case "block.file_upload":
+        return (
+          <div key={key} className={agentPageContentColumn()}>
+            {upload ? (
+              <div
+                className="flex w-full items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3"
+                data-testid="face-upload-chosen"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{upload.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setUpload(null)}
+                  aria-label={`Remove ${upload.name}`}
+                  data-testid="face-upload-clear"
+                  className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-slate-400 transition hover:text-slate-600"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <label
+                className="flex w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-gray-300 bg-white px-5 py-6 text-center transition hover:border-gray-400"
+                data-testid="face-upload-empty"
+              >
+                <span className="text-sm font-semibold text-slate-700">
+                  {asText(block.config.placeholder, "Add a file…")}
+                </span>
+                <span className="text-xs text-slate-400">A document or a picture — it will be read for you.</span>
+                {uploadNote ? (
+                  <span className="text-xs text-slate-500" data-testid="face-upload-note">
+                    {uploadNote}
+                  </span>
+                ) : null}
+                <input
+                  type="file"
+                  className="sr-only"
+                  data-testid="face-upload-input"
+                  onChange={(event) => acceptUpload(event.target.files?.[0])}
+                />
+              </label>
+            )}
+          </div>
+        );
 
       case BLOCK_NODE_TYPES.outputStage:
         return (

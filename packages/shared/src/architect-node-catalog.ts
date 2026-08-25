@@ -75,6 +75,7 @@ const HAND_WRITTEN_CATALOG: ArchitectNodeCatalogItem[] = [
   { type: "action.save_conversation_message", group: "CRM / Data", label: "Save chat", defaultVisible: false },
 
   { type: "logic.condition", group: "Routing / Logic", label: "Condition", defaultVisible: true },
+  { type: "logic.loop", group: "Routing / Logic", label: "Loop", defaultVisible: true },
   { type: "action.human_handoff", group: "Routing / Logic", label: "Transfer to staff", defaultVisible: false },
   { type: "flow.end", group: "Routing / Logic", label: "End", defaultVisible: true },
 
@@ -86,6 +87,7 @@ const HAND_WRITTEN_CATALOG: ArchitectNodeCatalogItem[] = [
      can talk to", it reached for the phone receptionist, because a phone was
      the only mouth it had. */
   { type: "block.prompt_composer", group: "Face", label: "Prompt Box", defaultVisible: true },
+  { type: "block.file_upload", group: "Face", label: "File Upload", defaultVisible: true },
   { type: "block.output_stage", group: "Face", label: "Result Viewer", defaultVisible: true },
   { type: "block.history_shelf", group: "Face", label: "History Shelf", defaultVisible: true },
   { type: "block.action_button", group: "Face", label: "Button", defaultVisible: true },

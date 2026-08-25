@@ -133,6 +133,11 @@ function deriveBlockConfig(type: string, data: Record<string, unknown>): Record<
       return { label: textWithFallback(DEFAULT_CONTINUE_LABEL).parse(data.label) };
     case BLOCK_NODE_TYPES.historyShelf:
       return {};
+    case "block.file_upload":
+      return {
+        placeholder: textWithFallback("Add a file…", 80).parse(data.placeholder),
+        required: data.required === "true" || data.required === true
+      };
     default:
       return {};
   }
