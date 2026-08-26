@@ -114,10 +114,26 @@ export type NodeSetting = {
   /** What it is before anyone touches it. */
   default: string | number | boolean;
   /**
-   * Who knows the answer. Never ask an architect for something only the
-   * business knows — their opening hours, their phone number, their prices.
+   * WHO KNOWS THE ANSWER — the three sides of every node, in one list.
+   *
+   * "architect"  the person building the agent, once, for everyone who installs it.
+   * "business"   the company running it: their hours, their inbox, their key.
+   * "admin"      Triven itself: the ceilings that cost money or carry risk.
+   *
+   * The third side used to live in a different drawer — the admin dials were
+   * hand-written in backend modules while the other two sat here, so the same
+   * node was described in two filing systems that could drift apart. One node,
+   * one row, three columns (the founder's ruling, 2026-08-26).
+   *
+   * Never ask an architect for something only the business knows — their
+   * opening hours, their phone number, their prices.
    */
-  whoFills: "architect" | "business";
+  whoFills: "architect" | "business" | "admin";
+  /**
+   * For "admin" entries: the setting row this dial is stored under, so the
+   * platform can read it without a hand-written module per node.
+   */
+  storedAs?: string;
 };
 
 export type NodeDefinition = {
@@ -331,6 +347,87 @@ export function nodeSettingChoices(
 ): Array<{ value: string; label: string }> {
   const setting = getNodeDefinition(nodeType)?.settings?.find((entry) => entry.key === settingKey);
   return setting?.limits?.choices ? [...setting.limits.choices] : [];
+}
+
+/**
+ * ONE NODE, ONE ROW, THREE COLUMNS (the founder's ruling, 2026-08-26).
+ *
+ * Every surface asks the same file the same question — "what is mine to
+ * fill?" — and gets its own column back. The architect's panel, the
+ * business's setup form and the admin's dials all draw themselves from this,
+ * so a setting added once appears in the right place by itself and can never
+ * drift between three hand-written screens.
+ */
+export function nodeSettingsFor(
+  nodeType: string,
+  who: "architect" | "business" | "admin"
+): NodeSetting[] {
+  return (getNodeDefinition(nodeType)?.settings ?? []).filter((setting) => setting.whoFills === who);
+}
+
+/** Every admin dial on the platform, with the row each is stored under. */
+export function allPlatformDials(): Array<NodeSetting & { nodeType: string; nodeLabel: string }> {
+  const dials: Array<NodeSetting & { nodeType: string; nodeLabel: string }> = [];
+  for (const definition of NODE_DEFINITIONS) {
+    for (const setting of definition.settings ?? []) {
+      if (setting.whoFills === "admin") {
+        dials.push({ ...setting, nodeType: definition.type, nodeLabel: definition.label });
+      }
+    }
+  }
+  return dials;
+}
+
+/**
+ * THE CATALOGUE — every node as one plain record, the founder's spreadsheet
+ * made real. This is what the AI Builder is handed, what an admin can
+ * download, and what any future surface reads instead of asking the code.
+ */
+export type NodeCatalogueRow = {
+  type: string;
+  label: string;
+  /** Which of the Four Elements it belongs to, in the platform's own words. */
+  element: "Trigger" | "Brain" | "Face" | "Hand" | "Connection";
+  description: string;
+  /** What must arrive for it to work. */
+  needs: string[];
+  /** What it hands to the steps after it. */
+  gives: string[];
+  /** True when the node carries an AI door of its own. */
+  hasDoors: boolean;
+  parked: string | null;
+  settings: {
+    admin: NodeSetting[];
+    architect: NodeSetting[];
+    business: NodeSetting[];
+  };
+};
+
+function elementOf(definition: NodeDefinition): NodeCatalogueRow["element"] {
+  const kind = definition.runtime.nodeKind;
+  if (kind === "trigger") return "Trigger";
+  if (kind === "block") return "Face";
+  if (kind === "ai" || kind === "condition") return "Brain";
+  if (definition.runtime.connector) return "Connection";
+  return "Hand";
+}
+
+export function nodeCatalogue(): NodeCatalogueRow[] {
+  return NODE_DEFINITIONS.map((definition) => ({
+    type: definition.type,
+    label: definition.label,
+    element: elementOf(definition),
+    description: definition.description,
+    needs: definition.requiredVariables ?? [],
+    gives: definition.producedVariables ?? [],
+    hasDoors: Boolean(NODE_DOORS_BY_TYPE[definition.type]),
+    parked: PARKED_NODE_TYPES[definition.type] ?? null,
+    settings: {
+      admin: (definition.settings ?? []).filter((s) => s.whoFills === "admin"),
+      architect: (definition.settings ?? []).filter((s) => s.whoFills === "architect"),
+      business: (definition.settings ?? []).filter((s) => s.whoFills === "business")
+    }
+  }));
 }
 
 export function isBlockNodeType(type: string | null | undefined): boolean {
@@ -2235,6 +2332,46 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     },
     settings: [
       {
+        key: "__adminKeepForDays",
+        name: "How long memory is kept",
+        whatItsFor: "Days before a stored memory is deleted. 0 keeps it forever.",
+        type: "number",
+        limits: { min: 0, max: 3650 },
+        default: 0,
+        whoFills: "admin",
+        storedAs: "memoryKeepForDays"
+      },
+      {
+        key: "__adminPiecesPerAnswer",
+        name: "Pieces a brain reads per answer",
+        whatItsFor: "More remembered pieces means better answers and a bigger bill, on every answer.",
+        type: "number",
+        limits: { min: 1, max: 50 },
+        default: 10,
+        whoFills: "admin",
+        storedAs: "memoryPiecesPerAnswer"
+      },
+      {
+        key: "__adminBiggestFileMb",
+        name: "Biggest file it will read",
+        whatItsFor: "Anything larger is skipped, and the run says so.",
+        type: "number",
+        limits: { min: 1, max: 50 },
+        default: 5,
+        whoFills: "admin",
+        storedAs: "memoryBiggestFileMb"
+      },
+      {
+        key: "__adminSearchByMeaning",
+        name: "Search by meaning",
+        whatItsFor: "Finds the relevant part of a long history instead of the most recent.",
+        type: "on/off",
+        limits: {},
+        default: true,
+        whoFills: "admin",
+        storedAs: "memorySearchByMeaning"
+      },
+      {
         key: "customMemoryNotes",
         name: "Always remember",
         whatItsFor: "Things worth remembering every time, whatever else happened.",
@@ -2291,6 +2428,36 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       sampleFacts: ""
     },
     settings: [
+      {
+        key: "__adminBiggestDocument",
+        name: "Biggest document",
+        whatItsFor: "Anything larger is refused at upload, and the business is told the limit.",
+        type: "number",
+        limits: { min: 1, max: 50 },
+        default: 10,
+        whoFills: "admin",
+        storedAs: "knowledgeBiggestFileMb"
+      },
+      {
+        key: "__adminMaxFiles",
+        name: "Documents per business",
+        whatItsFor: "The length of one business's shelf.",
+        type: "number",
+        limits: { min: 1, max: 200 },
+        default: 20,
+        whoFills: "admin",
+        storedAs: "knowledgeMaxFiles"
+      },
+      {
+        key: "__adminCharsPerAnswer",
+        name: "How much one answer may carry",
+        whatItsFor: "The most library one retrieval hands a Brain. More is not smarter.",
+        type: "number",
+        limits: { min: 2000, max: 20000 },
+        default: 8000,
+        whoFills: "admin",
+        storedAs: "knowledgeCharsPerAnswer"
+      },
       {
         key: "sampleFacts",
         name: "Practice facts",
@@ -2814,6 +2981,16 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     producedVariables: ["results"],
     settings: [
       {
+        key: "__adminMaxRounds",
+        name: "Most rounds one Loop may run",
+        whatItsFor: "Every round can be an AI call — this is the runaway-bill guard.",
+        type: "number",
+        limits: { min: 1, max: 100 },
+        default: 25,
+        whoFills: "admin",
+        storedAs: "loopMaxRounds"
+      },
+      {
         key: "loopSplit",
         name: "How to split",
         whatItsFor: "How the list arrives: apples, pears, plums — or one per line — or let AI find the items.",
@@ -2887,6 +3064,16 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       conditionQuestion: ""
     },
     settings: [
+      {
+        key: "__adminMaxRoads",
+        name: "Most roads out",
+        whatItsFor: "The most ways out one Condition may have — past this a step is really two steps.",
+        type: "number",
+        limits: { min: 2, max: 20 },
+        default: 8,
+        whoFills: "admin",
+        storedAs: "conditionMaxRoads"
+      },
       {
         key: "conditionQuestion",
         name: "Write the rule",
@@ -3323,6 +3510,27 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     },
     settings: [
       {
+        key: "__adminMaxPerRun",
+        name: "Most emails one run may send",
+        whatItsFor: "A Loop wired into this hand must never become a cannon.",
+        type: "number",
+        limits: { min: 1, max: 200 },
+        default: 25,
+        whoFills: "admin",
+        storedAs: "emailMaxPerRun"
+      },
+      {
+        /* The business's own column: which mailbox the agent speaks from is
+           theirs, set once in Mail Setup at install — never typed here. */
+        key: "mailIdentity",
+        name: "Which mailbox it sends from",
+        whatItsFor: "The business's own sending address, connected once at setup.",
+        type: "text",
+        limits: {},
+        default: "",
+        whoFills: "business"
+      },
+      {
         key: "recipientType",
         name: "Send to",
         whatItsFor: "Who gets the mail: the customer from the run, the business team, or one fixed address.",
@@ -3432,6 +3640,16 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     runtime: { nodeKind: "block" },
     defaultConfig: { placeholder: "Describe what you want…" },
     settings: [
+      {
+        key: "__adminImagesAllowed",
+        name: "Pictures allowed",
+        whatItsFor: "May customers hand agents pictures?",
+        type: "on/off",
+        limits: {},
+        default: true,
+        whoFills: "admin",
+        storedAs: "fileUploadImagesAllowed"
+      },
       {
         key: "placeholder",
         name: "Hint text",
@@ -3802,6 +4020,26 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       holdFor: "2"
     },
     settings: [
+      {
+        key: "__adminFloorMinutes",
+        name: "Fastest wake-up",
+        whatItsFor: "No Timer may run faster than this, whatever an architect picks.",
+        type: "number",
+        limits: { min: 15, max: 1440 },
+        default: 60,
+        whoFills: "admin",
+        storedAs: "timerFloorMinutes"
+      },
+      {
+        key: "__adminMaxHoldDays",
+        name: "Longest hold",
+        whatItsFor: "Placed mid-flow, the longest a conversation may wait for a reply.",
+        type: "number",
+        limits: { min: 1, max: 30 },
+        default: 7,
+        whoFills: "admin",
+        storedAs: "timerMaxHoldDays"
+      },
       {
         key: "cadence",
         name: "Runs",

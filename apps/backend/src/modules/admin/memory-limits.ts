@@ -22,7 +22,14 @@
  * these on every memory step of every run.
  */
 
+import { allPlatformDials } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
+
+/** One source of truth: the node's own row (founder's ruling, 2026-08-26). */
+function declaredValue(storedAs: string, fallback: number | boolean): number | boolean {
+  const dial = allPlatformDials().find((entry) => entry.storedAs === storedAs);
+  return dial ? (dial.default as number | boolean) : fallback;
+}
 import { env } from "../../config/env";
 
 export type MemoryLimits = {
@@ -50,10 +57,10 @@ const KEYS = {
  */
 export function defaultMemoryLimits(): MemoryLimits {
   return {
-    keepForDays: 0,
-    biggestFileMb: 5,
-    piecesPerAnswer: env.MEMORY_SEARCH_TOP_K || 10,
-    searchByMeaning: true
+    keepForDays: declaredValue("memoryKeepForDays", 0) as number,
+    biggestFileMb: declaredValue("memoryBiggestFileMb", 5) as number,
+    piecesPerAnswer: declaredValue("memoryPiecesPerAnswer", env.MEMORY_SEARCH_TOP_K ?? 10) as number,
+    searchByMeaning: declaredValue("memorySearchByMeaning", true) as boolean
   };
 }
 

@@ -11,7 +11,26 @@
  * a judgement should never need a release.
  */
 
+import { allPlatformDials } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
+
+/**
+ * ONE SOURCE OF TRUTH (the founder's ruling, 2026-08-26).
+ *
+ * These constants used to BE the truth, while the node's own row said the same
+ * thing in another file — two copies of one number, agreeing only by luck.
+ * Now the row is the truth and these read from it; the fallbacks below are
+ * what ships if a declaration is ever removed, never a second opinion.
+ */
+function declared(storedAs: string): { value: number; min: number; max: number } | null {
+  const dial = allPlatformDials().find((entry) => entry.storedAs === storedAs);
+  if (!dial || typeof dial.default !== "number") return null;
+  return {
+    value: dial.default,
+    min: dial.limits?.min ?? 1,
+    max: dial.limits?.max ?? Number.MAX_SAFE_INTEGER
+  };
+}
 
 export const CONDITION_ROADS_KEY = "conditionMaxRoads";
 
@@ -20,10 +39,13 @@ export const CONDITION_ROADS_KEY = "conditionMaxRoads";
  * because it is well above anything a real agent has needed so far. Generous
  * enough that nobody sensible meets it; low enough that nobody builds a maze.
  */
-export const DEFAULT_CONDITION_ROADS = 8;
+export const DEFAULT_CONDITION_ROADS = declared("conditionMaxRoads")?.value ?? 8;
 
 /** Two is the smallest thing that can still be called a choice. */
-export const CONDITION_ROADS_BOUNDS = { min: 2, max: 20 } as const;
+export const CONDITION_ROADS_BOUNDS = {
+  min: declared("conditionMaxRoads")?.min ?? 2,
+  max: declared("conditionMaxRoads")?.max ?? 20
+};
 
 let cached: number | null = null;
 let cachedAt = 0;
@@ -117,8 +139,11 @@ export const LOOP_ROUNDS_KEY = "loopMaxRounds";
 
 /** Twenty-five: far above any sensible product, low enough that a pasted
  *  spreadsheet cannot become a runaway bill — every round can be an AI call. */
-export const DEFAULT_LOOP_ROUNDS = 25;
-export const LOOP_ROUNDS_BOUNDS = { min: 1, max: 100 } as const;
+export const DEFAULT_LOOP_ROUNDS = declared("loopMaxRounds")?.value ?? 25;
+export const LOOP_ROUNDS_BOUNDS = {
+  min: declared("loopMaxRounds")?.min ?? 1,
+  max: declared("loopMaxRounds")?.max ?? 100
+};
 
 let cachedLoop: number | null = null;
 let cachedLoopAt = 0;
@@ -165,8 +190,11 @@ export const TIMER_FLOOR_KEY = "timerFloorMinutes";
 
 /** Sixty: the shipped floor. An agent waking every minute is a bill nobody
  *  watches; an admin can tighten to 15 for a trusted platform, never below. */
-export const DEFAULT_TIMER_FLOOR_MINUTES = 60;
-export const TIMER_FLOOR_BOUNDS = { min: 15, max: 1440 } as const;
+export const DEFAULT_TIMER_FLOOR_MINUTES = declared("timerFloorMinutes")?.value ?? 60;
+export const TIMER_FLOOR_BOUNDS = {
+  min: declared("timerFloorMinutes")?.min ?? 15,
+  max: declared("timerFloorMinutes")?.max ?? 1440
+};
 
 let cachedFloor: number | null = null;
 let cachedFloorAt = 0;
@@ -213,8 +241,11 @@ export const EMAIL_PER_RUN_KEY = "emailMaxPerRun";
 
 /** A Loop plus a hand is a cannon. Twenty-five mails in one run is already a
  *  campaign, not a notification — and campaigns deserve their own product. */
-export const DEFAULT_EMAIL_PER_RUN = 25;
-export const EMAIL_PER_RUN_BOUNDS = { min: 1, max: 200 } as const;
+export const DEFAULT_EMAIL_PER_RUN = declared("emailMaxPerRun")?.value ?? 25;
+export const EMAIL_PER_RUN_BOUNDS = {
+  min: declared("emailMaxPerRun")?.min ?? 1,
+  max: declared("emailMaxPerRun")?.max ?? 200
+};
 
 let cachedEmailCap: number | null = null;
 let cachedEmailCapAt = 0;
@@ -261,8 +292,11 @@ export const TIMER_MAX_HOLD_KEY = "timerMaxHoldDays";
 
 /** A week: long enough for any honest follow-up, short enough that a held
  *  conversation is never a surprise from a forgotten month. */
-export const DEFAULT_TIMER_MAX_HOLD_DAYS = 7;
-export const TIMER_MAX_HOLD_BOUNDS = { min: 1, max: 30 } as const;
+export const DEFAULT_TIMER_MAX_HOLD_DAYS = declared("timerMaxHoldDays")?.value ?? 7;
+export const TIMER_MAX_HOLD_BOUNDS = {
+  min: declared("timerMaxHoldDays")?.min ?? 1,
+  max: declared("timerMaxHoldDays")?.max ?? 30
+};
 
 let cachedHold: number | null = null;
 let cachedHoldAt = 0;

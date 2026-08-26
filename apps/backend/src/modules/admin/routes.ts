@@ -38,16 +38,19 @@ import {
 import {
   defaultMemoryLimits,
   getMemoryLimits,
+  invalidateMemoryLimitsCache,
   saveMemoryLimits,
   MEMORY_LIMIT_BOUNDS
 } from "./memory-limits";
 import {
   defaultKnowledgeLimits,
   getKnowledgeLimits,
+  invalidateKnowledgeLimitsCache,
   saveKnowledgeLimits,
   KNOWLEDGE_LIMIT_BOUNDS
 } from "./knowledge-limits";
 import JSZip from "jszip";
+import { listPlatformDials, savePlatformDial } from "./platform-dials";
 import { builderSoulFiles, SOUL_COVERED_TYPES } from "../architect/builder-soul";
 import {
   CONDITION_ROADS_BOUNDS,
@@ -71,7 +74,13 @@ import {
   TIMER_MAX_HOLD_BOUNDS,
   saveConditionRoadLimit,
   saveFileUploadImagesAllowed,
-  saveLoopRoundLimit
+  saveLoopRoundLimit,
+  invalidateNodeLimitsCache,
+  invalidateFileUploadCache,
+  invalidateLoopLimitCache,
+  invalidateTimerFloorCache,
+  invalidateTimerHoldCache,
+  invalidateEmailCapCache
 } from "./node-limits";
 import {
   addMailDomain,
@@ -762,6 +771,50 @@ adminRoutes.patch("/knowledge-limits", async (c) => {
     meta: saved as unknown as Record<string, unknown>
   });
   return successResponse(c, { knowledgeLimits: saved });
+});
+
+/* ------------------- The platform's dials, from the nodes ------------------- */
+
+/**
+ * ONE NODE, ONE ROW, THREE COLUMNS (the founder's ruling, 2026-08-26).
+ *
+ * Every admin ceiling on the platform, read from the node that declares it —
+ * no per-node route, no hand-written defaults. A dial added to a node's row
+ * appears here by itself, with its own bounds enforced.
+ */
+adminRoutes.get("/platform-dials", async (c) => {
+  return successResponse(c, { dials: await listPlatformDials() });
+});
+
+adminRoutes.patch("/platform-dials/:key", async (c) => {
+  const authUser = c.get("authUser");
+  const key = c.req.param("key");
+  const body = await c.req.json().catch(() => null);
+  const value = (body as { value?: unknown } | null)?.value;
+  if (value === undefined) return errorResponse(c, "Say what to set it to.", 422, "VALIDATION_ERROR");
+
+  const saved = await savePlatformDial(key, value as string | number | boolean, authUser.id);
+  if ("refused" in saved) return errorResponse(c, saved.refused, 422, "DIAL_REFUSED");
+
+  /* Every cache that fronts a dial is dropped, so the next run reads the new
+     number rather than the old one for up to a minute. */
+  invalidateMemoryLimitsCache();
+  invalidateNodeLimitsCache();
+  invalidateFileUploadCache();
+  invalidateLoopLimitCache();
+  invalidateTimerFloorCache();
+  invalidateTimerHoldCache();
+  invalidateEmailCapCache();
+  invalidateKnowledgeLimitsCache();
+
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: "PLATFORM_DIAL_UPDATED",
+    targetType: "NODE",
+    targetId: saved.nodeType,
+    meta: { key: saved.key, value: saved.value }
+  });
+  return successResponse(c, { dial: saved });
 });
 
 /* --------------------------- The Builder Soul ------------------------------ */

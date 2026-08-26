@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getNodeDefinition, type NodeSetting } from "./node-registry";
+import { allPlatformDials, getNodeDefinition, nodeCatalogue, type NodeSetting } from "./node-registry";
 
 /**
  * QUESTION 5 OF THE SOP: EVERY SETTING, WRITTEN DOWN ONCE.
@@ -64,7 +64,17 @@ describe("the nodes we have finished answer question 5", () => {
         expect(setting.name).not.toBe(setting.key);
         expect(setting.whatItsFor.length).toBeGreaterThan(10);
         expect(setting.default).toBeDefined();
-        expect(["architect", "business"]).toContain(setting.whoFills);
+        expect(["architect", "business", "admin"]).toContain(setting.whoFills);
+      }
+    });
+
+    it(`${node?.label} says who fills every setting — all three sides in one row`, () => {
+      /* The founder's ruling (2026-08-26): admin dials used to live in a
+         separate drawer, so one node was described in two filing systems.
+         One node, one row, three columns. */
+      for (const setting of settings) {
+        if (setting.whoFills !== "admin") continue;
+        expect(setting.storedAs, `${setting.key} must say where it is stored`).toBeTruthy();
       }
     });
 
@@ -102,7 +112,34 @@ describe("the nodes we have finished answer question 5", () => {
   }
 
   it("Memory's dials are the two on its panel, in the same words", () => {
-    const names = (getNodeDefinition("ai.memory")?.settings ?? []).map((s) => s.name);
+    /* The architect's column only — the admin's four now sit in the same row,
+       which is the point of the ruling, not a change to this panel. */
+    const names = (getNodeDefinition("ai.memory")?.settings ?? [])
+      .filter((s) => s.whoFills === "architect")
+      .map((s) => s.name);
     expect(names).toEqual(["Always remember", "How much to keep"]);
+  });
+
+  it("every admin dial on the platform names the row it is stored under", () => {
+    /* The uniform record's promise: the platform can read any dial without a
+       hand-written module per node. */
+    const dials = allPlatformDials();
+    expect(dials.length).toBeGreaterThan(10);
+    for (const dial of dials) {
+      expect(dial.storedAs, `${dial.nodeLabel} / ${dial.key}`).toBeTruthy();
+      expect(dial.nodeType).toBeTruthy();
+    }
+  });
+
+  it("the catalogue gives every node one row with all three columns", () => {
+    const rows = nodeCatalogue();
+    expect(rows.length).toBeGreaterThan(40);
+    const memory = rows.find((row) => row.type === "ai.memory");
+    expect(memory?.element).toBe("Brain");
+    expect(memory?.settings.admin.length).toBe(4);
+    expect(memory?.settings.architect.length).toBe(2);
+    expect(memory?.gives).toContain("memory");
+    const email = rows.find((row) => row.type === "communication.send_email");
+    expect(email?.settings.business.length).toBeGreaterThan(0);
   });
 });

@@ -17,7 +17,14 @@
  * dials changes nothing until an admin turns one.
  */
 
+import { allPlatformDials } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
+
+/** One source of truth: the node's own row (founder's ruling, 2026-08-26). */
+function declaredNumber(storedAs: string, fallback: number): number {
+  const dial = allPlatformDials().find((entry) => entry.storedAs === storedAs);
+  return typeof dial?.default === "number" ? dial.default : fallback;
+}
 import { env } from "../../config/env";
 
 export type KnowledgeLimits = {
@@ -37,9 +44,9 @@ const KEYS = {
 
 export function defaultKnowledgeLimits(): KnowledgeLimits {
   return {
-    biggestFileMb: 10,
-    maxFiles: env.KNOWLEDGE_MAX_FILES_PER_BUSINESS,
-    charsPerAnswer: 8_000
+    biggestFileMb: declaredNumber("knowledgeBiggestFileMb", 10),
+    maxFiles: declaredNumber("knowledgeMaxFiles", env.KNOWLEDGE_MAX_FILES_PER_BUSINESS),
+    charsPerAnswer: declaredNumber("knowledgeCharsPerAnswer", 8_000)
   };
 }
 

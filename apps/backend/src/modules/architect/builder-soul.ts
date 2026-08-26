@@ -584,14 +584,23 @@ function boneFor(definition: NodeDefinition): string {
     `  needs: ${(definition.requiredVariables ?? []).join(", ") || "nothing from the flow"}`,
     `  gives: ${(definition.producedVariables ?? []).join(", ") || "nothing onward"}`
   ];
+  /* ONE NODE, ONE ROW, THREE COLUMNS (the founder's ruling, 2026-08-26). The
+     Builder is briefed on all three sides at once — what the architect
+     decides, what the business answers at install, and what the platform
+     caps — so it never asks the wrong person for an answer. */
   const settings = definition.settings ?? [];
+  const column = (who: "architect" | "business" | "admin", heading: string) => {
+    const rows = settings.filter((setting) => setting.whoFills === who);
+    if (rows.length === 0) return;
+    lines.push(`  ${heading}:`);
+    for (const setting of rows) lines.push(`    - ${setting.name}: ${setting.whatItsFor}`);
+  };
   if (settings.length === 0) {
     lines.push("  settings: none — and that is an answer, not an omission");
   } else {
-    lines.push("  settings:");
-    for (const setting of settings) {
-      lines.push(`    - ${setting.name} (${setting.whoFills} fills it): ${setting.whatItsFor}`);
-    }
+    column("architect", "the architect fills");
+    column("business", "the business answers at install");
+    column("admin", "the platform caps (admin only)");
   }
   return lines.join("\n");
 }
