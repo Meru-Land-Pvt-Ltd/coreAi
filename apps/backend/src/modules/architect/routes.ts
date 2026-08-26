@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
+import { streamSSE } from "hono/streaming";
 import { calendarEventTitleForMode, defaultArchitectNodePresentation, defaultHiddenArchitectNodeTypes, getLlmProvider, normalizeAgentConfigure, presentationDoorEnabled, requiredConnectorKeys, TRIVEN_AGENT_TAXONOMY, workflowJsonForTemplate } from "@coreai/shared";
 import { llmCredentialStatus } from "../ai-provider-engine/llm-credentials";
 import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
@@ -118,7 +119,7 @@ import {
 import { getVoiceAnswerStatus } from "./vapi-connector";
 import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
 import { getConditionRoadLimit, DEFAULT_CONDITION_ROADS } from "../admin/node-limits";
-import { aiBuilderAnswer } from "./ai-builder";
+import { aiBuilderAnswer, aiBuilderAnswerStreaming } from "./ai-builder";
 import { checkAgent } from "./agent-check";
 import { deleteBuilderLesson, listBuilderLessons, saveBuilderLesson } from "./builder-lessons";
 import { refuseUploadIfBeyondLimits } from "./upload-limits";
@@ -2855,6 +2856,49 @@ architectRoutes.post("/workflows/:workflowId/ai-builder", async (c) => {
     console.error("[architect] ai-builder failed", error);
     return errorResponse(c, "The AI Builder could not answer just now. Try once more.", 500, "AI_BUILDER_FAILED");
   }
+});
+
+/**
+ * The AI Builder, answering out loud — the same reply, arriving as it is
+ * written, so nobody watches a silent box and assumes the machine is dead.
+ */
+architectRoutes.post("/workflows/:workflowId/ai-builder/stream", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+  const body = z
+    .object({
+      message: z.string().trim().min(1).max(4000),
+      history: z
+        .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(4000) }))
+        .max(10)
+        .optional()
+    })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return errorResponse(c, "Say what you want in words.", 422, "VALIDATION_ERROR");
+
+  const workflow = await prisma.workflowDefinition.findFirst({
+    where: { id: workflowId, architectUserId: authUser.id },
+    select: { id: true }
+  });
+  if (!workflow) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+
+  return streamSSE(c, async (stream) => {
+    const send = (event: string, data: unknown) => stream.writeSSE({ event, data: JSON.stringify(data) });
+    try {
+      const answer = await aiBuilderAnswerStreaming({
+        workflowId,
+        architectUserId: authUser.id,
+        message: body.data.message,
+        ...(body.data.history ? { history: body.data.history } : {}),
+        onStage: (stage) => void send("stage", { stage }),
+        onWord: (chunk) => void send("word", { chunk })
+      });
+      await send("done", answer);
+    } catch (error) {
+      console.error("[architect] ai-builder stream failed", error);
+      await send("failed", { message: "The AI Builder could not answer just now. Try once more." });
+    }
+  });
 });
 
 /**

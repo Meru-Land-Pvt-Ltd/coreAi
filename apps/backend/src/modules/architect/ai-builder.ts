@@ -26,7 +26,7 @@
  */
 
 import { prisma } from "../../lib/prisma";
-import { askPlatformBrain } from "./platform-brain";
+import { askPlatformBrain, streamPlatformBrain } from "./platform-brain";
 import { builderSoulText } from "./builder-soul";
 import { lessonsForPrompt } from "./builder-lessons";
 
@@ -185,6 +185,66 @@ function compact(value: unknown): string {
 /* ----------------------------------------------------------------- the ask */
 
 /* ---------------------------------------------------------------- entrance */
+
+/**
+ * The same answer, arriving as it is written. Routing still happens first
+ * (a reflex on the fast model), and only the "explain" hand streams —
+ * "build" and "page" hand off to engines that answer with a canvas, not
+ * with words.
+ */
+export async function aiBuilderAnswerStreaming(input: {
+  workflowId: string;
+  architectUserId?: string;
+  message: string;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  onStage: (stage: string) => void;
+  onWord: (chunk: string) => void;
+}): Promise<AiBuilderAnswer> {
+  const message = input.message.trim();
+  input.onStage("Reading what you asked");
+
+  const said =
+    (await askPlatformBrain({
+      instruction: ROUTER_INSTRUCTION,
+      message,
+      maxTokens: 10,
+      timeoutMs: ROUTER_TIMEOUT_MS,
+      task: "ai-builder-router",
+      quick: true
+    }))?.toLowerCase() ?? "";
+  const hand: AiBuilderHand = said.includes("build") ? "build" : said.includes("page") ? "page" : "explain";
+  if (hand !== "explain") return { hand, reply: null };
+
+  input.onStage("Looking at your agent and its last runs");
+  const [agent, runs, personalLessons] = await Promise.all([
+    describeAgent(input.workflowId),
+    describeRecentRuns(input.workflowId),
+    input.architectUserId ? lessonsForPrompt(input.architectUserId) : Promise.resolve("")
+  ]);
+
+  input.onStage("Writing");
+  const reply = await streamPlatformBrain({
+    instruction: `${EXPLAIN_INSTRUCTION}
+
+${builderSoulText("", message)}${personalLessons ? `\n\n${personalLessons}` : ""}`,
+    message: `${agent}
+
+${runs}
+
+THE PERSON ASKS: ${message}`,
+    maxTokens: 400,
+    task: "ai-builder-explain",
+    history: input.history ?? [],
+    onWord: input.onWord
+  });
+
+  return {
+    hand,
+    reply:
+      reply ??
+      "I could not read your agent just now. Run it once more and ask me again — I will look at what actually happened."
+  };
+}
 
 export async function aiBuilderAnswer(input: {
   workflowId: string;

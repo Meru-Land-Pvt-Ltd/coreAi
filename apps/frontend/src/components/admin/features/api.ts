@@ -818,48 +818,13 @@ export function patchLlmModel(
 
 /* --------------------------- Memory: the limits --------------------------- */
 
-export type MemoryLimits = {
-  /** Days before a stored memory is deleted. 0 = keep forever. */
-  keepForDays: number;
-  biggestFileMb: number;
-  piecesPerAnswer: number;
-  searchByMeaning: boolean;
-};
 
-export function getMemoryLimits() {
-  return apiGet<{
-    memoryLimits: MemoryLimits;
-    defaults: MemoryLimits;
-    bounds: Record<string, { min: number; max: number }>;
-  }>("/admin/memory-limits");
-}
 
-export function saveMemoryLimits(limits: MemoryLimits) {
-  return apiPatch<{ memoryLimits: MemoryLimits }>("/admin/memory-limits", limits);
-}
 
 /* --------------------------- Knowledge: the library ------------------------ */
 
-export type KnowledgeLimits = {
-  /** Largest single document a business may upload, in megabytes. */
-  biggestFileMb: number;
-  /** Most documents one business may keep on the shelf. */
-  maxFiles: number;
-  /** Most characters of library one retrieval hands a Brain. */
-  charsPerAnswer: number;
-};
 
-export function getKnowledgeLimits() {
-  return apiGet<{
-    knowledgeLimits: KnowledgeLimits;
-    defaults: KnowledgeLimits;
-    bounds: Record<string, { min: number; max: number }>;
-  }>("/admin/knowledge-limits");
-}
 
-export function saveKnowledgeLimits(limits: KnowledgeLimits) {
-  return apiPatch<{ knowledgeLimits: KnowledgeLimits }>("/admin/knowledge-limits", limits);
-}
 
 /* ----------------------------- The Builder Soul ---------------------------- */
 
@@ -908,56 +873,19 @@ export function removeAdminBuilderLesson(lessonId: string) {
 
 /* ------------------------- Condition: the roads out ------------------------ */
 
-export function getConditionLimits() {
-  return apiGet<{ maxRoads: number; default: number; bounds: { min: number; max: number } }>(
-    "/admin/condition-limits"
-  );
-}
 
-export function saveConditionLimits(maxRoads: number) {
-  return apiPatch<{ maxRoads: number }>("/admin/condition-limits", { maxRoads });
-}
 
 /* ------------------------------ Loop: the rounds --------------------------- */
 
-export function getLoopLimits() {
-  return apiGet<{ maxRounds: number; default: number; bounds: { min: number; max: number } }>("/admin/loop-limits");
-}
 
-export function saveLoopLimits(maxRounds: number) {
-  return apiPatch<{ maxRounds: number }>("/admin/loop-limits", { maxRounds });
-}
 
 /* --------------------------- File Upload: pictures ------------------------- */
 
-export function getFileUploadLimits() {
-  return apiGet<{ imagesAllowed: boolean; biggestFileMb: number }>("/admin/file-upload-limits");
-}
 
-export function saveFileUploadLimits(imagesAllowed: boolean) {
-  return apiPatch<{ imagesAllowed: boolean }>("/admin/file-upload-limits", { imagesAllowed });
-}
 
 /* ------------------------------ Timer: the floor --------------------------- */
 
-export function getTimerLimits() {
-  /* floorMinutes = the alarm-clock floor; maxHoldDays = the patience ceiling. */
-  return apiGet<{
-    floorMinutes: number;
-    maxHoldDays: number;
-    default: number;
-    defaultMaxHoldDays: number;
-    bounds: { min: number; max: number };
-    holdBounds: { min: number; max: number };
-  }>("/admin/timer-limits");
-}
 
-export function saveTimerLimits(floorMinutes: number, maxHoldDays?: number) {
-  return apiPatch<{ floorMinutes: number; maxHoldDays: number }>("/admin/timer-limits", {
-    floorMinutes,
-    ...(maxHoldDays !== undefined ? { maxHoldDays } : {})
-  });
-}
 
 /* ------------------------- Send email: the cannon guard -------------------- */
 

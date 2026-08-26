@@ -16,7 +16,7 @@
  */
 
 import { getProviderEngine } from "../ai-provider-engine/provider-engine";
-import { resolveConfiguredLlmProvider } from "../ai-provider-engine/llm-credentials";
+import { llmProviderApiKey, resolveConfiguredLlmProvider } from "../ai-provider-engine/llm-credentials";
 import type { AIExecuteRequest } from "../ai-provider-engine/types";
 
 const FLAGSHIP: Record<string, string> = {
@@ -42,6 +42,102 @@ const QUICK: Record<string, string> = {
 };
 
 const RETRY_AFTER_MS = 2_500;
+
+/**
+ * THE SAME QUESTION, ANSWERED OUT LOUD (2026-08-26).
+ *
+ * A person waiting twenty-five seconds at a silent box assumes the thing is
+ * broken and leaves — the fastest way to lose a customer is to make them
+ * doubt the machine is alive. So the answer arrives as it is written, word
+ * by word, exactly as this platform's compose hand already does.
+ *
+ * The provider is spoken to directly here because streaming is a different
+ * shape from one-shot execution: the engine returns a finished answer, and a
+ * finished answer cannot be shown while it is being thought. Everything else
+ * — the model choice, the temperature, the retry — stays identical, so a
+ * streamed answer and a waited-for answer are the same answer.
+ */
+export async function streamPlatformBrain(input: {
+  instruction: string;
+  message: string;
+  maxTokens: number;
+  task: string;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  onWord: (chunk: string) => void;
+}): Promise<string | null> {
+  const resolved = resolveConfiguredLlmProvider("mistral");
+  if (!resolved) return null;
+  const apiKey = llmProviderApiKey(resolved.providerId);
+  if (!apiKey || resolved.providerId !== "mistral") {
+    /* Only Mistral speaks this shape today. Anything else falls back to the
+       waited-for answer rather than pretending to stream. */
+    return askPlatformBrain({ ...input, timeoutMs: 60_000 });
+  }
+
+  const messages = [
+    { role: "system", content: input.instruction },
+    ...(input.history ?? []).slice(-10).map((turn) => ({
+      role: turn.role,
+      content: turn.content.slice(0, 2000)
+    })),
+    { role: "user", content: input.message.slice(0, 24_000) }
+  ];
+
+  try {
+    const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: FLAGSHIP.mistral,
+        messages,
+        temperature: 0,
+        max_tokens: input.maxTokens,
+        stream: true
+      })
+    });
+    if (!response.ok || !response.body) {
+      console.warn(`[${input.task}] stream refused (${response.status}) — falling back`);
+      return askPlatformBrain({ ...input, timeoutMs: 60_000 });
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let whole = "";
+
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let split = buffer.indexOf("\n");
+      while (split !== -1) {
+        const line = buffer.slice(0, split).trim();
+        buffer = buffer.slice(split + 1);
+        split = buffer.indexOf("\n");
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(payload) as {
+            choices?: Array<{ delta?: { content?: string } }>;
+          };
+          const piece = parsed.choices?.[0]?.delta?.content ?? "";
+          if (piece) {
+            whole += piece;
+            input.onWord(piece);
+          }
+        } catch {
+          /* A half-arrived frame: the next read completes it. */
+        }
+      }
+    }
+    return whole.trim() || null;
+  } catch (error) {
+    console.warn(`[${input.task}] stream failed — falling back`, (error as Error).message);
+    return askPlatformBrain({ ...input, timeoutMs: 60_000 });
+  }
+}
 
 export async function askPlatformBrain(input: {
   instruction: string;

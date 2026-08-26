@@ -134,6 +134,66 @@ async function composeCanvas(
   return { failed: "The builder stopped mid-way. Try once more." };
 }
 
+/**
+ * THE ANSWER, ARRIVING AS IT IS WRITTEN.
+ *
+ * A person watching a silent box for twenty-five seconds assumes the thing is
+ * broken. The compose hand has streamed since the day it shipped; the answer
+ * hand caught up on 2026-08-26. Same hand-read SSE as the composer, same
+ * lesson included: the token goes in the header, never a cookie.
+ */
+async function streamAnswer(
+  workflowId: string,
+  message: string,
+  history: DesignChatMessage[],
+  onStage: (stage: string) => void,
+  onWord: (chunk: string) => void
+): Promise<{ hand?: "build" | "page" | "explain"; reply?: string | null; failed?: string }> {
+  const base = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+  const token = getAuthToken();
+  const response = await fetch(`${base}/architect/workflows/${workflowId}/ai-builder/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify({ message, ...(history.length ? { history } : {}) })
+  });
+  if (!response.ok || !response.body) return { failed: CHAT_FALLBACK_REPLY };
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let split = buffer.indexOf("\n\n");
+    while (split !== -1) {
+      const chunk = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      split = buffer.indexOf("\n\n");
+
+      const event = /^event:\s*(.+)$/m.exec(chunk)?.[1]?.trim();
+      const dataLine = /^data:\s*(.+)$/m.exec(chunk)?.[1];
+      if (!event || !dataLine) continue;
+      let data: Record<string, unknown>;
+      try {
+        data = JSON.parse(dataLine) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (event === "stage") onStage(String(data.stage ?? ""));
+      else if (event === "word") onWord(String(data.chunk ?? ""));
+      else if (event === "done") return data as { hand?: "build" | "page" | "explain"; reply?: string | null };
+      else if (event === "failed") return { failed: String(data.message ?? CHAT_FALLBACK_REPLY) };
+    }
+  }
+  return { failed: CHAT_FALLBACK_REPLY };
+}
+
 export function AiBuilderPanel({
   workflowId,
   hasComposedSpec = false,
@@ -168,6 +228,9 @@ export function AiBuilderPanel({
   const [composed, setComposed] = useState(hasComposedSpec);
   const [savedPurpose, setSavedPurpose] = useState(purpose);
   const [checking, setChecking] = useState(false);
+  /* The words as they arrive, and what the platform is doing while it works. */
+  const [streamingReply, setStreamingReply] = useState("");
+  const [stage, setStage] = useState("");
   /* Teach the Builder — the declared-intent capture of the learning loop. */
   const [teachOpen, setTeachOpen] = useState(false);
   const [teachDraft, setTeachDraft] = useState("");
@@ -190,7 +253,7 @@ export function AiBuilderPanel({
   useEffect(() => {
     const list = listRef.current;
     if (list) list.scrollTop = list.scrollHeight;
-  }, [messages, sending, generating, checking]);
+  }, [messages, sending, generating, checking, streamingReply, stage]);
 
   /* THE ONE QUESTION. Asked once per agent, never again once answered — the
      answer becomes the agent's purpose, and every check tallies against it. */
@@ -413,12 +476,22 @@ export function AiBuilderPanel({
     try {
       /* The router first: which hand does this message belong to? A router
          that cannot answer routes to "explain" server-side — the cheapest
-         wrong answer. */
-      const routed = await aiBuilderChat(workflowId, trimmed, history);
-      const answer = routed.success ? routed.data : undefined;
+         wrong answer. The reply then arrives word by word, so nobody watches
+         a silent box and assumes the machine is dead. */
+      setStreamingReply("");
+      const streamed = await streamAnswer(
+        workflowId,
+        trimmed,
+        history,
+        (stage) => setStage(stage),
+        (chunk) => setStreamingReply((current) => current + chunk)
+      );
+      setStage("");
+      setStreamingReply("");
+      const answer = streamed.failed ? undefined : streamed;
 
       if (!answer) {
-        say({ role: "assistant", content: CHAT_FALLBACK_REPLY, local: true });
+        say({ role: "assistant", content: streamed.failed ?? CHAT_FALLBACK_REPLY, local: true });
         return;
       }
 
@@ -565,7 +638,25 @@ export function AiBuilderPanel({
             </div>
           ) : null}
 
-          {sending ? (
+          {streamingReply ? (
+            <div className="flex flex-col items-start" data-testid="smart-designer-streaming">
+              <p className="max-w-[85%] whitespace-pre-line rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-800">
+                {streamingReply}
+                <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-slate-400 align-middle" />
+              </p>
+            </div>
+          ) : null}
+
+          {stage && !streamingReply ? (
+            <div className="flex justify-start" data-testid="smart-designer-stage">
+              <span className="flex items-center gap-2 rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2">
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
+                <span className="text-xs leading-5 text-slate-600">{stage}</span>
+              </span>
+            </div>
+          ) : null}
+
+          {sending && !stage && !streamingReply ? (
             <div className="flex justify-start" data-testid="smart-designer-typing">
               <span className="flex items-center gap-1 rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2.5">
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
