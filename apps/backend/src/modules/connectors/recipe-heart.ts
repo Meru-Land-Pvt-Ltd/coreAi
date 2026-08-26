@@ -187,7 +187,12 @@ export function heartFromRecipe(declaration: NodeFrameDeclaration): Heart {
       cursor: context.cursor
     });
 
-    const found = valueAtPath(body, recipe.resultsAt);
+    /* "." (or blank) means THE WHOLE ANSWER — the drafter's way of saying
+       "everything this service returns is the result". Splitting "." into
+       path pieces found nothing, so a working call was refused as dishonest
+       (caught by the first live Open-Meteo proof, 2026-08-26). */
+    const path = (recipe.resultsAt ?? "").trim();
+    const found = path === "" || path === "." ? body : valueAtPath(body, path);
 
     // Named exactly as the frame declared it produces, so a later step reads it
     // by name and never learns this provider's shape.
