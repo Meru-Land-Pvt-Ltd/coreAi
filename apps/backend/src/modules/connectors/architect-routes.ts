@@ -16,6 +16,7 @@ import { z } from "zod";
 import type { NodeFrameDeclaration } from "@coreai/shared";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { runConnector } from "./engine";
+import { selfBuildFrame } from "./self-build";
 import {
   architectFrameById,
   deleteArchitectFrame,
@@ -100,6 +101,34 @@ architectFrameRoutes.post("/check", async (c) => {
  * answer a business would get — including the engine refusing it for a reason
  * they can read.
  */
+/**
+ * THE SELF-BUILDING FRAME. Name + goal + key → the platform Brain drafts the
+ * declaration, the validator judges it, problems loop back, and a READ-only
+ * draft with a key gets one honest rehearsal. The founder's fantasy, as a
+ * route.
+ */
+architectFrameRoutes.post("/self-build", async (c) => {
+  const authUser = c.get("authUser");
+  const body = z
+    .object({
+      serviceName: z.string().trim().min(2).max(80),
+      goal: z.string().trim().min(5).max(500),
+      docsUrl: z.string().trim().url().max(400).optional(),
+      apiKey: z.string().trim().min(1).max(500).optional()
+    })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!body.success) {
+    return errorResponse(c, "Say the service's name and what it should do.", 422, "VALIDATION_ERROR");
+  }
+  try {
+    const result = await selfBuildFrame({ architectUserId: authUser.id, ...body.data });
+    return successResponse(c, result, result.message);
+  } catch (error) {
+    console.error("[frames] self-build failed", error);
+    return errorResponse(c, "The builder could not draft this service just now. Try once more.", 500, "SELF_BUILD_FAILED");
+  }
+});
+
 architectFrameRoutes.post("/:frameId/try", async (c) => {
   const authUser = c.get("authUser");
   const frameId = c.req.param("frameId");

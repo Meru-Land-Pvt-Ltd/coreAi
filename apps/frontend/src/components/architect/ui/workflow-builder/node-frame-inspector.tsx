@@ -99,6 +99,38 @@ export function NodeFrameInspector({ selectedNode, onUpdateNodeData }: NodeProps
   const [notice, setNotice] = useState<string | null>(null);
   const [tried, setTried] = useState<{ ok: boolean; message: string; outputs?: unknown } | null>(null);
 
+  /* THE SELF-BUILDING FRAME — the founder's fantasy as four boxes. The
+     platform Brain drafts the whole declaration, the validator judges it,
+     and a read-only draft with a key gets one honest rehearsal. */
+  const [autoName, setAutoName] = useState("");
+  const [autoGoal, setAutoGoal] = useState("");
+  const [autoDocs, setAutoDocs] = useState("");
+  const [autoKey, setAutoKey] = useState("");
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [autoResult, setAutoResult] = useState<string | null>(null);
+
+  const selfBuild = useCallback(async () => {
+    if (autoName.trim().length < 2 || autoGoal.trim().length < 5) return;
+    setAutoBusy(true);
+    setAutoResult(null);
+    const response = await apiPost<{ message?: string; ok?: boolean; problems?: string[] }>(
+      "/architect/node-frames/self-build",
+      {
+        serviceName: autoName.trim(),
+        goal: autoGoal.trim(),
+        ...(autoDocs.trim() ? { docsUrl: autoDocs.trim() } : {}),
+        ...(autoKey.trim() ? { apiKey: autoKey.trim() } : {})
+      }
+    );
+    setAutoBusy(false);
+    if (response.success && response.data) {
+      setAutoResult(response.message ?? "Built — check your sidebar.");
+      setAutoKey("");
+    } else {
+      setAutoResult(response.error ?? "The builder could not draft this service just now. Try once more.");
+    }
+  }, [autoName, autoGoal, autoDocs, autoKey]);
+
   const set = useCallback((path: string, value: unknown) => {
     setDeclaration((current) => write(current, path, value));
     setNotice(null);
@@ -206,6 +238,58 @@ export function NodeFrameInspector({ selectedNode, onUpdateNodeData }: NodeProps
           Describe a service Triven does not have yet. When it is ready it becomes a node here, and a card
           in your sidebar for every agent you build after this.
         </p>
+      </div>
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3" data-testid="frame-self-build">
+        <p className="text-sm font-semibold text-slate-800">Build it for me</p>
+        <p className={HELP}>
+          Name the service and what it should do — the platform drafts the whole card, checks it
+          against the same rules as everything else, and rehearses it once when a key is given.
+        </p>
+        <input
+          value={autoName}
+          onChange={(event) => setAutoName(event.target.value)}
+          placeholder="Notion"
+          data-testid="frame-self-name"
+          className={`${INPUT} mt-2`}
+        />
+        <input
+          value={autoGoal}
+          onChange={(event) => setAutoGoal(event.target.value)}
+          placeholder="Look up pages in a database"
+          data-testid="frame-self-goal"
+          className={`${INPUT} mt-2`}
+        />
+        <input
+          value={autoDocs}
+          onChange={(event) => setAutoDocs(event.target.value)}
+          placeholder="Docs address (optional)"
+          data-testid="frame-self-docs"
+          className={`${INPUT} mt-2`}
+        />
+        <input
+          value={autoKey}
+          onChange={(event) => setAutoKey(event.target.value)}
+          type="password"
+          placeholder="API key (optional — enables the rehearsal)"
+          data-testid="frame-self-key"
+          className={`${INPUT} mt-2`}
+        />
+        <button
+          type="button"
+          disabled={autoBusy || autoName.trim().length < 2 || autoGoal.trim().length < 5}
+          onClick={() => void selfBuild()}
+          data-testid="frame-self-build-button"
+          className="mt-2 w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
+        >
+          {autoBusy ? "Drafting, checking, rehearsing…" : "Build it for me"}
+        </button>
+        {autoResult ? (
+          <p className="mt-2 text-[12px] leading-5 text-slate-700" data-testid="frame-self-result">
+            {autoResult}
+          </p>
+        ) : null}
+        <p className={`${HELP} mt-2`}>Or describe it yourself below — same form, your hands.</p>
       </div>
 
       <div>
