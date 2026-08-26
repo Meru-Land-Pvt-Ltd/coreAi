@@ -1586,7 +1586,7 @@ export const PARKED_NODE_TYPES: Record<string, string> = {
   "ai.voice_conversation": "A whole product, not a node — it lives in templates.",
   "ai.context_reply": "Folds into the AI Brain.",
   "flow.end": "Parked with the voice era — old agents keep it; new ones end with a Viewer or a Hand.",
-  "tool.node_frame": "Folded into Connect to a service — press 'Keep this service as a card' there."
+  "tool.node_frame": "Folded into Create Node — press 'Keep this service as a card' there."
 };
 
 export function isParkedNodeType(type: string): boolean {
@@ -2449,9 +2449,11 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
      rehearsal against a paid or destructive endpoint is a real call. */
   def({
     type: API_CALL_NODE_TYPE,
-    label: "Connect to a service",
+    /* Renamed by the founder 2026-08-26: the card IS the factory — it calls
+       any app, and can become a new node in your toolkit. */
+    label: "Create Node",
     category: "action",
-    description: "Fetch live data from any service on the internet — using your key.",
+    description: "Calls any app on the internet with your key — and can become a new node in your toolkit.",
     requiredConfig: ["apiUrl"],
     backendExecutable: true,
     launchCritical: false,

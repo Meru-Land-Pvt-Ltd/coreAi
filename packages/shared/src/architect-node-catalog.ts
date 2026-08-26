@@ -99,7 +99,7 @@ const HAND_WRITTEN_CATALOG: ArchitectNodeCatalogItem[] = [
   { type: "block.preset_gallery", group: "Face", label: "Styles Gallery", defaultVisible: true },
 
   /* On the palette, and missing from here for the same reason. */
-  { type: "action.api_call", group: "Actions", label: "Connect to a service", defaultVisible: true },
+  { type: "action.api_call", group: "Actions", label: "Create Node", defaultVisible: true },
   { type: "trigger.call_list", group: "Triggers", label: "Call this list", defaultVisible: true }
 ];
 

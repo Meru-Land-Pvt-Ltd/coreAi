@@ -423,8 +423,9 @@ deliveries dropped, floods rate-limited — none of it needs configuring.`
   {
     slug: "17-universal-hand",
     nodeType: "action.api_call",
-    title: "Connect to a service — the universal hand",
-    body: `One card reaches every service on the internet: give it the web address
+    title: "Create Node — the universal hand",
+    body: `One card reaches every app on the internet — and can turn what it
+reaches into a permanent new node. Give it the web address
 from the service's docs, pick read or send, and the reply is saved under a
 name later steps can use ({{api.response...}} unless renamed).
 
@@ -443,7 +444,7 @@ New Connection instead, so it becomes a real card.`
     slug: "17b-node-frame",
     nodeType: "tool.node_frame",
     title: "New connection — the form a service fills in",
-    body: `(Reached from Connect to a service — press "Keep this service as a
+    body: `(Reached from Create Node — press "Keep this service as a
 card". The standalone card is parked; the form is the same.)
 
 Not a step that does something — a step that BECOMES something. The
@@ -454,7 +455,7 @@ with its retries, its spending ceiling and its honesty checks already
 attached.
 
 An unfilled frame refuses honestly at run time — it never pretends. Use it
-when a service will be used more than once; use Connect to a service for a
+when a service will be used more than once; use Create Node plain for a
 one-off call. Keys typed into a frame are stored encrypted and never shown
 again — the two security guards every frame is born with.`
   },
