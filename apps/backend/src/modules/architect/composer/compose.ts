@@ -276,7 +276,7 @@ export async function composeOrchestration(input: {
     }
 
     say("Checking every step is real and every wire lands");
-    const problems = checkPlan(plan, menu);
+    const problems = checkPlan(plan, menu, input.want);
 
     /* THEIR WORDS ARE SACRED, mechanically: when the human answered a
        question, their exact words must appear in the plan. A model that
