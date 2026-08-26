@@ -1585,7 +1585,8 @@ export const PARKED_NODE_TYPES: Record<string, string> = {
   "trigger.twilio_inbound_sms": "Parked — SMS awaits carrier registration.",
   "ai.voice_conversation": "A whole product, not a node — it lives in templates.",
   "ai.context_reply": "Folds into the AI Brain.",
-  "flow.end": "Parked with the voice era — old agents keep it; new ones end with a Viewer or a Hand."
+  "flow.end": "Parked with the voice era — old agents keep it; new ones end with a Viewer or a Hand.",
+  "tool.node_frame": "Folded into Connect to a service — press 'Keep this service as a card' there."
 };
 
 export function isParkedNodeType(type: string): boolean {

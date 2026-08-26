@@ -443,7 +443,10 @@ New Connection instead, so it becomes a real card.`
     slug: "17b-node-frame",
     nodeType: "tool.node_frame",
     title: "New connection — the form a service fills in",
-    body: `Not a step that does something — a step that BECOMES something. The
+    body: `(Reached from Connect to a service — press "Keep this service as a
+card". The standalone card is parked; the form is the same.)
+
+Not a step that does something — a step that BECOMES something. The
 architect describes a service Triven has no card for (where it lives, what
 key it needs, what it takes, what it gives back), and the description
 becomes a real card in their own toolkit, run by the one connector engine

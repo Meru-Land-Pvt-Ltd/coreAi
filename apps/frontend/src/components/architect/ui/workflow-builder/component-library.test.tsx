@@ -63,8 +63,8 @@ describe("library groups (Face / Brain / Hands)", () => {
   it("parked cards stay visible, carry their reason, and the composer never sees them", () => {
     const items = libraryGroups.flatMap((group) => group.items);
     const parked = items.filter((item) => item.parked);
-    // The founder's grey-out: ten era leftovers, visible but untouchable.
-    expect(parked).toHaveLength(10);
+    // The founder's grey-out: eleven era leftovers, visible but untouchable.
+    expect(parked).toHaveLength(11);
     for (const item of parked) expect((item.parked ?? "").length).toBeGreaterThan(10);
   });
 

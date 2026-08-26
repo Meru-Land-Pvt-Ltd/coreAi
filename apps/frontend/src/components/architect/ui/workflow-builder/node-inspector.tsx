@@ -2737,7 +2737,7 @@ function ApiCallProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
         ) : null}
       </Section>
 
-      <Section title="The reply" last>
+      <Section title="The reply">
         <Label>Save the reply as</Label>
         <TextInput
           value={outputKey}
@@ -2751,6 +2751,27 @@ function ApiCallProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
           <span className="font-mono text-slate-500">{`{{${outputKey || API_CALL_DEFAULT_OUTPUT_KEY}}}`}</span>.
           Up to 5 service calls run per session.
         </p>
+      </Section>
+
+      {/* The Settings Law's third ruling: the Node Frame is this card's
+          second flavor — use once, or keep forever. The button turns this
+          one-time call into the frame's form, in place. */}
+      <Section title="Keep this service" last>
+        <p className="text-[12px] leading-5 text-slate-500">
+          Using this service again and again? Describe it once and it becomes a card in your own
+          toolkit, for every agent you ever build.
+        </p>
+        <button
+          type="button"
+          data-testid="api-call-save-as-card"
+          onClick={() => {
+            onUpdateNodeData("type", NODE_FRAME_NODE_TYPE);
+            onUpdateNodeData("kind", "NEW CONNECTION");
+          }}
+          className="mt-2 w-full rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100"
+        >
+          Keep this service as a card
+        </button>
       </Section>
     </>
   );
