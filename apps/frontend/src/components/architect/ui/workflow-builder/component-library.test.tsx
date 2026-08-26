@@ -63,18 +63,18 @@ describe("library groups (Face / Brain / Hands)", () => {
   it("parked cards stay visible, carry their reason, and the composer never sees them", () => {
     const items = libraryGroups.flatMap((group) => group.items);
     const parked = items.filter((item) => item.parked);
-    // The founder's grey-out: nine era leftovers, visible but untouchable.
-    expect(parked).toHaveLength(9);
+    // The founder's grey-out: ten era leftovers, visible but untouchable.
+    expect(parked).toHaveLength(10);
     for (const item of parked) expect((item.parked ?? "").length).toBeGreaterThan(10);
   });
 
-  it("keeps every pre-regroup item plus API Call, Timer, Webhook, the outbound call, the call list, the Node Frame, Code, the Loop, File Upload, Email received, Knowledge, Escalate and Approval (43 total)", () => {
+  it("keeps every pre-regroup item plus API Call, Timer, Webhook, the outbound call, the call list, the Node Frame, Code, the Loop, File Upload, Email received, Knowledge, Escalate and Approval, minus the merged calendar card (42 total)", () => {
     const testIds = libraryGroups.flatMap((group) => group.items.map((item) => item.testId));
     // The three ways IN (timer, webhook, call list) and the outbound call node
     // joined the Hands group; the old Design Brain card left with the Smart
     // Designer. The Code card left with the unsandboxed runner behind it and has
     // now come back, because there is finally a container to run it in.
-    expect(testIds).toHaveLength(43);
+    expect(testIds).toHaveLength(42);
 
     // Face: all block.* — the old Design Brain card is retired (the Smart
     // Designer generates and fixes the interface now).
@@ -120,7 +120,6 @@ describe("library groups (Face / Brain / Hands)", () => {
       tid("trigger.manual"),
       tid(CALL_LIST_NODE_TYPE),
       tid(VOICE_NODE_TYPES.calendarAvailability),
-      tid(VOICE_NODE_TYPES.bookAppointment),
       tid(CALENDLY_NODE_TYPES.action),
       tid(VOICE_NODE_TYPES.sendEmail),
       tid("communication.escalate"),

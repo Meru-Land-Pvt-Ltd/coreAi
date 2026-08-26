@@ -56,8 +56,7 @@ const HAND_WRITTEN_CATALOG: ArchitectNodeCatalogItem[] = [
   { type: "ai.deepgram_tts", group: "AI", label: "Deepgram TTS", defaultVisible: true },
   { type: "ai.llm_call", group: "AI", label: "AI Brain", defaultVisible: true },
 
-  { type: "calendar.availability", group: "Calendar", label: "Check Availability", defaultVisible: true },
-  { type: "calendar.book_appointment", group: "Calendar", label: "Book appointment", defaultVisible: true },
+  { type: "calendar.availability", group: "Calendar", label: "Google Calendar", defaultVisible: true },
   { type: "action.calendly", group: "Calendar", label: "Calendly action", defaultVisible: true },
 
   { type: "action.telegram_send_message", group: "Telegram Features", label: "Send Telegram", defaultVisible: true },

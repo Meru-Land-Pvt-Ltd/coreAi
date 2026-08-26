@@ -1584,7 +1584,8 @@ export const PARKED_NODE_TYPES: Record<string, string> = {
   "communication.send_sms": "Parked — SMS awaits carrier registration.",
   "trigger.twilio_inbound_sms": "Parked — SMS awaits carrier registration.",
   "ai.voice_conversation": "A whole product, not a node — it lives in templates.",
-  "ai.context_reply": "Folds into the AI Brain."
+  "ai.context_reply": "Folds into the AI Brain.",
+  "flow.end": "Parked with the voice era — old agents keep it; new ones end with a Viewer or a Hand."
 };
 
 export function isParkedNodeType(type: string): boolean {
@@ -3082,9 +3083,15 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
      once at setup, never typed by an architect. */
   def({
     type: VOICE_NODE_TYPES.calendarAvailability,
-    label: "Check Availability",
+    /* THE SETTINGS LAW's second ruling (founder, 2026-08-26 morning): two
+       calendar cards were one power — the business's Google Calendar — with
+       two jobs. One card now, the job on a dial, exactly like Calendly
+       action beside it. The company's name on the card, per the naming law.
+       calendar.book_appointment stays declared below for the 117 old
+       canvases that carry it; the palette and the composer offer only this. */
+    label: "Google Calendar",
     category: "integration",
-    description: "Looks in the business's own calendar and offers open times.",
+    description: "Reads and writes the business's own Google Calendar — checks free times, or books the visit.",
     requiredConfig: [],
     backendExecutable: true,
     launchCritical: false,
@@ -3094,8 +3101,22 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       connector: "Google Calendar",
       connectorAction: VOICE_TOOL_NAMES.checkAvailability
     },
-    defaultConfig: { bufferMinutes: "10", maxAdvanceDays: "30", slotsToOffer: "3" },
+    defaultConfig: { connectorAction: "check_availability", bufferMinutes: "10", maxAdvanceDays: "30", slotsToOffer: "3" },
     settings: [
+      {
+        key: "connectorAction",
+        name: "What it does",
+        whatItsFor: "One calendar, two jobs — read the free times, or write the visit in.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "check_availability", label: "Check free times" },
+            { value: "book_appointment", label: "Book the visit" }
+          ]
+        },
+        default: "check_availability",
+        whoFills: "architect"
+      },
       {
         key: "slotsToOffer",
         name: "Times to offer",
@@ -3157,8 +3178,8 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     ],
     capability: "calendar.check_availability",
     requiredVariables: [],
-    // What the run ACTUALLY writes (workflow-runner: context.calendarAvailability).
-    producedVariables: ["calendarAvailability"]
+    // What the run writes, by the dial's job (workflow-runner: context.calendarAvailability / context.calendarAppointment).
+    producedVariables: ["calendarAvailability", "calendarAppointment"]
   }),
   def({
     type: VOICE_NODE_TYPES.bookAppointment,

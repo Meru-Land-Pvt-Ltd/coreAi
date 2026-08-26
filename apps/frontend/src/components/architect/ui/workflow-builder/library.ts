@@ -155,8 +155,9 @@ export const libraryGroups: LibraryGroup[] = [
         badge: "NEW"
       },
       // Acts
+      /* The Settings Law's second ruling: one Google Calendar card, the job
+         on a dial — check free times or book the visit. */
       paletteItem(VOICE_NODE_TYPES.calendarAvailability, { icon: "calendar", accent: "blue" }),
-      paletteItem(VOICE_NODE_TYPES.bookAppointment, { icon: "calendar", accent: "blue" }),
       paletteItem(CALENDLY_NODE_TYPES.action, { icon: "calendly", accent: "blue", kind: "CALENDLY" }),
       paletteItem(VOICE_NODE_TYPES.sendEmail, { icon: "mail", accent: "green" }),
       /* NODE 012. The judgment to stop — hands the thread to a human. */

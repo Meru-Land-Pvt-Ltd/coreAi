@@ -190,7 +190,7 @@ export function NodeInspector({
   else if (type === VOICE_NODE_TYPES.phoneCallTrigger) panel = <PhoneCallTriggerProps {...base} />;
   else if (type === VOICE_NODE_TYPES.voiceConversation) panel = <AiVoiceConversationProps {...base} />;
   else if (type === VOICE_NODE_TYPES.calendarAvailability) {
-    panel = <CalendarAvailabilityProps {...base} calendar={calendar} ownership={ownership} />;
+    panel = <GoogleCalendarProps {...base} calendar={calendar} ownership={ownership} />;
   } else if (type === VOICE_NODE_TYPES.bookAppointment) {
     panel = <BookCalendarAppointmentProps {...base} calendar={calendar} ownership={ownership} />;
   } else if (type === VOICE_NODE_TYPES.sendEmail) panel = <SendEmailProps {...base} />;
@@ -3758,6 +3758,40 @@ function KnowledgeNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) 
           placeholder={"A cleaning costs $80. Whitening costs $200.\nWe are closed on Sundays."}
         />
       </Section>
+    </>
+  );
+}
+
+/**
+ * GOOGLE CALENDAR — one card, the job on a dial (the Settings Law's second
+ * ruling). "Check free times" shows the availability boxes; "Book the visit"
+ * shows the booking ones. Old canvases with the separate booking card keep
+ * their own panel untouched.
+ */
+function GoogleCalendarProps(props: NodePropsPanel & { calendar?: unknown; ownership?: unknown }) {
+  const { str, set } = fields(props.selectedNode, props.onUpdateNodeData);
+  const job = str("connectorAction", "check_availability");
+  const booking = /book/.test(job);
+
+  return (
+    <>
+      <Section title="What it does">
+        <SelectBox
+          value={booking ? "book_appointment" : "check_availability"}
+          onChange={set("connectorAction")}
+          options={nodeSettingChoices("calendar.availability", "connectorAction")}
+          testId="google-calendar-job-select"
+        />
+        <p className="mt-2 text-[12px] leading-5 text-slate-500">
+          One calendar, two jobs — read the free times, or write the visit in. The business connects
+          their own calendar once at setup.
+        </p>
+      </Section>
+      {booking ? (
+        <BookCalendarAppointmentProps {...(props as Parameters<typeof BookCalendarAppointmentProps>[0])} />
+      ) : (
+        <CalendarAvailabilityProps {...(props as Parameters<typeof CalendarAvailabilityProps>[0])} />
+      )}
     </>
   );
 }

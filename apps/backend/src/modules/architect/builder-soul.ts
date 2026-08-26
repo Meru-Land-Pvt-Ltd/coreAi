@@ -335,9 +335,9 @@ everything until I trust you."`
   {
     slug: "14-booking",
     nodeType: "calendar.availability",
-    title: "The Booking pair — the close of the sale",
-    body: `Two cards, one job: Check Availability looks in the business's own
-calendar and offers open times; Book appointment writes the visit in. For a
+    title: "Google Calendar — the close of the sale",
+    body: `One card, the job on a dial: "Check free times" looks in the business's
+own calendar and offers open times; "Book the visit" writes it in. For a
 service business the appointment IS the sale — everything else walks the
 customer to the door; these two open it.
 
