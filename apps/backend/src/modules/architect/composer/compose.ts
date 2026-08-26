@@ -168,6 +168,32 @@ export async function composeOrchestration(input: {
   }
   say("Looking at every step available to you", `${menu.length} to choose from`);
 
+  /* A LAW IS MACHINERY, NOT A REQUEST (2026-08-26). Three exam sittings
+     proved the model reads "ask about their taste" and builds anyway. So
+     the known taste-pointers are caught HERE, deterministically: words that
+     point at something only the human knows mean the only correct answer
+     is a question — before any model gets a vote. The Intelligence still
+     teaches the general case; machinery guarantees the known one. */
+  const TASTE_POINTERS: RegExp[] = [
+    /our (own |special |unique )?(style|way|tone|voice|signature)/i,
+    /how we (like|do|always do) it/i,
+    /the way we always/i,
+    /in our brand/i
+  ];
+  const humanAnswered = (input.conversation ?? []).some((turn) => turn.role === "user");
+  const pointer = TASTE_POINTERS.map((r) => r.exec(input.want)?.[0]).find(Boolean);
+  if (pointer && !humanAnswered) {
+    say("One thing only you can decide");
+    return {
+      ok: false,
+      ask: {
+        question: `You said "${pointer}" — that's something only you know. What exactly should it say?`,
+        suggestion: "Hi! Welcome — how can we help you today?"
+      },
+      message: `You said "${pointer}" — that's something only you know. What exactly should it say?`
+    };
+  }
+
   /* Connection cards are born after the Soul ships, so their wisdom is
      generated from their own rows (the founder's third hole, 2026-08-26). */
   const connections = connectionWisdom(
@@ -251,6 +277,22 @@ export async function composeOrchestration(input: {
 
     say("Checking every step is real and every wire lands");
     const problems = checkPlan(plan, menu);
+
+    /* THEIR WORDS ARE SACRED, mechanically: when the human answered a
+       question, their exact words must appear in the plan. A model that
+       "improves" them gets the order back, verbatim, through the same
+       retry loop every other law uses. */
+    const lastAnswer = [...(input.conversation ?? [])].reverse().find((turn) => turn.role === "user")?.content.trim();
+    if (
+      lastAnswer &&
+      lastAnswer.length >= 8 &&
+      !/you decide|up to you|anything is fine|whatever/i.test(lastAnswer) &&
+      !JSON.stringify(plan.nodes ?? []).includes(lastAnswer)
+    ) {
+      problems.push(
+        `The person answered: "${lastAnswer}". Use those words EXACTLY, unchanged, in the setting they answer — never improved or summarised.`
+      );
+    }
 
     if (problems.length === 0) {
       say("Done", plan.summary);
