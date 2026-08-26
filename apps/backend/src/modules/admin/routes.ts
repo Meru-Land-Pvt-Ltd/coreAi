@@ -51,6 +51,7 @@ import {
 } from "./knowledge-limits";
 import JSZip from "jszip";
 import { listPlatformDials, savePlatformDial } from "./platform-dials";
+import { lastExamReport, runBuilderExams } from "../architect/builder-exams";
 import { builderSoulFiles, SOUL_COVERED_TYPES } from "../architect/builder-soul";
 import {
   CONDITION_ROADS_BOUNDS,
@@ -815,6 +816,39 @@ adminRoutes.patch("/platform-dials/:key", async (c) => {
     meta: { key: saved.key, value: saved.value }
   });
   return successResponse(c, { dial: saved });
+});
+
+/* --------------------------- The Examination Hall --------------------------- */
+
+/**
+ * THE BUILDER'S OWN EXAMS (the founder's ruling, 2026-08-26). The platform's
+ * code has its inspectors; the employee has his. A sitting runs every exam
+ * through the REAL Builder — same Soul, same Intelligence, same model — into
+ * a sandbox, and the marking is mechanical: no AI grades the AI.
+ */
+adminRoutes.get("/builder-exams", async (c) => {
+  return successResponse(c, { report: await lastExamReport() });
+});
+
+adminRoutes.post("/builder-exams/run", async (c) => {
+  const authUser = c.get("authUser");
+  try {
+    const report = await runBuilderExams(authUser.id);
+    await logAdminAction({
+      adminUserId: authUser.id,
+      action: "BUILDER_EXAMS_SAT",
+      targetType: "PLATFORM",
+      meta: { passed: report.passed, total: report.total }
+    });
+    return successResponse(
+      c,
+      { report },
+      `The Builder sat ${report.total} exams and passed ${report.passed}.`
+    );
+  } catch (error) {
+    console.error("[builder-exams] sitting failed", error);
+    return errorResponse(c, "The sitting could not finish. Try once more.", 500, "EXAMS_FAILED");
+  }
 });
 
 /* --------------------------- The Builder Soul ------------------------------ */
