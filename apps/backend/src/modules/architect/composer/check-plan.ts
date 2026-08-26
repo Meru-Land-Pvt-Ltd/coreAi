@@ -154,7 +154,7 @@ export function checkPlan(plan: ComposerPlan, menu: MenuEntry[], want = ""): str
      clause" product composed with no box to paste into — a shop with no
      door. When the request says the customer hands something over and the
      agent is a visited page, an input door is not optional. */
-  const wantsInput = /(paste|type|enter|write|upload|describe|ask|question|tell)s?/i.test(want);
+  const wantsInput = /\b(paste|type|enter|write|upload|describe|ask|question|tell)s?\b/i.test(want);
   const isVisitedPage = plan.nodes.some((node) => node.type === "trigger.manual");
   const hasInputDoor = plan.nodes.some(
     (node) => node.type === "block.prompt_composer" || node.type === "block.file_upload"
