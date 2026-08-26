@@ -221,11 +221,9 @@ export async function composeOrchestration(input: {
     console.warn("[composer] plan did not hold", {
       attempt,
       problems: problems.slice(0, 5),
-      nodeShapes: plan.nodes.map((node) => ({
-        id: node.id,
-        type: node.type,
-        configKeys: Object.keys(node.config ?? {})
-      }))
+      nodeShapes: JSON.stringify(
+        plan.nodes.map((node) => ({ id: node.id, type: node.type, configKeys: Object.keys(node.config ?? {}) }))
+      )
     });
 
     messages.push({ role: "assistant", content: JSON.stringify(plan).slice(0, 4000) });
