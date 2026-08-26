@@ -210,7 +210,7 @@ export async function aiBuilderAnswer(input: {
        composer builds from, so both hands speak as one employee. */
     instruction: `${EXPLAIN_INSTRUCTION}
 
-${builderSoulText()}${personalLessons ? `\n\n${personalLessons}` : ""}`,
+${builderSoulText("", message)}${personalLessons ? `\n\n${personalLessons}` : ""}`,
     message: `${agent}
 
 ${runs}

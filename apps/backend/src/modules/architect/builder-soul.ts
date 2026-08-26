@@ -664,13 +664,37 @@ export function connectionWisdom(
   return lines.join("\n");
 }
 
-/** The Soul as one text — what rides with every Builder request. */
-export function builderSoulText(connections = ""): string {
+/**
+ * The Soul as one text — what rides with every Builder request.
+ *
+ * A weight problem found in its own build (2026-08-26): every page added made
+ * every request heavier, until the whole thing was ~9,000 tokens on a prompt
+ * that already carried the menu, and the explain hand began timing out. An
+ * encyclopedia nobody can finish reading is worse than a briefing.
+ *
+ * So the laws and the combinations always ride — they are the judgement that
+ * makes the Builder itself — and the per-node pages ride when the request is
+ * ABOUT that node, or when nothing narrows it (a fresh compose). The bones
+ * stay whole: they are the map, and a map with roads missing is a trap.
+ */
+export function builderSoulText(connections = "", focus = ""): string {
+  const needle = focus.toLowerCase();
+  const alwaysOn = (page: SoulPage) => page.nodeType === null;
+  const mentioned = (page: SoulPage) => {
+    if (!needle) return true;
+    const label = page.title.split("—")[0]!.trim().toLowerCase();
+    return needle.includes(label) || (page.nodeType ? needle.includes(page.nodeType) : false);
+  };
+  const pages = WISDOM.filter((page) => alwaysOn(page) || mentioned(page));
+  /* A question that names no node still gets everything: the Builder must not
+     be blinded just because the architect wrote "fix this". */
+  const chosen = pages.length <= WISDOM.filter(alwaysOn).length ? WISDOM : pages;
+
   return [
     "THE BUILDER SOUL — what you know about this platform's nodes. This is your map:",
     "where each node starts, how much it carries, where it stops.",
     "",
-    ...WISDOM.map((page) => `## ${page.title}\n\n${page.body}`),
+    ...chosen.map((page) => `## ${page.title}\n\n${page.body}`),
     ...(connections ? ["", connections] : []),
     "",
     soulBones()
