@@ -243,6 +243,38 @@ export function ComponentLibrary({
       </div>
 
       <div className="builder-sidebar-scroll flex-1 overflow-y-auto overflow-x-hidden px-4 pb-6 pt-4">
+        <div className="space-y-6">
+          {filteredGroups.map((group) => (
+            <div key={group.title}>
+              <p
+                className={`${group.subtitle ? "mb-0.5" : "mb-2"} text-xs font-bold uppercase tracking-wider text-slate-400`}
+                data-testid="architect-ui-workflow-builder-component-library-group-title-text"
+              >
+                {group.title}
+              </p>
+              {group.subtitle ? (
+                <p
+                  className="mb-2 text-[11px] text-slate-500"
+                  data-testid="architect-ui-workflow-builder-component-library-group-subtitle-text"
+                >
+                  {group.subtitle}
+                </p>
+              ) : null}
+              <div className="grid grid-cols-2 gap-2">
+                {group.items.map((item) => (
+                  <SidebarNodeCard
+                    key={`${group.title}-${item.label}`}
+                    item={item}
+                    onAddNode={onAddNode}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* The founder's order (2026-08-26): templates live BELOW the nodes —
+            the palette leads with the pieces, the ready-made faces close it. */}
         {/* One set: the two existing industry cards stay first and unchanged,
             the generic faces follow, coming-soon faces close the list. */}
         <p
@@ -312,35 +344,6 @@ export function ComponentLibrary({
           </div>
         ))}
 
-        <div className="space-y-6">
-          {filteredGroups.map((group) => (
-            <div key={group.title}>
-              <p
-                className={`${group.subtitle ? "mb-0.5" : "mb-2"} text-xs font-bold uppercase tracking-wider text-slate-400`}
-                data-testid="architect-ui-workflow-builder-component-library-group-title-text"
-              >
-                {group.title}
-              </p>
-              {group.subtitle ? (
-                <p
-                  className="mb-2 text-[11px] text-slate-500"
-                  data-testid="architect-ui-workflow-builder-component-library-group-subtitle-text"
-                >
-                  {group.subtitle}
-                </p>
-              ) : null}
-              <div className="grid grid-cols-2 gap-2">
-                {group.items.map((item) => (
-                  <SidebarNodeCard
-                    key={`${group.title}-${item.label}`}
-                    item={item}
-                    onAddNode={onAddNode}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
 
         {/* Coming Soon nodes and their section are intentionally hidden. */}
       </div>
