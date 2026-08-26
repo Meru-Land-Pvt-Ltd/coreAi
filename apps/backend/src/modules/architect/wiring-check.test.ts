@@ -64,9 +64,9 @@ describe("a promise nothing keeps", () => {
     });
     /* The name and phone are values the platform can supply from the call
        itself. The TIME is not — either a conversation produces it or the
-       architect types it into the node's own box. The voice-era name for it
-       was "appointmentStartAt"; what this engine actually writes and reads is
-       appointmentStartAt. */
+       architect types it into the node's own box. The voice era called it
+       "selected.slot"; what this engine writes and reads is
+       appointmentStartAt, and each engine now asks in its own words. */
     expect(result.problems.some((problem) => problem.wanted === "appointmentStartAt")).toBe(true);
   });
 

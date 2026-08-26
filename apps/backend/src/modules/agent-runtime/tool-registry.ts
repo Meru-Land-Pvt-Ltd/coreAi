@@ -74,13 +74,22 @@ export function nodeCapability(node: GraphNode): string {
   return "node.generic";
 }
 
-/** Variables a node needs before it can execute (registry metadata first). */
+/**
+ * Variables a node needs before it can execute.
+ *
+ * TWO ENGINES, TWO VOCABULARIES (2026-08-26). This runtime is the voice one:
+ * it learns a time during a conversation and stores it as `selected.slot`.
+ * The workflow engine learns the same fact from a canvas and stores it as
+ * `appointmentStartAt`. The registry's row describes a node for the BUILDER
+ * — its wiring check, its panel, the Soul — in the workflow engine's words,
+ * so reading it here made booking wait forever for a name this runtime never
+ * writes, and a dry run produced no preview at all.
+ *
+ * So where this runtime has its own contract, its own contract wins. That is
+ * not a second source of truth about the node; it is the same requirement
+ * spoken in the language of the engine that must satisfy it.
+ */
 export function nodeRequiredVariables(node: GraphNode): string[] {
-  const type = nodeType(node);
-  const fromRegistry = type ? getNodeDefinition(type)?.requiredVariables : undefined;
-
-  if (fromRegistry) return fromRegistry;
-
   const capability = nodeCapability(node);
 
   if (capability === "calendar.book_appointment") {
@@ -89,7 +98,8 @@ export function nodeRequiredVariables(node: GraphNode): string[] {
 
   if (capability === "sms.send") return ["customer.phone"];
 
-  return [];
+  const type = nodeType(node);
+  return type ? getNodeDefinition(type)?.requiredVariables ?? [] : [];
 }
 
 export type AgentTool = {
