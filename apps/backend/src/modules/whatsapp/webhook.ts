@@ -311,11 +311,34 @@ export async function handleWhatsAppWebhookPost(c: Context) {
         timestamp: inbound.timestamp.toISOString()
       };
 
+      /* WHOSE NUMBER IS THIS? (2026-08-26)
+       *
+       * A connection attached to a business means their agent answers with
+       * their own facts — their knowledge, their memory drawer, their
+       * setup. The buyer-scoping columns have existed unused since the
+       * receptionist era; what was written to use them replied through the
+       * old SMS AI responder, which is a Brain hidden inside plumbing and
+       * this platform forbids those. So the scoping rides the path that was
+       * already right: the architect's canvas runs, and it runs AS the
+       * business. Same shape as the email ear.
+       */
+      const scoped = conn.businessId
+        ? await prisma.installedAgent.findFirst({
+            where: { businessId: conn.businessId, status: "ACTIVE" },
+            orderBy: { createdAt: "desc" },
+            select: { id: true, businessId: true, workflowId: true }
+          })
+        : null;
+
       const workflows = await listArchitectWorkflows(conn.architectUserId);
       for (const workflow of workflows) {
         if (!workflowHasMatchingWhatsAppTrigger(workflow.workflowJson, conn.id, inbound)) {
           continue;
         }
+        /* A business-attached number answers with THAT business's agent and
+           no other — never a sibling install's, never the architect's own
+           draft. */
+        if (scoped && scoped.workflowId !== workflow.id) continue;
 
         try {
           await runWorkflowTest({
@@ -327,6 +350,7 @@ export async function handleWhatsAppWebhookPost(c: Context) {
             callProvider: "WHATSAPP",
             externalCallId: inbound.wamid,
             input: {
+              ...(scoped ? { businessId: scoped.businessId, installedAgentId: scoped.id } : {}),
               callerNumber: inbound.contactPhone,
               callerName: inbound.contactName ?? undefined,
               latestMessage: inbound.text ?? undefined,

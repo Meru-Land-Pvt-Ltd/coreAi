@@ -1893,10 +1893,23 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
         limits: {
           choices: [
             { value: "all", label: "Everything" },
-            { value: "text", label: "Text only" }
+            { value: "text", label: "Text only" },
+            { value: "image", label: "Pictures" },
+            { value: "document", label: "Files" },
+            { value: "audio", label: "Voice notes" },
+            { value: "video", label: "Videos" }
           ]
         },
         default: "all",
+        whoFills: "architect"
+      },
+      {
+        key: "ignoreStatusMessages",
+        name: "Status updates",
+        whatItsFor: "Delivery and read receipts from WhatsApp are noise, not messages — off by default.",
+        type: "on/off",
+        limits: {},
+        default: "true",
         whoFills: "architect"
       },
       {
@@ -3771,14 +3784,14 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       {
         key: "kind",
         name: "How to show it",
-        whatItsFor: "Let it decide, or force words, a picture, or a file.",
+        whatItsFor: "Let it decide, or force words, a picture, or a video.",
         type: "choice",
         limits: {
           choices: [
             { value: "auto", label: "Decide for me" },
             { value: "text", label: "Words" },
             { value: "image", label: "A picture" },
-            { value: "file", label: "A file to download" }
+            { value: "video", label: "A video" }
           ]
         },
         default: "auto",
@@ -3831,7 +3844,33 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
   /* 022 — START HERE under the laws: no dials, and that is an answer — the
      Run button needs nothing. Its one lie was the null PRODUCES row while
      the engine hands the typed message on as text; fixed in the map. */
-  def({ type: "trigger.manual", label: "Start here", category: "trigger", description: "Starts the agent when someone presses Run or sends it a message.", requiredConfig: [], backendExecutable: true, launchCritical: false, comingSoon: false, runtime: { nodeKind: "trigger" }, requiredVariables: [], settings: [] }),
+  def({
+    type: "trigger.manual",
+    label: "Start here",
+    category: "trigger",
+    description: "Starts the agent when someone presses Run or sends it a message.",
+    requiredConfig: [],
+    backendExecutable: true,
+    launchCritical: false,
+    comingSoon: false,
+    runtime: { nodeKind: "trigger" },
+    requiredVariables: [],
+    defaultConfig: { input: "" },
+    /* The panel has always edited `input` — a test message for the builder —
+       while the row said "no settings at all". Declared now, because a field
+       a panel edits and a row denies is exactly how the two drift. */
+    settings: [
+      {
+        key: "input",
+        name: "Test message",
+        whatItsFor: "What arrives when you press Run here in the builder. Live, the real message takes its place.",
+        type: "long text",
+        limits: { maxLength: 2000 },
+        default: "",
+        whoFills: "architect"
+      }
+    ]
+  }),
   // Two ways IN, both real. Until these shipped, an agent could only start when a
   // human typed on a page — the ceiling on every product the platform could make.
   /* 017 — WEBHOOK, brought under the laws (2026-08-25 night order). The
@@ -3899,7 +3938,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       scriptCode: "",
       codeInput: "",
       scriptOutputKey: "script.output",
-      scriptTimeoutMs: "5000"
+      scriptTimeoutMs: "10000"
     },
     /* 020 — CODE under the laws (2026-08-25 night order). The sandbox was
        already the finished half; question 5 is answered here, with the real
@@ -3913,7 +3952,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
         limits: {
           choices: [
             { value: "javascript", label: "JavaScript" },
-            { value: "python", label: "Python" }
+            { value: "python", label: "Python 3" }
           ]
         },
         default: "javascript",
@@ -3924,7 +3963,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
         name: "The code",
         whatItsFor: "Runs sealed away from everything — no network, no files; what it returns travels on.",
         type: "long text",
-        limits: { maxLength: 20000, required: true },
+        limits: { maxLength: 100000, required: true },
         default: "",
         whoFills: "architect"
       },
@@ -3949,16 +3988,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       {
         key: "scriptTimeoutMs",
         name: "Time limit",
-        whatItsFor: "Longer than fifteen seconds is a loop, not a calculation — the ceiling is real.",
-        type: "choice",
-        limits: {
-          choices: [
-            { value: "5000", label: "5 seconds" },
-            { value: "10000", label: "10 seconds" },
-            { value: "15000", label: "15 seconds" }
-          ]
-        },
-        default: "5000",
+        whatItsFor: "Longer than fifteen seconds is a loop, not a calculation — the engine stops it there whatever is asked for.",
+        type: "number",
+        limits: { min: 1000, max: 60000 },
+        default: "10000",
         whoFills: "architect"
       }
     ],

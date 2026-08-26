@@ -184,7 +184,7 @@ export function NodeInspector({
   else if (type === SCRIPT_NODE_TYPE) panel = <ScriptNodeInspector {...base} />;
   else if (type === NODE_FRAME_NODE_TYPE) panel = <NodeFrameInspector {...base} />;
   else if (type === "ai.llm_call") panel = <LlmNodeInspector {...base} incomingNodeNames={incomingNodeNames} />;
-  else if (type === "ai.memory") panel = <MemoryNodeProps {...base} />;
+  else if (type === "ai.memory") panel = <DeclaredProps {...base} />;
   else if (type === TELEGRAM_NODE_TYPES.trigger) panel = <TelegramTriggerProps {...base} />;
   else if (Object.values(TELEGRAM_NODE_TYPES).includes(type as (typeof TELEGRAM_NODE_TYPES)[keyof typeof TELEGRAM_NODE_TYPES])) {
     panel = <TelegramActionProps {...base} />;
@@ -196,8 +196,8 @@ export function NodeInspector({
   } else if (type === VOICE_NODE_TYPES.bookAppointment) {
     panel = <BookCalendarAppointmentProps {...base} calendar={calendar} ownership={ownership} />;
   } else if (type === VOICE_NODE_TYPES.sendEmail) panel = <SendEmailProps {...base} />;
-  else if (type === "communication.escalate") panel = <EscalateProps {...base} />;
-  else if (type === "communication.approval") panel = <ApprovalProps {...base} />;
+  else if (type === "communication.escalate") panel = <DeclaredProps {...base} />;
+  else if (type === "communication.approval") panel = <DeclaredProps {...base} />;
   else if (type === VOICE_NODE_TYPES.sendSms) panel = <SendSmsProps {...base} />;
   else if (type === "trigger.whatsapp_message_received") panel = <WhatsAppTriggerProps {...base} />;
   else if (type === OUTBOUND_CALL_NODE_TYPE) panel = <OutboundCallProps {...base} />;
@@ -218,12 +218,12 @@ export function NodeInspector({
   else if (type === BLOCK_NODE_TYPES.modelPicker) panel = <ModelPickerBlockProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.actionButton) panel = <ActionButtonBlockProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.outputStage) panel = <ResultViewerBlockProps {...base} />;
-  else if (type === BLOCK_NODE_TYPES.continueChain) panel = <ContinueButtonBlockProps {...base} />;
+  else if (type === BLOCK_NODE_TYPES.continueChain) panel = <DeclaredProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.historyShelf) panel = <HistoryShelfBlockProps {...base} />;
-  else if (type === "block.file_upload") panel = <FileUploadBlockProps {...base} />;
+  else if (type === "block.file_upload") panel = <DeclaredProps {...base} />;
   else if (selectedNode.data.nodeKind === "trigger") panel = <TriggerProps {...base} />;
   else if (selectedNode.data.nodeKind === "ai") panel = <AiProps {...base} />;
-  else if (type === "logic.loop") panel = <LoopProps {...base} />;
+  else if (type === "logic.loop") panel = <DeclaredProps {...base} />;
   else if (type === "trigger.email_received") panel = <EmailReceivedProps {...base} />;
   else if (selectedNode.data.nodeKind === "condition") panel = <ConditionProps {...base} />;
   else if (typeof selectedNode.data.connectorId === "string" && selectedNode.data.connectorId) {
@@ -1795,109 +1795,7 @@ function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar
   );
 }
 
-/**
- * ESCALATE — the judgment to stop, in two plain controls.
- *
- * The node does not decide; the Condition before it decides. The architect
- * owns only two sentences: what the customer reads while a human takes over,
- * and standing guidance for the team. Where handovers land belongs to the
- * business's Mail Setup — never typed here.
- */
-function EscalateProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const { str, set } = fields(selectedNode, onUpdateNodeData);
 
-  return (
-    <>
-      <Section title="Name">
-        <TextInput
-          value={selectedNode.data.title}
-          onChange={set("title")}
-          placeholder="Escalate"
-          testId="escalate-name-input"
-        />
-      </Section>
-
-      <Section title="What to tell the customer">
-        <p className="text-[12px] leading-5 text-slate-500">
-          The one honest sentence the customer reads while a human takes over.
-        </p>
-        <TextArea
-          value={str("customerMessage")}
-          onChange={set("customerMessage")}
-          testId="escalate-customer-textarea"
-          height="h-20"
-          placeholder="I'm passing this to the team — they'll reply to you personally."
-        />
-      </Section>
-
-      <Section title="A note for the team" last>
-        <p className="text-[12px] leading-5 text-slate-500">
-          Attached to every handover mail — what the human should check before replying. The whole
-          thread lands in the business&apos;s own inbox, and replying there answers the customer
-          directly.
-        </p>
-        <TextArea
-          value={str("teamNote")}
-          onChange={set("teamNote")}
-          testId="escalate-team-textarea"
-          height="h-24"
-          placeholder="Check the refunds sheet before promising anything."
-        />
-      </Section>
-    </>
-  );
-}
-
-/**
- * APPROVAL — the probation, in three plain controls.
- *
- * The node holds the Brain's draft and asks the owner first. The architect
- * owns a note to the owner and how long a draft may wait; where drafts land
- * belongs to the business's Mail Setup, never typed here.
- */
-function ApprovalProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const { str, set } = fields(selectedNode, onUpdateNodeData);
-  const WAIT = nodeSettingChoices("communication.approval", "waitDays");
-
-  return (
-    <>
-      <Section title="Name">
-        <TextInput
-          value={selectedNode.data.title}
-          onChange={set("title")}
-          placeholder="Approval"
-          testId="approval-name-input"
-        />
-      </Section>
-
-      <Section title="A note to the owner">
-        <p className="text-[12px] leading-5 text-slate-500">
-          Shown with every draft — what to check before approving. The owner approves with one
-          click, or just replies to answer the customer personally.
-        </p>
-        <TextArea
-          value={str("approvalNote")}
-          onChange={set("approvalNote")}
-          testId="approval-note-textarea"
-          height="h-24"
-          placeholder="Check promised dates against the calendar before approving."
-        />
-      </Section>
-
-      <Section title="How long to wait" last>
-        <SelectBox
-          value={str("waitDays", "3")}
-          onChange={set("waitDays")}
-          options={WAIT}
-          testId="approval-wait-select"
-        />
-        <p className="mt-2 text-[12px] leading-5 text-slate-500">
-          A draft nobody decides on expires honestly — it is never sent late.
-        </p>
-      </Section>
-    </>
-  );
-}
 
 /**
  * SEND EMAIL — the body's first Hand, in four plain controls.
@@ -3139,32 +3037,6 @@ function ResultViewerBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPan
   );
 }
 
-function ContinueButtonBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const { str, set } = fields(selectedNode, onUpdateNodeData);
-
-  return (
-    <>
-      <Section title="General">
-        <Label>Section name</Label>
-        <TextInput value={selectedNode.data.title} onChange={set("title")} />
-      </Section>
-
-      <Section title="Continue Button" last>
-        <Label>Button words</Label>
-        <TextInput
-          value={str("label", "Continue")}
-          onChange={set("label")}
-          placeholder="Continue"
-          maxLength={BLOCK_TEXT_MAX}
-          testId="block-continue-label-input"
-        />
-        <p className="mt-2 text-[11px] leading-5 text-slate-400">
-          Appears after a result, so your customer can keep going with one tap.
-        </p>
-      </Section>
-    </>
-  );
-}
 
 function HistoryShelfBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { set } = fields(selectedNode, onUpdateNodeData);
@@ -3685,108 +3557,7 @@ function CalendlyTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel
   );
 }
 
-/**
- * MEMORY.
- *
- * The node that stops an agent starting blank every time. Without it a customer
- * says "actually, make it Tuesday" and the agent has no idea what "it" is.
- *
- * The panel that was here talked in our words rather than theirs: "Memory
- * configuration", "Custom context", "Output variable", "Memory Variable", and a
- * button to copy {{memory}} into a prompt — when memory reaches the next step on
- * its own and always has. Attachments have gone the same way as the AI Brain's:
- * to a File Upload node of their own, rather than living half-here.
- */
-function MemoryNodeProps({ selectedNode, onUpdateNodeData, variableNodePrefixes }: NodePropsPanel) {
-  const { str, set } = fields(selectedNode, onUpdateNodeData);
 
-  /* The choices come from the node's own declaration (question 5 of the SOP),
-     not from a list typed again here. One fact, one home — the panel, the
-     Composer and the admin Nodes page all read the same line. */
-  const KEEP = nodeSettingChoices("ai.memory", "maxMemoryTokens");
-
-  return (
-    <>
-      <Section title="Name">
-        <TextInput value={selectedNode.data.title} onChange={set("title")} placeholder="Memory" testId="memory-name-input" />
-      </Section>
-
-      <Section title="Always remember">
-        <p className="text-[12px] leading-5 text-slate-500">
-          Things worth remembering every single time, whatever else happened. Leave it empty and it
-          simply remembers the conversation.
-        </p>
-        <TextArea
-          value={str("customMemoryNotes", str("notes"))}
-          onChange={set("customMemoryNotes")}
-          testId="memory-notes-textarea"
-          height="h-32"
-          placeholder="This customer is on the yearly plan. Their delivery address is on file."
-        />
-        <UnknownVariablesNote
-          text={str("customMemoryNotes", str("notes"))}
-          nodePrefixes={variableNodePrefixes}
-          testId="memory-node-notes-variable-warning"
-        />
-      </Section>
-
-      <Section title="How much to keep" last>
-        <SelectBox
-          value={str("maxMemoryTokens", "4000")}
-          onChange={set("maxMemoryTokens")}
-          options={KEEP}
-          testId="memory-keep-select"
-        />
-        {/* Beyond the limit it summarises rather than cutting the end off. A
-            conversation opens with the things that matter — a name, a date,
-            what somebody wanted — and closes with pleasantries. */}
-        <p className="mt-2 text-[12px] leading-5 text-slate-500">
-          When there is more than this, it keeps the facts — names, dates, what somebody asked for —
-          and drops the small talk. It never simply cuts off the end.
-        </p>
-      </Section>
-    </>
-  );
-}
-
-/**
- * KNOWLEDGE.
- *
- * Memory remembers conversations; this reads the business's library — the
- * documents they upload once at setup. The architect owns only two things
- * here: the node's name, and a practice shelf to test with before any
- * business exists. The real facts are never typed in a builder.
- */
-function KnowledgeNodeProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const { str, set } = fields(selectedNode, onUpdateNodeData);
-
-  return (
-    <>
-      <Section title="Name">
-        <TextInput
-          value={selectedNode.data.title}
-          onChange={set("title")}
-          placeholder="Knowledge"
-          testId="knowledge-name-input"
-        />
-      </Section>
-
-      <Section title="Practice facts" last>
-        <p className="text-[12px] leading-5 text-slate-500">
-          Only for testing here in the builder. Live, the agent answers from the business&apos;s own
-          documents — they upload them once at setup, and this box is never read again.
-        </p>
-        <TextArea
-          value={str("sampleFacts")}
-          onChange={set("sampleFacts")}
-          testId="knowledge-sample-textarea"
-          height="h-32"
-          placeholder={"A cleaning costs $80. Whitening costs $200.\nWe are closed on Sundays."}
-        />
-      </Section>
-    </>
-  );
-}
 
 /**
  * GOOGLE CALENDAR — one card, the job on a dial (the Settings Law's second
@@ -3822,12 +3593,118 @@ function GoogleCalendarProps(props: NodePropsPanel & { calendar?: unknown; owner
   );
 }
 
+/**
+ * THE PANEL THAT DRAWS ITSELF.
+ *
+ * Until today every node had a hand-written panel, and a hand-written panel
+ * is a second description of a node that can disagree with the first. The
+ * audit that preceded this found exactly that: the Result Viewer's row
+ * offered a file type nothing could render while the working "video" option
+ * existed only in the panel; WhatsApp's row named two message filters while
+ * the engine honoured six; Start here's row said "no settings" while its
+ * panel edited one. Three lies, all from the same cause.
+ *
+ * So the node's declared row draws the panel. One renderer, tested once,
+ * behaves the same for node five and node five hundred, and a setting added
+ * to a row appears here by itself — for the architect here, the business at
+ * install, and the admin on their screen.
+ *
+ * It draws the ARCHITECT's column only. The business's rows belong to their
+ * setup form and the platform's to the admin screen; showing either here
+ * would ask the wrong person for an answer they cannot have.
+ *
+ * Nodes whose panel genuinely needs more than a row can express — a live
+ * connection picker, an OAuth button, a code editor, repeating cards — keep
+ * their own and say why in their own file.
+ */
+function DeclaredProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const type = String(selectedNode.data.type ?? "");
+  const definition = getNodeDefinition(type);
+  const rows = (definition?.settings ?? []).filter((setting) => setting.whoFills === "architect");
+  const slug = type.replace(/[._]/g, "-");
+
+  return (
+    <>
+      <Section title="Name" last={rows.length === 0}>
+        <TextInput
+          value={selectedNode.data.title}
+          onChange={set("title")}
+          placeholder={definition?.label ?? "Name"}
+          testId={`declared-${slug}-name`}
+        />
+        {definition?.description ? (
+          <p className="mt-2 text-[12px] leading-5 text-slate-500">{definition.description}</p>
+        ) : null}
+      </Section>
+
+      {rows.map((row, index) => {
+        const last = index === rows.length - 1;
+        const value = str(row.key, String(row.default ?? ""));
+        const testId = `declared-${slug}-${row.key}`;
+
+        return (
+          <Section key={row.key} title={row.name} last={last}>
+            <p className="mb-2 text-[12px] leading-5 text-slate-500">{row.whatItsFor}</p>
+
+            {row.type === "choice" ? (
+              <SelectBox
+                value={value}
+                onChange={set(row.key)}
+                options={row.limits?.choices ? [...row.limits.choices] : nodeSettingChoices(type, row.key)}
+                testId={testId}
+              />
+            ) : row.type === "on/off" ? (
+              /* Stored as the strings "true"/"false": every engine that reads
+                 these compares strings, and flipping to booleans would change
+                 what existing canvases mean. */
+              <SelectBox
+                value={value === "true" || value === "on" ? "true" : "false"}
+                onChange={set(row.key)}
+                options={[
+                  { value: "true", label: "On" },
+                  { value: "false", label: "Off" }
+                ]}
+                testId={testId}
+              />
+            ) : row.type === "number" ? (
+              <NumberInput
+                value={value}
+                onChange={set(row.key)}
+                testId={testId}
+                {...(row.limits?.min !== undefined ? { min: String(row.limits.min) } : {})}
+                {...(row.limits?.max !== undefined ? { max: String(row.limits.max) } : {})}
+              />
+            ) : row.type === "long text" ? (
+              <TextArea
+                value={value}
+                onChange={set(row.key)}
+                height="h-28"
+                testId={testId}
+                {...(row.limits?.maxLength ? { maxLength: row.limits.maxLength } : {})}
+              />
+            ) : (
+              <TextInput
+                value={value}
+                onChange={set(row.key)}
+                testId={testId}
+                {...(row.limits?.maxLength ? { maxLength: row.limits.maxLength } : {})}
+              />
+            )}
+          </Section>
+        );
+      })}
+    </>
+  );
+}
+
 function AiProps(props: NodePropsPanel) {
-  if (props.selectedNode.data.type === "ai.memory") {
-    return <MemoryNodeProps {...props} />;
-  }
+  /* Memory and Knowledge say everything they need in their declared rows, so
+     they draw themselves. The general AI panel stays bespoke: it needs live
+     provider availability, and a row cannot know which model is switched on
+     this minute. */
   if (props.selectedNode.data.type === "ai.knowledge") {
-    return <KnowledgeNodeProps {...props} />;
+    return <DeclaredProps {...props} />;
   }
 
   return <StandardAiProps {...props} />;
@@ -3942,94 +3819,7 @@ function StandardAiProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
  * Asking a model whether we are inside business hours would put a cost and a
  * delay on the commonest rule on the platform, so the two are kept apart.
  */
-/**
- * THE LOOP — the machine's third leg, in three plain controls.
- *
- * Name, how the list arrives, and how many rounds at most. The choices come
- * from the node's own declaration (SOP question 5) — the panel, the Composer
- * and the admin page all read the same lines.
- */
-function LoopProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const { str, set } = fields(selectedNode, onUpdateNodeData);
 
-  return (
-    <>
-      <Section title="Name">
-        <TextInput value={selectedNode.data.title} onChange={set("title")} placeholder="Loop" testId="loop-name-input" />
-      </Section>
-
-      <Section title="How the list arrives">
-        <SelectBox
-          value={str("loopSplit", "commas")}
-          onChange={set("loopSplit")}
-          options={nodeSettingChoices("logic.loop", "loopSplit")}
-          testId="loop-split-select"
-        />
-        <p className="mt-1.5 text-[11px] leading-5 text-slate-400">
-          It splits whatever arrives into items and runs the steps after it once per item — in
-          order, one at a time. Only &ldquo;Let AI find the items&rdquo; costs an AI call.
-        </p>
-      </Section>
-
-      <Section title="Most rounds" last>
-        <SelectBox
-          value={str("loopMaxRounds", "10")}
-          onChange={set("loopMaxRounds")}
-          options={nodeSettingChoices("logic.loop", "loopMaxRounds")}
-          testId="loop-rounds-select"
-        />
-        <p className="mt-1.5 text-[11px] leading-5 text-slate-400">
-          The ceiling for one run. Every round can cost an AI call, so a pasted spreadsheet can
-          never become a runaway bill.
-        </p>
-      </Section>
-    </>
-  );
-}
-
-/**
- * FILE UPLOAD — the page's door for documents and pictures.
- *
- * Two dials for the architect. What kinds and how big belong to the admin —
- * never asked here, per the SOP's own rule.
- */
-function FileUploadBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const { str, set } = fields(selectedNode, onUpdateNodeData);
-
-  return (
-    <>
-      <Section title="Name">
-        <TextInput value={selectedNode.data.title} onChange={set("title")} placeholder="File Upload" testId="file-upload-name-input" />
-      </Section>
-
-      <Section title="Hint text">
-        <TextInput
-          value={str("placeholder", "Add a file…")}
-          onChange={set("placeholder")}
-          placeholder="Add a file…"
-          maxLength={80}
-          testId="file-upload-hint-input"
-        />
-        <p className="mt-1.5 text-[11px] leading-5 text-slate-400">
-          The words on the upload area before your customer picks a file. Documents are read as
-          words; pictures go to the Brain&apos;s own eyes; videos are refused with a sentence.
-        </p>
-      </Section>
-
-      <Section title="Must attach?" last>
-        <SelectBox
-          value={str("required", "false")}
-          onChange={set("required")}
-          options={[
-            { value: "false", label: "Optional" },
-            { value: "true", label: "Required before Generate" }
-          ]}
-          testId="file-upload-required-select"
-        />
-      </Section>
-    </>
-  );
-}
 
 /**
  * EMAIL RECEIVED — the ear. Nothing to configure, and that is the design:
