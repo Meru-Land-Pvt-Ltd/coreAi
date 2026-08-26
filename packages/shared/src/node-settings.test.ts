@@ -40,7 +40,9 @@ const PERFECTED = [
   "logic.script",
   "ai.image_generation",
   "trigger.manual",
-  "flow.end"
+  "flow.end",
+  "trigger.telegram_message",
+  "action.telegram_send_message"
 ] as const;
 
 describe("the nodes we have finished answer question 5", () => {
@@ -151,7 +153,8 @@ describe("the nodes we have finished answer question 5", () => {
       /* Both resolve live from the install's email recipients, which the
          business fills in setup (resolveEscalationInbox, workflow-runner). */
       "communication.escalate/escalationInbox": "setup email recipients",
-      "communication.approval/approvalInbox": "setup email recipients"
+      "communication.approval/approvalInbox": "setup email recipients",
+      "trigger.telegram_message/telegramConnection": "Telegram section in setup (setup-field-rules: telegram)"
     };
     for (const row of nodeCatalogue()) {
       for (const setting of row.settings.business) {

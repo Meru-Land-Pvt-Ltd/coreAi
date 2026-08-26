@@ -51,7 +51,9 @@ export const SOUL_COVERED_TYPES = [
   "action.send_whatsapp",
   "logic.script",
   "ai.image_generation",
-  "trigger.manual"
+  "trigger.manual",
+  "trigger.telegram_message",
+  "action.telegram_send_message"
 ] as const;
 
 export type SoulPage = {
@@ -558,7 +560,43 @@ WHAT NOT TO BUILD: two triggers on one canvas (two agents); a Face on a
 Timer agent (nobody is there); a Brain asked to sort (that is a Condition);
 a Condition asked to think (that is a Brain); Knowledge asked to remember a
 person (that is Memory); a second Send email "just in case".`
-  }
+  },
+  {
+    slug: "26-telegram-message",
+    nodeType: "trigger.telegram_message",
+    title: "Telegram message — the bot's ear",
+    body: `Wakes the agent when someone messages the business's Telegram bot. The
+business connects their own bot once at setup (a token from @BotFather);
+the architect never touches the token — they write the bot's manner: the
+first greeting, the honest fallback, what wakes it, where it listens.
+
+GIVES the sender's message and chat, so a reply can go back to exactly the
+person who wrote. Use it as THE trigger for a Telegram-first product — a
+support bot, an ordering bot, a booking bot. One trigger per agent, as
+always.
+
+REPLY ON THE CHANNEL THEY ARRIVED ON: a Telegram message is answered by
+Send Telegram, never by email to an address you had to guess. The pair is
+one conversation: this node is the ear, Send Telegram is the mouth.`
+  },
+  {
+    slug: "27-send-telegram",
+    nodeType: "action.telegram_send_message",
+    title: "Send Telegram — the bot's mouth",
+    body: `Sends one message through the business's own bot. By default it answers
+whoever messaged the bot — the right choice almost always. "A chat I name"
+exists for the rare broadcast to a known chat, not for reaching strangers:
+Telegram bots can only message people who messaged them first, which is a
+law of Telegram's, not a setting of ours.
+
+What earlier steps produced flows into the message by itself. Plain text
+is the safe formatting; Markdown and HTML style the message but fail on
+bad syntax — prefer plain unless the architect asked for styling.
+
+Place it where the answer is ready — after the Brain, not before. A Loop
+wired into this hand sends a message per round: the same cannon rule as
+Send email.`
+  },
 ];
 
 /* ------------------------------- the bones ------------------------------- */
@@ -741,5 +779,5 @@ export function builderSoulFiles(): Array<{ name: string; content: string }> {
     },
     ...WISDOM.map((page) => ({ name: `${page.slug}.md`, content: `# ${page.title}\n\n${page.body}\n` })),
     { name: "BONES.md", content: `${soulBones()}\n` }
-  ];
+];
 }

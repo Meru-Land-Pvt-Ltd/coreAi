@@ -2822,6 +2822,11 @@ function isManualTriggerNode(node: { data?: Record<string, unknown>; type?: unkn
   return dataType === "trigger.manual" || dataType === "manual_trigger" || dataType === "manual";
 }
 
+/* BESPOKE BY NECESSITY (Standard #7): the Telegram panel outlives the
+   self-drawing renderer because its bot-connection state is fetched live and
+   its command/keyword sections show and hide by the event type — behaviour a
+   declared row cannot express. Its SETTINGS are still declared on the node
+   (the Standard's paperwork, 2026-08-26); this file only draws them. */
 function TelegramTriggerProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
   const { str, flag, set } = fields(selectedNode, onUpdateNodeData);
 

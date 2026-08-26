@@ -1971,6 +1971,76 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     label: "Telegram message",
     category: "trigger",
     description: "Starts the workflow from a private message, command, callback, contact, media, or location event.",
+    settings: [
+      {
+        key: "telegramWelcomeMessage",
+        name: "First greeting",
+        whatItsFor: "What the bot says when someone opens it. {{business.name}} fills in by itself.",
+        type: "long text",
+        limits: { maxLength: 500 },
+        default: "Hi! You're chatting with {{business.name}}. How can I help?",
+        whoFills: "architect"
+      },
+      {
+        key: "telegramFallbackMessage",
+        name: "When it doesn't understand",
+        whatItsFor: "The honest reply when a message matches nothing — never silence.",
+        type: "long text",
+        limits: { maxLength: 300 },
+        default: "Sorry, I didn't catch that. Send /help to see what I can do.",
+        whoFills: "architect"
+      },
+      {
+        key: "telegramEventType",
+        name: "What wakes it",
+        whatItsFor: "Every message, or only a command like /start.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "message", label: "Every message" },
+            { value: "command", label: "A command (like /help)" },
+            { value: "callback", label: "A button press" },
+            { value: "contact", label: "A shared contact" }
+          ]
+        },
+        default: "message",
+        whoFills: "architect"
+      },
+      {
+        key: "telegramChatAccess",
+        name: "Where it listens",
+        whatItsFor: "Private chats only, or groups too.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "private", label: "Private chats only" },
+            { value: "groups", label: "Groups too" }
+          ]
+        },
+        default: "private",
+        whoFills: "architect"
+      },
+      {
+        key: "telegramBotNameTemplate",
+        name: "The bot's name",
+        whatItsFor: "What the bot calls itself. {{business.name}} fills in per business.",
+        type: "text",
+        limits: { maxLength: 64 },
+        default: "{{business.name}} Assistant",
+        whoFills: "architect"
+      },
+      {
+        /* The business's own side: their bot, connected once at setup — the
+           token never appears on the architect's canvas. */
+        key: "telegramConnection",
+        name: "The business's bot",
+        whatItsFor: "Their own Telegram bot, connected once in setup with the token from @BotFather.",
+        type: "text",
+        limits: {},
+        default: "",
+        whoFills: "business"
+      }
+    ],
     requiredConfig: [
       "telegramBotNameTemplate",
       "telegramBotDescription",
@@ -2047,6 +2117,46 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     label: "Send Telegram",
     category: "action",
     description: "Sends a text message through the installed business bot.",
+    settings: [
+      {
+        key: "telegramMessageText",
+        name: "What to send",
+        whatItsFor: "The message. What earlier steps produced flows in by itself.",
+        type: "long text",
+        limits: { maxLength: 4000, required: true },
+        default: "{{ai.output}}",
+        whoFills: "architect"
+      },
+      {
+        key: "telegramRecipientSource",
+        name: "Who receives it",
+        whatItsFor: "The person who messaged the bot, or a chat you name.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "trigger_chat", label: "Whoever messaged the bot" },
+            { value: "custom", label: "A chat I name" }
+          ]
+        },
+        default: "trigger_chat",
+        whoFills: "architect"
+      },
+      {
+        key: "telegramParseMode",
+        name: "Formatting",
+        whatItsFor: "Plain text is safest; Markdown and HTML style the message and can fail on bad syntax.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "none", label: "Plain text" },
+            { value: "Markdown", label: "Markdown" },
+            { value: "HTML", label: "HTML" }
+          ]
+        },
+        default: "none",
+        whoFills: "architect"
+      }
+    ],
     requiredConfig: ["telegramMessageText"],
     backendExecutable: true,
     launchCritical: false,
