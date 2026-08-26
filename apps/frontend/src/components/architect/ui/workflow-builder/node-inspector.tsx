@@ -214,12 +214,9 @@ export function NodeInspector({
   } else if (type === API_CALL_NODE_TYPE) panel = <ApiCallProps {...base} />;
   else if (type === VOICE_NODE_TYPES.endFlow) panel = <EndFlowProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.promptComposer) panel = <PromptBoxBlockProps {...base} />;
-  else if (type === BLOCK_NODE_TYPES.presetGallery) panel = <StylesGalleryBlockProps {...base} />;
-  else if (type === BLOCK_NODE_TYPES.modelPicker) panel = <ModelPickerBlockProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.actionButton) panel = <DeclaredProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.outputStage) panel = <ResultViewerBlockProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.continueChain) panel = <DeclaredProps {...base} />;
-  else if (type === BLOCK_NODE_TYPES.historyShelf) panel = <HistoryShelfBlockProps {...base} />;
   else if (type === "block.file_upload") panel = <DeclaredProps {...base} />;
   else if (selectedNode.data.nodeKind === "trigger") panel = <TriggerProps {...base} />;
   else if (selectedNode.data.nodeKind === "ai") panel = <AiProps {...base} />;
@@ -2768,195 +2765,7 @@ function PromptBoxBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel)
   );
 }
 
-function StylesGalleryBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const { set } = fields(selectedNode, onUpdateNodeData);
-  const presets: BlockPreset[] = Array.isArray(selectedNode.data.presets)
-    ? (selectedNode.data.presets as BlockPreset[])
-    : [];
 
-  const updatePresets = (next: BlockPreset[]) => onUpdateNodeData("presets", next);
-
-  return (
-    <>
-      <Section title="General">
-        <Label>Section name</Label>
-        <TextInput value={selectedNode.data.title} onChange={set("title")} />
-      </Section>
-
-      <Section title="Style cards" last>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <p className="text-xs leading-5 text-slate-500">
-            Each card is one tap for your customer — an emoji, a name, and your hidden style instructions.
-          </p>
-          <button
-            type="button"
-            onClick={() =>
-              updatePresets([
-                ...presets,
-                { id: newBlockRowId("style"), title: "", emoji: "", promptFragment: "" }
-              ])
-            }
-            disabled={presets.length >= MAX_GALLERY_PRESETS}
-            data-testid="block-preset-add"
-            className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
-          >
-            Add style
-          </button>
-        </div>
-
-        {presets.length ? (
-          <div className="mt-3 space-y-3">
-            {presets.map((preset, index) => {
-              const updatePreset = (patch: Partial<BlockPreset>) => {
-                updatePresets(
-                  presets.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item))
-                );
-              };
-
-              return (
-                <div
-                  key={preset.id}
-                  className="rounded-xl border border-rose-100 bg-white p-3"
-                  data-testid="block-preset-row"
-                >
-                  <div className="flex gap-2">
-                    <div className="w-16 shrink-0">
-                      <Label>Emoji</Label>
-                      <TextInput
-                        value={preset.emoji}
-                        onChange={(value) => updatePreset({ emoji: value.slice(0, 4) })}
-                        placeholder="🎨"
-                        maxLength={4}
-                        testId="block-preset-emoji-input"
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <Label>Style name</Label>
-                      <TextInput
-                        value={preset.title}
-                        onChange={(value) => updatePreset({ title: value })}
-                        placeholder="e.g. Watercolor"
-                        maxLength={BLOCK_TEXT_MAX}
-                        testId="block-preset-title-input"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-3">
-                    <Label>Hidden style instructions (your customer never sees this)</Label>
-                    <TextArea
-                      value={preset.promptFragment}
-                      onChange={(value) => updatePreset({ promptFragment: value })}
-                      height="h-16"
-                      placeholder="e.g. soft watercolor wash, pastel palette, textured paper"
-                      maxLength={BLOCK_TEXT_MAX}
-                      testId="block-preset-instructions-textarea"
-                    />
-                  </div>
-
-                  <div className="mt-2 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => updatePresets(presets.filter((_, itemIndex) => itemIndex !== index))}
-                      data-testid="block-preset-remove"
-                      className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="mt-3 text-xs text-slate-500" data-testid="block-preset-empty">
-            No styles yet. Add up to {MAX_GALLERY_PRESETS}.
-          </p>
-        )}
-
-        <p className="mt-2 text-[11px] leading-5 text-slate-400">
-          Cards need a name to appear on your customer&apos;s page.
-        </p>
-      </Section>
-    </>
-  );
-}
-
-function ModelPickerBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const { set } = fields(selectedNode, onUpdateNodeData);
-  const options: BlockModelOption[] = Array.isArray(selectedNode.data.options)
-    ? (selectedNode.data.options as BlockModelOption[])
-    : [];
-
-  const updateOptions = (next: BlockModelOption[]) => onUpdateNodeData("options", next);
-
-  return (
-    <>
-      <Section title="General">
-        <Label>Section name</Label>
-        <TextInput value={selectedNode.data.title} onChange={set("title")} />
-      </Section>
-
-      <Section title="Choices" last>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <p className="text-xs leading-5 text-slate-500">
-            Your customer picks one of these before they generate.
-          </p>
-          <button
-            type="button"
-            onClick={() => updateOptions([...options, { id: newBlockRowId("model"), label: "" }])}
-            disabled={options.length >= MAX_MODEL_OPTIONS}
-            data-testid="block-model-option-add"
-            className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
-          >
-            Add choice
-          </button>
-        </div>
-
-        {options.length ? (
-          <div className="mt-3 space-y-2">
-            {options.map((option, index) => (
-              <div
-                key={option.id}
-                className="flex items-end gap-2 rounded-xl border border-rose-100 bg-white p-3"
-                data-testid="block-model-option-row"
-              >
-                <div className="min-w-0 flex-1">
-                  <Label>Shown as</Label>
-                  <TextInput
-                    value={option.label}
-                    onChange={(value) =>
-                      updateOptions(
-                        options.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, label: value } : item
-                        )
-                      )
-                    }
-                    placeholder="e.g. Fast & playful"
-                    maxLength={BLOCK_TEXT_MAX}
-                    testId="block-model-option-label-input"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => updateOptions(options.filter((_, itemIndex) => itemIndex !== index))}
-                  data-testid="block-model-option-remove"
-                  className="rounded-lg px-2.5 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-3 text-xs text-slate-500" data-testid="block-model-option-empty">
-            No choices yet. Add up to {MAX_MODEL_OPTIONS}.
-          </p>
-        )}
-      </Section>
-    </>
-  );
-}
 
 const BUTTON_LABEL_MAX = 40;
 
@@ -3005,25 +2814,6 @@ function ResultViewerBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPan
 }
 
 
-function HistoryShelfBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const { set } = fields(selectedNode, onUpdateNodeData);
-
-  return (
-    <>
-      <Section title="General">
-        <Label>Section name</Label>
-        <TextInput value={selectedNode.data.title} onChange={set("title")} />
-      </Section>
-
-      <Section title="History Shelf" last>
-        <p className="text-xs leading-5 text-slate-500" data-testid="block-history-note">
-          Nothing to set up. The shelf automatically collects everything your customer makes during
-          their visit, so they can bring any of it back with a tap.
-        </p>
-      </Section>
-    </>
-  );
-}
 
 /* ----------------- Generic panels for the remaining nodes ----------------- */
 

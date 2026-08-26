@@ -41,7 +41,6 @@ const HAND_WRITTEN_CATALOG: ArchitectNodeCatalogItem[] = [
   { type: "trigger.manual", group: "Triggers", label: "Start here", defaultVisible: true },
   { type: "trigger.schedule", group: "Triggers", label: "Timer", defaultVisible: true },
   { type: "action.start_vapi_call", group: "Actions", label: "Call this person", defaultVisible: true },
-  { type: "tool.node_frame", group: "Actions", label: "New connection", defaultVisible: true },
   { type: "logic.script", group: "Actions", label: "Code", defaultVisible: true },
   { type: "trigger.webhook", group: "Triggers", label: "When another app sends data", defaultVisible: true },
 
@@ -80,7 +79,6 @@ const HAND_WRITTEN_CATALOG: ArchitectNodeCatalogItem[] = [
   { type: "logic.condition", group: "Routing / Logic", label: "Condition", defaultVisible: true },
   { type: "logic.loop", group: "Routing / Logic", label: "Loop", defaultVisible: true },
   { type: "action.human_handoff", group: "Routing / Logic", label: "Transfer to staff", defaultVisible: false },
-  { type: "flow.end", group: "Routing / Logic", label: "End", defaultVisible: true },
 
   /* ---- What the customer sees. ----
      These are on the builder palette under "Face" and always have been, and
@@ -92,10 +90,6 @@ const HAND_WRITTEN_CATALOG: ArchitectNodeCatalogItem[] = [
   { type: "block.prompt_composer", group: "Face", label: "Prompt Box", defaultVisible: true },
   { type: "block.file_upload", group: "Face", label: "File Upload", defaultVisible: true },
   { type: "block.output_stage", group: "Face", label: "Result Viewer", defaultVisible: true },
-  { type: "block.history_shelf", group: "Face", label: "History Shelf", defaultVisible: true },
-  { type: "block.action_button", group: "Face", label: "Button", defaultVisible: true },
-  { type: "block.continue_chain", group: "Face", label: "Continue Button", defaultVisible: true },
-  { type: "block.model_picker", group: "Face", label: "Model Picker", defaultVisible: true },
   { type: "block.preset_gallery", group: "Face", label: "Styles Gallery", defaultVisible: true },
 
   /* On the palette, and missing from here for the same reason. */

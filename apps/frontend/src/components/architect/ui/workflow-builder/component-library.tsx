@@ -14,6 +14,7 @@ import {
   type ArchitectBuilderNodePresentation
 } from "@/components/architect/features/api";
 import { libraryGroups, libraryItemType } from "./library";
+import { isParkedNodeType } from "@coreai/shared";
 import { SidebarNodeCard } from "./card/sidebar-node-card";
 import type { BuilderNodeData, LibraryGroup, LibraryItem, NodeAccent, NodeKind } from "./types";
 
@@ -30,61 +31,7 @@ type FaceTemplateCard = {
   iconClasses: string;
 };
 
-/**
- * "Start with a Face" — one tap imports a fully wired, working product via the
- * same template mechanism as the Dental/Receptionist cards (slug → import).
- * Only faces whose runtime fully works today get a live card.
- */
-const FACE_TEMPLATE_CARDS: FaceTemplateCard[] = [
-  {
-    slug: "chatbot",
-    title: "Chatbot",
-    promise: "A ChatGPT-style product with your knowledge",
-    Icon: MessageCircle,
-    cardClasses: "border-emerald-300 bg-emerald-50 hover:border-emerald-400",
-    iconClasses: "text-emerald-600"
-  },
-  {
-    slug: "voice-agent",
-    title: "Voice Agent",
-    promise: "Answers the phone, chats, and books appointments",
-    Icon: Phone,
-    cardClasses: "border-violet-300 bg-violet-50 hover:border-violet-400",
-    iconClasses: "text-violet-600"
-  },
-  {
-    slug: "image-studio",
-    title: "Image Studio",
-    promise: "Describe it, pick a style, get a picture",
-    Icon: ImageIcon,
-    cardClasses: "border-sky-300 bg-sky-50 hover:border-sky-400",
-    iconClasses: "text-sky-600"
-  },
-  {
-    slug: "form-tool",
-    title: "Form Tool",
-    promise: "Turns a short request into a finished report",
-    Icon: FileText,
-    cardClasses: "border-amber-300 bg-amber-50 hover:border-amber-400",
-    iconClasses: "text-amber-600"
-  }
-];
 
-/** No working engine yet — honest "Coming soon" cards with no click action. */
-const FACE_COMING_SOON_CARDS: Array<Pick<FaceTemplateCard, "slug" | "title" | "promise" | "Icon">> = [
-  {
-    slug: "video-studio",
-    title: "Video Studio",
-    promise: "Clips made from a written idea",
-    Icon: Clapperboard
-  },
-  {
-    slug: "monitor",
-    title: "Monitor",
-    promise: "Watches things for you and reports back",
-    Icon: Activity
-  }
-];
 
 /**
  * Turn each connector's own declaration into a card in the Hands group.
@@ -175,9 +122,31 @@ function applyAdminPresentation(
   }
 
   const extra = [...buckets.keys()].filter((title) => !ARCHITECT_NODE_GROUP_ORDER.includes(title));
-  return [...ARCHITECT_NODE_GROUP_ORDER, ...extra]
+  const groupsOut = [...ARCHITECT_NODE_GROUP_ORDER, ...extra]
     .filter((title) => (buckets.get(title)?.length ?? 0) > 0)
     .map((title) => ({ title, subtitle: subtitles.get(title), items: buckets.get(title) ?? [] }));
+
+  /* THE PARKED SHELF (the founder's ruling, 2026-08-26): sleepers do not sit
+     between working cards — they gather on one grey shelf at the bottom, so
+     the working shelves read clean and the parked read honest. */
+  const parked: LibraryItem[] = [];
+  const working = groupsOut
+    .map((group) => {
+      const keep = group.items.filter((item) => {
+        const type = libraryItemType(item);
+        if (type && isParkedNodeType(type)) {
+          parked.push(item);
+          return false;
+        }
+        return true;
+      });
+      return { ...group, items: keep };
+    })
+    .filter((group) => group.items.length > 0);
+
+  return parked.length > 0
+    ? [...working, { title: "Parked", subtitle: "Asleep, not gone — each says why", items: parked }]
+    : working;
 }
 
 export function ComponentLibrary({
@@ -280,102 +249,10 @@ export function ComponentLibrary({
           ))}
         </div>
 
-        {/* The founder's order (2026-08-26): templates live BELOW the nodes —
-            the palette leads with the pieces, the ready-made faces close it. */}
-        {/* One set: the two existing industry cards stay first and unchanged,
-            the generic faces follow, coming-soon faces close the list. */}
-        <p
-          className="mb-0.5 text-xs font-bold uppercase tracking-wider text-slate-400"
-          data-testid="face-template-section-title"
-        >
-          Start with a Face
-        </p>
-        <p className="mb-2 text-[11px] text-slate-500" data-testid="face-template-section-subtitle">
-          One tap builds a working product you can restyle
-        </p>
-        {/* The founder's order (2026-08-26): the faces wear the same square
-            card as every node, two to a row — a wall of wide rectangles at
-            the end of the palette pulled the eye away from the work. */}
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => onUseTemplate("dental-ai-receptionist")}
-            data-testid="library-template-ai-receptionist"
-            className="h-[78px] w-full overflow-hidden rounded-2xl border border-violet-200 bg-violet-50 px-3 py-2.5 text-left transition hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
-          >
-            <span className="flex h-full w-full flex-col justify-center gap-2">
-              <span className="flex items-center gap-1.5">
-                <Sparkles className="h-5 w-5 shrink-0 text-violet-600" aria-hidden="true" />
-                <span className="inline-flex h-[18px] items-center rounded-full bg-neutral-900 px-2 text-[9px] font-bold uppercase tracking-wide text-white">
-                  Latest
-                </span>
-              </span>
-              <span
-                className="block truncate text-[12px] font-bold leading-5 text-violet-900"
-                data-testid="architect-ui-workflow-builder-component-library-dental-text"
-              >
-                Dental Receptionist
-              </span>
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onUseTemplate("missed-call-text-back")}
-            data-testid="library-template-missed-call"
-            className="h-[78px] w-full overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-left transition hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
-          >
-            <span className="flex h-full w-full flex-col justify-center gap-2">
-              <Phone className="h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
-              <span
-                className="block truncate text-[12px] font-bold leading-5 text-amber-900"
-                data-testid="architect-ui-workflow-builder-component-library-missed-call-text"
-              >
-                AI Receptionist
-              </span>
-            </span>
-          </button>
-
-          {FACE_TEMPLATE_CARDS.map((card) => (
-            <button
-              key={card.slug}
-              type="button"
-              onClick={() => onUseTemplate(card.slug)}
-              data-testid={`face-template-${card.slug}`}
-              title={`${card.title} — ${card.promise}`}
-              className={`h-[78px] w-full overflow-hidden rounded-2xl border px-3 py-2.5 text-left transition hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] ${card.cardClasses}`}
-            >
-              <span className="flex h-full w-full flex-col justify-center gap-2">
-                <card.Icon className={`h-5 w-5 shrink-0 ${card.iconClasses}`} aria-hidden="true" />
-                <span className="block truncate text-[12px] font-bold leading-5 text-slate-800">
-                  {card.title}
-                </span>
-              </span>
-            </button>
-          ))}
-
-          {FACE_COMING_SOON_CARDS.map((card) => (
-            <div
-              key={card.slug}
-              aria-disabled="true"
-              data-testid={`face-template-${card.slug}`}
-              title={`${card.title} — coming soon`}
-              className="h-[78px] w-full cursor-not-allowed select-none overflow-hidden rounded-2xl bg-slate-100 px-3 py-2.5 text-left opacity-80 grayscale"
-            >
-              <span className="flex h-full w-full flex-col justify-center gap-2">
-                <span className="flex items-center gap-1.5">
-                  <card.Icon className="h-5 w-5 shrink-0 text-slate-400" aria-hidden="true" />
-                  <span className="inline-flex h-[18px] items-center rounded-md bg-slate-200 px-2 text-[9px] font-bold uppercase tracking-wide text-slate-500">
-                    Soon
-                  </span>
-                </span>
-                <span className="block truncate text-[12px] font-bold leading-5 text-slate-500">
-                  {card.title}
-                </span>
-              </span>
-            </div>
-          ))}
-        </div>
+        {/* The ready-made faces are gone (the founder's ruling, 2026-08-26):
+            templates were training wheels from before the book — the Builder
+            generates products on demand now, and a shelf of pre-built faces
+            taught assembly in a palette whose law is generation. */}
 
         {/* Coming Soon nodes and their section are intentionally hidden. */}
       </div>

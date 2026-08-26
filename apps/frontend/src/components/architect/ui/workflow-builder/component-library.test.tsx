@@ -1,38 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import {
-  API_CALL_NODE_TYPE,
-  BLOCK_NODE_TYPES,
-  CALENDLY_NODE_TYPES,
-  DEEPGRAM_NODE_TYPES,
-  OUTBOUND_CALL_NODE_TYPE,
-  SCHEDULE_NODE_TYPE,
-  CALL_LIST_NODE_TYPE,
-  NODE_FRAME_NODE_TYPE,
-  SCRIPT_NODE_TYPE,
-  TELEGRAM_NODE_TYPES,
-  VOICE_NODE_TYPES,
-  WEBHOOK_NODE_TYPE
-} from "@coreai/shared";
+import { DELETED_NODE_TYPES, isParkedNodeType } from "@coreai/shared";
 import { ComponentLibrary } from "./component-library";
 import { libraryGroups } from "./library";
 
 /**
- * Face/Brain/Hands regroup + "Start with a Face" templates.
+ * THE PALETTE AFTER THE FOUNDER'S RULING (2026-08-26).
  *
- * The palette is exactly three groups with plain-English subtitles, every
- * pre-regroup item survives with its testId, the four live face templates
- * import via the same slug mechanism as the Dental card, and the two
- * engine-less faces (Video Studio, Monitor) are honest disabled cards.
+ * The golden law's blade, applied card by card in one sitting: if the
+ * Builder can generate it, it is not a card; if it carries no data, it is
+ * decoration; if it cannot earn today, it parks. So the palette holds only
+ * data doors and real powers, the sleepers gather on one grey PARKED shelf
+ * at the bottom, and the ready-made templates — training wheels from before
+ * the book — are gone: the Builder generates products on demand.
  */
 
 afterEach(cleanup);
-
-/** Registry testId for a node type (mirrors node-registry's slug()). */
-function tid(type: string): string {
-  return `node-${type.replace(/[._]/g, "-")}`;
-}
 
 function renderLibrary(overrides: Partial<Parameters<typeof ComponentLibrary>[0]> = {}) {
   const onUseTemplate = vi.fn();
@@ -49,158 +32,53 @@ function renderLibrary(overrides: Partial<Parameters<typeof ComponentLibrary>[0]
   return { onUseTemplate, onAddNode };
 }
 
-describe("library groups (Face / Brain / Hands)", () => {
-  it("has exactly three groups with the founder's titles and subtitles", () => {
+describe("the palette after the ruling", () => {
+  it("has exactly three working groups with the founder's titles", () => {
     expect(libraryGroups.map((group) => group.title)).toEqual(["Face", "Brain", "Hands"]);
-    expect(libraryGroups.map((group) => group.subtitle)).toEqual([
-      "What your customer sees",
-      "How it thinks",
-      "How it acts in the world"
-    ]);
   });
 
-
-  it("parked cards stay visible, carry their reason, and the composer never sees them", () => {
-    const items = libraryGroups.flatMap((group) => group.items);
-    const parked = items.filter((item) => item.parked);
-    // The founder's grey-out: eleven era leftovers, visible but untouchable.
-    expect(parked).toHaveLength(11);
-    for (const item of parked) expect((item.parked ?? "").length).toBeGreaterThan(10);
-  });
-
-  it("keeps every pre-regroup item plus API Call, Timer, Webhook, the outbound call, the call list, the Node Frame, Code, the Loop, File Upload, Email received, Knowledge, Escalate and Approval, minus the merged calendar card (42 total)", () => {
-    const testIds = libraryGroups.flatMap((group) => group.items.map((item) => item.testId));
-    // The three ways IN (timer, webhook, call list) and the outbound call node
-    // joined the Hands group; the old Design Brain card left with the Smart
-    // Designer. The Code card left with the unsandboxed runner behind it and has
-    // now come back, because there is finally a container to run it in.
-    expect(testIds).toHaveLength(42);
-
-    // Face: all block.* — the old Design Brain card is retired (the Smart
-    // Designer generates and fixes the interface now).
-    const faceIds = libraryGroups[0].items.map((item) => item.testId);
-    expect(faceIds).toEqual([
-      tid(BLOCK_NODE_TYPES.promptComposer),
-      tid("block.file_upload"),
-      tid(BLOCK_NODE_TYPES.presetGallery),
-      tid(BLOCK_NODE_TYPES.modelPicker),
-      tid(BLOCK_NODE_TYPES.actionButton),
-      tid(BLOCK_NODE_TYPES.outputStage),
-      tid(BLOCK_NODE_TYPES.continueChain),
-      tid(BLOCK_NODE_TYPES.historyShelf)
-    ]);
-
-    // Brain: AI items + the business-hours rule check
-    const brainIds = libraryGroups[1].items.map((item) => item.testId);
-    expect(brainIds).toEqual([
-      tid(VOICE_NODE_TYPES.voiceConversation),
-      tid("ai.context_reply"),
-      tid("ai.memory"),
-      tid("ai.knowledge"),
-      tid("ai.image_generation"),
-      tid(DEEPGRAM_NODE_TYPES.stt),
-      tid(DEEPGRAM_NODE_TYPES.tts),
-      "library-ai-llm-call",
-      tid("logic.condition"),
-      tid("logic.loop")
-    ]);
-
-    // Hands: listen-items first, then act-items
-    const handIds = libraryGroups[2].items.map((item) => item.testId);
-    expect(handIds).toEqual([
-      tid(VOICE_NODE_TYPES.phoneCallTrigger),
-      tid(TELEGRAM_NODE_TYPES.trigger),
-      tid("trigger.email_received"),
-      tid("trigger.twilio_inbound_sms"),
-      tid("trigger.twilio_missed_call"),
-      tid("trigger.whatsapp_message_received"),
-      tid(CALENDLY_NODE_TYPES.trigger),
-      tid(SCHEDULE_NODE_TYPE),
-      tid(WEBHOOK_NODE_TYPE),
-      tid("trigger.manual"),
-      tid(CALL_LIST_NODE_TYPE),
-      tid(VOICE_NODE_TYPES.calendarAvailability),
-      tid(CALENDLY_NODE_TYPES.action),
-      tid(VOICE_NODE_TYPES.sendEmail),
-      tid("communication.escalate"),
-      tid("communication.approval"),
-      tid(VOICE_NODE_TYPES.sendSms),
-      tid(OUTBOUND_CALL_NODE_TYPE),
-      tid("action.send_whatsapp"),
-      tid(TELEGRAM_NODE_TYPES.sendMessage),
-      tid(API_CALL_NODE_TYPE),
-      // The Node Frame: not a step that does something, a step that BECOMES
-      // something once the architect describes a service we have no card for.
-      tid(NODE_FRAME_NODE_TYPE),
-      // Code runs nowhere near this process — see apps/sandbox/README.md.
-      tid(SCRIPT_NODE_TYPE),
-      tid(VOICE_NODE_TYPES.endFlow)
-    ]);
-  });
-
-  it("renders the three group titles with subtitles underneath", () => {
-    renderLibrary();
-    const titles = screen
-      .getAllByTestId("architect-ui-workflow-builder-component-library-group-title-text")
-      .map((el) => el.textContent);
-    expect(titles).toEqual(["Face", "Brain", "Hands"]);
-
-    const subtitles = screen
-      .getAllByTestId("architect-ui-workflow-builder-component-library-group-subtitle-text")
-      .map((el) => el.textContent);
-    expect(subtitles).toEqual(["What your customer sees", "How it thinks", "How it acts in the world"]);
-  });
-
-  it("renders every palette item card", () => {
-    renderLibrary();
-    for (const group of libraryGroups) {
-      for (const item of group.items) {
-        expect(item.testId).toBeTruthy();
-        expect(screen.getByTestId(item.testId as string)).toBeTruthy();
-      }
+  it("holds no deleted card — the blade fell once and stays fallen", () => {
+    const types = libraryGroups
+      .flatMap((group) => group.items)
+      .map((item) => String(item.overrides?.type ?? ""));
+    for (const deleted of Object.keys(DELETED_NODE_TYPES)) {
+      expect(types, `${deleted} was deleted from the palette and must not return`).not.toContain(deleted);
     }
   });
-});
 
-describe("Start with a Face templates", () => {
-  it("renders the section heading above the groups", () => {
-    renderLibrary();
-    expect(screen.getByTestId("face-template-section-title").textContent).toBe("Start with a Face");
-    expect(screen.getByTestId("face-template-section-subtitle").textContent).toBe(
-      "One tap builds a working product you can restyle"
+  it("the Face group holds only the three data doors", () => {
+    // Words in, files in, the answer out. Decoration is generated, never carded.
+    const face = libraryGroups.find((group) => group.title === "Face");
+    const types = (face?.items ?? []).map((item) => String(item.overrides?.type ?? ""));
+    expect(types.sort()).toEqual(
+      ["block.file_upload", "block.output_stage", "block.prompt_composer"].sort()
     );
   });
 
-  it.each([
-    ["face-template-chatbot", "chatbot"],
-    ["face-template-voice-agent", "voice-agent"],
-    ["face-template-image-studio", "image-studio"],
-    ["face-template-form-tool", "form-tool"]
-  ])("%s imports the %s template on click", async (testId, slug) => {
-    const { onUseTemplate } = renderLibrary();
-    await userEvent.click(screen.getByTestId(testId));
-    expect(onUseTemplate).toHaveBeenCalledTimes(1);
-    expect(onUseTemplate).toHaveBeenCalledWith(slug);
-  });
-
-  it("keeps the two existing template cards working with their testIds", async () => {
-    const { onUseTemplate } = renderLibrary();
-    await userEvent.click(screen.getByTestId("library-template-ai-receptionist"));
-    expect(onUseTemplate).toHaveBeenLastCalledWith("dental-ai-receptionist");
-    await userEvent.click(screen.getByTestId("library-template-missed-call"));
-    expect(onUseTemplate).toHaveBeenLastCalledWith("missed-call-text-back");
-  });
-
-  it.each([["face-template-video-studio"], ["face-template-monitor"]])(
-    "%s is a disabled coming-soon card with no click action",
-    async (testId) => {
-      const { onUseTemplate } = renderLibrary();
-      const card = screen.getByTestId(testId);
-      expect(card.tagName).not.toBe("BUTTON");
-      expect(card.getAttribute("aria-disabled")).toBe("true");
-      expect(card.textContent?.toLowerCase()).toContain("soon");
-      await userEvent.click(card);
-      expect(onUseTemplate).not.toHaveBeenCalled();
+  it("every parked card carries its reason", () => {
+    const parked = libraryGroups.flatMap((group) => group.items).filter((item) => item.parked);
+    expect(parked.length).toBeGreaterThanOrEqual(11);
+    for (const item of parked) {
+      expect((item.parked ?? "").length).toBeGreaterThan(10);
+      const type = String(item.overrides?.type ?? "");
+      expect(isParkedNodeType(type), `${type} is drawn parked but the registry disagrees`).toBe(true);
     }
-  );
+  });
+
+  it("renders the PARKED shelf once, at the bottom, holding every sleeper", () => {
+    renderLibrary();
+    const headings = screen
+      .getAllByTestId("architect-ui-workflow-builder-component-library-group-title", { exact: false })
+      .map((el) => el.textContent);
+    expect(headings[headings.length - 1]).toBe("Parked");
+    expect(headings.filter((title) => title === "Parked")).toHaveLength(1);
+  });
+
+  it("shows no template section — the Builder generates products on demand", () => {
+    renderLibrary();
+    expect(screen.queryByTestId("face-template-section-title")).toBeNull();
+    expect(screen.queryByTestId("library-template-ai-receptionist")).toBeNull();
+    expect(screen.queryByTestId("library-template-missed-call")).toBeNull();
+    expect(screen.queryByTestId("face-template-chatbot")).toBeNull();
+  });
 });

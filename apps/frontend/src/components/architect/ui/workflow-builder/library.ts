@@ -3,7 +3,6 @@ import {
   PARKED_NODE_TYPES,
   API_CALL_NODE_TYPE,
   CALL_LIST_NODE_TYPE,
-  NODE_FRAME_NODE_TYPE,
   SCRIPT_NODE_TYPE,
   BLOCK_NODE_TYPES,
   CALENDLY_NODE_TYPES,
@@ -64,12 +63,7 @@ export const libraryGroups: LibraryGroup[] = [
          registry type and the runner's clean skip for it are untouched. */
       paletteItem(BLOCK_NODE_TYPES.promptComposer, { icon: "edit", accent: "rose", kind: "PRODUCT" }),
       { ...paletteItem("block.file_upload", { icon: "file", accent: "rose", kind: "PRODUCT" }), badge: "NEW" },
-      paletteItem(BLOCK_NODE_TYPES.presetGallery, { icon: "gallery", accent: "rose", kind: "PRODUCT" }),
-      paletteItem(BLOCK_NODE_TYPES.modelPicker, { icon: "sliders", accent: "rose", kind: "PRODUCT" }),
-      paletteItem(BLOCK_NODE_TYPES.actionButton, { icon: "pointer-click", accent: "rose", kind: "PRODUCT" }),
       paletteItem(BLOCK_NODE_TYPES.outputStage, { icon: "eye", accent: "rose", kind: "PRODUCT" }),
-      paletteItem(BLOCK_NODE_TYPES.continueChain, { icon: "arrow-right", accent: "rose", kind: "PRODUCT" }),
-      paletteItem(BLOCK_NODE_TYPES.historyShelf, { icon: "clock", accent: "rose", kind: "PRODUCT" })
     ]
   },
   {
@@ -178,13 +172,6 @@ export const libraryGroups: LibraryGroup[] = [
         badge: "NEW"
       },
       {
-        /* The Node Frame. Not a step that does something itself — a step that
-           BECOMES something, by describing a service we do not have a card for
-           yet. What comes out of it is a node in this architect's own toolkit. */
-        ...paletteItem(NODE_FRAME_NODE_TYPE, { icon: "wand", accent: "violet", kind: "NEW CONNECTION" }),
-        badge: "NEW"
-      },
-      {
         /* The Code step, back on the palette.
            It was taken off with a note saying it could return when it ran
            somewhere with no network and no filesystem. It now runs in a
@@ -193,17 +180,6 @@ export const libraryGroups: LibraryGroup[] = [
         ...paletteItem(SCRIPT_NODE_TYPE, { icon: "code", accent: "slate", kind: "CODE" }),
         badge: "NEW"
       },
-      /* The Code node is deliberately NOT here.
-         It shipped with a JavaScript/Python editor and a NEW badge, and the
-         function that would run the code was never called from anywhere — a
-         dropped Code node ran a business-hours check and reported a green
-         success. Running an architect's arbitrary code in our own process is
-         also the single most dangerous thing this platform could offer: it is
-         remote code execution on the machine that holds every business's
-         credentials. It comes back when it can run inside a real sandbox with
-         no network and no filesystem, and not before. Nothing fake stays on
-         the palette. */
-      paletteItem(VOICE_NODE_TYPES.endFlow, { icon: "capture", accent: "slate" })
     ]
   },
 ];

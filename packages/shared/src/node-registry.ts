@@ -1682,9 +1682,32 @@ export const PARKED_NODE_TYPES: Record<string, string> = {
   "trigger.twilio_inbound_sms": "Parked — SMS awaits carrier registration.",
   "ai.voice_conversation": "A whole product, not a node — it lives in templates.",
   "ai.context_reply": "Folds into the AI Brain.",
-  "flow.end": "Parked with the voice era — old agents keep it; new ones end with a Viewer or a Hand.",
-  "tool.node_frame": "Folded into Create Node — press 'Keep this service as a card' there."
+  /* The founder's palette ruling, 2026-08-26. */
+  "ai.image_generation": "Parked until an image key is added — a card that cannot run is a lie on the shelf.",
+  "trigger.call_list": "Parked until calling is done properly — dial systems carry real law."
 };
+
+/**
+ * DELETED FROM THE PALETTE (the founder's ruling, 2026-08-26).
+ *
+ * The golden law's blade: if the Builder can generate it, it is not a card;
+ * if it carries no data, it is decoration. The definitions stay in the
+ * registry so a canvas saved last month still renders — but no architect can
+ * place one again, no palette shows one, and the Builder is not taught them.
+ */
+export const DELETED_NODE_TYPES: Record<string, string> = {
+  "block.styles_gallery": "Decoration — the Builder generates style choices when a product needs them.",
+  "block.model_picker": "Customers never pick engines — the model is admin-fixed.",
+  "block.action_button": "The Builder generates buttons — one card per UI piece is the monster.",
+  "block.continue_chain": "A button is a button.",
+  "block.history_shelf": "The Builder generates a history view when a chat product needs one.",
+  "flow.end": "A flow ends where its last step ends.",
+  "tool.node_frame": "Folded into Create Node."
+};
+
+export function isDeletedNodeType(type: string): boolean {
+  return type in DELETED_NODE_TYPES;
+}
 
 export function isParkedNodeType(type: string): boolean {
   return type in PARKED_NODE_TYPES;

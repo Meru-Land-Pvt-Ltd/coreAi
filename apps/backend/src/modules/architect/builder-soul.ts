@@ -47,13 +47,11 @@ export const SOUL_COVERED_TYPES = [
   "action.calendly",
   "trigger.webhook",
   "action.api_call",
-  "tool.node_frame",
   "trigger.whatsapp_message_received",
   "action.send_whatsapp",
   "logic.script",
   "ai.image_generation",
-  "trigger.manual",
-  "flow.end"
+  "trigger.manual"
 ] as const;
 
 export type SoulPage = {
@@ -459,25 +457,6 @@ card exists — and when the service will be used again and again, press
 CUSTOM NODES shelf — the architect's fifth section, theirs alone.`
   },
   {
-    slug: "17b-node-frame",
-    nodeType: "tool.node_frame",
-    title: "New connection — the form a service fills in",
-    body: `(Reached from Create Node — press "Keep this service as a
-card". The standalone card is parked; the form is the same.)
-
-Not a step that does something — a step that BECOMES something. The
-architect describes a service Triven has no card for (where it lives, what
-key it needs, what it takes, what it gives back), and the description
-becomes a real card in their own toolkit, run by the one connector engine
-with its retries, its spending ceiling and its honesty checks already
-attached.
-
-An unfilled frame refuses honestly at run time — it never pretends. Use it
-when a service will be used more than once; use Create Node plain for a
-one-off call. Keys typed into a frame are stored encrypted and never shown
-again — the two security guards every frame is born with.`
-  },
-  {
     slug: "18-whatsapp-ear",
     nodeType: "trigger.whatsapp_message_received",
     title: "WhatsApp received — the second ear",
@@ -548,16 +527,6 @@ Use it for inside tools and quick products where a person starts the work by
 hand. When the customer should have a proper page, give the agent a Face
 (Prompt Box + Result Viewer) instead; when the world should start it, use
 the ear, the Timer, or the webhook.`
-  },
-  {
-    slug: "22-end",
-    nodeType: "flow.end",
-    title: "End — the goodbye",
-    body: `Closes the flow with the architect's goodbye sentence. It gives nothing
-onward — it is the full stop, not a step. Most agents do not need it: a
-Result Viewer ends a Face product, and a Hand ends a self-starting one. Use
-End when a conversation-shaped flow deserves an explicit last word, and
-keep the goodbye short — nobody rereads a farewell.`
   },
   {
     slug: "99-combinations",
