@@ -198,7 +198,7 @@ describe("Start with a Face templates", () => {
       const card = screen.getByTestId(testId);
       expect(card.tagName).not.toBe("BUTTON");
       expect(card.getAttribute("aria-disabled")).toBe("true");
-      expect(card.textContent).toContain("Coming soon");
+      expect(card.textContent?.toLowerCase()).toContain("soon");
       await userEvent.click(card);
       expect(onUseTemplate).not.toHaveBeenCalled();
     }

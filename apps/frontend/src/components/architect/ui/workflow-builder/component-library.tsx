@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Clapperboard, FileText, Image as ImageIcon, MessageCircle, Phone } from "lucide-react";
+import { Activity, Clapperboard, FileText, Image as ImageIcon, MessageCircle, Phone, Sparkles } from "lucide-react";
 import {
   ARCHITECT_NODE_GROUP_ORDER,
   defaultArchitectNodePresentation,
@@ -119,21 +119,18 @@ function withConnectors(groups: LibraryGroup[], connectors: ArchitectBuilderConn
     }
   });
 
-  /* The founder's fifth shelf (2026-08-26): cards born from Create Node do
-     not mix into the Elements groups — they are the architect's OWN, and the
-     palette says so with a home of their own. Platform service cards stay in
-     Hands, where they always lived. */
-  const platformItems = connectors.filter((connector) => !connector.mine).map(toItem);
-  const customItems = connectors
-    .filter((connector) => connector.mine)
-    .map((connector) => ({ ...toItem(connector), deletableFrameId: connector.id }));
-
-  const withPlatform = groups.map((group) =>
-    group.title === "Hands" ? { ...group, items: [...group.items, ...platformItems] } : group
+  /* THE FIFTH SHELF (founder, 2026-08-26). Every card that reaches an outside
+     service — Apollo and Instantly as much as the ones an architect built
+     this morning — is the same species: a described connection, not one of
+     the four Elements. They all live here together, and only the
+     architect's own carry a delete. */
+  const items: LibraryItem[] = connectors.map((connector) =>
+    connector.mine ? { ...toItem(connector), deletableFrameId: connector.id } : toItem(connector)
   );
-  return customItems.length > 0
-    ? [...withPlatform, { title: "Custom nodes", subtitle: "Made with Create Node — yours alone", items: customItems }]
-    : withPlatform;
+
+  return items.length > 0
+    ? [...groups, { title: "Custom nodes", subtitle: "Connections to outside services", items }]
+    : groups;
 }
 
 function applyAdminPresentation(
@@ -296,64 +293,89 @@ export function ComponentLibrary({
         <p className="mb-2 text-[11px] text-slate-500" data-testid="face-template-section-subtitle">
           One tap builds a working product you can restyle
         </p>
-        <button
-          type="button"
-          onClick={() => onUseTemplate("dental-ai-receptionist")}
-          data-testid="library-template-ai-receptionist"
-          className="mb-3 w-full rounded-xl border-2 border-violet-300 bg-violet-50 px-3 py-2 text-left transition hover:border-violet-400"
-        >
-          <span className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-            <span className="block min-w-0 text-xs font-semibold text-slate-900" data-testid="architect-ui-workflow-builder-component-library-dental-text">Dental AI Receptionist</span>
-            <span className="inline-flex h-5.5 shrink-0 items-center rounded-md bg-violet-600 px-2.5 text-[11px] font-semibold text-white" data-testid="architect-ui-workflow-builder-component-library-dental-badge rounded-md">Recommended · Latest</span>
-          </span>
-          <span className="mt-0.5 block text-[11px] leading-snug text-slate-500" data-testid="architect-ui-workflow-builder-component-library-dental-helper-text">6 voice steps: call → AI → calendar → book → SMS → end</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => onUseTemplate("missed-call-text-back")}
-          data-testid="library-template-missed-call"
-          className="mb-3 w-full rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-2 text-left transition hover:border-amber-400"
-        >
-          <span className="block text-xs font-semibold text-slate-900" data-testid="architect-ui-workflow-builder-component-library-missed-call-text">AI Receptionist Template</span>
-          <span className="mt-0.5 block text-[11px] text-slate-500" data-testid="architect-ui-workflow-builder-component-library-load-exact-flow-text">Import the 3-step flow</span>
-        </button>
-
-        {FACE_TEMPLATE_CARDS.map((card) => (
+        {/* The founder's order (2026-08-26): the faces wear the same square
+            card as every node, two to a row — a wall of wide rectangles at
+            the end of the palette pulled the eye away from the work. */}
+        <div className="grid grid-cols-2 gap-2">
           <button
-            key={card.slug}
             type="button"
-            onClick={() => onUseTemplate(card.slug)}
-            data-testid={`face-template-${card.slug}`}
-            className={`mb-3 w-full rounded-xl border-2 px-3 py-2 text-left transition ${card.cardClasses}`}
+            onClick={() => onUseTemplate("dental-ai-receptionist")}
+            data-testid="library-template-ai-receptionist"
+            className="h-[78px] w-full overflow-hidden rounded-2xl border border-violet-200 bg-violet-50 px-3 py-2.5 text-left transition hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
           >
-            <span className="flex min-w-0 items-center gap-2">
-              <card.Icon className={`h-4 w-4 shrink-0 ${card.iconClasses}`} aria-hidden="true" />
-              <span className="block min-w-0 text-xs font-semibold text-slate-900">{card.title}</span>
+            <span className="flex h-full w-full flex-col justify-center gap-2">
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="h-5 w-5 shrink-0 text-violet-600" aria-hidden="true" />
+                <span className="inline-flex h-[18px] items-center rounded-full bg-neutral-900 px-2 text-[9px] font-bold uppercase tracking-wide text-white">
+                  Latest
+                </span>
+              </span>
+              <span
+                className="block truncate text-[12px] font-bold leading-5 text-violet-900"
+                data-testid="architect-ui-workflow-builder-component-library-dental-text"
+              >
+                Dental Receptionist
+              </span>
             </span>
-            <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">{card.promise}</span>
           </button>
-        ))}
 
-        {FACE_COMING_SOON_CARDS.map((card) => (
-          <div
-            key={card.slug}
-            aria-disabled="true"
-            data-testid={`face-template-${card.slug}`}
-            className="mb-3 w-full cursor-default select-none rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-left opacity-70"
+          <button
+            type="button"
+            onClick={() => onUseTemplate("missed-call-text-back")}
+            data-testid="library-template-missed-call"
+            className="h-[78px] w-full overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-left transition hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
           >
-            <span className="flex min-w-0 items-center justify-between gap-2">
-              <span className="flex min-w-0 items-center gap-2">
-                <card.Icon className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
-                <span className="block min-w-0 text-xs font-semibold text-slate-500">{card.title}</span>
-              </span>
-              <span className="inline-flex shrink-0 items-center rounded-md bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                Coming soon
+            <span className="flex h-full w-full flex-col justify-center gap-2">
+              <Phone className="h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
+              <span
+                className="block truncate text-[12px] font-bold leading-5 text-amber-900"
+                data-testid="architect-ui-workflow-builder-component-library-missed-call-text"
+              >
+                AI Receptionist
               </span>
             </span>
-            <span className="mt-0.5 block text-[11px] leading-snug text-slate-400">{card.promise}</span>
-          </div>
-        ))}
+          </button>
 
+          {FACE_TEMPLATE_CARDS.map((card) => (
+            <button
+              key={card.slug}
+              type="button"
+              onClick={() => onUseTemplate(card.slug)}
+              data-testid={`face-template-${card.slug}`}
+              title={`${card.title} — ${card.promise}`}
+              className={`h-[78px] w-full overflow-hidden rounded-2xl border px-3 py-2.5 text-left transition hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] ${card.cardClasses}`}
+            >
+              <span className="flex h-full w-full flex-col justify-center gap-2">
+                <card.Icon className={`h-5 w-5 shrink-0 ${card.iconClasses}`} aria-hidden="true" />
+                <span className="block truncate text-[12px] font-bold leading-5 text-slate-800">
+                  {card.title}
+                </span>
+              </span>
+            </button>
+          ))}
+
+          {FACE_COMING_SOON_CARDS.map((card) => (
+            <div
+              key={card.slug}
+              aria-disabled="true"
+              data-testid={`face-template-${card.slug}`}
+              title={`${card.title} — coming soon`}
+              className="h-[78px] w-full cursor-not-allowed select-none overflow-hidden rounded-2xl bg-slate-100 px-3 py-2.5 text-left opacity-80 grayscale"
+            >
+              <span className="flex h-full w-full flex-col justify-center gap-2">
+                <span className="flex items-center gap-1.5">
+                  <card.Icon className="h-5 w-5 shrink-0 text-slate-400" aria-hidden="true" />
+                  <span className="inline-flex h-[18px] items-center rounded-md bg-slate-200 px-2 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                    Soon
+                  </span>
+                </span>
+                <span className="block truncate text-[12px] font-bold leading-5 text-slate-500">
+                  {card.title}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
 
         {/* Coming Soon nodes and their section are intentionally hidden. */}
       </div>
