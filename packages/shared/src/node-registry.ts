@@ -3275,7 +3275,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     },
     capability: "ai.conversation",
     requiredVariables: [],
-    producedVariables: ["ai.reply", "customer.name", "customer.phone", "service", "selected.slot"]
+    /* The conversation is what learns WHEN — "selected.slot" was the voice
+       era's name for it; appointmentStartAt is what the engine reads, and a
+       booking placed after a conversation must be satisfied by it. */
+    producedVariables: ["ai.reply", "customer.name", "customer.phone", "service", "selected.slot", "appointmentStartAt"]
   }),
   /* DO1 — THE BOOKING PAIR, brought under the laws (2026-08-25 night order).
      The close of the sale: everything else walks the customer to the shop's
@@ -3451,10 +3454,13 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       }
     ],
     capability: "calendar.book_appointment",
-    // Generous on purpose: details arrive from the conversation or the node's
-    // own boxes, and a missing one fails honestly at run time — not with a
-    // wall of red wires drawn for the voice era.
-    requiredVariables: [],
+    /* One requirement, and it is the honest one: a booking must know WHEN.
+       The voice era demanded four names this engine never writes, which drew
+       a wall of false red — but demanding nothing was the opposite mistake:
+       a booking wired straight to a trigger would write a guess into a real
+       diary. The checker accepts it either way — an upstream step that
+       produces it, or the architect filling the node's own start-time box. */
+    requiredVariables: ["appointmentStartAt"],
     // What the run ACTUALLY writes (workflow-runner: context.calendarAppointment).
     producedVariables: ["calendarAppointment"]
   }),

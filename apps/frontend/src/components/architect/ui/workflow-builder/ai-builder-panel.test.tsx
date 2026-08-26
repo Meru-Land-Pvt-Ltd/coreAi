@@ -25,6 +25,42 @@ const { smartComposeMock, smartDesignerChatMock, productChatMock } = vi.hoisted(
    hand, so the router always answers "page". */
 const aiBuilderChatMock = vi.fn(async () => ({ success: true, data: { hand: "page", reply: null } }));
 
+/**
+ * The answer hand streams (2026-08-26), so these tests speak its language:
+ * one SSE body carrying the routing verdict and, for an explain, the words.
+ * The routing decision still comes from the same mock, so every existing
+ * expectation about WHICH hand ran keeps its meaning.
+ */
+function sseStream(events: Array<{ event: string; data: unknown }>): Response {
+  const body = events.map((e) => `event: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`).join("");
+  const bytes = new TextEncoder().encode(body);
+  return {
+    ok: true,
+    body: {
+      getReader: () => {
+        let sent = false;
+        return {
+          read: async () => (sent ? { done: true, value: undefined } : ((sent = true), { done: false, value: bytes }))
+        };
+      }
+    }
+  } as unknown as Response;
+}
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", async (url: unknown) => {
+    if (String(url).includes("/ai-builder/stream")) {
+      const routed = await aiBuilderChatMock();
+      const answer = routed.data as { hand: string; reply: string | null };
+      return sseStream([
+        ...(answer.hand === "explain" && answer.reply ? [{ event: "word", data: { chunk: answer.reply } }] : []),
+        { event: "done", data: answer }
+      ]);
+    }
+    return { ok: false, body: null } as unknown as Response;
+  });
+});
+
 vi.mock("@/components/architect/features/api", () => ({
   smartCompose: smartComposeMock,
   smartDesignerChat: smartDesignerChatMock,

@@ -59,12 +59,14 @@ function renderInspector(data: Partial<BuilderNodeData> = {}) {
 
 describe("API Call node — palette", () => {
   it("appears in the Hands group with the customer-word label and stable testid", () => {
+    /* Renamed by the founder 2026-08-26: the card IS the factory — it calls
+       any app, and can become a new node in the toolkit. */
     const hands = libraryGroups.find((group) => group.title === "Hands");
     expect(hands).toBeDefined();
 
     const item = hands?.items.find((i) => i.overrides?.type === API_CALL_NODE_TYPE);
     expect(item).toBeDefined();
-    expect(item?.label).toBe("Connect to a service");
+    expect(item?.label).toBe("Create Node");
     expect(item?.icon).toBe("globe");
     expect(item?.accent).toBe("amber");
     // Registry testid stays stable for Playwright.

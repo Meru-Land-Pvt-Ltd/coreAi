@@ -43,7 +43,7 @@ describe("a promise nothing keeps", () => {
         node("t", "trigger.phone_call"),
         node("talk", "ai.voice_conversation"),
         node("book", "calendar.book_appointment"),
-        node("sms", "action.send_sms", { smsBody: "Your booking is {{appointment.confirmation_id}}" })
+        node("sms", "action.send_sms", { smsBody: "Your booking is {{calendarAppointment}}" })
       ],
       edges: [
         { source: "t", target: "talk" },
@@ -62,9 +62,12 @@ describe("a promise nothing keeps", () => {
       nodes: [node("t", "trigger.phone_call"), node("book", "calendar.book_appointment")],
       edges: [{ source: "t", target: "book" }]
     });
-    // The customer's name and phone are values the platform can supply from
-    // the call itself. The slot is not — only a conversation produces that.
-    expect(result.problems.some((problem) => problem.wanted === "selected.slot")).toBe(true);
+    /* The name and phone are values the platform can supply from the call
+       itself. The TIME is not — either a conversation produces it or the
+       architect types it into the node's own box. The voice-era name for it
+       was "appointmentStartAt"; what this engine actually writes and reads is
+       appointmentStartAt. */
+    expect(result.problems.some((problem) => problem.wanted === "appointmentStartAt")).toBe(true);
   });
 
   it("catches a typo, which is the whole point", () => {
@@ -89,7 +92,7 @@ describe("a promise nothing keeps", () => {
         node("t", "trigger.phone_call"),
         node("talk", "ai.voice_conversation"),
         node("book", "calendar.book_appointment"),
-        node("sms", "action.send_sms", { smsBody: "Ref {{appointment.confirmation_id}}" })
+        node("sms", "action.send_sms", { smsBody: "Ref {{calendarAppointment}}" })
       ],
       edges: [
         { source: "t", target: "talk" },
