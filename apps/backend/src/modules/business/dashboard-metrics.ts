@@ -20,6 +20,7 @@ import {
 } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
 import { allConnectors } from "../connectors/registry";
+import { allCachedArchitectFrames } from "../connectors/architect-frames";
 import { connectorTotals } from "../connectors/run-log";
 
 export type DashboardWindow = "today" | "week" | "month" | "all";
@@ -210,7 +211,7 @@ export async function loadDashboardData(
   // that did not exist when this file was written. They are filled from the
   // connector run log, which every connector writes to identically.
   const connectorMetrics = deriveBuyerContract(agent?.workflow?.workflowJson, {
-    connectors: allConnectors()
+    connectors: [...allConnectors(), ...allCachedArchitectFrames()]
   }).metrics.filter((metric) => metric.source.startsWith("connector."));
 
   if (connectorMetrics.length > 0) {

@@ -19,6 +19,7 @@ import {
 } from "@coreai/shared";
 import { prisma } from "../../lib/prisma";
 import { allConnectors } from "../connectors/registry";
+import { allCachedArchitectFrames } from "../connectors/architect-frames";
 import { maskBuyerAnswers, sealBuyerAnswers } from "../connectors/buyer-secrets";
 import { connectorAddressesForInstalledAgent } from "../webhooks/inbound-webhook";
 import { errorResponse, successResponse } from "../../lib/api-response";
@@ -330,7 +331,7 @@ callListRoutes.get("/agents/:installedAgentId/surfaces", async (c) => {
     connectorAddressesForInstalledAgent(agent.id).catch(() => [])
   ]);
 
-  const contract = deriveBuyerContract(agent.workflow?.workflowJson, { connectors: allConnectors() });
+  const contract = deriveBuyerContract(agent.workflow?.workflowJson, { connectors: [...allConnectors(), ...allCachedArchitectFrames()] });
   const dashboard = sanitizeProductSpec(page?.dashboardJson);
   const setup = sanitizeProductSpec(page?.setupJson);
 
@@ -377,7 +378,7 @@ callListRoutes.post("/agents/:installedAgentId/setup-answers", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const submitted = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
 
-  const contract = deriveBuyerContract(agent.workflow?.workflowJson, { connectors: allConnectors() });
+  const contract = deriveBuyerContract(agent.workflow?.workflowJson, { connectors: [...allConnectors(), ...allCachedArchitectFrames()] });
   const allowed = new Set(contract.inputs.map((input) => input.key));
 
   const answers: Record<string, unknown> = { ...buyerAnswersOf(agent.configJson) };

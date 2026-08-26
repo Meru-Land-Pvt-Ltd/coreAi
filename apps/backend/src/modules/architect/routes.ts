@@ -619,6 +619,12 @@ function describeFrames(frames: ReturnType<typeof allConnectors>) {
     provider: contract.provider.name,
     businessQuestions: contract.needs.business.length,
     cost: contract.cost.style === "free" ? null : { unit: contract.cost.unit, billedTo: contract.cost.billedTo },
+    /* The tailored panel's material — the card's own declared form. */
+    architectFields: contract.needs.architect.map((field) => ({
+      key: field.key, label: field.label, help: field.help ?? "", required: Boolean(field.required)
+    })),
+    asks: contract.needs.business.map((field) => field.label),
+    gives: contract.produces.map((output) => output.key),
     /** Theirs, not ours — the card says so. */
     mine: true
   }));
@@ -637,7 +643,12 @@ function builderConnectors() {
       provider: contract.provider.name,
       /** What the business will be asked, so the card can say so up front. */
       businessQuestions: contract.needs.business.length,
-      cost: contract.cost.style === "free" ? null : { unit: contract.cost.unit, billedTo: contract.cost.billedTo }
+      cost: contract.cost.style === "free" ? null : { unit: contract.cost.unit, billedTo: contract.cost.billedTo },
+      architectFields: contract.needs.architect.map((field) => ({
+        key: field.key, label: field.label, help: field.help ?? "", required: Boolean(field.required)
+      })),
+      asks: contract.needs.business.map((field) => field.label),
+      gives: contract.produces.map((output) => output.key)
     }));
 }
 

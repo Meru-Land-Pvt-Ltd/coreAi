@@ -44,8 +44,10 @@ import {
   disconnectCalendlyConnector,
   getCalendlyConnectorStatus,
   getCalendlyOAuthUrl,
+  getArchitectBuilderNodeVisibility,
   listArchitectSecrets,
   listWhatsAppConnections,
+  type ArchitectBuilderConnector,
   type WhatsAppConnection
 } from "@/components/architect/features/api";
 import { WhatsAppConnectModal } from "@/components/architect/features/whatsapp/WhatsAppConnectModal";
@@ -224,6 +226,9 @@ export function NodeInspector({
   else if (type === "logic.loop") panel = <LoopProps {...base} />;
   else if (type === "trigger.email_received") panel = <EmailReceivedProps {...base} />;
   else if (selectedNode.data.nodeKind === "condition") panel = <ConditionProps {...base} />;
+  else if (typeof selectedNode.data.connectorId === "string" && selectedNode.data.connectorId) {
+    panel = <StandardConnectorProps {...base} />;
+  }
   else if (selectedNode.data.nodeKind === "connector") {
     panel = <ConnectorProps {...base} calendar={calendar} ownership={ownership} />;
   } else {
@@ -4219,6 +4224,68 @@ function ConditionProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
           <span className="text-[13px] font-medium text-slate-600">Anything else</span>
           <span className="text-[11px] text-slate-400">— always here, so nothing is ever lost</span>
         </div>
+      </Section>
+    </>
+  );
+}
+
+/**
+ * A CUSTOM CARD'S OWN PANEL — the business-side half of the Create Node loop.
+ *
+ * A card born from Create Node used to open a generic connector panel that
+ * knew Gmail and Vapi and nothing of the card itself. This one reads the
+ * card's OWN declaration from the builder-nodes feed: its description, the
+ * fields the architect owns, what it asks the business at install, and what
+ * it gives to later steps.
+ */
+function StandardConnectorProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
+  const { str, set } = fields(selectedNode, onUpdateNodeData);
+  const connectorId = typeof selectedNode.data.connectorId === "string" ? selectedNode.data.connectorId : "";
+  const [card, setCard] = useState<ArchitectBuilderConnector | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void getArchitectBuilderNodeVisibility().then((result) => {
+      if (!alive || !result.success || !result.data?.connectors) return;
+      setCard(result.data.connectors.find((entry) => entry.id === connectorId) ?? null);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [connectorId]);
+
+  return (
+    <>
+      <Section title="Name">
+        <TextInput value={selectedNode.data.title} onChange={set("title")} testId="custom-card-name-input" />
+        {card ? <p className="mt-2 text-[12px] leading-5 text-slate-500">{card.description}</p> : null}
+      </Section>
+
+      {card && card.architectFields && card.architectFields.length > 0 ? (
+        <Section title="Your settings">
+          {card.architectFields.map((field) => (
+            <div key={field.key} className="mb-3">
+              <Label>{field.label}</Label>
+              <TextInput value={str(field.key)} onChange={set(field.key)} testId={`custom-card-${field.key}`} />
+              {field.help ? <p className="mt-1 text-[11px] leading-4 text-slate-400">{field.help}</p> : null}
+            </div>
+          ))}
+        </Section>
+      ) : null}
+
+      <Section title="At install" last>
+        {card && card.asks && card.asks.length > 0 ? (
+          <p className="text-[12px] leading-5 text-slate-500" data-testid="custom-card-asks">
+            The business will be asked: {card.asks.join(", ")}.
+          </p>
+        ) : (
+          <p className="text-[12px] leading-5 text-slate-500">The business is asked nothing — this card runs on its own settings.</p>
+        )}
+        {card && card.gives && card.gives.length > 0 ? (
+          <p className="mt-2 text-[12px] leading-5 text-slate-500">
+            Gives later steps: <span className="font-mono text-slate-600">{card.gives.join(", ")}</span>
+          </p>
+        ) : null}
       </Section>
     </>
   );

@@ -57,6 +57,10 @@ export type ArchitectBuilderConnector = {
   provider: string;
   businessQuestions: number;
   cost: { unit: string; billedTo: "business" | "platform" } | null;
+  /** The card's own declared form — the tailored panel's material. */
+  architectFields?: Array<{ key: string; label: string; help: string; required: boolean }>;
+  asks?: string[];
+  gives?: string[];
 };
 
 export function getArchitectBuilderNodeVisibility() {
