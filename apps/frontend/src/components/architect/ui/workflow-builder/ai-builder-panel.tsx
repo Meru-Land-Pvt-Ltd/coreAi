@@ -82,8 +82,9 @@ function nextMessageId(): string {
  */
 async function composeCanvas(
   want: string,
-  onStage: (line: string) => void
-): Promise<{ canvas?: ComposedCanvas; failed?: string }> {
+  onStage: (line: string) => void,
+  conversation?: Array<{ role: "user" | "assistant"; content: string }>
+): Promise<{ canvas?: ComposedCanvas; failed?: string; ask?: { question: string; suggestion: string } }> {
   const base = process.env.NEXT_PUBLIC_API_URL ?? "/api";
   const token = getAuthToken();
 
@@ -93,7 +94,7 @@ async function composeCanvas(
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ want })
+    body: JSON.stringify({ want, ...(conversation?.length ? { conversation } : {}) })
   });
 
   if (!response.ok || !response.body) {
@@ -128,6 +129,9 @@ async function composeCanvas(
 
       if (event === "progress") onStage(String(data.step ?? ""));
       else if (event === "done") return { canvas: data as unknown as ComposedCanvas };
+      else if (event === "ask")
+        /* The third answer: the Builder is asking, proposal in hand. */
+        return { ask: { question: String(data.question ?? ""), suggestion: String(data.suggestion ?? "") } };
       else if (event === "failed") return { failed: String(data.message ?? "Nothing was built.") };
     }
   }
@@ -228,6 +232,12 @@ export function AiBuilderPanel({
   const [composed, setComposed] = useState(hasComposedSpec);
   const [savedPurpose, setSavedPurpose] = useState(purpose);
   const [checking, setChecking] = useState(false);
+  /* The Builder's open question: while set, the next message is the ANSWER —
+     it rejoins the same build instead of starting a new one. */
+  const [buildThread, setBuildThread] = useState<{
+    want: string;
+    turns: Array<{ role: "user" | "assistant"; content: string }>;
+  } | null>(null);
   /* The words as they arrive, and what the platform is doing while it works. */
   const [streamingReply, setStreamingReply] = useState("");
   const [stage, setStage] = useState("");
@@ -354,7 +364,7 @@ export function AiBuilderPanel({
     onApplied?.({});
   }
 
-  async function handleBuild(want: string) {
+  async function handleBuild(want: string, threadOverride?: Array<{ role: "user" | "assistant"; content: string }>) {
     if (canvasHasSteps) {
       /* Composing REPLACES the canvas. On an agent that already has steps,
          obeying "add a step" by rebuilding everything would destroy an
@@ -370,14 +380,22 @@ export function AiBuilderPanel({
     setGenerating(true);
     setProgressStage(0);
     try {
-      const { canvas, failed } = await composeCanvas(want, () => setProgressStage(1));
+      const thread = threadOverride ?? (buildThread?.want === want ? buildThread.turns : []);
+      const { canvas, failed, ask } = await composeCanvas(want, () => setProgressStage(1), thread);
       if (canvas) {
+        setBuildThread(null);
         say({
           role: "assistant",
           content: canvas.message ?? `Built — ${canvas.nodes.length} steps are on your canvas.`
         });
         onBuilt?.(canvas);
+      } else if (ask) {
+        /* An employee asking, proposal in hand — the next message answers it. */
+        const spoken = ask.suggestion ? `${ask.question}\n\nMy suggestion: ${ask.suggestion}` : ask.question;
+        setBuildThread({ want, turns: [...thread, { role: "assistant", content: spoken }] });
+        say({ role: "assistant", content: spoken });
       } else {
+        setBuildThread(null);
         say({ role: "assistant", content: failed ?? COMPOSE_FALLBACK_REPLY, local: true });
       }
     } catch {
@@ -431,6 +449,19 @@ export function AiBuilderPanel({
   async function send(instruction: string) {
     const trimmed = instruction.trim().slice(0, MAX_INSTRUCTION_LENGTH);
     if (!trimmed || !chatReady) return;
+
+    /* The Builder asked a question and this is the answer: it rejoins the
+       SAME build — routing it anywhere else would turn a conversation into
+       an interrogation transcript nobody reads. */
+    if (buildThread) {
+      say({ role: "user", content: trimmed });
+      setDraft("");
+      const turns = [...buildThread.turns, { role: "user" as const, content: trimmed }];
+      setBuildThread({ want: buildThread.want, turns });
+      /* Passed by hand: React state lands after this call would read it. */
+      await handleBuild(buildThread.want, turns);
+      return;
+    }
 
     /* No saved agent yet: there is nothing to route on and nothing to explain.
        Every message is a build ask, verbatim. */

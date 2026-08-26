@@ -25,7 +25,13 @@ import { repairCanvas } from "./repair";
 export const composerRoutes = new Hono();
 
 const askSchema = z.object({
-  want: z.string().min(8, "Tell it a little more about what you want.").max(4000)
+  want: z.string().min(8, "Tell it a little more about what you want.").max(4000),
+  /* The Builder's questions and the architect's answers — a reply completes
+     the build instead of restarting it. */
+  conversation: z
+    .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(2000) }))
+    .max(10)
+    .optional()
 });
 
 /** Nodes an admin has switched off. The composer must not place one. */
@@ -79,6 +85,7 @@ composerRoutes.post("/", async (c) => {
       const result = await composeOrchestration({
         architectUserId: authUser.id,
         want: parsed.data.want,
+        ...(parsed.data.conversation ? { conversation: parsed.data.conversation } : {}),
         hiddenNodeTypes: hidden,
         onProgress: (progress) => {
           void send("progress", progress);
@@ -86,6 +93,13 @@ composerRoutes.post("/", async (c) => {
       });
 
       if (!result.ok) {
+        /* THE THIRD ANSWER: the Builder is asking, proposal in hand. The
+           panel shows it as a message; the architect's reply returns here
+           with the conversation and completes the build. */
+        if ("ask" in result) {
+          await send("ask", result.ask);
+          return;
+        }
         await send("failed", { message: result.message, problems: result.problems ?? [] });
         return;
       }

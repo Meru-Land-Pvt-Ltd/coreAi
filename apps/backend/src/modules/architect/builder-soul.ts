@@ -25,6 +25,7 @@
  */
 
 import { getNodeDefinition, type NodeDefinition } from "@coreai/shared";
+import { builderIntelligenceText } from "./builder-intelligence";
 
 /** The perfected nodes, in build order. The law: each MUST have a wisdom page. */
 export const SOUL_COVERED_TYPES = [
@@ -778,6 +779,8 @@ export function builderSoulFiles(): Array<{ name: string; content: string }> {
       ].join("\n")
     },
     ...WISDOM.map((page) => ({ name: `${page.slug}.md`, content: `# ${page.title}\n\n${page.body}\n` })),
-    { name: "BONES.md", content: `${soulBones()}\n` }
+    { name: "BONES.md", content: `${soulBones()}\n` },
+    /* The character ships beside the law — one zip, the whole employee. */
+    { name: "INTELLIGENCE.md", content: `${builderIntelligenceText()}\n` }
 ];
 }

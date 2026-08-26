@@ -23,6 +23,7 @@ import type { AIExecuteRequest, AIMessage } from "../../ai-provider-engine/types
 import { checkPlan, type ComposerPlan } from "./check-plan";
 import { composerMenu, menuAsText, type MenuEntry } from "./node-menu";
 import { builderSoulText, connectionWisdom } from "../builder-soul";
+import { builderIntelligenceText } from "../builder-intelligence";
 import { lessonsForPrompt } from "../builder-lessons";
 
 /** What the architect sees while it works. */
@@ -33,6 +34,10 @@ export type ComposerProgress = {
 
 export type ComposerResult =
   | { ok: true; plan: ComposerPlan; menu: MenuEntry[]; attempts: number }
+  /* THE THIRD ANSWER (the founder's ruling, 2026-08-26): an employee handed
+     a job with a human-only unknown builds what he can and asks — with a
+     proposal in hand, so one word finishes it. */
+  | { ok: false; ask: { question: string; suggestion: string }; message: string }
   | { ok: false; message: string; problems?: string[] };
 
 const MAX_ATTEMPTS = 3;
@@ -71,14 +76,24 @@ function systemPrompt(menu: string, personalLessons: string, connections: string
     "  button verb they recognise. Never a platform word on the screen. When nobody visits the page",
     "  (a Timer, an email ear, a webhook), compose NO Face at all.",
     "",
-    /* The Builder Soul rides with every request — fetched fresh, so a swapped
-       LLM is briefed on its first breath. This is where "where to start, how
-       much per node, where to end" comes from. */
+    /* The Soul (law) and Builder Intelligence (character) ride with every
+       request — fetched fresh, so a swapped LLM is the same employee on its
+       first breath. */
     builderSoulText(connections),
+    "",
+    builderIntelligenceText(),
     ...(personalLessons ? ["", personalLessons] : []),
     "",
     "OUTPUT",
     'Return ONLY JSON: { "summary": string, "nodes": [...], "edges": [...], "asksTheBusiness": [string] }',
+    "",
+    "OR — when one setting is genuinely the HUMAN'S to decide (identity, taste, or a fact only",
+    "they know) and they have not said it: return the THIRD ANSWER instead of a plan:",
+    '  { "ask": { "question": string, "suggestion": string } }',
+    "question: one plain question naming the thing. suggestion: your own complete proposal for it,",
+    "so they can answer with one word. Ask the single most important one only. Never ask about",
+    "machinery — wiring, ordering, defaults are yours. When the conversation already contains their",
+    "answer, USE IT EXACTLY and return the plan.",
     '  nodes: { "id": string, "type": string, "title": string, "config": { ... } }',
     "  config keys are the exact machine keys from the map — llmAnswerShouldBe, placeholder — never the",
     "  human names in quotes beside them.",
@@ -109,6 +124,9 @@ export async function composeOrchestration(input: {
   architectUserId: string;
   /** What the architect typed. */
   want: string;
+  /** The conversation so far — the Builder's questions and the architect's
+      answers, so a reply completes the build instead of restarting it. */
+  conversation?: Array<{ role: "user" | "assistant"; content: string }>;
   hiddenNodeTypes?: string[];
   onProgress?: (progress: ComposerProgress) => void;
 }): Promise<ComposerResult> {
@@ -147,7 +165,13 @@ export async function composeOrchestration(input: {
       }))
   );
 
-  const messages: AIMessage[] = [{ role: "user", content: input.want.slice(0, 4000) }];
+  const messages: AIMessage[] = [
+    ...(input.conversation ?? []).slice(-8).map((turn) => ({
+      role: turn.role,
+      content: turn.content.slice(0, 2000)
+    })),
+    { role: "user", content: input.want.slice(0, 4000) }
+  ];
   let lastProblems: string[] = [];
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
