@@ -941,6 +941,12 @@ export function fillPlaceholders(
   text: string,
   values: { config: Record<string, unknown>; credentials: Record<string, string>; page: number; pageSize: number; cursor?: string }
 ): string {
+  /* A machine-drafted declaration writes JSON the honest way — a count is a
+     NUMBER, a flag is a BOOLEAN — and this filler assumed every recipe value
+     was a string, so `forecast_days: 1` crashed the whole call with
+     "text.replace is not a function" (found live, first Open-Meteo proof,
+     2026-08-26). A value with nothing to fill in passes through as itself. */
+  if (typeof text !== "string") return String(text ?? "");
   return text.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (_match, token: string) => {
     if (token === "page") return String(values.page);
     if (token === "pageSize") return String(values.pageSize);
