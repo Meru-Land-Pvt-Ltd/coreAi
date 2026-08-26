@@ -151,6 +151,12 @@ export async function composeOrchestration(input: {
     let response;
     try {
       response = await getProviderEngine().executeWithProvider(brain.providerId, request);
+      /* The one patient retry, same as the platform brain's: a rate-limited
+         provider gets a breath and one more chance before we give up. */
+      if (response.status === "error" && /429|rate.?limit/i.test(String(response.error ?? ""))) {
+        await new Promise((resolve) => setTimeout(resolve, 7000));
+        response = await getProviderEngine().executeWithProvider(brain.providerId, request);
+      }
     } catch (error) {
       console.error("[composer] LLM call failed", error);
       return {
