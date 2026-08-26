@@ -8,6 +8,7 @@ import {
   defaultHiddenArchitectNodeTypes
 } from "@coreai/shared";
 import {
+  deleteArchitectFrameCard,
   getArchitectBuilderNodeVisibility,
   type ArchitectBuilderConnector,
   type ArchitectBuilderNodePresentation
@@ -123,7 +124,9 @@ function withConnectors(groups: LibraryGroup[], connectors: ArchitectBuilderConn
      palette says so with a home of their own. Platform service cards stay in
      Hands, where they always lived. */
   const platformItems = connectors.filter((connector) => !connector.mine).map(toItem);
-  const customItems = connectors.filter((connector) => connector.mine).map(toItem);
+  const customItems = connectors
+    .filter((connector) => connector.mine)
+    .map((connector) => ({ ...toItem(connector), deletableFrameId: connector.id }));
 
   const withPlatform = groups.map((group) =>
     group.title === "Hands" ? { ...group, items: [...group.items, ...platformItems] } : group
@@ -266,6 +269,13 @@ export function ComponentLibrary({
                     key={`${group.title}-${item.label}`}
                     item={item}
                     onAddNode={onAddNode}
+                    onDeleteFrame={(frameId) => {
+                      void deleteArchitectFrameCard(frameId).then((result) => {
+                        if (result.success) {
+                          setConnectors((current) => current.filter((entry) => entry.id !== frameId));
+                        }
+                      });
+                    }}
                   />
                 ))}
               </div>

@@ -63,6 +63,11 @@ export type ArchitectBuilderConnector = {
   gives?: string[];
 };
 
+/** Remove one of the architect's own custom cards from their toolkit. */
+export function deleteArchitectFrameCard(frameId: string) {
+  return apiDelete<{ deleted: boolean }>(`/architect/node-frames/${encodeURIComponent(frameId)}`);
+}
+
 export function getArchitectBuilderNodeVisibility() {
   return apiGet<{
     hiddenNodeTypes: string[];

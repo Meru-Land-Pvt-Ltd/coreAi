@@ -192,6 +192,8 @@ export type LibraryItem = {
   badge?: LibraryItemBadge;
   /** Era leftover, greyed and untouchable — the one-line reason on hover. */
   parked?: string;
+  /** Set on the architect's own custom cards: the frame id delete acts on. */
+  deletableFrameId?: string;
   overrides?: Partial<BuilderNodeData>;
   testId?: string;
 };

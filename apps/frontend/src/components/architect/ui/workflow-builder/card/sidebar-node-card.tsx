@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { cn } from "@/components/architect/ui/architect-ui";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Trash2 } from "lucide-react";
 import { BuilderIcon } from "../icons";
 import type { BuilderNodeData, LibraryItem, NodeKind } from "../types";
 
@@ -70,11 +71,16 @@ function cardPalette(icon: string): { bg: string; fg: string } {
 export type SidebarNodeCardProps = {
   item: LibraryItem;
   onAddNode: (nodeKind: NodeKind, overrides?: Partial<BuilderNodeData>) => void;
+  /** Custom cards only: delete this card from the architect's toolkit. */
+  onDeleteFrame?: (frameId: string) => void;
 };
 
-export function SidebarNodeCard({ item, onAddNode }: SidebarNodeCardProps) {
+export function SidebarNodeCard({ item, onAddNode, onDeleteFrame }: SidebarNodeCardProps) {
   const palette = cardPalette(item.icon);
   const description = item.helper.trim();
+  /* Custom cards can be deleted — after an honest confirmation, because an
+     agent still using the card will stop working. Two taps, never one. */
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   /* PARKED — an era leftover the founder ordered greyed, not hidden. Full
      grey, no drag, no click; the hover line says why. The palette tells the
@@ -205,6 +211,49 @@ export function SidebarNodeCard({ item, onAddNode }: SidebarNodeCardProps) {
           </span>
         </span>
       </button>
+
+      {item.deletableFrameId && onDeleteFrame ? (
+        confirmingDelete ? (
+          <span
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-white/95 px-2 text-center"
+            data-testid={`${item.testId}-delete-confirm`}
+          >
+            <span className="text-[11px] font-semibold leading-4 text-slate-700">
+              Delete this card? Agents still using it will stop working.
+            </span>
+            <span className="flex gap-2">
+              <button
+                type="button"
+                data-testid={`${item.testId}-delete-yes`}
+                onClick={() => onDeleteFrame(item.deletableFrameId!)}
+                className="rounded-md bg-red-500 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-red-600"
+              >
+                Delete
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                className="rounded-md bg-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-300"
+              >
+                Keep
+              </button>
+            </span>
+          </span>
+        ) : (
+          <button
+            type="button"
+            aria-label={`Delete ${item.label}`}
+            data-testid={`${item.testId}-delete`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setConfirmingDelete(true);
+            }}
+            className="absolute right-1.5 top-1.5 z-10 hidden rounded-md bg-white/80 p-1 text-slate-400 hover:text-red-500 group-hover/card:block"
+          >
+            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        )
+      ) : null}
 
       {description ? (
         <span
