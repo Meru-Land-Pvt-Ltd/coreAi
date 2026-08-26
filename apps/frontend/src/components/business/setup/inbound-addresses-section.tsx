@@ -24,6 +24,7 @@ type Address = {
   url: string;
   secretHeader: string | null;
   secret: string;
+  installedAgentId: string;
   agentName: string;
 };
 
