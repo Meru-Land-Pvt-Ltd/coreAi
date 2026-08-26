@@ -216,7 +216,17 @@ export async function composeOrchestration(input: {
     }
 
     lastProblems = problems;
-    console.warn("[composer] plan did not hold", { attempt, problems: problems.slice(0, 5) });
+    /* The shape of each failing step rides in the log — "needs X and was not
+       given one" is undiagnosable without seeing what the model DID write. */
+    console.warn("[composer] plan did not hold", {
+      attempt,
+      problems: problems.slice(0, 5),
+      nodeShapes: plan.nodes.map((node) => ({
+        id: node.id,
+        type: node.type,
+        configKeys: Object.keys(node.config ?? {})
+      }))
+    });
 
     messages.push({ role: "assistant", content: JSON.stringify(plan).slice(0, 4000) });
     messages.push({
