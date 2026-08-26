@@ -577,6 +577,92 @@ export async function connectorAddressesForInstalledAgent(installedAgentId: stri
   return out;
 }
 
+/**
+ * EVERY ADDRESS THE BUSINESS MUST PASTE SOMEWHERE — including the plain
+ * Webhook node's (2026-08-26).
+ *
+ * The function above deliberately serves connector-backed inbound only, so a
+ * business whose agent starts at a plain "When another app sends data" node
+ * was never shown the one thing they must copy: their own private link. The
+ * link was minted at go-live and returned to nobody. This is the whole list.
+ */
+export async function inboundAddressesForBusiness(installedAgentId: string): Promise<
+  Array<{
+    nodeId: string;
+    label: string;
+    kind: "webhook" | "connector";
+    provider: string | null;
+    instructions: string;
+    url: string;
+    secretHeader: string | null;
+    secret: string;
+  }>
+> {
+  const rows = await prisma.agentWebhookEndpoint.findMany({
+    where: { installedAgentId, status: "ACTIVE" },
+    select: { nodeId: true, connectorId: true, tokenCipher: true, signingSecretCipher: true }
+  });
+
+  const out: Array<{
+    nodeId: string;
+    label: string;
+    kind: "webhook" | "connector";
+    provider: string | null;
+    instructions: string;
+    url: string;
+    secretHeader: string | null;
+    secret: string;
+  }> = [];
+
+  for (const row of rows) {
+    let url: string;
+    try {
+      url = webhookUrlFor(decryptSecret(row.tokenCipher));
+    } catch {
+      /* Unreadable cipher (key rotated) — a link that will never work is
+         worse than none. */
+      continue;
+    }
+    const secret = (() => {
+      try {
+        return row.signingSecretCipher ? decryptSecret(row.signingSecretCipher) : "";
+      } catch {
+        return "";
+      }
+    })();
+
+    if (row.connectorId) {
+      const contract = getConnector(row.connectorId);
+      if (!contract?.inbound) continue;
+      out.push({
+        nodeId: row.nodeId,
+        label: contract.label,
+        kind: "connector",
+        provider: contract.provider.name,
+        instructions: contract.inbound.instructions,
+        url,
+        secretHeader: contract.inbound.secretHeader ?? null,
+        secret
+      });
+      continue;
+    }
+
+    out.push({
+      nodeId: row.nodeId,
+      label: "When another app sends data",
+      kind: "webhook",
+      provider: null,
+      instructions:
+        "Paste this address into the other app's webhook or notification settings. Every delivery it sends will wake your agent.",
+      url,
+      secretHeader: null,
+      secret
+    });
+  }
+
+  return out;
+}
+
 /** Every install of a workflow re-reads the graph — used after a republish. */
 export async function syncWebhookEndpointsForWorkflow(workflowId: string): Promise<void> {
   const installs = await prisma.installedAgent.findMany({

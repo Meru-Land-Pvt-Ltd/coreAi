@@ -868,6 +868,25 @@ export function getVoiceSamplePreview(body: { presetId?: string; voiceId?: strin
 }
 
 /** List the business's persisted knowledge documents. */
+/** The private links this business must paste into other apps. */
+export function getInboundAddresses(opts: { installedAgentId?: string | null } = {}) {
+  const query = opts.installedAgentId ? `?installedAgentId=${encodeURIComponent(opts.installedAgentId)}` : "";
+  return apiGet<{
+    addresses: Array<{
+      nodeId: string;
+      label: string;
+      kind: "webhook" | "connector";
+      provider: string | null;
+      instructions: string;
+      url: string;
+      secretHeader: string | null;
+      secret: string;
+      installedAgentId: string;
+      agentName: string;
+    }>;
+  }>(`/business/setup/inbound-addresses${query}`);
+}
+
 export function getBusinessKnowledgeFiles(opts: { installedAgentId?: string | null } = {}) {
   const installedAgentId = opts.installedAgentId?.trim();
   const query = installedAgentId ? `?installedAgentId=${encodeURIComponent(installedAgentId)}` : "";

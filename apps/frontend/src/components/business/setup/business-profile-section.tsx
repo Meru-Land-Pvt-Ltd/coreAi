@@ -5,6 +5,7 @@ import { BusinessAddressSection } from "@/components/business/business-settings-
 import type { BusinessFaq } from "@/components/business/features/api";
 import { TRIVEN_AGENT_TAXONOMY_ENTRIES } from "@coreai/shared";
 import { DocumentUploadSection, FaqSection } from "./knowledge-section";
+import { InboundAddressesSection } from "./inbound-addresses-section";
 import { FIELD, LABEL, SECTION_TITLE } from "./ui";
 import { InfoTooltip } from "./InfoTooltip";
 
@@ -149,6 +150,12 @@ export function BusinessProfileSection({
   return (
     <div className="space-y-5 min-w-0 w-full overflow-hidden">
       {/* 1. TOP: Document Upload UI */}
+      {/* The private link this business must paste into another app — minted
+          at go-live, and until 2026-08-26 shown to nobody. */}
+      <div className="mb-4">
+        <InboundAddressesSection installedAgentId={installedAgentId} />
+      </div>
+
       <DocumentUploadSection
         listingId={listingId}
         installedAgentId={installedAgentId}

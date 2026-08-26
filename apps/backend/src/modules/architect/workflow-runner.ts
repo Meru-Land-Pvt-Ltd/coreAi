@@ -70,6 +70,7 @@ import {
 } from "./google-calendar-connector";
 import { reserveSlotForInstant, topAlternativeLabels } from "../business/scheduling";
 import { retrieveRelevantKnowledge } from "../business/agent-knowledge";
+import { normalizeWeeklyHours, parseHHmmToMinutes } from "@coreai/shared";
 import { recordUnansweredQuestion } from "../business/knowledge-v2/unanswered-questions";
 import { resolveOutboundPhoneNumberId, startVapiOutboundCall } from "./vapi-connector";
 import {
@@ -3256,13 +3257,43 @@ async function runGoogleCalendarConnectorNode({
     }
 
     try {
+      /* THE BUSINESS'S OWN HOURS (2026-08-26). Availability used to assume
+         nine-to-five for everyone — a salon open until eight offered nothing
+         after five, and a clinic opening at seven offered nothing before
+         nine. The hours they filled in at setup are the truth; the old
+         default only applies when they have not said. */
+      const weekly = normalizeWeeklyHours(context.business?.hours);
+      const dayIndex = new Date(`${date}T12:00:00`).getDay();
+      const weekdayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+      const today = weekly?.find((entry) => entry.day === weekdayNames[dayIndex]);
+
+      if (today?.closed) {
+        context.calendarAvailability = { date, slots: [], source: "hours", calendar_status: "closed" };
+        logs.push(
+          createLog(
+            node,
+            "success",
+            `The business is closed on ${date} — no times to offer.`,
+            context.calendarAvailability
+          )
+        );
+        return;
+      }
+
+      const firstPeriod = today?.periods?.[0];
+      const lastPeriod = today?.periods?.[today.periods.length - 1];
+      const openMinutes = firstPeriod ? parseHHmmToMinutes(firstPeriod.open) : null;
+      const closeMinutes = lastPeriod ? parseHHmmToMinutes(lastPeriod.close) : null;
+
       const availability = await listAvailableSlots({
         userId: ownerId,
         calendarId: renderTemplate(node.data?.calendarId, context) || context.business?.calendarId,
         timeZone: timeZoneAvail,
         date,
         bufferMinutes: Number(node.data?.bufferMinutes) || 10,
-        maxSlots: slotsToOffer
+        maxSlots: slotsToOffer,
+        ...(openMinutes !== null ? { openHour: Math.floor(openMinutes / 60) } : {}),
+        ...(closeMinutes !== null ? { closeHour: Math.ceil(closeMinutes / 60) } : {})
       });
       // A genuinely full day is a real answer — and it is NOT the same as a
       // broken calendar. Both are reported truthfully and differently.

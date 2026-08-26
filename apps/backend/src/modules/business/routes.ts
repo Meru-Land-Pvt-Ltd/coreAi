@@ -55,6 +55,7 @@ import {
   searchNumbersForBusiness
 } from "./phone-provisioning-flow";
 import { prisma } from "../../lib/prisma";
+import { inboundAddressesForBusiness } from "../webhooks/inbound-webhook";
 import { ensureEmbedKey, rotateEmbedKey } from "../agent-pages/embed-live";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import {
@@ -2434,6 +2435,35 @@ businessRoutes.post("/setup/knowledge-files", async (c) => {
   } catch (error) {
     return knowledgeFileErrorResponse(c, error);
   }
+});
+
+/**
+ * THE ADDRESSES THIS BUSINESS MUST PASTE SOMEWHERE (2026-08-26).
+ *
+ * An agent that starts at a webhook is minted a private link at go-live —
+ * and until today that link was returned to nobody, so the one thing the
+ * business had to copy was invisible. This is where they see it.
+ */
+businessRoutes.get("/setup/inbound-addresses", async (c) => {
+  const authUser = c.get("authUser");
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    select: { id: true }
+  });
+  if (!business) return successResponse(c, { addresses: [] });
+
+  const installedAgentId = c.req.query("installedAgentId");
+  const agents = await prisma.installedAgent.findMany({
+    where: { businessId: business.id, ...(installedAgentId ? { id: installedAgentId } : {}) },
+    select: { id: true, name: true }
+  });
+
+  const addresses: Array<Record<string, unknown>> = [];
+  for (const agent of agents) {
+    const found = await inboundAddressesForBusiness(agent.id).catch(() => []);
+    for (const entry of found) addresses.push({ ...entry, installedAgentId: agent.id, agentName: agent.name });
+  }
+  return successResponse(c, { addresses });
 });
 
 businessRoutes.get("/setup/knowledge-files", async (c) => {
