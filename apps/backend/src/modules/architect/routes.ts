@@ -7,6 +7,7 @@ import { llmProviderBlockReason } from "../ai-provider-engine/llm-health";
 import { llmProviderAvailability } from "../ai-provider-engine/llm-probe";
 import { env } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
+import { logAdminAction } from "../admin/audit";
 import { apiErrorStatus } from "../../lib/error-utils";
 import { prisma } from "../../lib/prisma";
 import { resolveRunOutput } from "../agent-pages/run-output";
@@ -2071,6 +2072,39 @@ architectRoutes.put("/workflows/:workflowId", async (c) => {
           : {})
       }
     });
+
+    /* THE FREEZE, HONEST VERSION (2026-08-26). An approved agent is a
+       promise the platform made to every business that installed it, so a
+       graph edit after approval must not pass unnoticed — the App Store
+       rule. But the marketplace lists by status, and yanking a live listing
+       off the shelf every time its architect touches the canvas is a
+       rug-pull, not a review. So: the listing STAYS live, its reviewStatus
+       reopens to SUBMITTED so the admin's queue sees "changed after
+       approval", and the audit log records it. The full model — a frozen
+       approved snapshot that installs actually run — needs a schema column
+       and a runtime switch, and is named on the books rather than rushed. */
+    if (nextWorkflowJson !== undefined) {
+      void prisma.agentListing
+        .updateMany({
+          where: { workflowId, status: "APPROVED" },
+          data: { reviewStatus: "SUBMITTED", submittedAt: new Date() }
+        })
+        .then((changed) => {
+          if (changed.count > 0) {
+            console.info("[review-gate] approved listing changed after approval — flagged for re-review", { workflowId });
+            void logAdminAction({
+              adminUserId: authUser.id,
+              action: "LISTING_CHANGED_AFTER_APPROVAL",
+              targetType: "WORKFLOW",
+              targetId: workflowId,
+              meta: { note: "graph edited while listing approved" }
+            }).catch(() => undefined);
+          }
+        })
+        .catch((error) => {
+          console.error("[review-gate] failed to flag re-review", { workflowId, error: String(error) });
+        });
+    }
 
     // A saved graph is the truth for the ways IN, so the clocks and the
     // private links follow it: a timer the architect removed must stop, a new

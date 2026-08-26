@@ -131,6 +131,36 @@ describe("the nodes we have finished answer question 5", () => {
     }
   });
 
+  it("every business row has a named home on the business's screen", () => {
+    /* THE HOMELESS-ROW LAW (2026-08-26). The webhook node declared a
+       business row — its private link — and no screen showed it, so the one
+       action the business had to take was invisible for weeks. A business
+       row must name its home: the setup section, card or contract mechanism
+       that puts it in front of them. A new row fails here until someone says
+       where the business will actually see it. */
+    const HOMES: Record<string, string> = {
+      "communication.send_email/mailIdentity": "Mail Setup section",
+      "ai.knowledge/libraryDocuments": "Knowledge section (document shelf)",
+      "trigger.webhook/webhookLink": "inbound-addresses card in setup",
+      "trigger.whatsapp_message_received/whatsappConnection": "WhatsApp section",
+      "action.send_whatsapp/whatsappConnection": "WhatsApp section",
+      "trigger.calendly/calendlyConnection": "Calendly section",
+      "action.calendly/calendlyConnection": "Calendly section",
+      "calendar.availability/calendarConnection": "Calendar section (Google connect button)",
+      "calendar.book_appointment/calendarConnection": "Calendar section (Google connect button)",
+      /* Both resolve live from the install's email recipients, which the
+         business fills in setup (resolveEscalationInbox, workflow-runner). */
+      "communication.escalate/escalationInbox": "setup email recipients",
+      "communication.approval/approvalInbox": "setup email recipients"
+    };
+    for (const row of nodeCatalogue()) {
+      for (const setting of row.settings.business) {
+        const home = HOMES[`${row.type}/${setting.key}`];
+        expect(home, `${row.type}/${setting.key} has no home on the business's screen`).toBeTruthy();
+      }
+    }
+  });
+
   it("the catalogue gives every node one row with all three columns", () => {
     const rows = nodeCatalogue();
     expect(rows.length).toBeGreaterThan(40);

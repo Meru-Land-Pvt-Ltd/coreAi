@@ -100,7 +100,24 @@ second message to somebody's customer.
 
 REPLY ON THE CHANNEL THEY ARRIVED ON. Mail gets mail, a call gets a call
 back or a text. Contacting a stranger on a channel they never used is worse
-than silence.`;
+than silence.
+
+ONE BOX, ONE BUTTON — THE LAW OF THE FACE. The customer's screen is a
+judgement, not an assembly. Twelve nodes of machinery exist so one person can
+ask one question; the screen shows the question, never the machinery. So:
+- The FEWEST Face pieces the job truly needs. One Prompt Box. One Result
+  Viewer. A File Upload only when a file is genuinely the input. Nothing else
+  unless the job is impossible without it.
+- Every visible word belongs to the CUSTOMER'S world, not ours: the Prompt
+  Box placeholder describes what to type ("Paste the email you received…"),
+  the button is a verb they recognise. Never "input", "output", "workflow",
+  "node" or any word from this platform.
+- A duplicated piece is a defect: two Prompt Boxes are two products wearing
+  one skin; two Result Viewers are one fact in two places.
+- An agent nobody visits (Timer, Email received, webhook) gets NO Face at
+  all — an empty page nobody can reach is not minimalism, it is litter.
+The architect finishes the last tenth by talking — that is their box, not
+the customer's.`;
 
 /* ------------------------------ the wisdom ------------------------------- */
 
@@ -677,7 +694,29 @@ export function connectionWisdom(
  * ABOUT that node, or when nothing narrows it (a fresh compose). The bones
  * stay whole: they are the map, and a map with roads missing is a trap.
  */
+/* CACHE WHAT NEVER CHANGES (2026-08-26). The bones walk every node
+   definition and the wisdom is a fixed set of pages — identical on every
+   request for the life of the process, and rebuilt on every request anyway.
+   The full no-focus Soul is the compose hand's every call; memoised, the
+   whole assembly costs a map lookup. (Provider-side prompt caching is the
+   bigger half of this coin — Mistral does not offer it yet; the prompt is
+   already structured unchanging-first so a provider that does gets it for
+   free the day a key exists.) */
+let cachedBones: string | null = null;
+const cachedSoul = new Map<string, string>();
+
 export function builderSoulText(connections = "", focus = ""): string {
+  const cacheKey = `${focus}\u0000${connections}`;
+  const hit = cachedSoul.get(cacheKey);
+  if (hit) return hit;
+  const built = buildSoulText(connections, focus);
+  /* A bounded map: focus strings are user text and must not grow a leak. */
+  if (cachedSoul.size > 200) cachedSoul.clear();
+  cachedSoul.set(cacheKey, built);
+  return built;
+}
+
+function buildSoulText(connections: string, focus: string): string {
   const needle = focus.toLowerCase();
   const alwaysOn = (page: SoulPage) => page.nodeType === null;
   const mentioned = (page: SoulPage) => {
@@ -697,7 +736,7 @@ export function builderSoulText(connections = "", focus = ""): string {
     ...chosen.map((page) => `## ${page.title}\n\n${page.body}`),
     ...(connections ? ["", connections] : []),
     "",
-    soulBones()
+    (cachedBones ??= soulBones())
   ].join("\n\n");
 }
 

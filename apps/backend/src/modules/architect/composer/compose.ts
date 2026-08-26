@@ -65,6 +65,11 @@ function systemPrompt(menu: string, personalLessons: string, connections: string
     "- Use as few steps as will genuinely do the job. An extra step that reaches a real person is not",
     "  an extra feature; it is a second text message to somebody's customer.",
     "- Give every step a short title in the architect's own words, not the type name.",
+    "- THE FACE IS A JUDGEMENT, NOT AN ASSEMBLY. When the agent has a customer at its page, compose",
+    "  the fewest Face pieces the job truly needs — usually exactly one Prompt Box and one Result",
+    "  Viewer — and write the customer's words into them: a placeholder that says what to type, a",
+    "  button verb they recognise. Never a platform word on the screen. When nobody visits the page",
+    "  (a Timer, an email ear, a webhook), compose NO Face at all.",
     "",
     /* The Builder Soul rides with every request — fetched fresh, so a swapped
        LLM is briefed on its first breath. This is where "where to start, how

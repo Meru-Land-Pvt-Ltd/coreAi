@@ -216,7 +216,7 @@ export function NodeInspector({
   else if (type === BLOCK_NODE_TYPES.promptComposer) panel = <PromptBoxBlockProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.presetGallery) panel = <StylesGalleryBlockProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.modelPicker) panel = <ModelPickerBlockProps {...base} />;
-  else if (type === BLOCK_NODE_TYPES.actionButton) panel = <ActionButtonBlockProps {...base} />;
+  else if (type === BLOCK_NODE_TYPES.actionButton) panel = <DeclaredProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.outputStage) panel = <ResultViewerBlockProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.continueChain) panel = <DeclaredProps {...base} />;
   else if (type === BLOCK_NODE_TYPES.historyShelf) panel = <HistoryShelfBlockProps {...base} />;
@@ -1758,7 +1758,7 @@ function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar
           mono
           value={str("eventTitleFormat")}
           onChange={set("eventTitleFormat")}
-          placeholder="{{appointment.service}} - {{customer.name}}"
+          placeholder="Cleaning — Priya S."
         />
 
         <div className="mt-4">
@@ -1768,7 +1768,7 @@ function BookCalendarAppointmentProps({ selectedNode, onUpdateNodeData, calendar
             height="h-20"
             value={str("eventDescription")}
             onChange={set("eventDescription")}
-            placeholder="Phone: {{customer.phone}} | Service: {{appointment.service}}"
+            placeholder="Booked by your AI receptionist. The customer's details fill in by themselves."
           />
         </div>
       </Section>
@@ -2960,39 +2960,6 @@ function ModelPickerBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPane
 
 const BUTTON_LABEL_MAX = 40;
 
-function ActionButtonBlockProps({ selectedNode, onUpdateNodeData }: NodePropsPanel) {
-  const { str, set } = fields(selectedNode, onUpdateNodeData);
-  const label = str("label", "Go");
-
-  return (
-    <>
-      <Section title="General">
-        <Label>Section name</Label>
-        <TextInput value={selectedNode.data.title} onChange={set("title")} />
-      </Section>
-
-      <Section title="Button" last>
-        <Label>Button text</Label>
-        <TextInput
-          value={label}
-          onChange={set("label")}
-          placeholder="Go"
-          maxLength={BUTTON_LABEL_MAX}
-          testId="block-action-button-label-input"
-        />
-        <p
-          className="mt-1 text-right text-[11px] text-slate-400"
-          data-testid="block-action-button-label-count"
-        >
-          {label.length}/{BUTTON_LABEL_MAX}
-        </p>
-        <p className="mt-2 text-[11px] leading-5 text-slate-400">
-          Your customer presses this. Connect it to the steps it should run.
-        </p>
-      </Section>
-    </>
-  );
-}
 
 /**
  * THE RESULT VIEWER PANEL — node two, the lamp.

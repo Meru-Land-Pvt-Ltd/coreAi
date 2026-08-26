@@ -3760,7 +3760,18 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     launchCritical: false,
     comingSoon: false,
     runtime: { nodeKind: "block" },
-    defaultConfig: { label: "Go" }
+    defaultConfig: { label: "Go" },
+    settings: [
+      {
+        key: "label",
+        name: "Words on the button",
+        whatItsFor: "What the button says — a verb your customer recognises, like Go or Generate.",
+        type: "text",
+        limits: { maxLength: 40 },
+        default: "Go",
+        whoFills: "architect"
+      }
+    ]
   }),
   // NODE TWO. The lamp. See docs/NODE-SOP.md.
   //
@@ -3819,7 +3830,18 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     launchCritical: false,
     comingSoon: false,
     runtime: { nodeKind: "block" },
-    defaultConfig: { label: "Continue" }
+    defaultConfig: { label: "Continue" },
+    settings: [
+      {
+        key: "label",
+        name: "Words on the button",
+        whatItsFor: "What the button says. Appears after a result, so your customer can go again.",
+        type: "text",
+        limits: { maxLength: 120 },
+        default: "Continue",
+        whoFills: "architect"
+      }
+    ]
   }),
   def({
     type: BLOCK_NODE_TYPES.historyShelf,

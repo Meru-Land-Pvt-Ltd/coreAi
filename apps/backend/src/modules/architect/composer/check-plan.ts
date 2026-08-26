@@ -126,6 +126,29 @@ export function checkPlan(plan: ComposerPlan, menu: MenuEntry[]): string[] {
     }
   }
 
+  /* ---- One box, one button — the law of the Face ----------------------- */
+  /* The customer's screen is a judgement, not an assembly (the founder,
+     2026-08-26). The model is TOLD this; here it is enforced, because a plan
+     that reads well and ships a monster is exactly what a checker is for. */
+  const promptBoxes = plan.nodes.filter((node) => node.type === "block.prompt_composer");
+  const viewers = plan.nodes.filter((node) => node.type === "block.output_stage");
+  if (promptBoxes.length > 1) {
+    problems.push(
+      "Two Prompt Boxes are two products wearing one skin. Keep exactly one — the customer asks one question."
+    );
+  }
+  if (viewers.length > 1) {
+    problems.push("Two Result Viewers put one fact in two places. Keep exactly one.");
+  }
+  const faceless = new Set(["trigger.schedule", "trigger.email_received", "trigger.webhook", "trigger.calendly", "trigger.whatsapp_message_received"]);
+  const trigger = plan.nodes.find((node) => faceless.has(node.type));
+  const facePiece = plan.nodes.find((node) => node.type.startsWith("block."));
+  if (trigger && facePiece) {
+    problems.push(
+      `Nobody visits this agent's page — it wakes by "${trigger.type}". Remove the Face pieces; an empty page nobody can reach is litter.`
+    );
+  }
+
   /* ---- It must not loop ------------------------------------------------ */
   if (hasCycle(plan)) {
     problems.push("The steps loop back on themselves, so the agent would never finish. Make it flow one way.");
