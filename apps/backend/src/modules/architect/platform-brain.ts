@@ -25,6 +25,22 @@ const FLAGSHIP: Record<string, string> = {
   openai: "gpt-5.4"
 };
 
+/**
+ * SMALL JOBS GET A SMALL BRAIN (2026-08-26).
+ *
+ * Not every call is a judgement. Deciding which of three words a message is
+ * — build, page, explain — is a reflex, and running a reflex on the flagship
+ * is how an architect ends up watching a blank box: the flagship was measured
+ * taking 92 seconds on one call while the router waited on a 12-second leash
+ * and gave up. The rule the big labs follow and we now do: the strongest
+ * model for the answer that matters, the fastest for the one that does not.
+ */
+const QUICK: Record<string, string> = {
+  mistral: "mistral-small-latest",
+  claude: "claude-haiku-4-5-20251001",
+  openai: "gpt-5.4-mini"
+};
+
 const RETRY_AFTER_MS = 2_500;
 
 export async function askPlatformBrain(input: {
@@ -34,6 +50,8 @@ export async function askPlatformBrain(input: {
   timeoutMs: number;
   task: string;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
+  /** A reflex, not a judgement — runs on the fast model. */
+  quick?: boolean;
 }): Promise<string | null> {
   const resolved = resolveConfiguredLlmProvider("mistral");
   if (!resolved) return null;
@@ -49,7 +67,11 @@ export async function askPlatformBrain(input: {
     temperature: 0,
     maxTokens: input.maxTokens,
     task: input.task,
-    ...(FLAGSHIP[resolved.providerId] ? { model: FLAGSHIP[resolved.providerId] } : {})
+    ...(() => {
+      const table = input.quick ? QUICK : FLAGSHIP;
+      const model = table[resolved.providerId] ?? FLAGSHIP[resolved.providerId];
+      return model ? { model } : {};
+    })()
   };
 
   for (let attempt = 0; attempt < 2; attempt++) {

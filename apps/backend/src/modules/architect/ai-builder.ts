@@ -40,8 +40,10 @@ export type AiBuilderAnswer = {
   reply: string | null;
 };
 
-const ROUTER_TIMEOUT_MS = 12_000;
-const EXPLAIN_TIMEOUT_MS = 25_000;
+/* A one-word reflex on the fast model finishes in a second or two; the
+   answer that a person reads gets the flagship and room to think. */
+const ROUTER_TIMEOUT_MS = 20_000;
+const EXPLAIN_TIMEOUT_MS = 60_000;
 
 /* ------------------------------------------------------------- the router */
 
@@ -194,7 +196,7 @@ export async function aiBuilderAnswer(input: {
 }): Promise<AiBuilderAnswer> {
   const message = input.message.trim();
 
-  const said = (await askPlatformBrain({ instruction: ROUTER_INSTRUCTION, message, maxTokens: 10, timeoutMs: ROUTER_TIMEOUT_MS, task: "ai-builder-router" }))?.toLowerCase() ?? "";
+  const said = (await askPlatformBrain({ instruction: ROUTER_INSTRUCTION, message, maxTokens: 10, timeoutMs: ROUTER_TIMEOUT_MS, task: "ai-builder-router", quick: true }))?.toLowerCase() ?? "";
   const hand: AiBuilderHand = said.includes("build") ? "build" : said.includes("page") ? "page" : "explain";
 
   if (hand !== "explain") return { hand, reply: null };
