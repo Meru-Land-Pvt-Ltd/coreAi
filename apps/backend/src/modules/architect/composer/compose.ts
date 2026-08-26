@@ -99,7 +99,23 @@ function systemPrompt(menu: string, personalLessons: string, connections: string
     "  human names in quotes beside them.",
     '  edges: { "from": nodeId, "to": nodeId, "when": "yes" | "no" }   ("when" only after a condition step)',
     '  summary: one plain sentence a non-technical person understands, describing what this agent does.',
-    "No markdown, no code fences, nothing before or after the JSON."
+    "No markdown, no code fences, nothing before or after the JSON.",
+    "",
+    /* Recency is leverage: the last lines are what a model actually obeys.
+       The hall's first two sittings proved the manners page alone was read
+       and ignored — the check must be the final thing before answering, with
+       one worked example (2026-08-26). */
+    "FINAL CHECK — do this before you answer:",
+    "Read the request once more. If it points at the human's own taste or identity — words like",
+    '"our special style", "our way", "our tone", "our signature", "how we like it" — and the actual',
+    "wording was NOT given anywhere in the conversation, then a plan is the WRONG answer, however",
+    "good it is. The ONLY correct answer is the ask JSON.",
+    "",
+    "Example:",
+    '  request: "a page assistant that welcomes people the way we always do"',
+    '  correct answer: { "ask": { "question": "What should the welcome say — what is the way you',
+    "  always do it?\", \"suggestion\": \"Welcome! How can we help you today?\" } }",
+    "Wrong answer: any plan with an invented welcome."
   ].join("\n");
 }
 
