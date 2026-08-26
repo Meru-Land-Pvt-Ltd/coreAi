@@ -25,25 +25,38 @@ import {
 } from "@/components/admin/features/api";
 import { nodeSettingsPage } from "@/components/admin/features/node-settings-pages";
 import { AiBrainModels } from "@/components/admin/features/node-settings/ai-brain-models";
-import { MemoryLimitsPanel } from "@/components/admin/features/node-settings/memory-limits";
-import { ConditionLimitsPanel } from "@/components/admin/features/node-settings/condition-limits";
-import { LoopLimitsPanel } from "@/components/admin/features/node-settings/loop-limits";
-import { FileUploadLimitsPanel } from "@/components/admin/features/node-settings/file-upload-limits";
-import { TimerLimitsPanel } from "@/components/admin/features/node-settings/timer-limits";
+import { PlatformDialsPanel } from "@/components/admin/features/node-settings/platform-dials";
 import { EmailLimitsPanel } from "@/components/admin/features/node-settings/email-limits";
-import { KnowledgeLimitsPanel } from "@/components/admin/features/node-settings/knowledge-limits";
 
-/** The settings panel for this node, if it has one. */
+/**
+ * The settings for this node.
+ *
+ * Every node's LIMITS now come from one panel that reads the node's own
+ * declared row (the founder's ruling, 2026-08-26) — the seven hand-written
+ * limit panels that used to live here were seven places for one number to
+ * disagree with itself. What stays bespoke is what genuinely is: the AI
+ * model catalogue, and the mail domains that sit inside Send email.
+ */
 function SettingsFor({ nodeType }: { nodeType: string }) {
-  if (nodeType === "ai.llm_call") return <AiBrainModels />;
-  if (nodeType === "ai.memory") return <MemoryLimitsPanel />;
-  if (nodeType === "logic.condition") return <ConditionLimitsPanel />;
-  if (nodeType === "logic.loop") return <LoopLimitsPanel />;
-  if (nodeType === "block.file_upload") return <FileUploadLimitsPanel />;
-  if (nodeType === "trigger.schedule") return <TimerLimitsPanel />;
-  if (nodeType === "communication.send_email") return <EmailLimitsPanel />;
-  if (nodeType === "ai.knowledge") return <KnowledgeLimitsPanel />;
-  return null;
+  if (nodeType === "ai.llm_call") {
+    return (
+      <>
+        <AiBrainModels />
+        <div className="mt-6">
+          <PlatformDialsPanel nodeType={nodeType} />
+        </div>
+      </>
+    );
+  }
+  if (nodeType === "communication.send_email") {
+    return (
+      <>
+        <PlatformDialsPanel nodeType={nodeType} />
+        <EmailLimitsPanel />
+      </>
+    );
+  }
+  return <PlatformDialsPanel nodeType={nodeType} />;
 }
 
 function Toggle({

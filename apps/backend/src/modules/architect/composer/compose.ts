@@ -22,7 +22,7 @@ import { getProviderEngine } from "../../ai-provider-engine/provider-engine";
 import type { AIExecuteRequest, AIMessage } from "../../ai-provider-engine/types";
 import { checkPlan, type ComposerPlan } from "./check-plan";
 import { composerMenu, menuAsText, type MenuEntry } from "./node-menu";
-import { builderSoulText } from "../builder-soul";
+import { builderSoulText, connectionWisdom } from "../builder-soul";
 import { lessonsForPrompt } from "../builder-lessons";
 
 /** What the architect sees while it works. */
@@ -37,7 +37,7 @@ export type ComposerResult =
 
 const MAX_ATTEMPTS = 3;
 
-function systemPrompt(menu: string, personalLessons: string): string {
+function systemPrompt(menu: string, personalLessons: string, connections: string): string {
   return [
     "You assemble agents for Triven, out of steps that already exist.",
     "",
@@ -69,7 +69,7 @@ function systemPrompt(menu: string, personalLessons: string): string {
     /* The Builder Soul rides with every request — fetched fresh, so a swapped
        LLM is briefed on its first breath. This is where "where to start, how
        much per node, where to end" comes from. */
-    builderSoulText(),
+    builderSoulText(connections),
     ...(personalLessons ? ["", personalLessons] : []),
     "",
     "OUTPUT",
@@ -127,6 +127,19 @@ export async function composeOrchestration(input: {
   }
   say("Looking at every step available to you", `${menu.length} to choose from`);
 
+  /* Connection cards are born after the Soul ships, so their wisdom is
+     generated from their own rows (the founder's third hole, 2026-08-26). */
+  const connections = connectionWisdom(
+    menu
+      .filter((entry) => entry.type.startsWith("connector."))
+      .map((entry) => ({
+        id: entry.type.replace(/^connector\./, ""),
+        label: entry.label,
+        description: entry.does,
+        gives: entry.gives
+      }))
+  );
+
   const messages: AIMessage[] = [{ role: "user", content: input.want.slice(0, 4000) }];
   let lastProblems: string[] = [];
 
@@ -136,7 +149,7 @@ export async function composeOrchestration(input: {
 
     const request: AIExecuteRequest = {
       capability: "llm",
-      systemPrompt: systemPrompt(menuAsText(menu), personalLessons),
+      systemPrompt: systemPrompt(menuAsText(menu), personalLessons, connections),
       conversationHistory: [],
       messages: [...messages],
       // Low, because this is arithmetic dressed as writing: which step, wired

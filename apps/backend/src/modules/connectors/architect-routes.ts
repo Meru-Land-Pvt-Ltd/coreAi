@@ -16,7 +16,7 @@ import { z } from "zod";
 import type { NodeFrameDeclaration } from "@coreai/shared";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { runConnector } from "./engine";
-import { selfBuildFrame } from "./self-build";
+import { redraftFrame, selfBuildFrame } from "./self-build";
 import {
   architectFrameById,
   deleteArchitectFrame,
@@ -126,6 +126,28 @@ architectFrameRoutes.post("/self-build", async (c) => {
   } catch (error) {
     console.error("[frames] self-build failed", error);
     return errorResponse(c, "The builder could not draft this service just now. Try once more.", 500, "SELF_BUILD_FAILED");
+  }
+});
+
+/**
+ * Re-read the service and update this card — the maintenance loop. Keeps the
+ * id, so every agent already using the card keeps working, and reports what
+ * moved so the architect approves rather than discovers.
+ */
+architectFrameRoutes.post("/:frameId/redraft", async (c) => {
+  const authUser = c.get("authUser");
+  const body = await c.req.json().catch(() => ({}));
+  const apiKey = (body as { apiKey?: string })?.apiKey;
+  try {
+    const result = await redraftFrame({
+      architectUserId: authUser.id,
+      frameId: c.req.param("frameId"),
+      ...(apiKey ? { apiKey } : {})
+    });
+    return successResponse(c, result, result.message);
+  } catch (error) {
+    console.error("[frames] redraft failed", error);
+    return errorResponse(c, "The service could not be re-read just now. Try once more.", 500, "REDRAFT_FAILED");
   }
 });
 

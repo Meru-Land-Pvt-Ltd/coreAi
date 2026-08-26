@@ -620,13 +620,58 @@ export function soulPages(): SoulPage[] {
   return WISDOM;
 }
 
+/**
+ * THE CONNECTION CARDS' OWN WISDOM.
+ *
+ * Custom cards — Apollo, Instantly, and everything an architect builds with
+ * Create Node — cannot have a hand-written page: they are born after the Soul
+ * ships. So their wisdom is GENERATED from the same row the panels read: what
+ * the service is, what it takes, what it gives, who answers what, and the one
+ * law that governs every card of this species — a connection reaches outside,
+ * so it costs money and can fail, and the flow must expect both.
+ */
+export function connectionWisdom(
+  cards: Array<{
+    id: string;
+    label: string;
+    description: string;
+    provider?: string;
+    asks?: string[];
+    gives?: string[];
+    mine?: boolean;
+  }>
+): string {
+  if (cards.length === 0) return "";
+  const lines = [
+    "## Connection cards — the outside world",
+    "",
+    "These reach a service beyond Triven. Every one of them costs money per run,",
+    "can be refused by the provider, and answers slower than a step that stays",
+    "inside. So: place one only where its answer is genuinely needed, never two",
+    "that fetch the same thing, and put the Brain that reads the answer straight",
+    "after it. A run that fails at a connection says so honestly in the log —",
+    "never pretend it returned nothing.",
+    ""
+  ];
+  for (const card of cards) {
+    lines.push(
+      `- ${card.label} (${card.id})${card.mine ? " — this architect's own card" : ""}`,
+      `    what it does: ${card.description}`,
+      `    the business answers at install: ${(card.asks ?? []).join(", ") || "nothing"}`,
+      `    gives later steps: ${(card.gives ?? []).join(", ") || "its reply"}`
+    );
+  }
+  return lines.join("\n");
+}
+
 /** The Soul as one text — what rides with every Builder request. */
-export function builderSoulText(): string {
+export function builderSoulText(connections = ""): string {
   return [
     "THE BUILDER SOUL — what you know about this platform's nodes. This is your map:",
     "where each node starts, how much it carries, where it stops.",
     "",
     ...WISDOM.map((page) => `## ${page.title}\n\n${page.body}`),
+    ...(connections ? ["", connections] : []),
     "",
     soulBones()
   ].join("\n\n");

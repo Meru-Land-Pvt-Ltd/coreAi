@@ -21,7 +21,7 @@
 
 import type { NodeFrameDeclaration } from "@coreai/shared";
 import { askPlatformBrain } from "../architect/platform-brain";
-import { problemsWith, saveArchitectFrame, frameFromDeclaration } from "./architect-frames";
+import { problemsWith, saveArchitectFrame, frameFromDeclaration, listArchitectFrames } from "./architect-frames";
 import { runConnector } from "./engine";
 
 const DRAFT_TIMEOUT_MS = 60_000;
@@ -80,6 +80,19 @@ const DRAFT_INSTRUCTION = [
   "- Prefer a READ (GET) job unless the architect explicitly asked to send or write.",
   "- estimateCents: your honest guess; limits: conservative numbers like the example.",
   "",
+  "THE SORTING LAW — every parameter the service offers goes to exactly one of four places:",
+  "  needs.platform  → costs money or carries risk (rate limits, spend, quotas)",
+  "  needs.business  → THEIR own fact (their key, their account, their campaign)",
+  "  needs.architect → the shape of the job (which action, which field feeds which)",
+  "  notShown        → everything else. Hiding is the skill: a form with fifty boxes is",
+  "                    unusable, and this platform's law is that a node shows the few",
+  "                    that matter. But say WHAT you hid — a silent omission is a trap",
+  "                    for whoever needs that parameter in six months.",
+  "",
+  'Add one extra field to the JSON: "notShown": [{ "name": string, "why": string }] — the',
+  "parameters you deliberately left out and the one-line reason for each. It is not part of",
+  "the running node; it is the record of your judgement.",
+  "",
   "Return ONLY the JSON declaration. No markdown fences, no commentary."
 ].join("\n");
 
@@ -103,10 +116,68 @@ export type SelfBuildResult = {
   status?: string;
   problems: string[];
   attempts: number;
+  /** What the drafter deliberately left out, and why — never a silence. */
+  notShown?: Array<{ name: string; why: string }>;
   /** The one real rehearsal, when a key was given and the recipe only reads. */
   tried?: { ok: boolean; message: string };
   message: string;
 };
+
+/**
+ * #5 — THE MAINTENANCE LOOP (the founder's ruling, 2026-08-26).
+ *
+ * A card is a photograph of a service on the day it was drafted. Services
+ * change: a field is renamed, a version retires, an endpoint moves. The daily
+ * probe already NOTICES (the card goes degraded); nothing until now could
+ * FIX it. This re-reads the service and drafts the card again, keeping the id
+ * — so every agent already using it keeps working — and hands back what
+ * changed so an architect approves rather than discovers.
+ */
+export async function redraftFrame(input: {
+  architectUserId: string;
+  frameId: string;
+  apiKey?: string;
+}): Promise<SelfBuildResult & { changed?: string[] }> {
+  const owned = (await listArchitectFrames(input.architectUserId)).find(
+    (entry) => entry.frameId === input.frameId
+  );
+  if (!owned?.declaration) {
+    return { ok: false, problems: ["No such connection."], attempts: 0, message: "No such connection." };
+  }
+
+  const previous = owned.declaration as NodeFrameDeclaration & { draftedAt?: string };
+  const result = await selfBuildFrame({
+    architectUserId: input.architectUserId,
+    serviceName: previous.provider?.name ?? previous.shortLabel ?? input.frameId,
+    goal: previous.description ?? previous.label ?? "the same job as before",
+    ...(previous.provider?.docsUrl ? { docsUrl: previous.provider.docsUrl } : {}),
+    ...(input.apiKey ? { apiKey: input.apiKey } : {}),
+    keepId: input.frameId
+  });
+
+  /* What actually moved — an architect approves a diff, never a mystery. */
+  const changed: string[] = [];
+  const after = result.ok ? (await listArchitectFrames(input.architectUserId)).find((e) => e.frameId === input.frameId)?.declaration as NodeFrameDeclaration | undefined : undefined;
+  if (after) {
+    if (after.recipe?.url !== previous.recipe?.url) changed.push(`address: ${previous.recipe?.url} → ${after.recipe?.url}`);
+    if (after.recipe?.method !== previous.recipe?.method) changed.push(`kind of request: ${previous.recipe?.method} → ${after.recipe?.method}`);
+    const before = new Set((previous.needs?.business ?? []).map((f) => f.key));
+    const now = new Set((after.needs?.business ?? []).map((f) => f.key));
+    for (const key of now) if (!before.has(key)) changed.push(`new question for the business: ${key}`);
+    for (const key of before) if (!now.has(key)) changed.push(`question no longer asked: ${key}`);
+    if (previous.draftedAt) changed.push(`last read: ${previous.draftedAt.slice(0, 10)}`);
+  }
+
+  return {
+    ...result,
+    ...(changed.length > 0 ? { changed } : {}),
+    message: result.ok
+      ? changed.length > 0
+        ? `Re-read the service and updated the card. What changed: ${changed.join("; ")}.`
+        : "Re-read the service — nothing had changed. The card is current."
+      : result.message
+  };
+}
 
 export async function selfBuildFrame(input: {
   architectUserId: string;
@@ -114,6 +185,8 @@ export async function selfBuildFrame(input: {
   goal: string;
   docsUrl?: string;
   apiKey?: string;
+  /** Re-drafting an existing card keeps its id, so live agents keep working. */
+  keepId?: string;
 }): Promise<SelfBuildResult> {
   const ask = [
     `SERVICE: ${input.serviceName}`,
@@ -142,13 +215,34 @@ export async function selfBuildFrame(input: {
       continue;
     }
     declaration = parsed;
-    problems = problemsWith(parsed);
+    /* A re-draft never renames the card: agents point at the id. */
+    if (input.keepId) (declaration as Record<string, unknown>).id = input.keepId;
+    problems = problemsWith(declaration);
     feedback = problems.map((problem) => `- ${problem}`).join("\n");
   }
 
   if (!declaration) {
     return { ok: false, problems: ["The draft never became valid JSON."], attempts, message: "The builder could not draft this service. Try adding the documentation address." };
   }
+
+  /* #4 — WHAT WAS HIDDEN, WRITTEN DOWN (the founder's ruling, 2026-08-26).
+     The AI curates fifty parameters down to a usable few. That judgement is
+     now a record on the card, not a silence: whoever needs the fifty-first
+     parameter in six months can see it was considered and why it was left. */
+  const notShown = Array.isArray((declaration as { notShown?: unknown }).notShown)
+    ? ((declaration as { notShown?: Array<{ name?: string; why?: string }> }).notShown ?? [])
+        .map((entry) => ({ name: String(entry?.name ?? ""), why: String(entry?.why ?? "") }))
+        .filter((entry) => entry.name)
+    : [];
+  delete (declaration as { notShown?: unknown }).notShown;
+
+  /* #5 — THE VERSION STAMP. A service changes; a card drafted today is a
+     photograph of today's API. Stamping what it was read from is what lets
+     the daily probe's failure become "re-read Instantly" instead of a
+     mystery. */
+  (declaration as Record<string, unknown>).draftedAt = new Date().toISOString();
+  (declaration as Record<string, unknown>).draftedFrom = input.docsUrl ?? "the service's public API";
+  if (notShown.length > 0) (declaration as Record<string, unknown>).notShown = notShown;
 
   /* The key is stored encrypted against the frame — never in the declaration. */
   const secrets: Record<string, string> = {};
@@ -191,6 +285,7 @@ export async function selfBuildFrame(input: {
     status: saved.status,
     problems: saved.problems ?? [],
     attempts,
+    ...(notShown.length > 0 ? { notShown } : {}),
     ...(tried ? { tried } : {}),
     message:
       saved.status === "READY"

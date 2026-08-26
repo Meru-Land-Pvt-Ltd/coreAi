@@ -863,6 +863,29 @@ export function saveKnowledgeLimits(limits: KnowledgeLimits) {
 
 /* ----------------------------- The Builder Soul ---------------------------- */
 
+export type PlatformDial = {
+  key: string;
+  nodeType: string;
+  nodeLabel: string;
+  name: string;
+  whatItsFor: string;
+  type: "text" | "long text" | "number" | "choice" | "on/off" | "file";
+  min?: number;
+  max?: number;
+  choices?: Array<{ value: string; label: string }>;
+  default: string | number | boolean;
+  value: string | number | boolean;
+};
+
+/** Every admin ceiling on the platform, read from the node that declares it. */
+export function getPlatformDials() {
+  return apiGet<{ dials: PlatformDial[] }>("/admin/platform-dials");
+}
+
+export function savePlatformDial(key: string, value: string | number | boolean) {
+  return apiPatch<{ dial: PlatformDial }>(`/admin/platform-dials/${encodeURIComponent(key)}`, { value });
+}
+
 export function getBuilderSoulMeta() {
   return apiGet<{
     pages: Array<{ name: string; chars: number }>;
