@@ -437,8 +437,9 @@ private addresses are refused, and every reply is shown as it arrived.
 
 Prefer a purpose-built card when one exists (Booking, Calendly, mail): it
 already knows the service's shape. Reach for the universal hand when no
-card exists — and when the service will be used again and again, build a
-New Connection instead, so it becomes a real card.`
+card exists — and when the service will be used again and again, press
+"Keep this service as a card": it becomes a real card in the palette's own
+CUSTOM NODES shelf — the architect's fifth section, theirs alone.`
   },
   {
     slug: "17b-node-frame",

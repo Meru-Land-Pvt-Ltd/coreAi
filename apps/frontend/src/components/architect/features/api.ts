@@ -48,6 +48,8 @@ export type ArchitectBuilderNodePresentation = {
 /** A connector the architect may place, described by the connector itself. */
 export type ArchitectBuilderConnector = {
   id: string;
+  /** True when this card was made by THIS architect with Create Node. */
+  mine?: boolean;
   label: string;
   shortLabel: string;
   description: string;

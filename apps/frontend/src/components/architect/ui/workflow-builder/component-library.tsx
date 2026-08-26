@@ -96,7 +96,7 @@ const FACE_COMING_SOON_CARDS: Array<Pick<FaceTemplateCard, "slug" | "title" | "p
 function withConnectors(groups: LibraryGroup[], connectors: ArchitectBuilderConnector[]): LibraryGroup[] {
   if (connectors.length === 0) return groups;
 
-  const items: LibraryItem[] = connectors.map((connector) => ({
+  const toItem = (connector: ArchitectBuilderConnector): LibraryItem => ({
     nodeKind: "connector" as NodeKind,
     // The card is one line of about twelve characters. The full name lives on
     // the node itself and in the hover tooltip.
@@ -116,11 +116,21 @@ function withConnectors(groups: LibraryGroup[], connectors: ArchitectBuilderConn
       title: connector.label,
       subtitle: connector.description
     }
-  }));
+  });
 
-  return groups.map((group) =>
-    group.title === "Hands" ? { ...group, items: [...group.items, ...items] } : group
+  /* The founder's fifth shelf (2026-08-26): cards born from Create Node do
+     not mix into the Elements groups — they are the architect's OWN, and the
+     palette says so with a home of their own. Platform service cards stay in
+     Hands, where they always lived. */
+  const platformItems = connectors.filter((connector) => !connector.mine).map(toItem);
+  const customItems = connectors.filter((connector) => connector.mine).map(toItem);
+
+  const withPlatform = groups.map((group) =>
+    group.title === "Hands" ? { ...group, items: [...group.items, ...platformItems] } : group
   );
+  return customItems.length > 0
+    ? [...withPlatform, { title: "Custom nodes", subtitle: "Made with Create Node — yours alone", items: customItems }]
+    : withPlatform;
 }
 
 function applyAdminPresentation(
