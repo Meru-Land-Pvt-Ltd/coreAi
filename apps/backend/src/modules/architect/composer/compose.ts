@@ -80,6 +80,8 @@ function systemPrompt(menu: string, personalLessons: string, connections: string
     "OUTPUT",
     'Return ONLY JSON: { "summary": string, "nodes": [...], "edges": [...], "asksTheBusiness": [string] }',
     '  nodes: { "id": string, "type": string, "title": string, "config": { ... } }',
+    "  config keys are the exact machine keys from the map — llmAnswerShouldBe, placeholder — never the",
+    "  human names in quotes beside them.",
     '  edges: { "from": nodeId, "to": nodeId, "when": "yes" | "no" }   ("when" only after a condition step)',
     '  summary: one plain sentence a non-technical person understands, describing what this agent does.',
     "No markdown, no code fences, nothing before or after the JSON."

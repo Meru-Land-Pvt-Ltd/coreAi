@@ -610,7 +610,19 @@ function boneFor(definition: NodeDefinition): string {
     const rows = settings.filter((setting) => setting.whoFills === who);
     if (rows.length === 0) return;
     lines.push(`  ${heading}:`);
-    for (const setting of rows) lines.push(`    - ${setting.name}: ${setting.whatItsFor}`);
+    for (const setting of rows) {
+      /* The architect's rows carry their MACHINE KEY, because that is what a
+         composed plan writes into config. Teaching only the human name made
+         the model write "How the answer should be" as a key — a plan that
+         reads perfectly and fails the checker every time (found live,
+         2026-08-26). The other two columns stay human-only: the model must
+         never fill them. */
+      lines.push(
+        who === "architect"
+          ? `    - ${setting.key} ("${setting.name}"): ${setting.whatItsFor}`
+          : `    - ${setting.name}: ${setting.whatItsFor}`
+      );
+    }
   };
   if (settings.length === 0) {
     lines.push("  settings: none — and that is an answer, not an omission");
