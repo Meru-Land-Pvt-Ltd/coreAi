@@ -1735,12 +1735,32 @@ export async function handleTwilioVoiceAction(c: Context) {
   const calledNumber = readBodyString(body, ["Called", "To", "to"]) || c.req.query("to") || "";
   const callerNumber = readBodyString(body, ["From", "Caller", "from"]);
   const callerName = readBodyString(body, ["CallerName", "callerName"]);
-  const dialStatus = readBodyString(body, ["DialCallStatus", "DialStatus", "CallStatus"]);
+  /* THIS IS ALSO TWILIO'S EMERGENCY FALLBACK. The same address is registered
+     as the dial-result callback AND as the fallback Twilio hits when our main
+     voice webhook fails — and a fallback request carries no dial result at
+     all. Reading CallStatus in its place turned "the call is ringing" into
+     "the office did not answer": we invented a missed call, charged the
+     business for an AI follow-up, texted their customer "sorry we missed you"
+     — and answered Twilio with silence, so the caller heard nothing and the
+     line went dead. A dial result is a dial result or it is nothing. */
+  const dialStatus = readBodyString(body, ["DialCallStatus", "DialStatus"]);
   const callSid = readBodyString(body, ["CallSid", "callSid"]);
   const agent = await resolveAgent({ calledNumber, workflowId });
 
   if (!agent || !callerNumber) {
     return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
+  }
+
+  if (!dialStatus) {
+    /* No dial result: our main webhook failed and Twilio came here instead.
+       Say something, and give them the number that can actually help. */
+    const spoken =
+      "Sorry, we cannot take your call automatically right now. Please try again in a few minutes.";
+    return c.text(
+      `<Response><Say voice="alice">${escapeXml(spoken)}</Say></Response>`,
+      200,
+      { "Content-Type": "text/xml" }
+    );
   }
 
   if (dialStatus === "completed") {
@@ -2548,18 +2568,31 @@ function optionalFlag(value: unknown): boolean | undefined {
   return undefined;
 }
 
-export async function loadDentalToolConfig(businessId: string): Promise<DentalToolConfig> {
+export async function loadDentalToolConfig(
+  businessId: string,
+  installedAgentId?: string | null
+): Promise<DentalToolConfig> {
+  const select = { configJson: true, workflow: { select: { workflowJson: true } } };
 
+  /* THE AGENT ON THIS CALL, NOT THE NEWEST ONE.
+     This picked the most recently created active agent for the business, so a
+     business running two agents had the second one's team phone, its message
+     templates, its booking length and its confirmation wording used on the
+     first one's calls. The id of the agent actually on the call was known
+     eleven lines from here and simply not passed in. */
   const agent =
+    (installedAgentId
+      ? await prisma.installedAgent.findFirst({ where: { id: installedAgentId, businessId }, select })
+      : null) ??
     (await prisma.installedAgent.findFirst({
       where: { businessId, status: "ACTIVE" },
       orderBy: { createdAt: "desc" },
-      select: { configJson: true, workflow: { select: { workflowJson: true } } }
+      select
     })) ??
     (await prisma.installedAgent.findFirst({
       where: { businessId, status: "PROVISIONING" },
       orderBy: { createdAt: "desc" },
-      select: { configJson: true, workflow: { select: { workflowJson: true } } }
+      select
     }));
   const configJson = (agent?.configJson as Record<string, unknown> | null) ?? {};
   const emailNode = applyBuyerEmailRecipients(
@@ -6027,7 +6060,9 @@ export async function handleVapiWebhook(c: Context) {
       body
     });
 
-    const dental = businessContext?.businessId ? await loadDentalToolConfig(businessContext.businessId) : null;
+    const dental = businessContext?.businessId
+      ? await loadDentalToolConfig(businessContext.businessId, metadataInstalledAgentId)
+      : null;
     const baseCtx: VapiToolContext = {
       business: businessContext,
       dental,
@@ -6135,7 +6170,27 @@ export async function handleVapiWebhook(c: Context) {
             payload = isLookup
               ? { found: false, sections: [], message: "Knowledge lookup is unavailable right now. Use the business context you already have or the fallback response." }
               : isCheck
-                ? { available_slots: dryRunAvailabilitySlots(ctx.dental), date: todayInZone(ctx.timeZone), source: "demo", calendar_status: "needs_reconnect" }
+                ? /* A CRASH IS NOT AN OPEN CALENDAR. When the availability
+                     tool threw, this catch handed the model invented times
+                     built from a default nine-to-five — and the model reads
+                     them out to a live caller as free slots. The honest
+                     payload for exactly this case already exists further up
+                     this file; a rehearsal still gets its simulated slots. */
+                  ctx.executionMode === "ARCHITECT_DRY_RUN"
+                  ? {
+                      available_slots: dryRunAvailabilitySlots(ctx.dental),
+                      date: todayInZone(ctx.timeZone),
+                      source: "simulated",
+                      calendar_status: "simulated",
+                      message: "SIMULATED test slots (architect dry run) — clearly not a real calendar."
+                    }
+                  : {
+                      available_slots: [],
+                      date: todayInZone(ctx.timeZone),
+                      calendar_status: "error",
+                      message:
+                        "Live calendar availability cannot be confirmed right now. Say so honestly, take the caller's preferred time as a REQUEST, and never invent open or booked slots."
+                    }
                 : isBook
                   ? { success: false, message: "Could not complete the booking right now. Please try again." }
                   : isConsent

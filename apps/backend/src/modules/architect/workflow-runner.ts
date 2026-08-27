@@ -3134,7 +3134,7 @@ async function runVapiConnectorNode({
   const phoneNumberId =
     renderTemplate(node.data?.vapiPhoneNumberId, context) ||
     context.business?.vapiPhoneNumberId ||
-    (await resolveOutboundPhoneNumberId()) ||
+    (await resolveOutboundPhoneNumberId(null, context.business?.id)) ||
     undefined;
 
   if (!outboundSendsAllowed(context, mode)) {

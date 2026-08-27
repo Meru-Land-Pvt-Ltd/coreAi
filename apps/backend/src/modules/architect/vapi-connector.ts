@@ -369,13 +369,21 @@ export async function listVapiPhoneNumbers(): Promise<Array<{ id: string; number
  * configured" even though a perfectly good number is sitting there registered.
  */
 export async function resolveOutboundPhoneNumberId(
-  preferred?: string | null
+  preferred?: string | null,
+  businessId?: string | null
 ): Promise<string | null> {
   const explicit = clean(preferred) || clean(env.VAPI_DEFAULT_PHONE_NUMBER_ID);
   if (explicit) return explicit;
 
+  /* WHOSE NUMBER IS CALLING? This searched every platform number and took the
+     oldest, with no owner filter — so one business's outbound calls could go
+     out showing another business's number as the caller ID, and when the
+     person rang it back they reached that other business's agent. Their own
+     number, or none: borrowing a stranger's is worse than not calling. */
+  if (!businessId) return null;
+
   const registered = await prisma.platformPhoneNumber.findFirst({
-    where: { vapiPhoneNumberId: { not: null } },
+    where: { businessId, vapiPhoneNumberId: { not: null } },
     orderBy: { createdAt: "asc" },
     select: { vapiPhoneNumberId: true }
   });
@@ -1289,6 +1297,9 @@ export function shouldIncludeAssistantTool(
 export type DeployVapiAssistantInput = {
   name: string;
   firstMessage: string;
+  /** What the agent says to a voicemail. Built by the caller from the
+      business's own name — never our internal one. */
+  voicemailMessage?: string | null;
   systemPrompt: string;
   model?: string | null;
   voice?: string | null;
@@ -1338,6 +1349,7 @@ export type DeployVapiAssistantInput = {
 export async function deployVapiAssistant({
   name,
   firstMessage,
+  voicemailMessage,
   systemPrompt,
   model,
   voice,
@@ -1494,8 +1506,14 @@ export async function deployVapiAssistant({
       provider: "vapi",
       backoffPlan: { startAtSeconds: 5, frequencySeconds: 5, maxRetries: 6 }
     },
+    /* EVERY BUSINESS'S VOICEMAIL SAID "it's Maya from Triven".
+       A hardcoded line on every assistant we deploy, so a dental practice's
+       own agent left a message introducing itself as somebody at our company.
+       The mail must wear THEIR name; we are only the carrier. The greeting
+       three lines up is already built per business — this one never was. */
     voicemailMessage:
-      "Hi, it's Maya from Triven — sorry I missed you. I'll try again another time, or you can call us back on this number. Thanks!",
+      voicemailMessage?.trim() ||
+      `Hi, it's ${name} — sorry we missed you. Please call us back on this number and we'll help. Thanks!`,
     ...(firstMessageMode ? { firstMessageMode } : {}),
     ...(metadata ? { metadata } : {}),
     ...(silenceTimeoutSeconds ? { silenceTimeoutSeconds } : {}),
