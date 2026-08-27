@@ -66,7 +66,7 @@ export function BookingActionsModal({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (isCancel && !reason.trim()) {
-      setError("Please provide a cancellation reason for the patient.");
+      setError("Please provide a cancellation reason for the customer.");
       return;
     }
 
@@ -125,7 +125,7 @@ export function BookingActionsModal({
             <p className="mt-1 text-sm leading-relaxed text-slate-600" data-testid="booking-action-modal-description">
               {isCancel ? (
                 <>
-                  Cancel booking for <span className="font-semibold text-slate-900">{customerLabel}</span>. This removes the Google Calendar event and texts cancellation details to the patient.
+                  Cancel booking for <span className="font-semibold text-slate-900">{customerLabel}</span>. This removes the Google Calendar event and texts cancellation details to the customer.
                 </>
               ) : (
                 <>
@@ -155,8 +155,8 @@ export function BookingActionsModal({
               }}
               placeholder={
                 isCancel
-                  ? "e.g., Doctor unavailable, emergency closure, equipment maintenance..."
-                  : "e.g., Doctor delayed, moving morning slot to afternoon..."
+                  ? "e.g., Unexpected closure, staff unavailable, equipment problem..."
+                  : "e.g., Running late, moving the morning slot to the afternoon..."
               }
               className="mt-1.5 w-full rounded-xl border border-gray-200 bg-slate-50/50 p-3 text-sm font-medium text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
               data-testid="booking-action-reason-input"

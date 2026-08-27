@@ -862,10 +862,10 @@ function SetupWizard() {
     } else if (calendlyResult === "denied") {
       setError("Calendly connection was cancelled. You can retry anytime.");
     } else if (calendlyResult === "webhook_failed") {
-      setStatusMsg("Calendly connected — webhook not registered. Reconnect after checking CALENDLY_WEBHOOK_URL.");
+      setStatusMsg("Calendly is connected, but bookings cannot start your agent yet. We are on it — try reconnecting shortly.");
       setCalendly((current) => ({ ...current, connected: true }));
       setError(
-        "Calendly account connected, but live booking triggers need a public webhook URL. Set CALENDLY_WEBHOOK_URL and reconnect."
+        "Calendly is connected, but Triven cannot yet be told when someone books. Everything else works — please try reconnecting in a few minutes."
       );
     } else if (calendlyResult) {
       setError("Calendly connection failed. Please try connecting again.");

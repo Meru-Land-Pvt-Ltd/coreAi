@@ -113,11 +113,29 @@ const DATA_CATEGORIES = [
     ["Execution logs", "Reliability and debugging", "Up to 14 days"]
 ];
 
+/* A BUSINESS SIGNS THIS LIST TO SATISFY ITS OWN OBLIGATIONS.
+   It named four companies while the platform demonstrably sends personal data
+   to many more — the buyer's own invoice itemises Deepgram, Cartesia and
+   ElevenLabs by name, and setup connects Google, Calendly and Telegram. A
+   short list in a data-processing agreement is not a tidier list; it is an
+   incomplete one, and the business is the party who answers for it.
+   Corrected 2026-08-27. Anything added to the platform belongs here too. */
 const SUBPROCESSORS = [
     ["Amazon Web Services", "Infrastructure hosting"],
-    ["Twilio", "Communications delivery"],
     ["Stripe", "Payment processing"],
-    ["OpenAI", "AI model inference"]
+    ["Twilio", "Calls and text messages"],
+    ["Vapi", "Voice agent calls"],
+    ["OpenAI", "AI model inference"],
+    ["Anthropic", "AI model inference"],
+    ["Google", "AI model inference, and Calendar when connected"],
+    ["Mistral AI", "AI model inference"],
+    ["Deepgram", "Speech to text, and text to speech"],
+    ["ElevenLabs", "Text to speech"],
+    ["Cartesia", "Text to speech"],
+    ["Pinecone", "Agent memory storage"],
+    ["Calendly", "Scheduling, when connected"],
+    ["Telegram", "Messaging, when connected"],
+    ["Meta (WhatsApp)", "Messaging, when connected"]
 ];
 
 const INDUSTRIES = [

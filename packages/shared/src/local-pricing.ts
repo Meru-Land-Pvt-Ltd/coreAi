@@ -124,9 +124,16 @@ export function priceForMarket(baseUsdCents: number, currency: string): MarketPr
   if (!rule || baseUsdCents <= 0) return null;
 
   const anchor = MARKET_USD_ANCHORS[rule.currency];
-  // An override only ever LOWERS the price. If an architect prices their agent
-  // below the India anchor, India pays the lower number — a market override
-  // must never quietly charge someone more than the headline price.
+  /* An override only ever LOWERS the price. If an architect prices their agent
+     below the India anchor, India pays the lower number — a market override
+     must never quietly charge someone more than the headline price.
+
+     WHAT THIS COSTS THE ARCHITECT, said plainly: an agent priced above the
+     anchor sells in India AT the anchor, and the architect's share is worked
+     out from what was actually charged. A $499 agent earns them 70% of ~$153
+     there, not of $499. That is the founder's decision about the Indian
+     market, not an accident — but nothing on the architect's pricing screen
+     tells them, and it should. */
   const effectiveUsdCents = anchor ? Math.min(anchor, baseUsdCents) : baseUsdCents;
 
   const whole = (effectiveUsdCents / 100) * rule.rate;
@@ -135,14 +142,16 @@ export function priceForMarket(baseUsdCents: number, currency: string): MarketPr
   let note: string | undefined;
 
   if (rule.currency === "inr" && major >= INR_EMANDATE_CEILING) {
-    // DO NOT SILENTLY DISCOUNT.
-    //
-    // Clamping a $499 agent down to ₹14,900 would hand away two thirds of the
-    // price without anyone deciding to, which is a worse bug than the one it
-    // avoids. Above the ceiling an Indian subscription simply cannot renew on
-    // its own, so we refuse to generate a price and say why. The operator then
-    // makes a real choice: price the Indian plan under the line, or sell it
-    // there as a manual invoice instead of an automatic subscription.
+    /* A BACKSTOP THAT SHOULD NEVER FIRE, AND SAYS SO.
+       The anchor above already holds every Indian price at ₹12,900, under the
+       line, so nothing reaches here today. This used to carry a comment saying
+       the opposite of what the code does — that a $499 agent must never be
+       clamped, while the line above clamps it — which would have sent the next
+       reader looking for a bug that is actually a decision.
+
+       It stays as a backstop because the rupee rate is a constant in this
+       file: if it moves, or the anchor is raised, a price that cannot renew on
+       its own must be refused rather than sold. */
     return null;
   }
 

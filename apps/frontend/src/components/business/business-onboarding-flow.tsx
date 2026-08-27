@@ -931,7 +931,7 @@ export function BusinessOnboardingFlow() {
                     {
                       icon: BriefcaseBusiness,
                       title: "Browse & choose",
-                      copy: "Explore AI agents built for service businesses. Filter by need, read reviews, compare options.",
+                      copy: "Explore AI agents built for service businesses. Filter by need and compare options side by side.",
                     },
                     {
                       icon: Rocket,
@@ -962,9 +962,9 @@ export function BusinessOnboardingFlow() {
                 <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50 p-5">
                   <div className="space-y-3">
                     {[
-                      "Enterprise-grade security — your data is encrypted and never shared",
+                      "Your data is encrypted, and shared only with the services your agent uses",
                       "Cancel anytime — no contracts, no commitments",
-                      "Only verified, reviewed agents on the marketplace",
+                      "Every agent on the marketplace is reviewed by Triven before it is listed",
                     ].map((item) => (
                       <div key={item} className="flex items-start gap-3 text-sm text-slate-700">
                         <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-xs font-semibold text-amber-600">

@@ -37,13 +37,6 @@ const REASONS = [
     "Daily transaction limit reached"
 ];
 
-function formatClock(totalSeconds: number) {
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-
-    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
 function PaymentFailedFallback() {
     return (
         <div className="pfailed-root min-h-screen bg-white text-slate-900">
@@ -80,16 +73,7 @@ function BusinessPaymentFailedContent() {
     const paymentMode = resolvePaymentMode(searchParams);
     const isTrial = paymentMode === "trial";
 
-    const [reserveSeconds, setReserveSeconds] = useState(1800);
     const [pricingModel, setPricingModel] = useState<string | null>(null);
-
-    useEffect(() => {
-        const interval = window.setInterval(() => {
-            setReserveSeconds((current) => (current > 0 ? current - 1 : 0));
-        }, 1000);
-
-        return () => window.clearInterval(interval);
-    }, []);
 
     useEffect(() => {
         if (!listingId) return;
@@ -270,8 +254,11 @@ function BusinessPaymentFailedContent() {
                             <circle cx="12" cy="12" r="9" />
                             <path d="M12 7v5l3 2" />
                         </svg>
-                        {agentName} is reserved{isTrial ? " for trial" : ""} ·{" "}
-                        <span className="tnum">{formatClock(reserveSeconds)}</span>
+                        {/* A 30-minute countdown ran here saying the agent was
+                            "reserved". Nothing was reserved — no record, no
+                            expiry — and it restarted at 30:00 on every page
+                            load. When it hit zero, nothing happened. */}
+                        {agentName} is still waiting for you
                     </p>
 
                     <p className="text-center text-xs leading-relaxed text-slate-500">

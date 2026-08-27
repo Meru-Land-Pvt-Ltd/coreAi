@@ -5056,7 +5056,7 @@ businessRoutes.post("/appointments/:id/request-reschedule", async (c) => {
   return successResponse(
     c,
     { appointment: updated, smsOutcome },
-    "Reschedule request sent to patient"
+    "Reschedule request sent to the customer"
   );
 });
 
