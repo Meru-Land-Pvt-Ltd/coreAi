@@ -431,10 +431,19 @@ export function createArchitectTestProviders(options: ArchitectTestProviderOptio
     calendar: {
       checkAvailability: (input) =>
         options.forceTestAvailability
-          ? Promise.resolve({
-              slots: fallbackTestSlots(input),
-              source: "test" as const,
-              note: "Public preview: used business-hours test slots. No Google Calendar data was read."
+          ? /* A STRANGER MUST NOT BE READ INVENTED FREE TIMES.
+               This flag is set by exactly one caller: the public agent page.
+               It used to answer with times made up from a default nine-to-five
+               and mark them `test` — and the runtime treats anything that is
+               not "unavailable" as a real answer, so the agent read them out
+               to a visitor as free slots on somebody's calendar. Nobody's
+               calendar was consulted. A made-up answer is no answer, and it
+               says so now, so the agent offers to take their details instead
+               of naming a time nobody can keep. */
+            Promise.resolve({
+              slots: [],
+              source: "unavailable" as const,
+              note: "This preview cannot see a live calendar, so no times were offered."
             })
           : readCalendarAvailability(userId, "the architect's connected Google Calendar", input),
       bookAppointment: (input) =>

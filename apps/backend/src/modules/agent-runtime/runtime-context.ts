@@ -371,7 +371,21 @@ export function asksVagueQuestion(message: string): boolean {
   return /^(i\s+(want|would like|need)\s+to\s+know|tell me|i have a question)[\s.!,]*$/.test(text);
 }
 
+/** "no, please don't text me" — a refusal, however it is phrased. */
+export function refusesSmsMessage(message: string): boolean {
+  /* "texts", "texting", "messages" — a refusal is rarely in the singular. */
+  return /\b(don'?t|do not|no|stop|never|rather not|prefer not)\b[^.?!]{0,40}\b(texts?|texting|sms|messages?|messaging|notify|notifications?)\b/i.test(
+    message
+  );
+}
+
 export function wantsSmsMessage(message: string): boolean {
+  /* "PLEASE DON'T TEXT ME" MATCHED THIS. The pattern looked only for the word,
+     not for what was being said about it, so a customer asking us NOT to text
+     them set the wants-a-text flag — and the agent answered "I'll send that to
+     your phone shortly" and sent one. Asking to be left alone must never be
+     read as asking to be contacted. */
+  if (refusesSmsMessage(message)) return false;
   return /\b(text|sms|send me|notify)\b/i.test(message);
 }
 
@@ -446,6 +460,10 @@ export function inferConversationState(params: {
     if (mentionsSpecificTime(item)) lastTimeMessage = item;
     if (wantsScheduling(item)) schedulingIntent = true;
     if (wantsSmsMessage(item)) smsRequested = true;
+    /* An unprompted "please don't text me" had no way to clear the flag: the
+       only path that could was one that required the assistant to have just
+       offered a text. Said at any point, it counts. */
+    if (refusesSmsMessage(item)) smsRequested = false;
     if (/\btoday\b/i.test(item)) requestedDate = dateOnlyInExecutionZone(new Date(), zone);
     else if (/\btomorrow\b/i.test(item)) requestedDate = dateOnlyInExecutionZone(addDays(new Date(), 1), zone);
 
@@ -475,7 +493,9 @@ export function inferConversationState(params: {
     /what would you like me to pass along|what message would you like/i.test(lastAssistant) &&
     !wantsEnding(message);
 
-  let smsDeclined = false;
+  let smsDeclined = [...history.filter((turn) => turn.role === "user").map((turn) => turn.content), message].some(
+    refusesSmsMessage
+  );
   const fullTurns = [...history, { role: "user" as const, content: message }];
   for (let index = 1; index < fullTurns.length; index += 1) {
     const previous = fullTurns[index - 1];

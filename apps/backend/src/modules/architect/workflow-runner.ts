@@ -6028,8 +6028,6 @@ async function runConnectorNode({
  * A WeakMap (not a context key) so workflow-controlled template writes can
  * never reset the counter to dodge the per-run cap.
  */
-const apiCallCountByContext = new WeakMap<object, number>();
-
 /** Turn a multi-line "Name: Value" block into a header map, rendering templates. */
 function parseApiHeaderLines(raw: string, context: RunnerContext): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -6130,9 +6128,21 @@ export async function executeApiCallNode({
     logs.push(createLog(node, "error", message));
   };
 
-  // Per-run cap: count every execution, block once over the ceiling.
-  const count = (apiCallCountByContext.get(context as object) ?? 0) + 1;
-  apiCallCountByContext.set(context as object, count);
+  /* PER-RUN CAP, AND A LOOP IS STILL ONE RUN.
+     The count was kept in a map keyed on the context OBJECT, and a Loop hands
+     each round a fresh copy of the context — so the lookup missed and the
+     count started again at zero every round. Twenty-five rounds against a cap
+     of five meant up to a hundred and twenty-five live requests on the
+     business's own key, from a run they were told makes at most five.
+
+     The email cap solved this months ago by keeping a shared counter OBJECT on
+     the context: a copy carries the same reference, so every round counts into
+     the same number. Same shape here. */
+  const counter = ((context as Record<string, unknown>)["__apiCallCounter"] ??= { made: 0 }) as {
+    made: number;
+  };
+  counter.made += 1;
+  const count = counter.made;
   if (count > API_CALL_MAX_PER_RUN) {
     fail(
       `This run already made ${API_CALL_MAX_PER_RUN} live data requests — skipping this one to keep the run safe.`
