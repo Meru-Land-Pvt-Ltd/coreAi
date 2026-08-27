@@ -210,12 +210,23 @@ export const apolloFindPeople: NodeFrame = {
     const locations = asList(context.config.locations);
     const industry = String(context.config.industry ?? "").trim();
 
+    /* "HOW MANY LEADS EACH TIME" DID NOTHING. The card offers the architect
+       that box, with a default of 25, and the request hardcoded 25 and never
+       read it — so setting it to 5 still fetched 25, and setting it to 100
+       still fetched 25. It is read now, and still bounded by the page size
+       the platform reserves budget against. */
+    const asked = Number(context.config.leadsPerRun);
+    const perPage = Math.min(
+      Math.max(Number.isFinite(asked) && asked > 0 ? Math.round(asked) : context.pageSize, 1),
+      context.pageSize
+    );
+
     const answer = await search(context, {
       person_titles: titles,
       person_locations: locations,
       ...(industry ? { q_organization_keyword_tags: [industry] } : {}),
       page: context.page,
-      per_page: 25
+      per_page: perPage
     });
 
     const people = answer.people ?? [];

@@ -5213,7 +5213,7 @@ async function runStandardConnectorNode({
   /** Whose card this is — a key is never handed out on a guess. */
   userId: string;
 }): Promise<void> {
-  const contract = getConnector(connectorId);
+  const contract = getConnector(connectorId, userId);
   if (!contract) {
     // Named but not installed. Said plainly, because "nothing happened" with
     // no reason on screen is the failure people spend an afternoon on.

@@ -225,6 +225,27 @@ export async function selfBuildFrame(input: {
     return { ok: false, problems: ["The draft never became valid JSON."], attempts, message: "The builder could not draft this service. Try adding the documentation address." };
   }
 
+  /* RE-READING A SERVICE COULD DESTROY THE WORKING CARD BEHIND IT.
+     A re-draft keeps the id on purpose, because agents point at it — and it
+     then saved over the stored card whether or not the new draft was any
+     good. So an architect pressing "re-read this service" on a card that had
+     worked for months could be left with a broken one, and every live agent
+     using it started failing with "not installed". There is no history to
+     restore from: one row per card.
+
+     A first draft with problems is still saved, because there is nothing to
+     lose and the architect can see what is wrong. A RE-draft with problems is
+     refused, and the card that works stays exactly as it is. */
+  if (input.keepId && problems.length > 0) {
+    return {
+      ok: false,
+      problems,
+      attempts,
+      message:
+        "I read the service again and what came back is not usable, so I have left your card exactly as it was. Nothing changed."
+    };
+  }
+
   /* #4 — WHAT WAS HIDDEN, WRITTEN DOWN (the founder's ruling, 2026-08-26).
      The AI curates fifty parameters down to a usable few. That judgement is
      now a record on the card, not a silence: whoever needs the fifty-first

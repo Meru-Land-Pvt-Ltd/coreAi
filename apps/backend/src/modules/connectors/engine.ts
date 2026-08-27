@@ -398,7 +398,12 @@ export async function runConnector(input: ConnectorRunInput): Promise<ConnectorR
       log("daily budget reached", { budgetCents, wanted: reservedCents });
       return fail(
         "budget_exceeded",
-        `Today's spending limit has been reached, so nothing further was run. Raise the limit to continue.`
+        /* It used to end "Raise the limit to continue." Nothing on this
+           platform can: the daily figure is a constant with one override that
+           no route and no screen ever writes, so the only way to change it is
+           by hand in the database. Telling a business to do something they
+           cannot do is worse than telling them to wait. */
+        `Today's spending limit has been reached, so nothing further was run. It starts again tomorrow.`
       );
     }
   }
@@ -429,13 +434,19 @@ export async function runConnector(input: ConnectorRunInput): Promise<ConnectorR
   const refund = async (actualCents: number) => {
     if (settled) return;
     settled = true;
-    const unused = reservedCents - Math.round(actualCents);
-    if (unused <= 0) return;
+    /* A CEILING THAT ONLY EVER GIVES MONEY BACK IS NOT A CEILING. This
+       returned early whenever a run cost MORE than it reserved, so the
+       difference was never charged against the day's limit — a card whose
+       provider returns more rows than the page size it declared could
+       overshoot the business's ceiling every run, and the ceiling never
+       noticed. Refund what was not used; charge what was used beyond it. */
+    const difference = reservedCents - Math.round(actualCents);
+    if (difference === 0) return;
     await consumeLimit({
       key: `connector:spend:${businessId}`,
       limit: budgetCents,
       windowMs: DAY,
-      cost: -unused
+      cost: -difference
     }).catch(() => undefined);
   };
 

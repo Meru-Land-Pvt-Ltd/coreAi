@@ -74,8 +74,14 @@ export function allConnectors(): NodeFrame[] {
  * The catalogue wins on a clash, so an architect cannot shadow a connector we
  * ship by reusing its id and quietly change what it does for their buyers.
  */
-export function getConnector(id: string): NodeFrame | undefined {
-  return byId.get(id) ?? cachedArchitectFrame(id);
+export function getConnector(id: string, architectUserId?: string): NodeFrame | undefined {
+  /* NAME THE OWNER WHEN YOU KNOW IT. Card ids are built from the company name
+     — "notion", "apollo" — and they are unique per architect, not globally.
+     Without an owner the lookup can only answer when exactly one architect
+     owns that id, so the day a second architect built their own Notion card
+     the first architect's live agents started failing with "not installed".
+     Every caller that knows whose run this is now says so. */
+  return byId.get(id) ?? cachedArchitectFrame(id, architectUserId);
 }
 
 /**

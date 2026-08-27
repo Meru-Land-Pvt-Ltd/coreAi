@@ -205,7 +205,9 @@ export async function handleInboundAgentWebhookPost(c: Context) {
       workflowId: true,
       listingId: true,
       configJson: true,
-      workflow: { select: { workflowJson: true } },
+      /* The owner is needed to look up a card by id: ids are unique per
+         architect, not across the platform. */
+      workflow: { select: { workflowJson: true, architectUserId: true } },
       business: {
         select: {
           id: true,
@@ -251,7 +253,7 @@ export async function handleInboundAgentWebhookPost(c: Context) {
   // file, not here.
   let connectorOutputs: Record<string, unknown> | null = null;
   if (endpoint.connectorId) {
-    const contract = getConnector(endpoint.connectorId);
+    const contract = getConnector(endpoint.connectorId, agent?.workflow?.architectUserId);
     if (!contract?.receive) {
       // The node still exists but the connector no longer does. Acknowledge so
       // the provider stops retrying, and say so in the log.
