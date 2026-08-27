@@ -24,11 +24,19 @@ import { getModelsForProvider, getPricingForProvider } from "../model-catalog";
 
 // cached after first call — avoids re-importing the ESM-only package on every request
 let genAiClient: unknown = null;
+/* THE FIRST KEY WON FOR THE LIFE OF THE PROCESS. An admin rotating the Gemini
+   key saw the new one saved and shown back on their screen, while every call
+   carried on using the old one until the next deploy — and if the old key had
+   been revoked, which is usually why it was rotated, every Gemini agent on the
+   platform failed with nothing on any screen to explain it. The key is kept
+   alongside the client and compared, exactly as the OpenAI adapter does. */
+let genAiKey: string | undefined;
 async function getClient() {
-  if (!genAiClient) {
+  const apiKey = llmProviderApiKey("gemini");
+  if (!genAiClient || genAiKey !== apiKey) {
     const { GoogleGenAI } = await import("@google/genai");
-    const apiKey = llmProviderApiKey("gemini");
     genAiClient = new GoogleGenAI({ apiKey });
+    genAiKey = apiKey;
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return genAiClient as any;

@@ -1303,7 +1303,7 @@ export default function ArchitectSettingsPage() {
                             {session.deviceLabel}
                             {session.isCurrent ? <span className="ml-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">This device</span> : null}
                           </p>
-                          <p className="font-mono text-xs text-slate-400">{session.ipMasked} · {session.location}</p>
+                          <p className="font-mono text-xs text-slate-400">{session.ipMasked}</p>
                         </div>
                         {session.isCurrent ? (
                           <span className="text-xs font-semibold text-green-600">{session.statusLabel}</span>
@@ -1323,7 +1323,6 @@ export default function ArchitectSettingsPage() {
                         <tr className="border-b border-gray-100 text-left text-xs uppercase tracking-wide text-slate-400">
                           <th className="py-2 font-semibold">Date</th>
                           <th className="py-2 font-semibold">Device</th>
-                          <th className="py-2 font-semibold">Location</th>
                           <th className="py-2 font-semibold">Status</th>
                         </tr>
                       </thead>
@@ -1332,7 +1331,6 @@ export default function ArchitectSettingsPage() {
                           <tr key={entry.id} className="border-b border-gray-50" data-testid={`architect-settings-login-${entry.id}`}>
                             <td className="py-2.5">{formatDateTime(entry.date)}</td>
                             <td>{entry.device}</td>
-                            <td>{entry.location}</td>
                             <td className={entry.status === "Success" ? "font-medium text-green-600" : "font-medium text-red-600"}>{entry.status}</td>
                           </tr>
                         ))}

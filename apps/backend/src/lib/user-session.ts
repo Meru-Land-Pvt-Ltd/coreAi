@@ -59,7 +59,14 @@ export function getRequestMeta(c: Context) {
     userAgent,
     deviceLabel: parseDeviceLabel(userAgent),
     ipMasked: maskIp(ip),
-    location: c.req.header("x-geo-location") ?? null
+    /* THE SAME MISTAKE, THREE LINES DOWN. The comment above explains why the
+       IP was moved off a client header — and this read one. Nothing on this
+       platform sends "x-geo-location": not our proxy, not our frontend. So for
+       an honest person it said "Unknown" forever, and for an attacker it was a
+       free text field written into the victim's own login history, which is
+       the one record a person reads to catch a break-in. Nothing rather than
+       something a stranger chose. */
+    location: null
   };
 }
 

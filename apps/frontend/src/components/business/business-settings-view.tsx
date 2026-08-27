@@ -2229,7 +2229,7 @@ export function BusinessSettingsView() {
                           ) : null}
                         </p>
                         <p className="mt-0.5 text-xs text-slate-500">
-                          {session.ipMasked} · {session.location} · {session.statusLabel}
+                          {session.ipMasked} · {session.statusLabel}
                         </p>
                       </div>
                       {!session.isCurrent ? (
@@ -2272,7 +2272,7 @@ export function BusinessSettingsView() {
                       <div className="min-w-0">
                         <p className="text-sm text-slate-700">{formatDateTime(entry.date)}</p>
                         <p className="mt-0.5 text-xs text-slate-500">
-                          {entry.device} · {entry.location}
+                          {entry.device}
                         </p>
                       </div>
                       <span

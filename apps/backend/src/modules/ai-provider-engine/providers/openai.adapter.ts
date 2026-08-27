@@ -78,6 +78,13 @@ class OpenAIAdapter implements AIProviderAdapter {
           model,
           messages,
           max_completion_tokens: request.maxTokens,
+          /* "EXACT — SAME ANSWER EVERY TIME" DID NOTHING ON OPENAI. The dial
+             is offered on every non-thinking OpenAI model, an architect sets
+             it to Exact, and this never sent it — so the model kept its own
+             default and the answers kept varying. Every other adapter forwards
+             it. The thinking models refuse the setting outright, so it is only
+             sent when the request carries one. */
+          ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
           ...jsonResponseFormat(request),
         })
       );

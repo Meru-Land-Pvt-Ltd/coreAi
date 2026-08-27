@@ -23,11 +23,26 @@ function sanitizeGeminiErrorMessage(rawText: string, modelName: string): string 
     text.includes("rate limit") ||
     text.includes("free_tier")
   ) {
-    // Record 3-hour quota cooldown
-    recordQuotaExceeded("gemini");
-    const delayMatch = rawText.match(/retry in ([\d\.]+s|\d+\s*seconds?)/i);
-    const retryNote = delayMatch ? ` Please retry in ${delayMatch[1]}.` : "";
-    return `Google Gemini rate limit/quota exceeded for ${modelName}.${retryNote} Model has been temporarily disabled for 3 hours. Please use OpenAI DALL-E 3 or Stable Diffusion 3.5.`;
+    /* A TWENTY-SECOND LIMIT SWITCHED IMAGES OFF FOR THREE HOURS.
+       Google says how long to wait, and this read that number, printed it to
+       the user — and then ignored it, disabling image generation for three
+       hours for EVERY business on the platform. A momentary burst limit was
+       being treated like an exhausted monthly quota. Google's own answer is
+       used when it gives one; three hours only when it does not. */
+    const delayMatch = rawText.match(/retry in ([\d\.]+)\s*(s|seconds?)/i);
+    const retrySeconds = delayMatch ? Number(delayMatch[1]) : null;
+    const cooldownMs =
+      retrySeconds && Number.isFinite(retrySeconds) && retrySeconds > 0
+        ? Math.ceil(retrySeconds * 1000)
+        : undefined;
+
+    recordQuotaExceeded("gemini", cooldownMs);
+
+    const retryNote = delayMatch ? ` Please retry in ${delayMatch[1]}s.` : "";
+    const pausedNote = cooldownMs
+      ? ` It is paused for about ${Math.ceil(cooldownMs / 1000)} seconds.`
+      : " It is paused for 3 hours.";
+    return `Google Gemini rate limit/quota exceeded for ${modelName}.${retryNote}${pausedNote} You can use OpenAI DALL-E 3 or Stable Diffusion 3.5 in the meantime.`;
   }
 
   if (text.includes("404") || text.includes("not_found") || text.includes("not found")) {

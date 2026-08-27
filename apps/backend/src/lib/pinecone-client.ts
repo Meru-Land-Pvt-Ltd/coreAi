@@ -10,12 +10,20 @@ export function isPineconeConfigured(): boolean {
   return Boolean(env.PINECONE_API_KEY || process.env.PINECONE_API_KEY);
 }
 
+let pineconeKey: string | undefined;
+
 export function getPineconeClient(): Pinecone | null {
   const apiKey = env.PINECONE_API_KEY || process.env.PINECONE_API_KEY;
   if (!apiKey) return null;
 
-  if (!pineconeInstance) {
+  /* Same as the Gemini adapter: the first key won for the life of the process,
+     so rotating it in the admin screen changed nothing until a deploy — and a
+     revoked old key meant every memory lookup failed silently. */
+  if (!pineconeInstance || pineconeKey !== apiKey) {
     pineconeInstance = new Pinecone({ apiKey });
+    pineconeKey = apiKey;
+    indexInitialized = false;
+    detectedDimension = null;
   }
   return pineconeInstance;
 }
