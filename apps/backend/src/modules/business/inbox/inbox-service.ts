@@ -30,9 +30,32 @@ export type InboxAiState =
   | "RETURNED_TO_AI"
   | "CLOSED";
 
+/**
+ * How long the AI stays quiet after a customer asks for a person, before it
+ * starts helping again.
+ *
+ * A CUSTOMER IS NEVER ABANDONED (found by the platform audit, 2026-08-27).
+ * Asking for a human used to switch the AI off on that thread FOREVER: if
+ * nobody on the team claimed it — and for a while nobody could — the customer
+ * texted into silence and no one ever answered. Waiting is now a wait, not a
+ * door closing. A person who actually takes the thread (HUMAN_ACTIVE) still
+ * owns it for as long as they want; only the unanswered wait expires.
+ */
+export const HUMAN_WAIT_MINUTES = 15;
+
 /** True when the AI must NOT reply on this conversation. */
-export function isAiPausedForConversation(conversation: { aiState?: string | null }): boolean {
-  return conversation.aiState === "WAITING_FOR_HUMAN" || conversation.aiState === "HUMAN_ACTIVE";
+export function isAiPausedForConversation(conversation: {
+  aiState?: string | null;
+  waitingSince?: Date | string | null;
+}): boolean {
+  /* A person is holding this thread. The AI never talks over them. */
+  if (conversation.aiState === "HUMAN_ACTIVE") return true;
+  if (conversation.aiState !== "WAITING_FOR_HUMAN") return false;
+
+  const since = conversation.waitingSince ? new Date(conversation.waitingSince) : null;
+  /* Waiting since nobody-knows-when is not a reason to stay silent. */
+  if (!since || Number.isNaN(since.getTime())) return false;
+  return Date.now() - since.getTime() < HUMAN_WAIT_MINUTES * 60 * 1000;
 }
 
 async function getConversationOrThrow(businessId: string, conversationId: string) {

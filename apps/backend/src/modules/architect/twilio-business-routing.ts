@@ -55,10 +55,10 @@ import { checkUsageCapAndNotify } from "../business/usage-cap";
 // import { evaluateCall } from "../business/quality/evaluate";
 // import { recordUnansweredQuestion } from "../business/knowledge-v2/unanswered-questions";
 // import { ensureCustomerByIdentity } from "../business/customers/customer-service";
-// import {
-//   classifyCallOutcome,
-//   classifySentiment
-// } from "../business/conversation-understanding/classify";
+import {
+  classifyCallOutcome,
+  classifySentiment
+} from "../business/conversation-understanding/classify";
 import { detectHumanRequest } from "../business/sms-ai/sms-ai";
 import { isAiPausedForConversation, requestHumanTakeover } from "../business/inbox/inbox-service";
 import {
@@ -6152,41 +6152,45 @@ export async function handleVapiWebhook(c: Context) {
         }
       }
 
-      // [DISABLED:non-handoff] outcome/sentiment classification + quality
-      // scoring. Re-enable by uncommenting this block.
-      // try {
-      //   const [bookedAppointment, cancelledAppointment, connectedHandoff, callRow] = await Promise.all([
-      //     prisma.appointment.findFirst({ where: { businessId: liveBusinessId, bookingCallId: callId }, select: { id: true } }),
-      //     prisma.appointment.findFirst({ where: { businessId: liveBusinessId, cancellationCallId: callId }, select: { id: true } }),
-      //     prisma.handoffEvent.findFirst({ where: { businessId: liveBusinessId, vapiCallId: callId, status: "CONNECTED" }, select: { id: true } }),
-      //     prisma.vapiCall.findUnique({ where: { callId }, select: { durationSeconds: true } })
-      //   ]);
-      //   const endedReason = firstNestedString(body, [["message", "endedReason"], ["endedReason"]]);
-      //   const { outcome } = classifyCallOutcome({
-      //     transcript, summary,
-      //     hadBookedAppointment: Boolean(bookedAppointment),
-      //     hadReschedule: false,
-      //     hadCancellation: Boolean(cancelledAppointment),
-      //     hadTransfer: Boolean(connectedHandoff),
-      //     transferConnected: Boolean(connectedHandoff),
-      //     leadCaptured: false,
-      //     endedReason: endedReason ?? null,
-      //     durationSeconds: callRow?.durationSeconds ?? null
-      //   });
-      //   const { sentiment } = classifySentiment({ transcript, summary });
-      //   await prisma.vapiCall.updateMany({ where: { callId, businessId: liveBusinessId }, data: { outcome, sentiment } });
-      //   if (conversationId) {
-      //     await prisma.conversation.updateMany({
-      //       where: { id: conversationId, businessId: liveBusinessId },
-      //       data: { outcome, sentiment, ...(summary ? { summary } : {}) }
-      //     }).catch(() => null);
-      //   }
-      // } catch (error) {
-      //   console.error("[vapi-webhook] outcome classification failed (non-fatal)", { callId, error });
-      // }
-      // void evaluateCall({ vapiCallId: callId }).catch((error) =>
-      //   console.error("[vapi-webhook] quality evaluation failed (non-fatal)", { callId, error })
-      // );
+      /* THE NUMBERS A BUSINESS READS MUST BE MEASURED, NOT MISSING.
+         This was switched off, while the analytics page kept promising the
+         business that "nothing is estimated" — so every call was filed with
+         no outcome and no sentiment, and their dashboard quietly read zero.
+         Restored 2026-08-27. It reads the call's own transcript and what the
+         agent actually did; it asks no model and costs nothing per call. */
+      try {
+        const [bookedAppointment, cancelledAppointment, connectedHandoff, callRow] = await Promise.all([
+          prisma.appointment.findFirst({ where: { businessId: liveBusinessId, bookingCallId: callId }, select: { id: true } }),
+          prisma.appointment.findFirst({ where: { businessId: liveBusinessId, cancellationCallId: callId }, select: { id: true } }),
+          prisma.handoffEvent.findFirst({ where: { businessId: liveBusinessId, vapiCallId: callId, status: "CONNECTED" }, select: { id: true } }),
+          prisma.vapiCall.findUnique({ where: { callId }, select: { durationSeconds: true } })
+        ]);
+        const endedReason = firstNestedString(body, [["message", "endedReason"], ["endedReason"]]);
+        const { outcome } = classifyCallOutcome({
+          transcript,
+          summary,
+          hadBookedAppointment: Boolean(bookedAppointment),
+          hadReschedule: false,
+          hadCancellation: Boolean(cancelledAppointment),
+          hadTransfer: Boolean(connectedHandoff),
+          transferConnected: Boolean(connectedHandoff),
+          leadCaptured: false,
+          endedReason: endedReason ?? null,
+          durationSeconds: callRow?.durationSeconds ?? null
+        });
+        const { sentiment } = classifySentiment({ transcript, summary });
+        await prisma.vapiCall.updateMany({ where: { callId, businessId: liveBusinessId }, data: { outcome, sentiment } });
+        if (conversationId) {
+          await prisma.conversation.updateMany({
+            where: { id: conversationId, businessId: liveBusinessId },
+            data: { outcome, sentiment, ...(summary ? { summary } : {}) }
+          }).catch(() => null);
+        }
+      } catch (error) {
+        /* A call is still a call even if we could not label it — never lose
+           the call itself over its label. */
+        console.error("[vapi-webhook] outcome classification failed (non-fatal)", { callId, error });
+      }
 
       try {
         await recordVapiCallUsage({

@@ -82,9 +82,20 @@ beforeEach(() => {
 
 describe("AI pause gate", () => {
   it("pauses the AI while waiting for or held by a human, resumes otherwise", () => {
-    expect(isAiPausedForConversation({ aiState: "WAITING_FOR_HUMAN" })).toBe(true);
+    expect(isAiPausedForConversation({ aiState: "WAITING_FOR_HUMAN", waitingSince: new Date() })).toBe(true);
     expect(isAiPausedForConversation({ aiState: "HUMAN_ACTIVE" })).toBe(true);
     expect(isAiPausedForConversation({ aiState: "AI_ACTIVE" })).toBe(false);
+  });
+
+  it("starts helping again when nobody ever took the thread", () => {
+    /* A customer must never text into permanent silence: if no person claims
+       the wait, the AI comes back rather than leaving them with nobody. */
+    const longAgo = new Date(Date.now() - 60 * 60 * 1000);
+    expect(isAiPausedForConversation({ aiState: "WAITING_FOR_HUMAN", waitingSince: longAgo })).toBe(false);
+    /* But a person actually holding the thread is never talked over. */
+    expect(isAiPausedForConversation({ aiState: "HUMAN_ACTIVE", waitingSince: longAgo })).toBe(true);
+    /* And a wait with no clock on it is not a reason to go quiet forever. */
+    expect(isAiPausedForConversation({ aiState: "WAITING_FOR_HUMAN", waitingSince: null })).toBe(false);
     expect(isAiPausedForConversation({ aiState: "RETURNED_TO_AI" })).toBe(false);
     expect(isAiPausedForConversation({ aiState: null })).toBe(false);
   });

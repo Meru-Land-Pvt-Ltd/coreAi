@@ -21,7 +21,7 @@ import { startSelfHealingWorker, stopSelfHealingWorker } from "./modules/archite
 //   stopRetentionSweepWorker
 // } from "./modules/business/conversation-understanding/retention";
 // import { evaluateRecentCalls } from "./modules/business/quality/evaluate";
-// [DISABLED] import { escalateStaleWaiting } from "./modules/business/inbox/inbox-service";
+import { escalateStaleWaiting } from "./modules/business/inbox/inbox-service";
 import {
   registerTelegramManagerWebhook,
   telegramManagerEnvironmentConfigured
@@ -69,11 +69,13 @@ const server = serve(
     //   );
     // }, 15 * 60 * 1000);
     // qualitySweep.unref();
-    // [DISABLED] inbox SLA escalation sweep.
-    // const inboxSlaSweep = setInterval(() => {
-    //   escalateStaleWaiting().catch((error) => console.error("[inbox] SLA sweep failed", error));
-    // }, 60 * 1000);
-    // inboxSlaSweep.unref();
+    /* Nobody claimed a waiting customer: the people who can do something
+       about it get told once. Switched back on 2026-08-27 — it had been off,
+       so a waiting customer was nobody's problem. */
+    const inboxSlaSweep = setInterval(() => {
+      escalateStaleWaiting().catch((error) => console.error("[inbox] SLA sweep failed", error));
+    }, 60 * 1000);
+    inboxSlaSweep.unref();
     if (telegramManagerEnvironmentConfigured()) {
       void registerTelegramManagerWebhook()
         .then((result) => {

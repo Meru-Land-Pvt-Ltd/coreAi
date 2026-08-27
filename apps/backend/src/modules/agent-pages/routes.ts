@@ -364,12 +364,6 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
     return errorResponse(c, PAGE_NOT_FOUND_MESSAGE, 404, "AGENT_PAGE_NOT_FOUND");
   }
 
-  const clientIp = getClientIp(c);
-  const decision = await consumeAgentPageLimit(clientIp, slug);
-  if (!decision.allowed) {
-    return errorResponse(c, LIMIT_REACHED_MESSAGE, 429, "PAGE_LIMIT_REACHED");
-  }
-
   // A widget on a business's own website does REAL work for that business:
   // real calendar, real leads. Everything else — the marketplace demo, an
   // unknown key, a paused agent, a hit ceiling — runs exactly as it always
@@ -379,6 +373,22 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
     workflowId: page.workflowId,
     listingId: page.listingId
   }).catch(() => ({ live: false as const, reason: "resolver failed" }));
+
+  /* THE DEMO'S CEILING IS NOT THE BUSINESS'S (found by the platform audit,
+     2026-08-27). The free-demo limit was spent BEFORE we knew whether this
+     was a business's own paid widget — so a busy shop's customers were
+     turned away by the marketplace's demo allowance, on a widget they pay
+     for. A paid embed has its own ceiling (embed-live.ts) and must not be
+     charged against the demo's. */
+  const clientIp = getClientIp(c);
+  let remainingToday: number | null = null;
+  if (!embed.live) {
+    const decision = await consumeAgentPageLimit(clientIp, slug);
+    if (!decision.allowed) {
+      return errorResponse(c, LIMIT_REACHED_MESSAGE, 429, "PAGE_LIMIT_REACHED");
+    }
+    remainingToday = decision.remainingToday;
+  }
 
   try {
     const result = embed.live
@@ -443,7 +453,9 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
         businessName: page.listing.name,
         doorsEnabled: presentationDoorEnabled(workflowJson)
       }),
-      remainingToday: decision.remainingToday
+      /* A paid widget has no demo allowance to report — null, never a
+         number that would mislead the business about their own ceiling. */
+      remainingToday
     });
   } catch (error) {
     console.error("[agent-pages] run failed", slug, error);
