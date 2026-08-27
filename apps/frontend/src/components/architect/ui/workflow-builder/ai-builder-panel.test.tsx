@@ -185,6 +185,59 @@ describe("SmartDesignerPanel generate", () => {
   });
 });
 
+describe("the Builder's eyes", () => {
+  /* The founder's ruling (2026-08-27): pictures attach the way they do in
+     any real chat, and the browser refuses what the server would refuse. */
+  function pngFile(name: string, bytes: number) {
+    return new File([new Uint8Array(bytes)], name, { type: "image/png" });
+  }
+
+  it("offers a way to attach a picture, and takes one", async () => {
+    render(<SmartDesignerPanel workflowId="wf-1" canvasHasSteps />);
+    expect(screen.getByTestId("builder-picture-button")).toBeTruthy();
+    const input = screen.getByTestId("builder-picture-input") as HTMLInputElement;
+    await userEvent.upload(input, pngFile("screenshot.png", 64));
+    await waitFor(() => expect(screen.getByTestId("builder-pictures")).toBeTruthy());
+  });
+
+  it("refuses a picture over ten megabytes, and says so plainly", async () => {
+    render(<SmartDesignerPanel workflowId="wf-1" canvasHasSteps />);
+    const input = screen.getByTestId("builder-picture-input") as HTMLInputElement;
+    await userEvent.upload(input, pngFile("huge.png", 11 * 1024 * 1024));
+    await waitFor(() => expect(screen.getByTestId("builder-picture-note").textContent).toContain("10 MB"));
+    expect(screen.queryByTestId("builder-pictures")).toBeNull();
+  });
+
+  it("takes five and refuses the sixth", async () => {
+    render(<SmartDesignerPanel workflowId="wf-1" canvasHasSteps />);
+    const input = screen.getByTestId("builder-picture-input") as HTMLInputElement;
+    await userEvent.upload(
+      input,
+      Array.from({ length: 6 }, (_, index) => pngFile(`shot-${index}.png`, 64))
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("builder-pictures").querySelectorAll("img").length).toBe(5)
+    );
+    expect(screen.getByTestId("builder-picture-note").textContent).toContain("Five pictures");
+  });
+
+  it("a picture can be removed before sending", async () => {
+    render(<SmartDesignerPanel workflowId="wf-1" canvasHasSteps />);
+    await userEvent.upload(screen.getByTestId("builder-picture-input"), pngFile("one.png", 64));
+    await waitFor(() => expect(screen.getByTestId("builder-picture-remove-0")).toBeTruthy());
+    await userEvent.click(screen.getByTestId("builder-picture-remove-0"));
+    await waitFor(() => expect(screen.queryByTestId("builder-pictures")).toBeNull());
+  });
+
+  it("a picture alone is a question — Send wakes with no typing", async () => {
+    render(<SmartDesignerPanel workflowId="wf-1" canvasHasSteps />);
+    const sendButton = screen.getByTestId("smart-designer-send") as HTMLButtonElement;
+    expect(sendButton.disabled).toBe(true);
+    await userEvent.upload(screen.getByTestId("builder-picture-input"), pngFile("one.png", 64));
+    await waitFor(() => expect(sendButton.disabled).toBe(false));
+  });
+});
+
 describe("SmartDesignerPanel feedback chat", () => {
   async function sendFeedback(text: string) {
     const user = userEvent.setup();

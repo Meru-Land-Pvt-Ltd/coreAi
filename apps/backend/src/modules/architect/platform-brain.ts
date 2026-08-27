@@ -41,6 +41,18 @@ const QUICK: Record<string, string> = {
   openai: "gpt-5.4-mini"
 };
 
+/**
+ * THE SEEING BRAIN (the founder's ruling, 2026-08-27): images enter as data
+ * the platform owns; whichever provider is configured supplies its own eyes.
+ * Swap the provider and nothing upstream changes — the map below is the only
+ * place that knows which model of theirs can see.
+ */
+const VISION: Record<string, string> = {
+  mistral: "pixtral-large-latest",
+  claude: "claude-opus-4-5",
+  openai: "gpt-5.4"
+};
+
 const RETRY_AFTER_MS = 2_500;
 
 /**
@@ -63,6 +75,8 @@ export async function streamPlatformBrain(input: {
   maxTokens: number;
   task: string;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
+  /** Screenshots the person attached — data URLs, already size-checked. */
+  images?: string[];
   onWord: (chunk: string) => void;
 }): Promise<string | null> {
   const resolved = resolveConfiguredLlmProvider("mistral");
@@ -74,13 +88,22 @@ export async function streamPlatformBrain(input: {
     return askPlatformBrain({ ...input, timeoutMs: 60_000 });
   }
 
+  const images = (input.images ?? []).slice(0, 5);
   const messages = [
     { role: "system", content: input.instruction },
     ...(input.history ?? []).slice(-10).map((turn) => ({
       role: turn.role,
       content: turn.content.slice(0, 2000)
     })),
-    { role: "user", content: input.message.slice(0, 24_000) }
+    images.length > 0
+      ? {
+          role: "user",
+          content: [
+            { type: "text", text: input.message.slice(0, 24_000) },
+            ...images.map((dataUrl) => ({ type: "image_url", image_url: dataUrl }))
+          ]
+        }
+      : { role: "user", content: input.message.slice(0, 24_000) }
   ];
 
   try {
@@ -88,7 +111,8 @@ export async function streamPlatformBrain(input: {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: FLAGSHIP.mistral,
+        /* Eyes when there are images; the flagship otherwise. */
+        model: images.length > 0 ? VISION.mistral : FLAGSHIP.mistral,
         messages,
         temperature: 0,
         max_tokens: input.maxTokens,

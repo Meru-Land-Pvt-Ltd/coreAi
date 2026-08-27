@@ -161,7 +161,8 @@ async function streamAnswer(
   message: string,
   history: DesignChatMessage[],
   onStage: (stage: string) => void,
-  onWord: (chunk: string) => void
+  onWord: (chunk: string) => void,
+  images?: string[]
 ): Promise<{ hand?: "build" | "page" | "explain"; reply?: string | null; failed?: string }> {
   const base = process.env.NEXT_PUBLIC_API_URL ?? "/api";
   const token = getAuthToken();
@@ -171,7 +172,11 @@ async function streamAnswer(
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ message, ...(history.length ? { history } : {}) })
+    body: JSON.stringify({
+      message,
+      ...(history.length ? { history } : {}),
+      ...(images?.length ? { images } : {})
+    })
   });
   if (!response.ok || !response.body) return { failed: CHAT_FALLBACK_REPLY };
 
@@ -245,6 +250,12 @@ export function AiBuilderPanel({
   const [composed, setComposed] = useState(hasComposedSpec);
   const [savedPurpose, setSavedPurpose] = useState(purpose);
   const [checking, setChecking] = useState(false);
+  /* THE BUILDER'S EYES (the founder's ruling, 2026-08-27): pictures attach
+     the way they do in any real chat — paste, drag, or pick. Five at a time,
+     ten megabytes each, and the browser says so BEFORE the upload rather
+     than after a rejection. */
+  const [pictures, setPictures] = useState<Array<{ name: string; dataUrl: string }>>([]);
+  const [pictureNote, setPictureNote] = useState<string | null>(null);
   /* The Builder's open question: while set, the next message is the ANSWER —
      it rejoins the same build instead of starting a new one. */
   const [buildThread, setBuildThread] = useState<{
@@ -411,6 +422,40 @@ export function AiBuilderPanel({
     }
   }
 
+  const MAX_PICTURES = 5;
+  const MAX_PICTURE_BYTES = 10 * 1024 * 1024;
+
+  async function attachPictures(files: File[]) {
+    if (files.length === 0) return;
+    const room = MAX_PICTURES - pictures.length;
+    if (room <= 0) {
+      setPictureNote(`Five pictures at a time is the limit.`);
+      return;
+    }
+    const notes: string[] = [];
+    const accepted: Array<{ name: string; dataUrl: string }> = [];
+    for (const file of files.slice(0, room)) {
+      if (!file.type.startsWith("image/")) {
+        notes.push(`${file.name || "That file"} is not a picture.`);
+        continue;
+      }
+      if (file.size > MAX_PICTURE_BYTES) {
+        notes.push(`${file.name || "That picture"} is over 10 MB.`);
+        continue;
+      }
+      const dataUrl = await new Promise<string | null>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+      });
+      if (dataUrl) accepted.push({ name: file.name || "screenshot", dataUrl });
+    }
+    if (files.length > room) notes.push("Five pictures at a time is the limit.");
+    if (accepted.length > 0) setPictures((current) => [...current, ...accepted].slice(0, MAX_PICTURES));
+    setPictureNote(notes[0] ?? null);
+  }
+
   async function saveLesson() {
     if (!workflowId || teachDraft.trim().length < 8) return;
     setTeachSaving(true);
@@ -453,7 +498,9 @@ export function AiBuilderPanel({
   }
 
   async function send(instruction: string) {
-    const trimmed = instruction.trim().slice(0, MAX_INSTRUCTION_LENGTH);
+    const trimmed =
+      instruction.trim().slice(0, MAX_INSTRUCTION_LENGTH) ||
+      (pictures.length > 0 ? "What am I looking at here?" : "");
     if (!trimmed || !chatReady) return;
 
     /* The Builder asked a question and this is the answer: it rejoins the
@@ -516,12 +563,16 @@ export function AiBuilderPanel({
          wrong answer. The reply then arrives word by word, so nobody watches
          a silent box and assumes the machine is dead. */
       setStreamingReply("");
+      const attached = pictures.map((picture) => picture.dataUrl);
+      setPictures([]);
+      setPictureNote(null);
       const streamed = await streamAnswer(
         workflowId,
         trimmed,
         history,
         (stage) => setStage(stage),
-        (chunk) => setStreamingReply((current) => current + chunk)
+        (chunk) => setStreamingReply((current) => current + chunk),
+        attached
       );
       setStage("");
       setStreamingReply("");
@@ -705,17 +756,80 @@ export function AiBuilderPanel({
         </div>
       )}
 
+      {/* The pictures waiting to be sent — small, removable, honest. */}
+      {pictures.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2" data-testid="builder-pictures">
+          {pictures.map((picture, index) => (
+            <span key={`${picture.name}-${index}`} className="group relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={picture.dataUrl}
+                alt={picture.name}
+                className="h-14 w-14 rounded-lg border border-slate-200 object-cover"
+              />
+              <button
+                type="button"
+                aria-label={`Remove ${picture.name}`}
+                data-testid={`builder-picture-remove-${index}`}
+                onClick={() => setPictures((current) => current.filter((_, at) => at !== index))}
+                className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-slate-900 text-[11px] font-bold text-white opacity-0 transition group-hover:opacity-100"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {pictureNote ? (
+        <p className="mt-1.5 text-[11px] text-amber-700" data-testid="builder-picture-note">
+          {pictureNote}
+        </p>
+      ) : null}
+
       <form
         className="mt-3 flex items-end gap-2"
         onSubmit={(event) => {
           event.preventDefault();
           void send(draft);
         }}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          void attachPictures(Array.from(event.dataTransfer.files));
+        }}
       >
+        <label
+          data-testid="builder-picture-button"
+          title="Add a picture"
+          className="grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-lg border border-slate-200 text-slate-500 transition hover:border-amber-400 hover:text-amber-600"
+        >
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            data-testid="builder-picture-input"
+            onChange={(event) => {
+              void attachPictures(Array.from(event.target.files ?? []));
+              event.target.value = "";
+            }}
+          />
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </label>
         <input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask anything, or say what to change"
+          onPaste={(event) => {
+            /* Paste is how a person actually shares a screenshot. */
+            const files = Array.from(event.clipboardData?.files ?? []);
+            if (files.length > 0) {
+              event.preventDefault();
+              void attachPictures(files);
+            }
+          }}
+          placeholder={pictures.length > 0 ? "Say what to look at — or just send" : "Ask anything, or say what to change"}
           maxLength={MAX_INSTRUCTION_LENGTH}
           disabled={(!workflowId && canvasHasSteps) || generating}
           spellCheck={false}
@@ -724,7 +838,7 @@ export function AiBuilderPanel({
         />
         <button
           type="submit"
-          disabled={!chatReady || !draft.trim()}
+          disabled={!chatReady || (!draft.trim() && pictures.length === 0)}
           data-testid="smart-designer-send"
           aria-label="Send"
           className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-amber-500 text-white transition hover:bg-amber-600 disabled:opacity-40"

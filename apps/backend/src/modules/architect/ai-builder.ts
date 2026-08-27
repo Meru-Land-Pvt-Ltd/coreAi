@@ -85,7 +85,13 @@ const EXPLAIN_INSTRUCTION = [
   "Read the conversation so far — never answer a follow-up by repeating your previous answer.",
   "",
   "Never invent a run that did not happen. If the runs given to you do not show the problem, say what",
-  "you would need them to try next — one concrete test."
+  "you would need them to try next — one concrete test.",
+  "",
+  "WHEN THEY SEND YOU A PICTURE: it is almost always a screenshot of this platform or of their",
+  "agent running somewhere real. Read it the way a colleague leaning over their shoulder would —",
+  "say what you can SEE, name the exact screen or step it shows, and tie it to their agent's own",
+  "steps and runs above. Never describe a picture you cannot make out; say so and ask for the part",
+  "you need."
 ].join("\n");
 
 /** The canvas, in the words the architect typed — not our internals. */
@@ -197,6 +203,8 @@ export async function aiBuilderAnswerStreaming(input: {
   architectUserId?: string;
   message: string;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
+  /** Screenshots the architect attached — the Builder's eyes (2026-08-27). */
+  images?: string[];
   onStage: (stage: string) => void;
   onWord: (chunk: string) => void;
 }): Promise<AiBuilderAnswer> {
@@ -212,10 +220,18 @@ export async function aiBuilderAnswerStreaming(input: {
       task: "ai-builder-router",
       quick: true
     }))?.toLowerCase() ?? "";
-  const hand: AiBuilderHand = said.includes("build") ? "build" : said.includes("page") ? "page" : "explain";
+  const hand: AiBuilderHand = (input.images?.length ?? 0) > 0
+    ? /* A screenshot is a person pointing at something and asking what they
+         are looking at — never an order to rebuild a canvas. */
+      "explain"
+    : said.includes("build")
+      ? "build"
+      : said.includes("page")
+        ? "page"
+        : "explain";
   if (hand !== "explain") return { hand, reply: null };
 
-  input.onStage("Looking at your agent and its last runs");
+  input.onStage((input.images?.length ?? 0) > 0 ? "Looking at what you sent" : "Looking at your agent and its last runs");
   const [agent, runs, personalLessons] = await Promise.all([
     describeAgent(input.workflowId),
     describeRecentRuns(input.workflowId),
@@ -235,6 +251,7 @@ THE PERSON ASKS: ${message}`,
     maxTokens: 400,
     task: "ai-builder-explain",
     history: input.history ?? [],
+    ...(input.images?.length ? { images: input.images } : {}),
     onWord: input.onWord
   });
 

@@ -2905,10 +2905,26 @@ architectRoutes.post("/workflows/:workflowId/ai-builder/stream", async (c) => {
       history: z
         .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(4000) }))
         .max(10)
+        .optional(),
+      /* THE BUILDER'S EYES (the founder's ruling, 2026-08-27): up to five
+         pictures, ten megabytes each. Data URLs only — an http address here
+         would be the platform fetching whatever a caller names, which is the
+         hole every SSRF guard on this platform exists to close. The ceiling
+         is enforced HERE because a browser's word is not a limit. */
+      images: z
+        .array(
+          z
+            .string()
+            .regex(/^data:image\/(png|jpe?g|webp|gif);base64,/i, "Pictures must be pasted, not linked.")
+            .max(14_000_000, "Each picture must be under 10 MB.")
+        )
+        .max(5, "Five pictures at a time is the limit.")
         .optional()
     })
     .safeParse(await c.req.json().catch(() => null));
-  if (!body.success) return errorResponse(c, "Say what you want in words.", 422, "VALIDATION_ERROR");
+  if (!body.success) {
+    return errorResponse(c, body.error.issues[0]?.message ?? "Say what you want in words.", 422, "VALIDATION_ERROR");
+  }
 
   const workflow = await prisma.workflowDefinition.findFirst({
     where: { id: workflowId, architectUserId: authUser.id },
@@ -2924,6 +2940,7 @@ architectRoutes.post("/workflows/:workflowId/ai-builder/stream", async (c) => {
         architectUserId: authUser.id,
         message: body.data.message,
         ...(body.data.history ? { history: body.data.history } : {}),
+        ...(body.data.images?.length ? { images: body.data.images } : {}),
         onStage: (stage) => void send("stage", { stage }),
         onWord: (chunk) => void send("word", { chunk })
       });
