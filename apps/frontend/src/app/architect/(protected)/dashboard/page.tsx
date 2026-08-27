@@ -35,12 +35,13 @@ function formatLabel(value: string) {
 // Best-effort category label from the listing's tags, falling back to a generic
 // "AI Agent" when no explicit category/industry tag is present.
 function getAgentCategory(agent: ArchitectListing) {
-  const tags = agent.tags ?? [];
-  const categoryTag =
-    tags.find((tag) => tag.toLowerCase().startsWith("category:")) ??
-    tags.find((tag) => !tag.toLowerCase().startsWith("industry:"));
-
-  if (categoryTag) return formatLabel(categoryTag.replace(/^category:/i, ""));
+  /* IT GUESSED FROM THE TAGS WHILE THE REAL ANSWER SAT BESIDE IT. This looked
+     for a tag beginning "category:" and, failing that, took the first tag that
+     was not an industry — but nothing on this platform ever writes either
+     prefix, so it always picked an INDUSTRY and showed it as the category.
+     Every other screen reads the listing's own category field. */
+  const category = (agent.category ?? "").trim();
+  if (category) return formatLabel(category);
   return "AI Agent";
 }
 

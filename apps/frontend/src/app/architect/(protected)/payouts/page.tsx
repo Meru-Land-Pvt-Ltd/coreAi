@@ -355,6 +355,16 @@ export default function ArchitectPayoutsPage() {
                 Scheduled for {formatPayoutDate(data.nextPayout.scheduledFor)}
               </p>
               <div className="my-4 h-px bg-amber-200/60" />
+              {/* THESE THREE ARE ALL-TIME, INSIDE A CARD HEADED "Next Payout".
+                  The figure above is what is withdrawable now — net of what has
+                  already been transferred out — while these are totals across
+                  every approved sale ever. So once anything had been withdrawn,
+                  the breakdown did not add up to the number above it, and an
+                  architect reading down the card saw three numbers that
+                  contradicted the headline. Named for what they are. */}
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700/80">
+                All-time earnings
+              </p>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-slate-600">Gross sales</span>
@@ -1063,10 +1073,22 @@ function RequestPayoutModal({
             <span className="font-mono font-semibold text-slate-900">{formatUsd(summary.availableBalanceCents)}</span>
           </div>
           <div className="h-px bg-gray-200" />
+          {/* "You receive" WAS THE FULL BALANCE, EVEN FOR AN INSTANT PAYOUT.
+              The line above the buttons already warns that Stripe charges a
+              fee for instant, and then this promised the architect every penny
+              of it — a figure that is simply not what lands in their account.
+              An instant payout says what was asked for, and that the fee comes
+              out of it. */}
           <div className="flex justify-between">
-            <span className="font-semibold text-slate-700">You receive</span>
+            <span className="font-semibold text-slate-700">{instant ? "Amount requested" : "You receive"}</span>
             <span className="font-mono font-bold text-green-600">{formatUsd(summary.availableBalanceCents)}</span>
           </div>
+          {instant ? (
+            <p className="text-xs text-slate-500">
+              Stripe&apos;s instant payout fee is taken out of this amount, so what lands in your account is
+              a little less.
+            </p>
+          ) : null}
         </div>
         <div className="mt-6 flex gap-3">
           <button

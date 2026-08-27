@@ -382,6 +382,12 @@ export default function ArchitectSettingsPage() {
   const [expandedMobile, setExpandedMobile] = useState<SettingsTab | null>("profile");
   const [settings, setSettings] = useState<ArchitectSettingsPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  /* A FAILED LOAD LOOKED EXACTLY LIKE AN EMPTY ACCOUNT. When the settings
+     request failed, this screen showed its defaults with no error anywhere —
+     and the save that follows REPLACES rather than patches, so an architect
+     pressing Save on what looked like their settings quietly overwrote the
+     real ones. A weekly payout schedule silently became monthly. */
+  const [loadFailed, setLoadFailed] = useState(false);
   const [toast, setToast] = useState("");
   const [saving, setSaving] = useState(false);
   const [sessions, setSessions] = useState<ArchitectSettingsSession[]>([]);
@@ -447,6 +453,7 @@ export default function ArchitectSettingsPage() {
     const localUser = getAuthUser();
 
     if (!result.success || !result.data) {
+      setLoadFailed(true);
       if (localUser) {
         setAccountEmail(localUser.email);
         setEmailDraft(localUser.email);
@@ -461,6 +468,8 @@ export default function ArchitectSettingsPage() {
       }
       return;
     }
+
+    setLoadFailed(false);
 
     setSettings(result.data);
     setSessions(result.data.security.sessions);
@@ -941,6 +950,18 @@ export default function ArchitectSettingsPage() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-gray-50 text-slate-900">
       <main className="w-full max-w-full overflow-x-hidden px-3 py-4 sm:px-4 lg:px-5 lg:py-5">
+        {loadFailed ? (
+          <div
+            role="alert"
+            data-testid="architect-settings-load-failed"
+            className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+          >
+            <span className="font-semibold">We could not load your settings.</span> What you see below are the
+            defaults, not your saved choices — so saving is switched off until we can read them. Please refresh
+            in a moment.
+          </div>
+        ) : null}
+
         <BusinessPageHeader
           className="-mx-3 -mt-4 mb-4 sm:-mx-4 lg:-mx-5 lg:-mt-5"
           title={<span data-testid="architect-settings-title">Settings</span>}
@@ -1116,7 +1137,7 @@ export default function ArchitectSettingsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
-                    <button type="submit" disabled={saving} data-testid="architect-settings-save-profile" className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save changes</button>
+                    <button type="submit" disabled={saving || loadFailed} data-testid="architect-settings-save-profile" className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save changes</button>
                     <button type="button" onClick={() => void loadSettings()} className="text-sm font-medium text-slate-500 hover:text-slate-700">Cancel</button>
                   </div>
                 </form>
@@ -1274,7 +1295,7 @@ export default function ArchitectSettingsPage() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-4 border-t border-gray-100 pt-6">
-                    <button type="submit" disabled={saving} className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50" data-testid="architect-settings-save-storefront">
+                    <button type="submit" disabled={saving || loadFailed} className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50" data-testid="architect-settings-save-storefront">
                       {saving ? "Saving..." : "Save storefront"}
                     </button>
                     <p className="text-xs text-slate-400">Changes use your saved storefront data.</p>
@@ -1477,7 +1498,7 @@ export default function ArchitectSettingsPage() {
                     </tbody>
                   </table>
                 </div>
-                <button type="button" onClick={() => void handleSaveNotifications()} disabled={saving} data-testid="architect-settings-save-notifications" className="mt-6 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save preferences</button>
+                <button type="button" onClick={() => void handleSaveNotifications()} disabled={saving || loadFailed} data-testid="architect-settings-save-notifications" className="mt-6 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save preferences</button>
             </SettingsSection>
 
             <SettingsSection
@@ -1649,7 +1670,7 @@ export default function ArchitectSettingsPage() {
                       {nextPayoutAt ? formatPayoutDate(nextPayoutAt) : "Pending first payout"}
                     </span>
                   </div>
-                  <button type="button" onClick={() => void handleSavePayoutSchedule()} disabled={saving} data-testid="architect-settings-save-payout-schedule" className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50">Save schedule</button>
+                  <button type="button" onClick={() => void handleSavePayoutSchedule()} disabled={saving || loadFailed} data-testid="architect-settings-save-payout-schedule" className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50">Save schedule</button>
                 </div>
                 {/* Tax information hidden for now — re-enable once tax reporting ships.
                 <div className="border-t border-gray-100 pt-7">
@@ -1729,7 +1750,7 @@ export default function ArchitectSettingsPage() {
                   </div>
                 </div>
                 <div className="border-t border-gray-100 pt-6">
-                  <button type="button" onClick={() => void handleSavePrivacy()} disabled={saving} data-testid="architect-settings-save-privacy" className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save changes</button>
+                  <button type="button" onClick={() => void handleSavePrivacy()} disabled={saving || loadFailed} data-testid="architect-settings-save-privacy" className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">Save changes</button>
                 </div>
                 </div>
             </SettingsSection>
