@@ -50,4 +50,35 @@ describe("the surface laws", () => {
     const spec = { nav: { brand: "Workflow Wizard" }, pages: [] };
     expect(surfaceLanguageViolations(spec)[0]!.word).toBe("workflow");
   });
+
+  it("sees the words inside a list, not just the ones beside a label", () => {
+    /* HALF THE CUSTOMER'S SCREEN WAS INVISIBLE. A string was only tested when
+       it was the VALUE of a visible key; a string that is an ELEMENT of one —
+       a dropdown's options, a list's items — matched neither branch and walked
+       straight through. So "Webhook" could sit in a dropdown on a customer's
+       page and pass this gate. */
+    const problems = surfaceLanguageViolations({
+      pages: [
+        {
+          blocks: [
+            { options: ["Every day", "Webhook", "Once a week"] },
+            { items: ["We reply to {{customer.email}}"] },
+            { value: "3 workflows" }
+          ]
+        }
+      ]
+    });
+
+    const words = problems.map((problem) => problem.word);
+    expect(words).toContain("webhook");
+    expect(words).toContain("{{…}} token");
+    expect(words).toContain("workflow");
+  });
+
+  it("still says nothing about a machine key a customer never sees", () => {
+    const problems = surfaceLanguageViolations({
+      pages: [{ blocks: [{ nodeId: "trigger.webhook", type: "block.prompt_composer", config: { payload: "x" } }] }]
+    });
+    expect(problems).toEqual([]);
+  });
 });

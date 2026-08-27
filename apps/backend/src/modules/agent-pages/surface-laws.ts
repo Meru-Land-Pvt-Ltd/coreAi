@@ -27,7 +27,18 @@ const VISIBLE_KEYS = new Set([
   "buttonLabel",
   "emptyText",
   "prompt",
-  "brand"
+  "brand",
+  /* HALF THE CUSTOMER'S SCREEN WAS INVISIBLE TO THIS GATE. A dropdown's
+     options, a list's items, a stat's value, a quote's author, a footer note
+     — all read by the customer, none of them checked. So "Webhook" could sit
+     in a dropdown on a customer's page and pass. */
+  "options",
+  "items",
+  "value",
+  "author",
+  "footerNote",
+  "caption",
+  "note"
 ]);
 
 /**
@@ -60,23 +71,39 @@ export type SurfaceViolation = { where: string; text: string; word: string };
 export function surfaceLanguageViolations(spec: unknown): SurfaceViolation[] {
   const violations: SurfaceViolation[] = [];
 
-  const walk = (value: unknown, path: string) => {
+  const check = (text: string, where: string) => {
+    const match = PLATFORM_PATTERN.exec(text);
+    if (match) {
+      violations.push({ where, text: text.slice(0, 80), word: match[1]!.toLowerCase() });
+    }
+    if (text.includes("{{")) {
+      violations.push({ where, text: text.slice(0, 80), word: "{{…}} token" });
+    }
+  };
+
+  const walk = (value: unknown, path: string, visibleAncestor = false) => {
     if (Array.isArray(value)) {
-      value.forEach((entry, index) => walk(entry, `${path}[${index}]`));
+      /* AND A STRING INSIDE A LIST WAS NEVER LOOKED AT. A string only got
+         tested when it was the value of a visible key; a string that is an
+         ELEMENT of one — `options: ["Webhook", "Payload"]` — matched neither
+         branch and walked straight through. Under a visible key, every string
+         the walk reaches is a string the customer reads. */
+      value.forEach((entry, index) => {
+        if (typeof entry === "string" && visibleAncestor) {
+          check(entry, `${path}[${index}]`);
+          return;
+        }
+        walk(entry, `${path}[${index}]`, visibleAncestor);
+      });
       return;
     }
     if (value && typeof value === "object") {
       for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-        if (typeof child === "string" && VISIBLE_KEYS.has(key)) {
-          const match = PLATFORM_PATTERN.exec(child);
-          if (match) {
-            violations.push({ where: `${path}.${key}`, text: child.slice(0, 80), word: match[1]!.toLowerCase() });
-          }
-          if (child.includes("{{")) {
-            violations.push({ where: `${path}.${key}`, text: child.slice(0, 80), word: "{{…}} token" });
-          }
+        const visible = VISIBLE_KEYS.has(key);
+        if (typeof child === "string" && visible) {
+          check(child, `${path}.${key}`);
         } else {
-          walk(child, `${path}.${key}`);
+          walk(child, `${path}.${key}`, visible);
         }
       }
     }

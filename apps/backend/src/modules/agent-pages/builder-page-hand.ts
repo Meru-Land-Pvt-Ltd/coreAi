@@ -17,6 +17,7 @@
  */
 
 import { prisma } from "../../lib/prisma";
+import { surfaceLanguageProblems } from "./surface-laws";
 import { resolveBrainSlot } from "../admin/brain-slot-settings";
 import { getBuilderBrainConfig } from "../admin/builder-brain-settings";
 import { builderMind } from "../architect/builder-mind";
@@ -98,9 +99,17 @@ export async function builderPageHand(input: {
       declarations: context.declarations,
       graphNodeIds: context.graphNodeIds,
       allowBoundary: false,
-      /* A packaging page has no customer questions to place — the buyer
-         contract check belongs to the product screen, not to a sell page. */
-      validate: () => ({ product: null, violations: [] }),
+      /* PACKAGING COULD NEVER SUCCEED. A packaging page has no customer
+         questions to place, so this skipped the buyer-contract check — by
+         returning `product: null`, which is exactly what the engine reads as
+         "rejected". Every packaging request therefore burned both attempts
+         and came back with the boundary refusal, whatever the model wrote.
+         The check to skip is the contract one; the page must still pass
+         through, and must still speak the customer's words. */
+      validate: (spec) => {
+        const violations = surfaceLanguageProblems(spec);
+        return { product: violations.length > 0 ? null : spec, violations };
+      },
       task: "builder-packaging-hand",
       workflowId: input.workflowId
     });
@@ -194,6 +203,14 @@ export async function builderPageHand(input: {
           claim = `${outcome.reply} I looked at it and it is not right yet: ${judged.problems[0]}`;
         }
       }
+    } else {
+      /* THE LOOK FAILED AND NOBODY WAS TOLD. When the looking room could not
+         reach the page — it was down, it timed out, the page threw — this
+         branch did nothing at all, so the whole look-judge-fix loop was
+         skipped in silence and the architect was told the change was made and
+         checked. It was made; nobody looked at it. That is exactly the
+         half-finish this loop exists to prevent, so it says so. */
+      claim = `${outcome.reply} I could not open it to check my own work: ${look.failed}`;
     }
   }
 
