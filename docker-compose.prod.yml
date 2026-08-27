@@ -77,6 +77,7 @@ services:
     networks:
       - default
       - sandbox_net
+      - eyes_net
     depends_on:
       postgres:
         condition: service_healthy
@@ -166,8 +167,41 @@ services:
       NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID}
     depends_on:
       - backend
+    networks:
+      - default
+      - eyes_net
     ports:
       - "127.0.0.1:3000:3000"
+
+  # ---------------------------------------------------------------------------
+  # THE BUILDER'S EYES — a browser in a room of its own.
+  #
+  # The founder's ruling (2026-08-27): the AI Builder must test its own work
+  # the way a person does — open it, look at it, fix it — instead of handing
+  # an architect an untested screen and calling it done.
+  #
+  # Why not inside the code sandbox: that room has NO route off the box, on
+  # purpose, because it runs an architect's own code. A browser must reach our
+  # frontend to render a page, so it needs a road — and a room that runs
+  # untrusted code must never have one. Two rooms, two rules.
+  #
+  # What this room can reach: the frontend, and nothing else. No internet, no
+  # backend, no database, no credentials. There is nothing here to steal.
+  # ---------------------------------------------------------------------------
+  eyes:
+    build:
+      context: .
+      dockerfile: apps/eyes/Dockerfile
+    container_name: coreai-eyes
+    restart: unless-stopped
+    networks:
+      - eyes_net
+    environment:
+      PORT: 8791
+      EYES_TOKEN: ${EYES_TOKEN:?EYES_TOKEN is required}
+      EYES_ALLOWED_ORIGIN: ${EYES_ALLOWED_ORIGIN:-http://frontend:3000}
+    expose:
+      - "8791"
 
   # ---------------------------------------------------------------------------
   # The only place code somebody else wrote is ever executed.
@@ -184,7 +218,8 @@ services:
 
     # ONLY the internal network. `internal: true` means Docker creates no
     # gateway for it, so there is no route off this box at all — not a firewall
-    # rule someone can misconfigure, an absent road.
+    # rule someone can misconfigure, an absent road. It joins NOTHING else:
+    # a room that runs an architect's own code gets one wall and no doors.
     networks:
       - sandbox_net
 
@@ -223,6 +258,12 @@ networks:
   # No gateway, no internet, no route anywhere. The backend is on it as well so
   # it can send work; nothing else is.
   sandbox_net:
+    internal: true
+
+  # The eyes' room: the browser, the frontend it looks at, and the backend that
+  # asks. Internal too — no gateway, so no route to the internet from a browser
+  # that renders our own pages.
+  eyes_net:
     internal: true
 
 volumes:

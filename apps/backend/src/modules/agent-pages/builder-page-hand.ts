@@ -20,6 +20,7 @@ import { prisma } from "../../lib/prisma";
 import { resolveBrainSlot } from "../admin/brain-slot-settings";
 import { getBuilderBrainConfig } from "../admin/builder-brain-settings";
 import { builderMind } from "../architect/builder-mind";
+import { judgeLook, lookAt } from "../architect/builder-looks";
 import { verifyDesignChange } from "./designer-eyes";
 import { saveProductSpec } from "./product-spec-service";
 import { buildProductChatSystemPrompt, summarizeAgentGraph } from "./product-chat";
@@ -145,14 +146,63 @@ export async function builderPageHand(input: {
     workflowId: input.workflowId
   });
 
-  const saved = await saveProductSpec(context.page.id, outcome.product);
+  let saved = await saveProductSpec(context.page.id, outcome.product);
+
+  /* THE BUILDER LOOKS AT HIS OWN WORK (the founder's ruling, 2026-08-27).
+     Saving is not finishing. The page is rendered in a real browser, the
+     picture is judged against what was asked, and a failure gets ONE
+     corrective pass with the exact problems — then it is looked at again.
+     The Builder only claims what the look confirmed. */
+  let claim = outcome.reply;
+  const slug = context.page.slug;
+  if (slug) {
+    const look = await lookAt({ path: `/a/${slug}` });
+    if ("image" in look) {
+      const judged = await judgeLook({ ask: input.instruction, look });
+      if (!judged.works && judged.problems.length > 0) {
+        const second = await runComposerBrain({
+          brain,
+          systemPrompt: `${mind}\n\n${buildPageBriefing({
+            agent: context.agent,
+            declarations: context.declarations,
+            current: outcome.product
+          })}`,
+          conversationHistory: [],
+          userMessage: `You built this and then looked at it. It is not right yet:\n${judged.problems
+            .map((problem) => `- ${problem}`)
+            .join("\n")}\n\nFix exactly these and return the COMPLETE product.`,
+          declarations: context.declarations,
+          graphNodeIds: context.graphNodeIds,
+          allowBoundary: false,
+          task: "builder-page-hand-after-looking",
+          workflowId: input.workflowId
+        });
+
+        if (second.kind === "composed") {
+          saved = await saveProductSpec(context.page.id, second.product);
+          claim = second.reply;
+          const again = await lookAt({ path: `/a/${slug}` });
+          if ("image" in again) {
+            const rejudged = await judgeLook({ ask: input.instruction, look: again });
+            if (!rejudged.works && rejudged.problems.length > 0) {
+              /* Two looks and still wrong: say so. A quiet pass here is the
+                 lie this whole loop exists to prevent. */
+              claim = `${second.reply} I looked at it twice and one thing is still not right: ${rejudged.problems[0]}`;
+            }
+          }
+        } else {
+          claim = `${outcome.reply} I looked at it and it is not right yet: ${judged.problems[0]}`;
+        }
+      }
+    }
+  }
 
   /* Never claim more than the look confirmed — the founder caught this hand
      announcing a change three times while nothing had moved. */
   const honest =
     verdict && !verdict.satisfied && verdict.problems.length > 0
-      ? `${outcome.reply} One thing I could not get right: ${verdict.problems[0]}`
-      : outcome.reply;
+      ? `${claim} One thing I could not get right: ${verdict.problems[0]}`
+      : claim;
 
   return { reply: honest, product: saved ?? outcome.product, boundary: null };
 }
