@@ -50,10 +50,32 @@ function normalizeTemplate(template: string): AgentPageTemplate {
 // behind Cloudflare — so anyone could set that header themselves, change it per
 // request, and use the free preview forever.
 
-/** Public POST bodies are small JSON — reject anything oversized before parsing. */
+/**
+ * A CHAT MESSAGE IS SMALL. A FILE IS NOT.
+ *
+ * One 256KB limit guarded both routes, while the File Upload card tells the
+ * customer they may send up to the admin's ceiling — five megabytes by
+ * default — and their browser only refuses at that size. So the customer
+ * picked a normal photograph, the page said it was fine, and the server threw
+ * it away at about 190KB with "Request is too large", which reads as our
+ * fault and is. Two limits: a message is small, a file is as large as the
+ * admin allows, with room for the base64 the browser wraps it in.
+ */
+const CHAT_BODY_LIMIT = 256 * 1024;
+const MAX_UPLOAD_MB = 50;
+const RUN_BODY_LIMIT = Math.ceil(MAX_UPLOAD_MB * 1024 * 1024 * 1.4);
+
 const publicBodyLimit = bodyLimit({
-  maxSize: 256 * 1024,
+  maxSize: CHAT_BODY_LIMIT,
   onError: (c) => errorResponse(c, "Request is too large.", 413, "PAYLOAD_TOO_LARGE")
+});
+
+/* The run route is the one that carries a file. Its real ceiling is the
+   admin's, enforced with the honest message in refuseUploadIfBeyondLimits;
+   this only stops something absurd before it is parsed. */
+const publicRunBodyLimit = bodyLimit({
+  maxSize: RUN_BODY_LIMIT,
+  onError: (c) => errorResponse(c, "That file is too large to send.", 413, "PAYLOAD_TOO_LARGE")
 });
 
 const LIVE_PAGE_LISTING_SELECT = {
@@ -333,7 +355,7 @@ const runBodySchema = z.object({
 });
 
 /** One sandboxed one-shot run for media/form templates (rate-limited). */
-agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
+agentPagesRoutes.post("/:slug/run", publicRunBodyLimit, async (c) => {
   const slug = c.req.param("slug");
 
   const parsed = runBodySchema.safeParse(await c.req.json().catch(() => ({})));
@@ -380,6 +402,27 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
      turned away by the marketplace's demo allowance, on a widget they pay
      for. A paid embed has its own ceiling (embed-live.ts) and must not be
      charged against the demo's. */
+  /* A REFUSED PAID WIDGET USED TO ANSWER WITH A REHEARSAL.
+     When a valid install key was given but live work was refused — the
+     minute's burst limit, the day's, the month's ceiling, or Redis being
+     unreachable — the run fell through to the architect's dry run, and a real
+     customer on the business's own website was told their booking was
+     confirmed by a run that writes nothing: no calendar entry, no lead, no
+     record. The marketplace demo is a demo and says so; a business's own
+     visitor is owed either the real thing or an honest no. */
+  if (parsed.data.installKey && !embed.live) {
+    console.warn("[agent-pages] live embed refused — not serving a demo run to a real visitor", {
+      slug,
+      reason: embed.reason
+    });
+    return errorResponse(
+      c,
+      "We can't take that right now — please try again in a few minutes.",
+      503,
+      "EMBED_NOT_LIVE"
+    );
+  }
+
   const clientIp = getClientIp(c);
   let remainingToday: number | null = null;
   if (!embed.live) {
@@ -459,7 +502,11 @@ agentPagesRoutes.post("/:slug/run", publicBodyLimit, async (c) => {
     });
   } catch (error) {
     console.error("[agent-pages] run failed", slug, error);
-    await refundAgentPageUse(clientIp, slug);
+    /* Only refund what was actually taken. A paid embed never spends the demo
+       allowance, and refunding one it never spent decremented a counter that
+       had never been incremented — leaving it below zero, where it sits until
+       the key expires and quietly raises the platform's whole daily ceiling. */
+    if (!embed.live) await refundAgentPageUse(clientIp, slug);
     return errorResponse(c, RUN_FAILED_MESSAGE, 500, "AGENT_PAGE_RUN_FAILED");
   }
 });

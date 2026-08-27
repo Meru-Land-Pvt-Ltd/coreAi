@@ -145,9 +145,19 @@ async function decrementCounts(keys: readonly CounterKey[]): Promise<void> {
 
   if (redis) {
     try {
-      const multi = redis.multi();
-      for (const { key } of keys) multi.decr(key);
-      await multi.exec();
+      /* A COUNTER MUST NEVER GO BELOW ZERO. A bare DECR on a key that was
+         never incremented creates it at -1, with no expiry — and the platform
+         key is compared against a daily ceiling, so one stray refund quietly
+         bought the whole platform an extra free run that never expires.
+         Decrement only a key that exists, and never past zero. */
+      const floorAtZero = `
+        local current = redis.call('GET', KEYS[1])
+        if current == false then return 0 end
+        local value = tonumber(current)
+        if value == nil or value <= 0 then return 0 end
+        return redis.call('DECR', KEYS[1])
+      `;
+      await Promise.all(keys.map(({ key }) => redis.eval(floorAtZero, 1, key)));
       return;
     } catch {
       // Redis down — mirror the decrement in memory.
