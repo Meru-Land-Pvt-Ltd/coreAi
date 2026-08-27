@@ -5,19 +5,25 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type AdminReferenceHeaderProps = {
-  active: "overview" | "moderation" | "users";
+  active: "overview" | "moderation" | "users" | "architects";
   title: string;
   pendingCount?: number | null;
 };
 
+/* ONE PLACE, ONE NAME. These tabs used to call /admin/businesses "User
+   Management" while the sidebar beside them called it "Businesses" — the same
+   screen under two names, on screen at the same time. And the Architects page
+   lit up the "User Management" tab, a tab that does not lead there. The names
+   now match the sidebar, and every page a tab can highlight has its own tab. */
 const TABS: Array<{
   id: AdminReferenceHeaderProps["active"];
   label: string;
   href: Route;
 }> = [
-  { id: "overview", label: "Overview", href: "/admin/dashboard" },
-  { id: "moderation", label: "Moderation Queue", href: "/admin/agents" },
-  { id: "users", label: "User Management", href: "/admin/businesses" }
+  { id: "overview", label: "Dashboard", href: "/admin/dashboard" },
+  { id: "moderation", label: "Agent listings", href: "/admin/agents" },
+  { id: "users", label: "Businesses", href: "/admin/businesses" },
+  { id: "architects", label: "Architects", href: "/admin/architects" }
 ];
 
 export function AdminReferenceHeader({ active, title, pendingCount }: AdminReferenceHeaderProps) {

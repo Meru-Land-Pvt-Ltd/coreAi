@@ -279,7 +279,7 @@ export default function AdminArchitectsPage() {
   return (
     <div className="w-full max-w-full">
       <AdminReferenceHeader
-        active="users"
+        active="architects"
         title="Architect Management"
         pendingCount={pendingAgentCount}
       />
