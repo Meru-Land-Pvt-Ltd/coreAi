@@ -13,7 +13,7 @@
  * wrong.
  */
 
-import { checkWiring, getNodeDefinition } from "@coreai/shared";
+import { checkWiring, getNodeDefinition, triggerNeedsNoPage } from "@coreai/shared";
 import type { MenuEntry } from "./node-menu";
 
 export type PlannedNode = {
@@ -140,8 +140,12 @@ export function checkPlan(plan: ComposerPlan, menu: MenuEntry[], want = ""): str
   if (viewers.length > 1) {
     problems.push("Two Result Viewers put one fact in two places. Keep exactly one.");
   }
-  const faceless = new Set(["trigger.schedule", "trigger.email_received", "trigger.webhook", "trigger.calendly", "trigger.whatsapp_message_received"]);
-  const trigger = plan.nodes.find((node) => faceless.has(node.type));
+  /* THIS LIST WAS WRITTEN OUT BY HAND AND TELEGRAM WAS MISSING FROM IT, so a
+     Telegram agent could still be handed a customer web page nobody would
+     ever open — the exact costume the door law exists to stop. The platform
+     already keeps one list of the triggers that mean nobody visits a page;
+     this asks it instead of keeping a second copy that can drift. */
+  const trigger = plan.nodes.find((node) => triggerNeedsNoPage(node.type));
   const facePiece = plan.nodes.find((node) => node.type.startsWith("block."));
   if (trigger && facePiece) {
     problems.push(

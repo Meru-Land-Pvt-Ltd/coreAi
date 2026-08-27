@@ -136,7 +136,13 @@ function applyChanges(
     ...node,
     data: { ...(node.data ?? {}) }
   }));
-  const nextEdges = [...edges];
+  /* A REJECTED ATTEMPT USED TO CORRUPT THE CANVAS IT WORKED FROM.
+     The nodes are deep-copied one line above; the edges were not. A new array
+     holding the SAME edge objects means rewiring one of them mutates the
+     caller's canvas — so when a repair attempt was rejected, the next attempt
+     started from edges pointing at a step that was never kept, and a later
+     accepted attempt handed those same broken edges back to the architect. */
+  const nextEdges = edges.map((edge) => ({ ...edge }));
   const byId = new Map(nextNodes.map((node) => [node.id, node]));
 
   for (const change of changes) {

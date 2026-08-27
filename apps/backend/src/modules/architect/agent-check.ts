@@ -73,7 +73,11 @@ async function inventTests(purpose: string): Promise<string[]> {
   return ["hello"];
 }
 
-async function judge(purpose: string, asked: string, answered: string): Promise<{ pass: boolean; why: string }> {
+async function judge(
+  purpose: string,
+  asked: string,
+  answered: string
+): Promise<{ pass: boolean; why: string; unjudged?: boolean }> {
   const raw = await ask(
     [
       "You judge one exchange with an AI agent against its stated purpose. Be strict but fair:",
@@ -93,8 +97,13 @@ async function judge(purpose: string, asked: string, answered: string): Promise<
     };
     return { pass: Boolean(parsed.pass), why: String(parsed.why ?? "").trim() || "no reason given" };
   } catch {
-    /* A judge that cannot answer must not fail the architect's agent. */
-    return { pass: true, why: "the judge could not be reached, so this answer was not counted against you" };
+    /* A JUDGE THAT COULD NOT ANSWER IS NOT A PASS.
+       This returned pass:true, which counted straight into the passed total —
+       so a run in which the judge was unreachable for every answer ended with
+       "All 8 checks passed against your purpose". The architect shipped on a
+       green summary from a check that never ran. Not a pass and not a
+       failure: unjudged, counted separately, and said out loud. */
+    return { pass: false, unjudged: true, why: "the judge could not be reached, so this answer was not checked" };
   }
 }
 
@@ -111,6 +120,8 @@ export async function checkAgent(input: {
   const lines: CheckLine[] = [];
   let passed = 0;
   let failed = 0;
+  /* Neither a pass nor a failure: the judge could not answer at all. */
+  let unjudged = 0;
 
   /* ------------------------------------------------------------ the wires */
   const graph = workflow.workflowJson as {
@@ -183,7 +194,13 @@ export async function checkAgent(input: {
     }
 
     const verdict = await judge(purpose, test, answered);
-    if (verdict.pass) {
+    if (verdict.unjudged) {
+      unjudged += 1;
+      lines.push({
+        kind: "note",
+        text: `"${test}" → "${answered.slice(0, 120)}" — ${verdict.why}`
+      });
+    } else if (verdict.pass) {
       passed += 1;
       lines.push({ kind: "ok", text: `"${test}" → "${answered.slice(0, 120)}" — ${verdict.why}` });
     } else {
@@ -196,14 +213,15 @@ export async function checkAgent(input: {
   }
 
   /* ----------------------------------------------------------- the verdict */
+  const unjudgedNote = unjudged > 0 ? ` ${unjudged} could not be checked at all.` : "";
   lines.push({
-    kind: failed === 0 ? "ok" : "note",
+    kind: failed === 0 && unjudged === 0 ? "ok" : "note",
     text:
       failed === 0
         ? purpose
-          ? `All ${passed} checks passed against your purpose: "${purpose.slice(0, 80)}"`
-          : "Everything I could check without a purpose passed."
-        : `${passed} passed, ${failed} need your attention — the lines above say exactly where.`
+          ? `${passed} checks passed against your purpose: "${purpose.slice(0, 80)}".${unjudgedNote}`
+          : `Everything I could check without a purpose passed.${unjudgedNote}`
+        : `${passed} passed, ${failed} need your attention — the lines above say exactly where.${unjudgedNote}`
   });
 
   return { lines, passed, failed };

@@ -30,7 +30,7 @@ type LooseGraph = {
 };
 
 /** The triggers that mean "nobody visits a page — the world comes to it." */
-const TRIGGER_DOORS: Array<{ type: string; kind: WayIn["kind"]; why: string }> = [
+export const TRIGGER_DOORS: Array<{ type: string; kind: WayIn["kind"]; why: string }> = [
   {
     type: "trigger.telegram_message",
     kind: "telegram",
@@ -84,4 +84,15 @@ export function wayInFor(workflowJson: unknown): WayIn {
      finding its shape — is met as a page, because a person will meet it as
      a page. */
   return { kind: "page", why: "Customers meet this agent on its page." };
+}
+
+/**
+ * Does this trigger mean nobody ever visits a page?
+ *
+ * The composer had its own hand-written copy of this list and Telegram was
+ * missing from it — so a Telegram agent could still be given a customer web
+ * page nobody would ever open. One list, asked here.
+ */
+export function triggerNeedsNoPage(nodeType: string): boolean {
+  return TRIGGER_DOORS.some((door) => door.type === nodeType);
 }

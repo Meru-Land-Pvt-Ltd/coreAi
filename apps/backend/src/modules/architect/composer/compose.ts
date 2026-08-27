@@ -115,6 +115,38 @@ function systemPrompt(menu: string, mind: string): string {
   ].join("\n");
 }
 
+
+/**
+ * Does the plan actually contain these words?
+ *
+ * Walks the real strings in the plan instead of searching its JSON encoding,
+ * where a quote is written \" and a newline \n — so an answer with either in
+ * it could never be found, however faithfully the model had used it.
+ */
+function planContainsText(plan: ComposerPlan, needle: string): boolean {
+  const wanted = needle.trim().toLowerCase();
+  if (!wanted) return true;
+
+  let found = false;
+  const walk = (value: unknown) => {
+    if (found || value == null) return;
+    if (typeof value === "string") {
+      if (value.toLowerCase().includes(wanted)) found = true;
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    if (typeof value === "object") {
+      for (const item of Object.values(value as Record<string, unknown>)) walk(item);
+    }
+  };
+
+  walk(plan.nodes ?? []);
+  return found;
+}
+
 function extractJson(text: string): unknown {
   const trimmed = (text ?? "").trim().replace(/^```[a-z]*\n?/i, "").replace(/```$/i, "");
   try {
@@ -287,6 +319,31 @@ export async function composeOrchestration(input: {
         ? response.structuredOutput
         : extractJson(response.text ?? "");
 
+    /* THE BUILDER'S OWN QUESTION WAS BINNED. The instructions above tell it,
+       twice, that when it needs to know something it may answer with
+       { "ask": { question, suggestion } } instead of a plan. This check
+       demanded a nodes array, so that answer was rejected as "not usable
+       JSON" and the question the Builder wanted to ask was never asked —
+       it retried, then gave up. The panel has been waiting for this the
+       whole time. */
+    const askedRaw = raw && typeof raw === "object" ? (raw as { ask?: unknown }).ask : null;
+    const asked =
+      askedRaw && typeof askedRaw === "object"
+        ? (askedRaw as { question?: unknown; suggestion?: unknown })
+        : null;
+    const askedQuestion = typeof asked?.question === "string" ? asked.question.trim() : "";
+
+    if (askedQuestion) {
+      return {
+        ok: false,
+        ask: {
+          question: askedQuestion,
+          suggestion: typeof asked?.suggestion === "string" ? asked.suggestion.trim() : ""
+        },
+        message: askedQuestion
+      };
+    }
+
     const plan = raw as ComposerPlan | null;
     if (!plan || !Array.isArray(plan.nodes)) {
       messages.push({ role: "assistant", content: (response.text ?? "").slice(0, 2000) });
@@ -311,7 +368,13 @@ export async function composeOrchestration(input: {
       lastAnswer &&
       lastAnswer.length >= 8 &&
       !/you decide|up to you|anything is fine|whatever/i.test(lastAnswer) &&
-      !JSON.stringify(plan.nodes ?? []).includes(lastAnswer)
+      /* SEARCHED IN THE ENCODING, NOT THE WORDS. This looked for the answer
+         inside JSON.stringify of the plan — where a quote becomes \" and a
+         newline becomes \n — so any answer containing either could never be
+         found, even when the model had used it exactly. The architect was
+         then told off for words they had used, three times, and the build
+         gave up. Look at the decoded values. */
+      !planContainsText(plan, lastAnswer)
     ) {
       problems.push(
         `The person answered: "${lastAnswer}". Use those words EXACTLY, unchanged, in the setting they answer — never improved or summarised.`
