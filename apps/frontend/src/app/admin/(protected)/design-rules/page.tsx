@@ -8,6 +8,7 @@ import {
 } from "@/components/admin/features/design-rules";
 import { DoorBrainCard } from "@/components/admin/ui/door-brain-card";
 import { SmartDesignerBrainCard } from "@/components/admin/ui/smart-designer-brain-card";
+import { BuilderBrainCard, BuilderEyesCard } from "@/components/admin/ui/builder-brain-cards";
 import { BuilderSoulCard } from "@/components/admin/ui/builder-soul-card";
 
 /**
@@ -194,6 +195,13 @@ export default function DesignRulesPage() {
 
       <DoorBrainCard />
       <SmartDesignerBrainCard />
+
+      {/* The AI Builder's own two brains (the founder's ruling, 2026-08-27):
+          the employee, and his eyes. Both were decisions living in code until
+          a hard-coded seeing model refused every screenshot an architect
+          sent. They belong here, where the founder can change them. */}
+      <BuilderBrainCard />
+      <BuilderEyesCard />
       {/* The brain above is the swappable battery; this is the identity it
           wears. Same screen on purpose. */}
       <BuilderSoulCard />

@@ -31,13 +31,19 @@ describe("the Builder's eyes", () => {
     expect(routes).toMatch(/\^data:image/);
   });
 
-  it("keeps the seeing model in ONE place, so a provider swap changes nothing upstream", () => {
-    expect(brain).toContain("const VISION");
-    for (const provider of ["mistral", "claude", "openai"]) {
-      expect(brain).toContain(`${provider}:`);
-    }
-    /* The choice of eyes lives at the request, not at the call sites. */
-    expect(brain).toContain("images.length > 0 ? VISION.mistral : FLAGSHIP.mistral");
+  it("takes its seeing model from the ADMIN, never from this code", () => {
+    /* The lesson of the day it was born: a model name hard-coded here was
+       wrong for the platform's key, and only a developer could fix it. */
+    /* The word may appear in the comment that records the lesson; what must
+       never return is a model name used as a VALUE. */
+    expect(brain).not.toMatch(/model:\s*"[a-z0-9.-]+"/i);
+    expect(brain).toContain("getBuilderEyesConfig()");
+    expect(brain).toContain("seeingModel ?? FLAGSHIP.mistral");
+  });
+
+  it("refuses honestly when the chosen service cannot see, and names where to fix it", () => {
+    expect(brain).toContain("serviceCanSee");
+    expect(brain).toContain("The Builder's Eyes");
   });
 
   it("treats a screenshot as a question — never as an order to rebuild a canvas", () => {

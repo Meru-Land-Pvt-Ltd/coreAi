@@ -152,7 +152,11 @@ export async function composeOrchestration(input: {
 }): Promise<ComposerResult> {
   const say = (step: string, detail?: string) => input.onProgress?.({ step, detail });
 
-  say("Reading what you asked for");
+  /* THE NARRATION (the founder's ruling, 2026-08-27): a person watching
+     silence assumes a hang. Every stage says what is happening in the words
+     a colleague would use — and the detail line carries the specifics, so
+     the architect sits WITH the work instead of waiting on it. */
+  say("Reading what you asked for", input.existingPlan ? "an agent you already built" : undefined);
 
   const brain = resolveBrainSlot(await getSmartDesignerBrainConfig());
   if (!brain) {
@@ -170,7 +174,10 @@ export async function composeOrchestration(input: {
   if (menu.length === 0) {
     return { ok: false, message: "There are no steps available to build with." };
   }
-  say("Looking at every step available to you", `${menu.length} to choose from`);
+  say(
+    "Looking at every step available to you",
+    `${menu.length} steps in your toolkit${input.existingPlan ? `, ${input.existingPlan.nodes.length} already on your canvas` : ""}`
+  );
 
   /* A LAW IS MACHINERY, NOT A REQUEST (2026-08-26). Three exam sittings
      proved the model reads "ask about their taste" and builds anyway. So
@@ -229,8 +236,14 @@ export async function composeOrchestration(input: {
   let lastProblems: string[] = [];
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    if (attempt === 1) say("Choosing the steps and wiring them together");
-    else say("Fixing what did not hold", lastProblems[0] ?? undefined);
+    if (attempt === 1) {
+      say(
+        input.existingPlan ? "Working out what to change" : "Choosing the steps and wiring them together",
+        input.existingPlan ? "keeping everything you did not ask me to touch" : undefined
+      );
+    } else {
+      say(`Checking my work — round ${attempt}`, lastProblems[0] ?? undefined);
+    }
 
     const request: AIExecuteRequest = {
       capability: "llm",
@@ -246,6 +259,7 @@ export async function composeOrchestration(input: {
       ...(brain.model ? { model: brain.model } : {})
     };
 
+    say(attempt === 1 ? "Thinking it through" : "Thinking again");
     let response;
     try {
       response = await getProviderEngine().executeWithProvider(brain.providerId, request);
@@ -288,6 +302,7 @@ export async function composeOrchestration(input: {
     }
 
     say("Checking every step is real and every wire lands");
+    say("Checking every step and every wire", `${plan.nodes?.length ?? 0} steps to verify`);
     const problems = checkPlan(plan, menu, input.want);
 
     /* THEIR WORDS ARE SACRED, mechanically: when the human answered a

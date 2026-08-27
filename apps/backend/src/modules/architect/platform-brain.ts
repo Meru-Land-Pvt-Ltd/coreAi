@@ -17,6 +17,7 @@
 
 import { getProviderEngine } from "../ai-provider-engine/provider-engine";
 import { llmProviderApiKey, resolveConfiguredLlmProvider } from "../ai-provider-engine/llm-credentials";
+import { getBuilderBrainConfig, getBuilderEyesConfig, serviceCanSee } from "../admin/builder-brain-settings";
 import type { AIExecuteRequest } from "../ai-provider-engine/types";
 
 const FLAGSHIP: Record<string, string> = {
@@ -42,16 +43,15 @@ const QUICK: Record<string, string> = {
 };
 
 /**
- * THE SEEING BRAIN (the founder's ruling, 2026-08-27): images enter as data
- * the platform owns; whichever provider is configured supplies its own eyes.
- * Swap the provider and nothing upstream changes — the map below is the only
- * place that knows which model of theirs can see.
+ * THE SEEING BRAIN — chosen by the ADMIN, never by this file.
+ *
+ * It was hard-coded here for exactly one afternoon (2026-08-27) as
+ * "pixtral-large-latest", the platform's key did not carry that model, and
+ * every screenshot an architect sent was refused — with only a developer
+ * able to correct it. A model name in code is a decision the founder cannot
+ * make. The eyes now read their service and model from the admin screen,
+ * beside the door and page batteries.
  */
-const VISION: Record<string, string> = {
-  mistral: "pixtral-large-latest",
-  claude: "claude-opus-4-5",
-  openai: "gpt-5.4"
-};
 
 const RETRY_AFTER_MS = 2_500;
 
@@ -89,6 +89,27 @@ export async function streamPlatformBrain(input: {
   }
 
   const images = (input.images ?? []).slice(0, 5);
+
+  /* Pictures ride the ADMIN's chosen eyes; words ride the flagship. When the
+     chosen service cannot see at all, the platform says so honestly rather
+     than sending the picture into a refusal. */
+  let seeingModel: string | null = null;
+  if (images.length > 0) {
+    const eyes = await getBuilderEyesConfig().catch(() => null);
+    if (!eyes || !serviceCanSee(eyes.providerId)) {
+      input.onWord(
+        "I can read your words, but I cannot look at pictures yet — the seeing service is not switched on. An admin sets it in Design Brain rules → The Builder's Eyes."
+      );
+      return null;
+    }
+    if (eyes.providerId !== resolved.providerId) {
+      /* The eyes live on a different service than the voice. Falling back to
+         the waited-for path keeps this honest rather than sending a picture
+         to the wrong provider. */
+      return askPlatformBrain({ ...input, timeoutMs: 60_000 });
+    }
+    seeingModel = eyes.modelId || null;
+  }
   const messages = [
     { role: "system", content: input.instruction },
     ...(input.history ?? []).slice(-10).map((turn) => ({
@@ -111,8 +132,8 @@ export async function streamPlatformBrain(input: {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        /* Eyes when there are images; the flagship otherwise. */
-        model: images.length > 0 ? VISION.mistral : FLAGSHIP.mistral,
+        /* The admin's eyes when there are pictures; the flagship otherwise. */
+        model: seeingModel ?? FLAGSHIP.mistral,
         messages,
         temperature: 0,
         max_tokens: input.maxTokens,
@@ -163,6 +184,12 @@ export async function streamPlatformBrain(input: {
   }
 }
 
+/** The Builder's brain, as the admin set it — blank means "the service's own". */
+async function adminChosenBrainModel(): Promise<string | null> {
+  const config = await getBuilderBrainConfig().catch(() => null);
+  return config?.modelId || null;
+}
+
 export async function askPlatformBrain(input: {
   instruction: string;
   message: string;
@@ -176,6 +203,7 @@ export async function askPlatformBrain(input: {
   const resolved = resolveConfiguredLlmProvider("mistral");
   if (!resolved) return null;
 
+  const chosenModel = input.quick ? null : await adminChosenBrainModel();
   const request: AIExecuteRequest = {
     capability: "llm",
     systemPrompt: input.instruction,
@@ -188,8 +216,13 @@ export async function askPlatformBrain(input: {
     maxTokens: input.maxTokens,
     task: input.task,
     ...(() => {
+      /* THE ADMIN'S CHOICE WINS (the founder's ruling, 2026-08-27). The
+         Builder's own brain is a slot on the admin screen; only the quick
+         reflex keeps its small model, because a one-word routing decision is
+         not worth a flagship call. */
       const table = input.quick ? QUICK : FLAGSHIP;
-      const model = table[resolved.providerId] ?? FLAGSHIP[resolved.providerId];
+      const model =
+        (!input.quick && chosenModel) || table[resolved.providerId] || FLAGSHIP[resolved.providerId];
       return model ? { model } : {};
     })()
   };

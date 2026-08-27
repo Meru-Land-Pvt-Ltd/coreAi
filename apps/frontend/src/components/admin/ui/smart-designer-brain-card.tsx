@@ -11,7 +11,13 @@ import {
 } from "@/components/admin/features/smart-designer-brain";
 
 /**
- * Admin → Smart Designer Brain card.
+ * Admin → The AI Builder's Page Brain card.
+ *
+ * Renamed on the founder's ruling (2026-08-27): "Smart Designer" died as a
+ * name the day the platform became ONE employee. The machinery it names is
+ * alive and needed — the brain that composes a product's screen — so the
+ * card stayed and the label became honest. Test ids are unchanged on
+ * purpose: renaming them would break every existing test for no gain.
  *
  * The brain that designs every product's interface: it reads what a workflow
  * asks for and shows, lays out the screen from our components, and answers
@@ -115,7 +121,7 @@ export function SmartDesignerBrainCard() {
           className="text-lg font-bold text-slate-900"
           data-testid="admin-smart-designer-brain-heading"
         >
-          Smart Designer Brain
+          The AI Builder&apos;s Page Brain
         </h2>
         <span
           data-testid="admin-smart-designer-brain-status"
@@ -130,8 +136,9 @@ export function SmartDesignerBrainCard() {
       </div>
 
       <p className="mt-1 text-sm text-slate-600" data-testid="admin-smart-designer-brain-explainer">
-        This brain designs every product&apos;s interface and handles the change requests architects
-        type. The standard one is Claude.
+        The hand the AI Builder designs with: it composes every product&apos;s screen and makes the
+        changes an architect asks for in chat. One employee — this is the brain behind that half of
+        his work.
       </p>
 
       {error ? (

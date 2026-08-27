@@ -71,7 +71,7 @@ describe("Admin → Smart Designer Brain card", () => {
       "Platform default"
     );
     expect(screen.getByTestId("admin-smart-designer-brain-explainer").textContent).toBe(
-      "This brain designs every product's interface and handles the change requests architects type. The standard one is Claude."
+      "The hand the AI Builder designs with: it composes every product's screen and makes the changes an architect asks for in chat. One employee — this is the brain behind that half of his work."
     );
     // Nothing changed yet — Save stays off.
     expect(

@@ -1,5 +1,6 @@
 import { isArchitectNodeType, ARCHITECT_NODE_CATALOG, getNodeDefinition } from "@coreai/shared";
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
@@ -110,6 +111,23 @@ import {
   isSupportedSmartDesignerBrainProvider,
   saveSmartDesignerBrainConfig
 } from "./smart-designer-brain-settings";
+import {
+  BUILDER_BRAIN_MODEL_MAX_LENGTH,
+  DEFAULT_BUILDER_BRAIN_MODEL,
+  DEFAULT_BUILDER_BRAIN_PROVIDER,
+  DEFAULT_BUILDER_EYES_MODEL,
+  DEFAULT_BUILDER_EYES_PROVIDER,
+  SERVICES_THAT_SEE,
+  builderBrainModelMismatch,
+  builderBrainModelOptions,
+  builderBrainProviderOptions,
+  getBuilderBrainSetting,
+  getBuilderEyesSetting,
+  isSupportedBuilderBrainProvider,
+  saveBuilderBrainConfig,
+  saveBuilderEyesConfig,
+  serviceCanSee
+} from "./builder-brain-settings";
 import {
   listArchitectNodeGroups,
   listArchitectNodeVisibility,
@@ -1002,6 +1020,114 @@ adminRoutes.patch("/door-brain", async (c) => {
  * setting for the whole platform on purpose — architects never pick a model,
  * and swapping it here changes every composition instantly.
  */
+/* ------------------ The AI Builder's own two brains ---------------------- */
+
+/**
+ * THE BUILDER'S BRAIN AND HIS EYES (the founder's ruling, 2026-08-27).
+ *
+ * Born from a real failure: the seeing model was hard-coded, the platform's
+ * key did not carry it, and only a developer could fix it. A model name in
+ * code is a decision the founder cannot make. Both now sit on the admin
+ * screen beside the door and page batteries, under the pattern the admin
+ * already knows.
+ */
+function builderSlotPayload(setting: Awaited<ReturnType<typeof getBuilderBrainSetting>>, defaults: { provider: string; model: string }) {
+  return {
+    ...setting,
+    defaultProviderId: defaults.provider,
+    defaultModelId: defaults.model,
+    providers: builderBrainProviderOptions(),
+    models: builderBrainModelOptions(setting.providerId)
+  };
+}
+
+adminRoutes.get("/builder-brain", async (c) => {
+  const setting = await getBuilderBrainSetting();
+  return successResponse(c, {
+    builderBrain: builderSlotPayload(setting, {
+      provider: DEFAULT_BUILDER_BRAIN_PROVIDER,
+      model: DEFAULT_BUILDER_BRAIN_MODEL
+    })
+  });
+});
+
+adminRoutes.get("/builder-eyes", async (c) => {
+  const setting = await getBuilderEyesSetting();
+  return successResponse(c, {
+    builderEyes: {
+      ...builderSlotPayload(setting, {
+        provider: DEFAULT_BUILDER_EYES_PROVIDER,
+        model: DEFAULT_BUILDER_EYES_MODEL
+      }),
+      /* The screen says plainly which services can look at a picture — the
+         lesson of the day this slot was born. */
+      servicesThatSee: [...SERVICES_THAT_SEE],
+      canSee: serviceCanSee(setting.providerId)
+    }
+  });
+});
+
+const builderSlotUpdateSchema = z
+  .object({
+    provider: z.string().trim().max(60).optional(),
+    model: z.string().trim().max(BUILDER_BRAIN_MODEL_MAX_LENGTH).optional()
+  })
+  .refine((body) => body.provider !== undefined || body.model !== undefined, {
+    message: "Send a provider, a model, or both"
+  });
+
+async function saveBuilderSlot(c: Context, which: "brain" | "eyes") {
+  const authUser = c.get("authUser");
+  const parsed = builderSlotUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, parsed.error.issues[0]?.message ?? "Nothing to save.", 422, "VALIDATION_ERROR");
+  }
+
+  const provider = parsed.data.provider;
+  if (provider && !isSupportedBuilderBrainProvider(provider)) {
+    return errorResponse(c, "That AI service is not one we can run.", 422, "UNSUPPORTED_PROVIDER");
+  }
+
+  const model = parsed.data.model;
+  const current = which === "brain" ? await getBuilderBrainSetting() : await getBuilderEyesSetting();
+  const targetProvider = provider || current.providerId;
+  if (model && builderBrainModelMismatch(targetProvider, model)) {
+    return errorResponse(c, "That model belongs to a different AI service.", 422, "PROVIDER_MODEL_MISMATCH");
+  }
+
+  const payload = {
+    ...(provider !== undefined ? { provider } : {}),
+    ...(model !== undefined ? { model } : {})
+  };
+  const result =
+    which === "brain"
+      ? await saveBuilderBrainConfig(payload, authUser.id)
+      : await saveBuilderEyesConfig(payload, authUser.id);
+
+  await logAdminAction({
+    adminUserId: authUser.id,
+    action: which === "brain" ? "BUILDER_BRAIN_UPDATED" : "BUILDER_EYES_UPDATED",
+    targetType: "PLATFORM",
+    meta: { changed: Object.keys(payload) }
+  });
+
+  /* An honest warning, never a refusal: an admin may deliberately point the
+     eyes at a service that cannot see (a key arriving tomorrow, a test). */
+  const warning =
+    which === "eyes" && !serviceCanSee(targetProvider)
+      ? "Saved — but that service cannot look at pictures. Screenshots will be answered honestly rather than read."
+      : undefined;
+
+  return successResponse(
+    c,
+    { [which === "brain" ? "builderBrain" : "builderEyes"]: result, ...(warning ? { warning } : {}) },
+    warning ?? "Saved."
+  );
+}
+
+adminRoutes.patch("/builder-brain", (c) => saveBuilderSlot(c, "brain"));
+adminRoutes.patch("/builder-eyes", (c) => saveBuilderSlot(c, "eyes"));
+
 adminRoutes.get("/smart-designer-brain", async (c) => {
   const setting = await getSmartDesignerBrainSetting();
   return successResponse(c, {
