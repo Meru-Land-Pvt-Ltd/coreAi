@@ -21,6 +21,7 @@
  * for a demonstration. The battery covers the LAWS, not the demo.
  */
 
+import { decryptSecret, encryptSecret } from "../../lib/crypto";
 import { prisma } from "../../lib/prisma";
 import { composeOrchestration, type ComposerResult } from "./composer/compose";
 
@@ -346,9 +347,15 @@ export async function runBuilderExams(architectUserId: string): Promise<ExamRepo
      find afterwards is an exam that never happened. */
   await prisma.platformApiSetting
     .upsert({
+      /* ONE RULE FOR THIS TABLE: what sits in `valueEncrypted` is encrypted.
+         This row used to be written as plain JSON, so the settings loader —
+         which decrypts every row it finds — warned about it on every single
+         boot. A warning that is always there is a warning nobody reads, and
+         the day a real key fails to decrypt it would have scrolled past with
+         the rest. */
       where: { key: REPORT_KEY },
-      update: { valueEncrypted: JSON.stringify(report), secret: false },
-      create: { key: REPORT_KEY, valueEncrypted: JSON.stringify(report), secret: false }
+      update: { valueEncrypted: encryptSecret(JSON.stringify(report)), secret: false },
+      create: { key: REPORT_KEY, valueEncrypted: encryptSecret(JSON.stringify(report)), secret: false }
     })
     .catch(() => undefined);
 
@@ -362,8 +369,14 @@ export async function lastExamReport(): Promise<ExamReport | null> {
     .catch(() => null);
   if (!row) return null;
   try {
-    return JSON.parse(row.valueEncrypted) as ExamReport;
+    return JSON.parse(decryptSecret(row.valueEncrypted)) as ExamReport;
   } catch {
-    return null;
+    /* A sitting saved before this row was encrypted. Read it as it was
+       written, so a real report is not thrown away by the change. */
+    try {
+      return JSON.parse(row.valueEncrypted) as ExamReport;
+    } catch {
+      return null;
+    }
   }
 }
