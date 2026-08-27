@@ -58,6 +58,13 @@ function getQueue(): Queue {
 /** Failures that must never be retried — recipient/config problems, not infrastructure. */
 const PERMANENT_PATTERNS = [
   /suppressed/i,
+  /* A BUSINESS'S HOURLY CEILING IS NOT A NETWORK BLIP. This matched the
+     "rate limit" pattern below, so a mail refused by the business's own
+     hourly limit was retried five times with a thirty-second backoff — about
+     seven minutes against a sixty-minute window — and then abandoned. The
+     retries could never succeed, and the attempts they burned were the ones
+     a real transient failure needed. */
+  /email rate limit reached for this business/i,
   /invalid recipient/i,
   /disabled in mail setup/i,
   /no active email alias/i,

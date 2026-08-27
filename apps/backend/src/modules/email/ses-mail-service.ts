@@ -236,9 +236,15 @@ export async function isEmailSuppressed(toEmail: string): Promise<boolean> {
   });
   if (entry) return entry.active;
 
-  // Legacy fallback: messages marked before the suppression table existed.
+  /* Legacy fallback: messages marked before the suppression table existed.
+     A COMPLAINT is a person saying "stop", and it should stop everyone. A
+     BOUNCE is one delivery failing — a full mailbox, a server down — and
+     treating it as permanent, platform-wide, silence for that person is how a
+     business loses a customer they never knew they had stopped writing to.
+     The suppression table above is the real record; this is only for rows
+     that predate it. */
   const suppressed = await prisma.emailMessage.findFirst({
-    where: { toEmail: email, status: { in: ["BOUNCED", "COMPLAINED"] } },
+    where: { toEmail: email, status: "COMPLAINED" },
     select: { id: true }
   });
   return Boolean(suppressed);
@@ -373,6 +379,33 @@ export async function sendBusinessEmail(input: SendBusinessEmailInput): Promise<
     return { ok: false, error: `Recipient ${to} is suppressed after a bounce/complaint.` };
   }
   if (await isRateLimited(input.businessId)) {
+    /* IT VANISHED WITH NO RECORD. A refused send returned before the message
+       row was created, so the fifty-first email in an hour left no trace at
+       all: not in the business's own mail list, not in the admin's. The
+       suppression branch just above writes its refusal down; this one did
+       not. A message we refused to send is still a message that existed. */
+    try {
+      await prisma.emailMessage.create({
+        data: {
+          businessId: input.businessId ?? null,
+          aliasId: alias?.id ?? null,
+          direction: "OUTBOUND",
+          fromEmail,
+          toEmail: to,
+          replyToEmail: fromEmail,
+          subject: input.subject.slice(0, 500),
+          status: "FAILED",
+          purpose: input.purpose,
+          idempotencyKey,
+          metadata: {
+            ...(input.metadata ?? {}),
+            refused: "hourly limit reached for this business"
+          } as never
+        }
+      });
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+    }
     return { ok: false, error: "Email rate limit reached for this business — try again later." };
   }
 
@@ -589,6 +622,9 @@ export function sanitizeInboundHtml(html: string): string {
 
 type InboundEmailInput = {
   recipient: string;
+  /** SES's own verdict on the mail. Spam and viruses are stored and forwarded
+      like anything else, but they never start a billed run. */
+  failedScanning?: boolean;
   fromEmail: string;
   subject: string;
   textBody?: string | null;
@@ -680,7 +716,19 @@ export async function routeInboundEmailToBusiness(input: InboundEmailInput): Pro
    * the inbound mail is already stored and forwarded — the ear must never
    * lose the letter because the brain stumbled.
    */
-  if (!isLoop && alias.installedAgentId) {
+  /* ANY EMAIL, INCLUDING SPAM, STARTED A BILLED LIVE RUN. Every inbound mail
+     ran the business's agent — a real run, on their bill, with the sender's
+     address as the memory key, from an address anybody can forge. SES already
+     tells us whether the mail failed its spam and virus checks, and nothing
+     read it. The letter is still stored and still forwarded, exactly as
+     before; it just does not wake the agent. */
+  if (input.failedScanning && alias.installedAgentId) {
+    console.warn("[email-in] mail failed SES scanning — stored and forwarded, but no run started", {
+      messageId: stored.id
+    });
+  }
+
+  if (!isLoop && alias.installedAgentId && !input.failedScanning) {
     void startEmailTriggeredRun({
       installedAgentId: alias.installedAgentId,
       fromEmail: input.fromEmail,
@@ -874,6 +922,15 @@ export async function handleSesInboundNotification(payload: unknown): Promise<In
   const receipt = (message.receipt ?? {}) as Record<string, unknown>;
   const commonHeaders = (mail.commonHeaders ?? {}) as Record<string, unknown>;
 
+  /* SES's own scan results, which nothing had ever read. */
+  const verdict = (name: string) => {
+    const entry = receipt[name];
+    if (!entry || typeof entry !== "object") return null;
+    const status = (entry as Record<string, unknown>).status;
+    return typeof status === "string" ? status.toUpperCase() : null;
+  };
+  const failedScanning = ["spamVerdict", "virusVerdict"].some((name) => verdict(name) === "FAIL");
+
   const recipients = (Array.isArray(receipt.recipients) ? receipt.recipients : mail.destination) as unknown;
   const recipientList = Array.isArray(recipients)
     ? recipients.filter((item): item is string => typeof item === "string")
@@ -927,7 +984,8 @@ export async function handleSesInboundNotification(payload: unknown): Promise<In
         subject,
         textBody: bodies.text,
         htmlBody: bodies.html,
-        sesMessageId
+        sesMessageId,
+        failedScanning
       })
     );
   }
@@ -1000,11 +1058,13 @@ export async function handleSesBounceComplaintNotification(
     updated += byId.count;
   }
   for (const recipient of recipients) {
-    const byRecipient = await prisma.emailMessage.updateMany({
-      where: { toEmail: recipient, direction: "OUTBOUND", status: "SENT" },
-      data: { status, ...timestamps }
-    });
-    updated += byRecipient.count;
+    /* ONE BOUNCE MARKED EVERY BUSINESS'S MAIL TO THAT ADDRESS AS BOUNCED.
+       The bounced message is already found by its own id, above. This second
+       pass then flipped EVERY still-sent message to that address, from every
+       business on the platform, to the same status — and because the
+       suppression check falls back to "has this address ever bounced", a
+       single full mailbox at one business silently blocked that person for
+       everybody. One bounce is one message. */
 
     if (isPermanent) {
       const reason =
