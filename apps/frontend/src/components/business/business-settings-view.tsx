@@ -2392,7 +2392,17 @@ export function BusinessSettingsView() {
                   onConnect={handleConnectCalendly}
                   onDisconnect={handleDisconnectCalendly}
                 />
-                {/* <IntegrationCard
+                {/* WhatsApp was commented out while everything behind it stayed
+                    live — the connection status is fetched on load, the connect
+                    and disconnect handlers exist, and the connect modal is
+                    rendered further down this file. A finished integration the
+                    business could not reach. Restored 2026-08-27.
+
+                    Four "coming soon" cards went the other way — Google Business
+                    Profile, Slack, Zapier and QuickBooks. None of them exists,
+                    and advertising an integration we do not have to a business
+                    choosing us for it is a promise, not a roadmap. */}
+                <IntegrationCard
                   name="WhatsApp Business"
                   description="Send and receive WhatsApp messages from your AI agents"
                   connected={whatsappConnected}
@@ -2406,38 +2416,6 @@ export function BusinessSettingsView() {
                   onConnect={handleConnectWhatsApp}
                   onDisconnect={handleDisconnectWhatsApp}
                 />
-                <IntegrationCard
-                  name="Google Business Profile"
-                  description="Manage reviews, respond to customers, update business listing"
-                  connected={false}
-                  testId="google-business-profile"
-                  icon="google-business"
-                  onConnect={() => showToast("Google Business Profile connection coming soon")}
-                />
-                <IntegrationCard
-                  name="Slack"
-                  description="Receive real-time agent notifications in your Slack workspace"
-                  connected={false}
-                  testId="slack"
-                  icon="slack"
-                  onConnect={() => showToast("Slack connection coming soon")}
-                />
-                <IntegrationCard
-                  name="Zapier"
-                  description="Connect Triven to 5,000+ apps with automated workflows"
-                  connected={false}
-                  testId="zapier"
-                  icon="zapier"
-                  onConnect={() => showToast("Zapier connection coming soon")}
-                />
-                <IntegrationCard
-                  name="QuickBooks"
-                  description="Sync invoicing and payment data from your agents"
-                  connected={false}
-                  testId="quickbooks"
-                  icon="quickbooks"
-                  onConnect={() => showToast("QuickBooks connection coming soon")}
-                /> */}
               </div>
             </SettingsSection>
 
@@ -2817,23 +2795,13 @@ export function BusinessSettingsView() {
                 </p>
               </div>
 
-              <div className="flex flex-col gap-4 rounded-xl border border-red-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-900">Deactivate your account</p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Temporarily disable your account. All your agents will stop running immediately. Your data will
-                    be preserved and you can reactivate at any time by logging back in.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  data-testid="business-settings-deactivate"
-                  className="w-full shrink-0 rounded-xl border border-red-500 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 sm:w-auto"
-                  onClick={() => showToast("Account deactivation coming soon")}
-                >
-                  Deactivate account
-                </button>
-              </div>
+              {/* A "Deactivate your account" card stood here promising "all your
+                  agents will stop running immediately", and its button only
+                  raised a toast saying the feature was coming soon. A business
+                  in trouble reads that card, presses it, and believes
+                  everything has stopped — while every agent keeps running and
+                  keeps billing. Pausing an agent is done on the agent itself,
+                  which really works. Removed 2026-08-27. */}
 
               <div className="mt-4 flex flex-col gap-4 rounded-xl border border-red-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">

@@ -100,7 +100,12 @@ export function DocumentUploadSection({
         profileCallbackRef.current?.(res.data.profileSuggestion);
       }
     }
-  }, []);
+  /* THIS CLOSED OVER A STALE AGENT ID. The dependency list was empty while
+     the callback reads installedAgentId — which starts null and is filled in
+     after the page loads. Its sibling, which loads the files, lists the id
+     correctly, so one effect ran with the fresh id and the other with null,
+     and the document suggestions came back for the wrong agent or for none. */
+  }, [installedAgentId]);
 
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set();

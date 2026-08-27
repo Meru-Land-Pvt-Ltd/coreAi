@@ -284,6 +284,24 @@ export function AiCallCoverageEditor({
                   ) : null}
                 </span>
                 <span className="mt-0.5 block text-xs text-slate-500">{option.description}</span>
+
+                {/* THE HOURS THEMSELVES, AND THE WARNING, WERE NEVER SHOWN.
+                    Both were computed, passed in and then dropped — so a
+                    business choosing "only during Business Hours" was not told
+                    which hours those are, nor the part that matters most: when
+                    the hours are not set, the AI answers anyway. That is the
+                    opposite of what they just chose. */}
+                {option.kind === "business_hours" && selected ? (
+                  <span className="mt-2 block rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    <span className="block font-semibold text-slate-700">{t.bhNoteHeading}</span>
+                    {businessHoursSummary ? (
+                      <span className="mt-0.5 block">{businessHoursSummary}</span>
+                    ) : null}
+                    {!businessHoursConfigured ? (
+                      <span className="mt-1 block font-medium text-amber-700">{t.bhNoteFooter}</span>
+                    ) : null}
+                  </span>
+                ) : null}
               </span>
             </button>
           );
