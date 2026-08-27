@@ -24,7 +24,7 @@ describe("the AI Brain answers the SOP", () => {
   });
 
   it("Q4 — gives text", () => {
-    expect(brain?.producedVariables).toEqual(["text"]);
+    expect(brain?.producedVariables).toEqual(["text", "ai.output"]);
     expect(brain?.producesNothing ?? false).toBe(false);
   });
 
@@ -54,7 +54,12 @@ describe("the AI Brain answers the SOP", () => {
     // The whole first machine, checked in one line. Prompt Box -> AI Brain ->
     // Result Viewer is the shape every product on this platform starts from.
     const resultViewer = getNodeDefinition("block.output_stage");
-    expect(brain?.producedVariables).toEqual(resultViewer?.requiredVariables);
+    /* The Brain gives two names for one gift — "text" flows to the Viewer,
+       "ai.output" names it for explicit wiring (the echo's lesson,
+       2026-08-27). The Viewer's need is covered, not mirrored. */
+    for (const need of resultViewer?.requiredVariables ?? []) {
+      expect(brain?.producedVariables).toContain(need);
+    }
   });
 });
 

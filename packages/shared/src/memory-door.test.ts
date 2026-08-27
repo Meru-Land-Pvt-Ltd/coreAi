@@ -42,6 +42,8 @@ describe("Memory answers the SOP", () => {
     // Memory is already the Brain's biggest partner on this platform: eleven
     // agents feed into it, sixteen take from it.
     const brain = getNodeDefinition("ai.llm_call");
-    expect(brain?.producedVariables).toEqual(memory?.requiredVariables);
+    for (const need of memory?.requiredVariables ?? []) {
+      expect(brain?.producedVariables).toContain(need);
+    }
   });
 });

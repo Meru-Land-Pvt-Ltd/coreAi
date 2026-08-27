@@ -8263,6 +8263,13 @@ async function executeNodeOnConfig(params: {
         if (isLlmCall) {
           const outputKey = asString(node.data?.llmOutputKey, "ai.output");
           context[outputKey] = outputText;
+          /* THE ROW IS A PROMISE THE ENGINE KEEPS (the founder's blind test,
+             2026-08-27). The Brain's row declares it GIVES "text" — and the
+             engine never wrote it, so a mouth wired to {{text}} after a
+             Brain received the EAR's raw words instead: the echo. From here
+             the Brain's answer IS the text that flows onward, exactly as
+             declared. */
+          context.text = outputText;
           const nodeLabel = asString(node.data?.title ?? node.data?.label, node.id)
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, ".")

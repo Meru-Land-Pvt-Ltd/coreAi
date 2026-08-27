@@ -13,7 +13,7 @@
  * wrong.
  */
 
-import { checkWiring } from "@coreai/shared";
+import { checkWiring, getNodeDefinition } from "@coreai/shared";
 import type { MenuEntry } from "./node-menu";
 
 export type PlannedNode = {
@@ -163,6 +163,77 @@ export function checkPlan(plan: ComposerPlan, menu: MenuEntry[], want = ""): str
     problems.push(
       "The customer hands something over, but the page has no box to receive it. Add a Prompt Box (or a File Upload if it is a file)."
     );
+  }
+
+  /* ---- Every {{token}} must point at something real --------------------- */
+  /* THE ECHO'S LAW (the founder's blind test, 2026-08-27). The composer
+     wired a mouth to "{{text}}" — an invented token that happened to
+     resolve to the customer's own incoming message, so the Brain thought
+     beautifully and the mouth echoed the customer back at them. A token
+     inside a setting must be either {{business.*}} (a setup question) or a
+     value some EARLIER step genuinely gives. Anything else is refused by
+     name, with the legal tokens listed. */
+  const givesByNode = new Map(plan.nodes.map((node) => [node.id, known.get(node.type)?.gives ?? []]));
+  const upstreamOf = (nodeId: string): Set<string> => {
+    const upstream = new Set<string>();
+    let grewUp = true;
+    const incoming = new Map<string, string[]>();
+    for (const edge of plan.edges ?? []) {
+      incoming.set(edge.to, [...(incoming.get(edge.to) ?? []), edge.from]);
+    }
+    const queue = [...(incoming.get(nodeId) ?? [])];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (upstream.has(current)) continue;
+      upstream.add(current);
+      queue.push(...(incoming.get(current) ?? []));
+    }
+    void grewUp;
+    return upstream;
+  };
+  for (const node of plan.nodes) {
+    const producedUpstream = new Set<string>(
+      [...upstreamOf(node.id)].flatMap((id) => givesByNode.get(id) ?? [])
+    );
+    for (const [key, raw] of Object.entries(node.config ?? {})) {
+      if (typeof raw !== "string") continue;
+      for (const match of raw.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g)) {
+        const token = match[1]!;
+        if (token.startsWith("business.")) continue;
+        if (producedUpstream.has(token)) continue;
+        /* Dotted prefixes count: a step that gives "telegram" covers
+           {{telegram.text}}; one that gives "ai.output" covers it exactly. */
+        const covered = [...producedUpstream].some(
+          (given) => token === given || token.startsWith(`${given}.`)
+        );
+        if (covered) continue;
+        const legal = [...producedUpstream].slice(0, 8).join(", ") || "none yet";
+        problems.push(
+          `Step "${node.id}" (${key}) uses {{${token}}}, which no earlier step gives. Use one of: ${legal} — or {{business.something}} for a fact only the business knows.`
+        );
+      }
+    }
+  }
+
+  /* ---- A declared choice takes only its declared values ----------------- */
+  /* Same blind test: the composer invented "sender" and "plain" for settings
+     whose registry rows declare trigger_chat/custom and none/Markdown/HTML.
+     An illegal value is silently tolerated by the runner — which makes it a
+     lie waiting for a customer. Refused here, legal values listed. */
+  for (const node of plan.nodes) {
+    const settings = getNodeDefinition(node.type)?.settings ?? [];
+    for (const setting of settings) {
+      const choices = setting.limits?.choices;
+      if (!choices || choices.length === 0) continue;
+      const value = node.config?.[setting.key];
+      if (value === undefined || value === null || String(value).trim() === "") continue;
+      if (typeof value === "string" && /\{\{/.test(value)) continue;
+      if (!choices.some((choice) => choice.value === String(value))) {
+        problems.push(
+          `Step "${node.id}" sets ${setting.key} to "${String(value)}", which is not one of its choices: ${choices.map((choice) => choice.value).join(", ")}.`
+        );
+      }
+    }
   }
 
   /* ---- It must not loop ------------------------------------------------ */

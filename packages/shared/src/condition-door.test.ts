@@ -35,6 +35,8 @@ describe("the Condition answers the SOP", () => {
 
   it("takes what the AI Brain gives, so the pair fits", () => {
     const brain = getNodeDefinition("ai.llm_call");
-    expect(brain?.producedVariables).toEqual(condition?.requiredVariables);
+    for (const need of condition?.requiredVariables ?? []) {
+      expect(brain?.producedVariables).toContain(need);
+    }
   });
 });

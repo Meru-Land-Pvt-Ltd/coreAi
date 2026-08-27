@@ -2431,7 +2431,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
 
     requiredVariables: ["text"],
     // What it really returns, taken from the runs it has already done.
-    producedVariables: ["text"]
+    producedVariables: ["text", "ai.output"]
   }),
   def({
     type: "ai.context_reply",
