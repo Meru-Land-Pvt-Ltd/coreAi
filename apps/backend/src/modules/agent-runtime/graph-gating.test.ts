@@ -34,7 +34,19 @@ function spyProviders() {
     status: "confirmed" as const,
     confirmationId: "conf-1",
     calendarEventId: "evt-1",
-    note: `booked ${input.slot}`
+    note: `booked ${input.slot}`,
+    /* A real booking, the shape the live adapter actually returns: an event
+       that was CREATED on the calendar. A "confirmed" with no event, or one
+       marked SIMULATED, is a preview — and the agent must never tell a
+       customer a preview is booked. */
+    event: {
+      testEventId: "test-event-1",
+      title: "Appointment",
+      startAt: "2026-09-01T10:00:00.000Z",
+      endAt: "2026-09-01T10:30:00.000Z",
+      timeZone: "UTC",
+      status: "CREATED" as const
+    }
   }));
   const send = vi.fn(async () => ({ status: "simulated" as const, note: "sms simulated" }));
   const complete = vi.fn(async () => "Happy to help!");
@@ -153,6 +165,42 @@ describe("graph-driven tool gating", () => {
     expect(input.slot).toBe(OFFERED_SLOT);
     expect(input.service.length).toBeGreaterThan(0);
     expect(result.turn.bookedThisTurn).toBe(true);
+  });
+
+  it("a simulated event is never told to the customer as a booking", async () => {
+    /* On a public agent page every turn runs in test mode, so the calendar
+       step writes a SIMULATED row and still answers "confirmed". That used to
+       be enough to tell the visitor their appointment was booked — nothing was
+       booked, nobody was expecting them, and the agent is forbidden from using
+       the words "test" or "simulated" to a customer, so they had no way to
+       know. */
+    const { providers, bookAppointment } = spyProviders();
+    bookAppointment.mockResolvedValueOnce({
+      status: "confirmed" as const,
+      confirmationId: "conf-preview",
+      calendarEventId: "",
+      note: 'Simulated calendar event "Appointment". No live calendar event was created.',
+      event: {
+        testEventId: "test-event-preview",
+        title: "Appointment",
+        startAt: "2026-09-01T10:00:00.000Z",
+        endAt: "2026-09-01T10:30:00.000Z",
+        timeZone: "UTC",
+        status: "SIMULATED" as const
+      }
+    });
+
+    const history: Array<{ role: "user" | "assistant"; content: string }> = [
+      { role: "user", content: "I'd like to book a Haircut." },
+      { role: "assistant", content: `We have ${OFFERED_SLOT} available. Does that work?` },
+      { role: "user", content: "Yes, 10:00 AM works. My name is Jordan Test." },
+      { role: "assistant", content: "And the best phone number for you?" }
+    ];
+
+    const result = await run(FULL_GRAPH, providers, "It's 555-123-9999.", history);
+
+    expect(bookAppointment).toHaveBeenCalledTimes(1);
+    expect(result.turn.bookedThisTurn).toBe(false);
   });
 
   it("a failed provider booking is reported as failed — never as a confirmed appointment", async () => {

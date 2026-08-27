@@ -81,7 +81,35 @@ export async function deleteUserWorkspace(
           where: { email: user.email, role: { in: [...heldRoles] } }
         });
       }
-      await tx.user.delete({ where: { id: userId } });
+
+      /* ONE PERSON'S DELETE MUST NOT ERASE ANOTHER PERSON'S MONEY.
+         Deleting this row cascades away their Payments, and every Payment
+         carries the ArchitectEarning that pays a DIFFERENT person for the
+         agent they sold — including earnings already marked available to
+         transfer. The buyer leaves; the architect's record of what they are
+         owed leaves with them, silently.
+
+         When there is a payment history, the account is emptied of personal
+         details and closed instead of deleted. The person is gone from the
+         platform either way; the money trail behind them is not. */
+      const paymentCount = await tx.payment.count({ where: { userId } });
+
+      if (paymentCount > 0) {
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            email: `deleted-${userId}@removed.triven.ai`,
+            passwordHash: null,
+            fullName: null,
+            phone: null,
+            location: null,
+            profilePhotoUrl: null,
+            isSuspended: true
+          }
+        });
+      } else {
+        await tx.user.delete({ where: { id: userId } });
+      }
     });
     return { accountRemoved: true, remainingRoles: [] };
   }
@@ -95,15 +123,28 @@ export async function deleteUserWorkspace(
           select: { id: true, businessId: true, lineItemsJson: true }
         });
         for (const payment of orphaned) {
+          /* KEEP THE FEE BREAKDOWN. This note used to REPLACE it, and the
+             breakdown is what separates the agent's price from the buyer's
+             phone fee. Without it every later reader fell back to the whole
+             amount charged, and the architect was paid a share of the phone
+             fee as well. The note wraps the items instead of erasing them. */
+          const existing = payment.lineItemsJson;
+          const items: Prisma.InputJsonValue[] = Array.isArray(existing)
+            ? (existing as Prisma.InputJsonValue[])
+            : existing && typeof existing === "object" && Array.isArray((existing as { items?: unknown }).items)
+              ? ((existing as { items: Prisma.InputJsonValue[] }).items)
+              : [];
           const meta =
-            payment.lineItemsJson && typeof payment.lineItemsJson === "object" && !Array.isArray(payment.lineItemsJson)
-              ? (payment.lineItemsJson as Record<string, unknown>)
+            existing && typeof existing === "object" && !Array.isArray(existing)
+              ? (existing as Record<string, unknown>)
               : {};
+
           await tx.payment.update({
             where: { id: payment.id },
             data: {
               lineItemsJson: {
                 ...meta,
+                items,
                 deletedWorkspaceBusinessId: payment.businessId,
                 deletedWorkspaceAt: new Date().toISOString()
               }

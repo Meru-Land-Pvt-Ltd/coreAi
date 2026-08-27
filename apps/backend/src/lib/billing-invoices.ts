@@ -56,6 +56,17 @@ export function paymentAgentGrossCents(payment: {
 
 /** Validated fee breakdown from Payment.lineItemsJson (null when absent/invalid). */
 export function parsePaymentLineItems(value: unknown): PaymentLineItem[] | null {
+  /* Deleting a business workspace stamps a note onto the payment it can no
+     longer point at. It used to REPLACE the fee breakdown with that note, so
+     the breakdown was lost and every later reader fell back to the whole
+     amount charged — the agent's price plus the buyer's phone fee — and paid
+     the architect a share of the phone fee too. The note is wrapped around
+     the items now, and both shapes are read here. */
+  if (!Array.isArray(value) && value && typeof value === "object") {
+    const wrapped = (value as { items?: unknown }).items;
+    if (Array.isArray(wrapped)) return parsePaymentLineItems(wrapped);
+  }
+
   if (!Array.isArray(value)) return null;
 
   const items = value.filter(

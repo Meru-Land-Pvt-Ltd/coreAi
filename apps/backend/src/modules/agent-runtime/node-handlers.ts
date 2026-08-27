@@ -327,7 +327,15 @@ const handleBookAppointment: NodeHandler = async (node, context, providers) => {
       : {})
   });
 
-  turn.bookedThisTurn = result.status === "confirmed";
+  /* A SIMULATED EVENT IS NOT A BOOKING.
+     On a public agent page every turn runs in test mode, so the calendar step
+     writes a SIMULATED row and still answered "confirmed" — which set this
+     flag, which made the agent tell the visitor their appointment was booked.
+     Nothing was booked, nobody was expecting them, and the agent is forbidden
+     from using the words "test" or "simulated" to a customer, so they had no
+     way to know. Only a real write counts. */
+  turn.bookedThisTurn =
+    result.status === "confirmed" && (result.event?.status ?? "") === "CREATED";
 
   context.toolCalls.push({
     name: "calendar.book_appointment",

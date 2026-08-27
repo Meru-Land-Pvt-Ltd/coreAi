@@ -17,7 +17,19 @@ function providers() {
     status: "confirmed" as const,
     confirmationId: "catalog-confirmation",
     calendarEventId: "catalog-event",
-    note: "Runtime contract booking"
+    note: "Runtime contract booking",
+    /* A real booking, the shape the live adapter actually returns: an event
+       that was CREATED on the calendar. A "confirmed" with no event, or one
+       marked SIMULATED, is a preview — and the agent must never tell a
+       customer a preview is booked. */
+    event: {
+      testEventId: "test-event-1",
+      title: "Appointment",
+      startAt: "2026-09-01T10:00:00.000Z",
+      endAt: "2026-09-01T10:30:00.000Z",
+      timeZone: "UTC",
+      status: "CREATED" as const
+    }
   }));
   const send = vi.fn(async () => ({ status: "simulated" as const, note: "Runtime contract SMS" }));
   const complete = vi.fn(async () => "I can help with that.");
