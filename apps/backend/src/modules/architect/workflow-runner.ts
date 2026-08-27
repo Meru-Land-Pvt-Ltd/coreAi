@@ -2556,9 +2556,27 @@ export function evaluateCondition(
       explain: asString((context as Record<string, unknown>)[`condition.${node.id}.why`], `it looked like "${decidedByDoor}"`)
     };
   }
-  const operator = asString(data.conditionOperator, "business_hours");
+  /* A COMPOSED CONDITION MUST NOT SILENTLY BECOME AN OPENING-HOURS CHECK
+     (found by the platform audit, 2026-08-27). The AI Builder writes a rule
+     in words and no operator; this defaulted to "business_hours", so an
+     agent meant to sort complaints from questions quietly branched on
+     whether the shop was open — and logged "we are inside business hours"
+     as though that had been the plan. A rule written in words IS a meaning
+     question; that is what it says. */
+  const written = asString(data.conditionQuestion, "").trim();
+  const operator = asString(data.conditionOperator, written ? "meaning" : "business_hours");
   const field = asString(data.conditionField, "");
   const expected = asString(data.conditionValue, "");
+
+  if (operator === "meaning" && !decidedByDoor) {
+    /* The door could not answer and there is nothing to compare — say so
+       rather than inventing a branch. */
+    return {
+      passed: false,
+      label,
+      explain: "I could not work out which road this belongs on, so it took the other one."
+    };
+  }
 
   if (operator === "business_hours" || !field) {
     const open = evaluateBusinessHours(context);

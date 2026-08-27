@@ -230,7 +230,9 @@ export async function readyFramesFor(architectUserId: string): Promise<NodeFrame
 /** One frame by id, for the runner. Includes the architect's own keys. */
 export async function architectFrameById(
   frameId: string,
-  architectUserId?: string
+  /* Required on purpose: an optional owner is an owner someone will forget,
+     and forgetting it here means serving a stranger's card. */
+  architectUserId: string
 ): Promise<{ frame: NodeFrame; secrets: Record<string, string> } | null> {
   const row = await prisma.architectNodeFrame.findFirst({
     where: {
@@ -238,7 +240,7 @@ export async function architectFrameById(
         status: "READY",
         /* A card is owned. Without an owner named, this returned whichever
            architect's row was updated last (the platform audit, 2026-08-27). */
-        ...(architectUserId ? { architectUserId } : {})
+        architectUserId
       },
     orderBy: { updatedAt: "desc" }
   });

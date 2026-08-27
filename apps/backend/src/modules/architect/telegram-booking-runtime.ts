@@ -2599,7 +2599,23 @@ async function workflowFallback(
   //    (handles the case where the workflow has no AI Brain node, or LLM credentials
   //     are not configured, but the business has uploaded relevant documents)
   if (knowledgeLines.length > 0) {
+    /* RAW LIBRARY IS NOT AN ANSWER (found by the platform audit,
+       2026-08-27). When the AI produced nothing, four unedited chunks of the
+       business's documents were sent straight to their customer — the
+       machinery showing through, in the business's name. A customer gets a
+       sentence or an honest apology, never our internals. */
     const knowledgeAnswer = knowledgeLines.slice(0, 4).join("\n\n");
+    const looksLikeRawLibrary =
+      /\.(pdf|docx?|txt|csv)\s*:/i.test(knowledgeAnswer) || /\{\{|\[unreadable|\[attachment/i.test(knowledgeAnswer);
+    if (looksLikeRawLibrary) {
+      await sendText(
+        connection,
+        event,
+        "knowledge-not-answerable",
+        `Sorry — I could not put an answer together just now. Someone from ${connection.business.name} will get back to you.`
+      );
+      return null;
+    }
     await sendText(connection, event, "knowledge-direct-answer", knowledgeAnswer);
     return run.workflowRunId ?? null;
   }

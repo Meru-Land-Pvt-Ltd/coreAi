@@ -207,23 +207,45 @@ export async function handleWhatsAppWebhookPost(c: Context) {
     ? WhatsAppService.decryptAppSecret(connection.appSecretEnc)
     : null;
 
-  let verified = false;
-  if (appSecret) {
-    verified = verifyMetaSignature(rawBody, signature, appSecret);
-    if (!verified) {
-      await createWebhookLog({
-        connectionId: connection?.id ?? null,
-        payloadJson: payload as object,
-        headersJson: { "x-hub-signature-256": signature ?? null },
-        verified: false,
-        processed: false,
-        error: "Invalid signature"
-      });
-      return c.json({ success: false, errorCode: "INVALID_SIGNATURE", message: "Invalid signature" }, 401);
+  /* ONE SIGNATURE DOES NOT AUTHORISE EVERY BUSINESS (found by the platform
+     audit, 2026-08-27). Two holes stood here:
+
+     · An unknown phone number with NO signature header was marked verified —
+       `verified = !signature` — so a stranger could post anything at all as
+       long as they left the header off.
+     · The signature was checked against ONE connection (the first message's)
+       and the loop below then handled messages for OTHER connections. A
+       payload could carry one message from a number the sender controls and
+       a dozen aimed at other businesses, and all of them were accepted.
+
+     Now every distinct number in the payload is verified against ITS OWN
+     secret, and only messages whose own connection verified are handled. */
+  const numbersInPayload = [...new Set(inboundAll.map((inbound) => inbound.connectionPhoneNumberId))];
+  const verifiedNumbers = new Set<string>();
+
+  for (const phoneNumberId of numbersInPayload) {
+    const conn =
+      connection && connection.phoneNumberId === phoneNumberId
+        ? connection
+        : await getConnectionByPhoneNumberId(phoneNumberId);
+    const secret = conn ? WhatsAppService.decryptAppSecret(conn.appSecretEnc) : null;
+    if (secret && verifyMetaSignature(rawBody, signature, secret)) {
+      verifiedNumbers.add(phoneNumberId);
     }
-  } else {
-    // Dev / misconfigured: still accept but mark unverified.
-    verified = !signature;
+  }
+
+  const verified = numbersInPayload.length > 0 && verifiedNumbers.size === numbersInPayload.length;
+
+  if (numbersInPayload.length > 0 && verifiedNumbers.size === 0) {
+    await createWebhookLog({
+      connectionId: connection?.id ?? null,
+      payloadJson: payload as object,
+      headersJson: { "x-hub-signature-256": signature ?? null },
+      verified: false,
+      processed: false,
+      error: "Invalid signature"
+    });
+    return c.json({ success: false, errorCode: "INVALID_SIGNATURE", message: "Invalid signature" }, 401);
   }
 
   const log = await createWebhookLog({
@@ -236,6 +258,10 @@ export async function handleWhatsAppWebhookPost(c: Context) {
 
   try {
     for (const inbound of inboundAll) {
+      /* A message is handled only if ITS OWN number's secret signed this
+         body — never on a sibling message's authority. */
+      if (!verifiedNumbers.has(inbound.connectionPhoneNumberId)) continue;
+
       const conn =
         connection && connection.phoneNumberId === inbound.connectionPhoneNumberId
           ? connection

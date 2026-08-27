@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
+import { consumeAll, MINUTE } from "../../lib/rate-limit";
+import { getClientIp } from "../../lib/client-ip";
 import { verifyPassword } from "../../lib/password";
 import { createAuthToken, type JwtUserRole } from "../../lib/jwt";
 import { errorResponse, successResponse } from "../../lib/api-response";
@@ -512,6 +514,32 @@ authRoutes.post("/signup", async (c) => {
 authRoutes.post("/login", async (c) => {
   try {
     const input = loginSchema.parse(await c.req.json());
+
+    /* A PASSWORD DOOR WITH NO LOCK (found by the platform audit,
+       2026-08-27). There was no attempt counter, no lockout and no backoff,
+       so a stranger could try passwords against a known email as fast as the
+       network allowed, forever. Two buckets: one on the address it comes
+       from, one on the account being tried — because an attacker rotating
+       addresses must still not get unlimited tries at one person's account,
+       and one clumsy office must not lock out a whole building. */
+    const ip = getClientIp(c);
+    const gate = await consumeAll([
+      {
+        key: `login:ip:${ip}`,
+        limit: 30,
+        windowMs: 15 * MINUTE,
+        message: "Too many sign-in attempts from here. Wait a few minutes and try again."
+      },
+      {
+        key: `login:email:${input.email.toLowerCase()}`,
+        limit: 10,
+        windowMs: 15 * MINUTE,
+        message: "Too many sign-in attempts for this account. Wait a few minutes, or reset your password."
+      }
+    ]);
+    if (!gate.allowed) {
+      return errorResponse(c, gate.message, 429, "TOO_MANY_ATTEMPTS");
+    }
 
     // Email-first: prefer the row matching the requested role, then a row
     // holding it as a membership, then any account for the email. The role

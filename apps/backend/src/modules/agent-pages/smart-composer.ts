@@ -764,6 +764,78 @@ function mergedCount(declarations: WorkflowDeclarations): number {
 // Routes.
 // ---------------------------------------------------------------------------
 
+/**
+ * THE BUSINESS'S OWN TWO SCREENS — their setup form and their daily
+ * dashboard, composed from the same declarations as the customer's page.
+ *
+ * This lived only behind a route nothing ever called (found by the platform
+ * audit, 2026-08-27), so every business's screens were permanently null. It
+ * is a function now, called the moment the product's interface is composed,
+ * because composing all three is one act.
+ */
+export async function composeBuyerSurfaces(input: {
+  workflowId: string;
+  architectUserId: string;
+}): Promise<{ setup: boolean; dashboard: boolean }> {
+  const workflow = await prisma.workflowDefinition.findFirst({
+    where: { id: input.workflowId, architectUserId: input.architectUserId },
+    select: { id: true, name: true, architectUserId: true, workflowJson: true }
+  });
+  if (!workflow) return { setup: false, dashboard: false };
+
+  const context = await loadComposerContext(workflow);
+  const contract = deriveBuyerContract(workflow.workflowJson, {
+    connectors: [...allConnectors(), ...allCachedArchitectFrames()]
+  });
+  const brain = resolveBrainSlot(await getBuilderBrainConfig());
+  if (!brain) return { setup: false, dashboard: false };
+
+  const shared = {
+    brain,
+    conversationHistory: [] as AIMessage[],
+    declarations: context.declarations,
+    graphNodeIds: context.graphNodeIds,
+    allowBoundary: false as const,
+    workflowId: input.workflowId
+  };
+
+  const [setup, dashboard] = await Promise.all([
+    contract.inputs.length > 0 || contract.connections.length > 0
+      ? runComposerBrain({
+          ...shared,
+          systemPrompt: buildSetupPrompt({ agent: context.agent as never, contract }),
+          userMessage: "Compose the business's setup screen from the contract above.",
+          task: "builder-buyer-setup",
+          validate: (spec: ProductSpec) => {
+            const verdict = checkSetup(spec, contract);
+            return { product: verdict.ok ? spec : null, violations: verdict.problems };
+          }
+        })
+      : Promise.resolve({ kind: "failed" as const }),
+    contract.metrics.length > 0 || contract.tables.length > 0 || contract.actions.length > 0
+      ? runComposerBrain({
+          ...shared,
+          systemPrompt: buildDashboardPrompt({ agent: context.agent as never, contract }),
+          userMessage: "Compose the business's daily dashboard from the contract above.",
+          task: "builder-buyer-dashboard",
+          validate: (spec: ProductSpec) => {
+            const verdict = checkDashboardSurface(spec, contract);
+            return { product: verdict.ok ? spec : null, violations: verdict.problems };
+          }
+        })
+      : Promise.resolve({ kind: "failed" as const })
+  ]);
+
+  const data: Record<string, unknown> = {};
+  if (setup.kind === "composed") data.setupJson = setup.product as never;
+  if (dashboard.kind === "composed") data.dashboardJson = dashboard.product as never;
+  if (Object.keys(data).length > 0) {
+    await prisma.publishedAgentPage.update({ where: { id: context.page.id }, data });
+  }
+
+  return { setup: setup.kind === "composed", dashboard: dashboard.kind === "composed" };
+}
+
 export function registerPageHandRoutes(routes: Hono) {
   /**
    * WHAT THE BUSINESS WILL SEE — for the architect, before anyone buys it.
@@ -827,87 +899,7 @@ export function registerPageHandRoutes(routes: Hono) {
    * architect's own nodes — including node types this platform has never seen
    * — and says WHAT must appear; the composer decides how it looks.
    */
-  routes.post(
-    "/manage/:workflowId/compose-buyer-surfaces",
-    requireAuth,
-    requireRole(["ARCHITECT"]),
-    async (c) => {
-      const authUser = c.get("authUser");
-      const workflowId = c.req.param("workflowId") ?? "";
-
-      const workflow = await prisma.workflowDefinition.findFirst({
-        where: { id: workflowId, architectUserId: authUser.id },
-        select: { id: true, name: true, architectUserId: true, workflowJson: true }
-      });
-      if (!workflow) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
-
-      const context = await loadComposerContext(workflow);
-      const contract = deriveBuyerContract(workflow.workflowJson, { connectors: [...allConnectors(), ...allCachedArchitectFrames()] });
-
-      const brain = resolveBrainSlot(await getBuilderBrainConfig());
-      if (!brain) return errorResponse(c, MISSING_LLM_CREDENTIALS_MESSAGE, 503, "LLM_NOT_CONFIGURED");
-
-      const shared = {
-        brain,
-        conversationHistory: [],
-        declarations: context.declarations,
-        graphNodeIds: context.graphNodeIds,
-        allowBoundary: false,
-        workflowId
-      };
-
-      // Both at once: surfaces composed at different times can disagree about
-      // what the agent even does, and the business is the one who finds out.
-      const [setup, dashboard] = await Promise.all([
-        contract.inputs.length || contract.connections.length
-          ? runComposerBrain({
-              ...shared,
-              systemPrompt: buildSetupPrompt({ agent: context.agent, contract }),
-              userMessage:
-                "Design the setup screen. Ask only what is listed, in the order a business owner would naturally answer it.",
-              validate: (spec) => {
-                const verdict = checkSetup(spec, contract);
-                return { product: verdict.ok ? spec : null, violations: verdict.problems };
-              },
-              task: "agent-page-compose-setup"
-            })
-          : Promise.resolve({ kind: "failed" as const }),
-        contract.hasDashboard
-          ? runComposerBrain({
-              ...shared,
-              systemPrompt: buildDashboardPrompt({ agent: context.agent, contract }),
-              userMessage:
-                "Design the daily screen. Lead with the number that proves this agent is earning them money.",
-              validate: (spec) => {
-                const verdict = checkDashboardSurface(spec, contract);
-                return { product: verdict.ok ? spec : null, violations: verdict.problems };
-              },
-              task: "agent-page-compose-dashboard"
-            })
-          : Promise.resolve({ kind: "failed" as const })
-      ]);
-
-      const data: Record<string, unknown> = {};
-      if (setup.kind === "composed") data.setupJson = setup.product as never;
-      if (dashboard.kind === "composed") data.dashboardJson = dashboard.product as never;
-      if (Object.keys(data).length) {
-        await prisma.publishedAgentPage.update({ where: { id: context.page.id }, data });
-      }
-
-      return successResponse(c, {
-        setup: setup.kind === "composed" ? setup.product : null,
-        dashboard: dashboard.kind === "composed" ? dashboard.product : null,
-        contract,
-        reply:
-          setup.kind === "composed"
-            ? setup.reply
-            : dashboard.kind === "composed"
-              ? dashboard.reply
-              : SMART_COMPOSER_FALLBACK_REPLY
-      });
-    }
-  );
-
+  
   /** THE AI COMPOSER: declarations in, the minimum interface out. */
   routes.post(
     "/manage/:workflowId/smart-compose",
@@ -981,6 +973,22 @@ export function registerPageHandRoutes(routes: Hono) {
           merged
         });
       }
+
+      /* THE BUSINESS'S OWN TWO SCREENS, COMPOSED AT THE SAME MOMENT (found
+         by the platform audit, 2026-08-27). The only code that writes
+         setupJson and dashboardJson sat behind a route NOTHING ever called —
+         no frontend caller has existed in the repo's whole history — so
+         every business's setup screen and daily dashboard were permanently
+         null, and call-list-routes even names the symptom in a comment.
+         Composing the customer's screen and the business's screens is one
+         act, so it happens in one place. Fire-and-forget: an architect must
+         never lose their interface because a second surface failed. */
+      void composeBuyerSurfaces({ workflowId, architectUserId: authUser.id }).catch((error) => {
+        console.error("[smart-composer] buyer surfaces failed", {
+          workflowId,
+          message: error instanceof Error ? error.message : String(error)
+        });
+      });
 
       return successResponse(c, {
         reply: outcome.reply,

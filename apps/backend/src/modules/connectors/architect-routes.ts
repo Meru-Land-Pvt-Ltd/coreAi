@@ -169,7 +169,9 @@ architectFrameRoutes.post("/:frameId/try", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const config = (body as { config?: Record<string, unknown> })?.config ?? {};
 
-  const stored = await architectFrameById(frameId);
+  /* Named owner, always — an unowned lookup would return whichever
+     architect's row was updated last (the platform audit, 2026-08-27). */
+  const stored = await architectFrameById(frameId, authUser.id);
   const result = await runConnector({
     contract: stored?.frame ?? frameFromDeclaration(owned.declaration),
     businessId: `architect:${authUser.id}`,
