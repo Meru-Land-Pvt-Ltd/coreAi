@@ -2444,6 +2444,56 @@ businessRoutes.post("/setup/knowledge-files", async (c) => {
  * and until today that link was returned to nobody, so the one thing the
  * business had to copy was invisible. This is where they see it.
  */
+/**
+ * WHAT THIS BUSINESS CHOSE (2026-08-27).
+ *
+ * Both panels had a Save button that showed "Preferences saved ✓" and made
+ * no network call at all — the platform lying to a paying business about
+ * something they had just decided. These are the real ones.
+ */
+const businessPrefsSchema = z.record(z.string().max(60), z.boolean());
+
+businessRoutes.get("/preferences", async (c) => {
+  const authUser = c.get("authUser");
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    select: { notificationPrefs: true, privacyPrefs: true }
+  });
+  return successResponse(c, {
+    notifications: (business?.notificationPrefs as Record<string, boolean> | null) ?? {},
+    privacy: (business?.privacyPrefs as Record<string, boolean> | null) ?? {}
+  });
+});
+
+businessRoutes.patch("/preferences/:kind", async (c) => {
+  const authUser = c.get("authUser");
+  const kind = c.req.param("kind");
+  if (kind !== "notifications" && kind !== "privacy") {
+    return errorResponse(c, "There is no such preference group.", 422, "VALIDATION_ERROR");
+  }
+
+  const parsed = businessPrefsSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return errorResponse(c, "Those preferences could not be read.", 422, "VALIDATION_ERROR");
+  }
+
+  const business = await prisma.business.findFirst({
+    where: { ownerId: authUser.id },
+    select: { id: true }
+  });
+  if (!business) return errorResponse(c, "No business found for this account.", 404, "NOT_FOUND");
+
+  await prisma.business.update({
+    where: { id: business.id },
+    data:
+      kind === "notifications"
+        ? { notificationPrefs: parsed.data as never }
+        : { privacyPrefs: parsed.data as never }
+  });
+
+  return successResponse(c, { saved: true }, "Saved.");
+});
+
 businessRoutes.get("/setup/inbound-addresses", async (c) => {
   const authUser = c.get("authUser");
   const business = await prisma.business.findFirst({

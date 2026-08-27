@@ -47,7 +47,7 @@ import {
   getHubSpotOAuthUrl,
   type CrmProviderEntry
 } from "@/components/business/crm/api";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPatch } from "@/lib/api";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { getAuthUser, logout, saveAuthSession, updateAuthUser, type AuthUser } from "@/lib/auth";
 import { readProfilePhotoFile } from "@/lib/profile-photo";
@@ -1648,8 +1648,12 @@ export function BusinessSettingsView() {
     showToast(result.error ?? "Could not disconnect WhatsApp");
   }
 
-  function handleSaveNotifications() {
-    showToast("Preferences saved ✓");
+  /* IT SAVES NOW (the platform audit, 2026-08-27). This showed
+     "Preferences saved ✓" and made no network call at all — the platform
+     lying to a paying business about something they had just decided. */
+  async function handleSaveNotifications() {
+    const response = await apiPatch("/business/preferences/notifications", notificationPrefs);
+    showToast(response.success ? "Preferences saved ✓" : response.error ?? "That could not be saved — try again.");
   }
 
   async function handleSaveBillingAddress(event: FormEvent) {
@@ -1720,8 +1724,10 @@ export function BusinessSettingsView() {
     showToast(result.success ? "Business data downloaded" : result.error ?? "Could not export your data");
   }
 
-  function handleSavePrivacy() {
-    showToast("Preferences saved ✓");
+  /* IT SAVES NOW (the platform audit, 2026-08-27) — same lie, same cure. */
+  async function handleSavePrivacy() {
+    const response = await apiPatch("/business/preferences/privacy", privacyPrefs);
+    showToast(response.success ? "Preferences saved ✓" : response.error ?? "That could not be saved — try again.");
   }
 
   async function handleRequestSignedDpa() {
@@ -2352,7 +2358,7 @@ export function BusinessSettingsView() {
               <div className="mt-7">
                 <button
                   type="button"
-                  onClick={handleSaveNotifications}
+                  onClick={() => void handleSaveNotifications()}
                   data-testid="business-settings-save-notifications"
                   className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600"
                 >
@@ -2841,7 +2847,7 @@ export function BusinessSettingsView() {
               <div className="mt-7">
                 <button
                   type="button"
-                  onClick={handleSavePrivacy}
+                  onClick={() => void handleSavePrivacy()}
                   data-testid="business-settings-save-privacy"
                   className="rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600"
                 >

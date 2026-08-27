@@ -310,6 +310,11 @@ model Business {
   name              String
   type              String
   publicBookingSlug String?  @unique
+  /// What this business chose about being contacted, and about their data.
+  /// Added 2026-08-27: both panels had a Save button that showed "saved ✓"
+  /// and stored nothing — a lie a paying business would meet on day one.
+  notificationPrefs Json?
+  privacyPrefs      Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

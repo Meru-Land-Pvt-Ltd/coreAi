@@ -220,7 +220,11 @@ async function buildRecommendations(data: OnboardingData) {
     description: listing.shortDescription ?? listing.description ?? "",
     priceCents: listing.priceCents ?? 0,
     pricingModel: (listing.pricingModel as string | null) ?? "subscription",
-    rating: listing.architect?.architectProfile?.rating ?? 4.8,
+    /* NO INVENTED RATING (found by the platform audit, 2026-08-27). An
+       architect with no rating was given 4.8 and it was shipped to a
+       business as fact. null means "not rated yet", and a screen must say
+       that rather than print a number nobody earned. */
+    rating: listing.architect?.architectProfile?.rating || null,
     installCount: listing._count.installedAgents,
     matchedChallenges,
     tags: listing.tags ?? [],

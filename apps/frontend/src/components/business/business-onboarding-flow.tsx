@@ -85,7 +85,8 @@ type RecommendedAgent = {
   description: string;
   priceCents: number;
   pricingModel: string;
-  rating: number;
+  /** null when nobody has rated this agent — never invent a star. */
+  rating: number | null;
   installCount: number;
   matchedChallenges: string[];
   tags: string[];
@@ -1099,11 +1100,20 @@ export function BusinessOnboardingFlow() {
                           </p>
 
                           <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                            <span className="text-amber-500">★</span>
-
-                            <span className="font-medium text-slate-700">
-                              {agent.rating.toFixed(1)}
-                            </span>
+                            {/* A star with no rating behind it is a lie the
+                                business would act on (the platform audit,
+                                2026-08-27): an unrated architect was given
+                                4.8. An agent nobody has rated says so. */}
+                            {agent.rating ? (
+                              <>
+                                <span className="text-amber-500">★</span>
+                                <span className="font-medium text-slate-700">
+                                  {agent.rating.toFixed(1)}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-slate-400">Not rated yet</span>
+                            )}
 
                             <span>({agent.installCount} installs)</span>
 

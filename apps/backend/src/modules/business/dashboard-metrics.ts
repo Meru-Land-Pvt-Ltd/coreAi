@@ -96,11 +96,30 @@ export async function loadDashboardData(
       }
     });
 
-    raw.callsMade = calls.length;
+    /* A COUNT MUST BE A COUNT, NOT A PAGE SIZE (found by the platform audit,
+       2026-08-27). This reported the length of a deliberately truncated
+       page: a business with 500 calls was shown "200", and every rate built
+       on it was wrong too. The totals are counted in the database; the rows
+       stay a page, because a table only shows 25 anyway. */
+    const [callsMade, callsAnswered] = await Promise.all([
+      prisma.vapiCall.count({
+        where: { businessId, installedAgentId, ...(from ? { createdAt: { gte: from } } : {}) }
+      }),
+      prisma.vapiCall.count({
+        where: {
+          businessId,
+          installedAgentId,
+          outcome: { in: ["ANSWERED", "BOOKED"] },
+          ...(from ? { createdAt: { gte: from } } : {})
+        }
+      })
+    ]);
+
+    raw.callsMade = callsMade;
     // "Answered" means a human spoke — a voicemail is not a conversation, and
     // counting it as one would flatter the number that matters most.
-    raw.callsAnswered = calls.filter((call) => call.outcome === "ANSWERED" || call.outcome === "BOOKED").length;
-    raw.connectRate = calls.length ? (raw.callsAnswered / calls.length) * 100 : 0;
+    raw.callsAnswered = callsAnswered;
+    raw.connectRate = callsMade ? (callsAnswered / callsMade) * 100 : 0;
     raw.callMinutes = Math.round(
       calls.reduce((total, call) => total + (call.durationSeconds ?? 0), 0) / 60
     );
@@ -117,8 +136,13 @@ export async function loadDashboardData(
 
   // ---- Appointments ------------------------------------------------------
   if (wanted.has("booked")) {
+    /* SCOPED TO THIS AGENT (found by the same audit). The file's own header
+       promises "every figure here is scoped to ONE installed agent belonging
+       to ONE business" — and this query was scoped to the business only, so
+       a business running two agents saw both their bookings on each one's
+       dashboard. */
     const appointments = await prisma.appointment.findMany({
-      where: { businessId, ...(from ? { createdAt: { gte: from } } : {}) },
+      where: { businessId, installedAgentId, ...(from ? { createdAt: { gte: from } } : {}) },
       orderBy: { createdAt: "desc" },
       take: 100,
       select: {
@@ -130,8 +154,11 @@ export async function loadDashboardData(
       }
     });
 
-    raw.booked = appointments.length;
-    raw.bookRate = raw.callsAnswered ? (appointments.length / raw.callsAnswered) * 100 : 0;
+    const booked = await prisma.appointment.count({
+      where: { businessId, installedAgentId, ...(from ? { createdAt: { gte: from } } : {}) }
+    });
+    raw.booked = booked;
+    raw.bookRate = raw.callsAnswered ? (booked / raw.callsAnswered) * 100 : 0;
 
     tables.appointments = appointments.slice(0, 25).map((appointment) => ({
       When: appointment.startAt
