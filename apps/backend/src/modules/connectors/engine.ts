@@ -33,6 +33,7 @@ import {
   type HttpRequest,
   type HttpResponse
 } from "@coreai/shared";
+import { checkRecipeUrl } from "./recipe-heart";
 import { consumeLimit, DAY, MINUTE } from "../../lib/rate-limit";
 import { platformApiSetting } from "../admin/platform-api-settings";
 
@@ -156,15 +157,45 @@ function makeHttpClient(log: (message: string, detail?: unknown) => void): HttpC
     const method = input.method ?? (input.body === undefined ? "GET" : "POST");
     const started = Date.now();
 
-    const response = await fetch(input.url, {
-      method,
-      headers: {
-        ...(input.body === undefined ? {} : { "Content-Type": "application/json" }),
-        ...(input.headers ?? {})
-      },
-      ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
-      signal: AbortSignal.timeout(input.timeoutMs ?? 20_000)
-    });
+    /* A CHECKED ADDRESS THAT REDIRECTS IS AN UNCHECKED ADDRESS (found by the
+       platform audit, 2026-08-27). Node follows up to twenty redirects by
+       default, and only the FIRST url had passed checkRecipeUrl — so a
+       service could answer "301 → http://postgres:5432" and our own network
+       would be reached with the architect's key attached. Every hop is
+       checked here, and a redirect that fails ends the request. */
+    let target = input.url;
+    let response: Response;
+    for (let hop = 0; ; hop += 1) {
+      const problem = checkRecipeUrl(target);
+      if (problem) {
+        const error = new Error(problem) as Error & { status: number };
+        error.status = 400;
+        throw error;
+      }
+
+      response = await fetch(target, {
+        method,
+        headers: {
+          ...(input.body === undefined ? {} : { "Content-Type": "application/json" }),
+          ...(input.headers ?? {})
+        },
+        ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
+        redirect: "manual",
+        signal: AbortSignal.timeout(input.timeoutMs ?? 20_000)
+      });
+
+      const location =
+        response.status >= 300 && response.status < 400 ? response.headers.get("location") : null;
+      if (!location) break;
+      if (hop >= 5) {
+        const error = new Error("That service kept redirecting and never answered.") as Error & {
+          status: number;
+        };
+        error.status = 502;
+        throw error;
+      }
+      target = new URL(location, target).toString();
+    }
 
     const text = await response.text();
     let body: unknown = text;

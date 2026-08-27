@@ -229,10 +229,17 @@ export async function readyFramesFor(architectUserId: string): Promise<NodeFrame
 
 /** One frame by id, for the runner. Includes the architect's own keys. */
 export async function architectFrameById(
-  frameId: string
+  frameId: string,
+  architectUserId?: string
 ): Promise<{ frame: NodeFrame; secrets: Record<string, string> } | null> {
   const row = await prisma.architectNodeFrame.findFirst({
-    where: { frameId, status: "READY" },
+    where: {
+        frameId,
+        status: "READY",
+        /* A card is owned. Without an owner named, this returned whichever
+           architect's row was updated last (the platform audit, 2026-08-27). */
+        ...(architectUserId ? { architectUserId } : {})
+      },
     orderBy: { updatedAt: "desc" }
   });
   if (!row) return null;
@@ -278,17 +285,39 @@ export async function deleteArchitectFrame(architectUserId: string, frameId: str
  * never the one they have to wait for — the delay only ever applies to another
  * process on another container, and a minute of that is invisible.
  */
+/**
+ * ONE ARCHITECT'S CARD IS NOT ANOTHER'S (found by the platform audit,
+ * 2026-08-27, and this one was serious).
+ *
+ * These were keyed by frameId ALONE and filled from every architect's rows
+ * at once — last write wins. Two architects who both build an "Instantly"
+ * card produce the same id, so one architect's frame, AND THEIR ENCRYPTED
+ * API KEY, could be handed to the other architect's run. A card is owned;
+ * the key is owned; the cache must say so.
+ */
+const cacheKey = (architectUserId: string, frameId: string) => `${architectUserId}\u0000${frameId}`;
+
 const cache = new Map<string, NodeFrame>();
 const secretsCache = new Map<string, Record<string, string>>();
+/** frameId → every owner who has one, so an unowned lookup can refuse. */
+const ownersOf = new Map<string, Set<string>>();
 let refreshedAt = 0;
 const REFRESH_MS = 60_000;
 
-export function cachedArchitectFrame(frameId: string): NodeFrame | undefined {
-  return cache.get(frameId);
+export function cachedArchitectFrame(frameId: string, architectUserId?: string): NodeFrame | undefined {
+  if (architectUserId) return cache.get(cacheKey(architectUserId, frameId));
+  /* No owner named: only safe when exactly ONE architect owns that id —
+     otherwise we would be guessing whose card someone meant, and guessing
+     wrong here means running a stranger's card. */
+  const owners = ownersOf.get(frameId);
+  if (!owners || owners.size !== 1) return undefined;
+  return cache.get(cacheKey([...owners][0]!, frameId));
 }
 
-export function cachedArchitectSecrets(frameId: string): Record<string, string> {
-  return secretsCache.get(frameId) ?? {};
+export function cachedArchitectSecrets(frameId: string, architectUserId?: string): Record<string, string> {
+  /* A key is never handed out on a guess. Without an owner, nothing. */
+  if (!architectUserId) return {};
+  return secretsCache.get(cacheKey(architectUserId, frameId)) ?? {};
 }
 
 export function allCachedArchitectFrames(): NodeFrame[] {
@@ -302,13 +331,15 @@ export async function refreshArchitectFrames(force = false): Promise<void> {
   try {
     const rows = await prisma.architectNodeFrame.findMany({ where: { status: "READY" } });
     cache.clear();
+    ownersOf.clear();
     secretsCache.clear();
 
     for (const row of rows) {
       const declaration = declarationOf(row);
       if (!declaration) continue;
       try {
-        cache.set(row.frameId, frameFromDeclaration(declaration));
+        cache.set(cacheKey(row.architectUserId, row.frameId), frameFromDeclaration(declaration));
+        ownersOf.set(row.frameId, (ownersOf.get(row.frameId) ?? new Set()).add(row.architectUserId));
       } catch {
         continue;
       }
@@ -321,7 +352,7 @@ export async function refreshArchitectFrames(force = false): Promise<void> {
           // Unreadable key: the engine will say the connection is not set up.
         }
       }
-      secretsCache.set(row.frameId, secrets);
+      secretsCache.set(cacheKey(row.architectUserId, row.frameId), secrets);
     }
   } catch (error) {
     // A database blip must not empty the cache and take every architect's own

@@ -56,6 +56,56 @@ const BLOCKED_HOST = [
   /\.local$/i
 ];
 
+/**
+ * The same private addresses, written the OTHER ways a URL can spell them
+ * (found by the platform audit, 2026-08-27). Node's URL parser normalises
+ * "https://[::ffff:127.0.0.1]/" to hostname "[::ffff:7f00:1]", which none of
+ * the patterns above match — so our own database was one clever spelling
+ * away. A blocklist that only knows one spelling is not a blocklist.
+ */
+function looksPrivate(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+
+  /* An IPv4 address hidden inside an IPv6 one, in either notation. */
+  const mapped = /^::ffff:(?:([\da-f]{1,4}):([\da-f]{1,4})|(\d+\.\d+\.\d+\.\d+))$/i.exec(host);
+  if (mapped) {
+    const asV4 = mapped[3]
+      ? mapped[3]
+      : [
+          parseInt(mapped[1]!, 16) >> 8,
+          parseInt(mapped[1]!, 16) & 0xff,
+          parseInt(mapped[2]!, 16) >> 8,
+          parseInt(mapped[2]!, 16) & 0xff
+        ].join(".");
+    return BLOCKED_HOST.some((pattern) => pattern.test(asV4));
+  }
+
+  /* Every shortened spelling of loopback and the link-local range. */
+  if (/^(0*:)*0*:?0*1$/.test(host)) return true;
+  if (/^fe[89ab][\da-f]:/i.test(host)) return true;
+  if (/^f[cd][\da-f]{2}:/i.test(host)) return true;
+
+  /* Decimal, octal and hex spellings of an IPv4 address ("2130706433" and
+     "0x7f000001" are both 127.0.0.1). */
+  if (/^\d+$/.test(host)) {
+    const n = Number(host);
+    if (Number.isFinite(n) && n <= 0xffffffff) {
+      const asV4 = [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join(".");
+      return BLOCKED_HOST.some((pattern) => pattern.test(asV4));
+    }
+  }
+  if (/^0x[\da-f]+$/i.test(host)) {
+    const n = parseInt(host, 16);
+    if (Number.isFinite(n) && n <= 0xffffffff) {
+      const asV4 = [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join(".");
+      return BLOCKED_HOST.some((pattern) => pattern.test(asV4));
+    }
+  }
+  if (/^0\d/.test(host) && /^[0-7.]+$/.test(host)) return true;
+
+  return false;
+}
+
 export function checkRecipeUrl(url: string): string | null {
   let parsed: URL;
   try {
@@ -67,7 +117,7 @@ export function checkRecipeUrl(url: string): string | null {
   if (parsed.protocol !== "https:") {
     return "The address must start with https:// — an unencrypted request would send the key in the clear.";
   }
-  if (BLOCKED_HOST.some((pattern) => pattern.test(parsed.hostname))) {
+  if (BLOCKED_HOST.some((pattern) => pattern.test(parsed.hostname)) || looksPrivate(parsed.hostname)) {
     return "That address points inside our own network rather than at a service on the internet, so it cannot be used.";
   }
   return null;

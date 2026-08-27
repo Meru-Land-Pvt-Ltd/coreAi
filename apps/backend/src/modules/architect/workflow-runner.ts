@@ -5184,13 +5184,16 @@ async function runStandardConnectorNode({
   context,
   logs,
   mode,
-  connectorId
+  connectorId,
+  userId
 }: {
   node: RunnerNode;
   context: RunnerContext;
   logs: WorkflowRunLog[];
   mode: WorkflowRunMode;
   connectorId: string;
+  /** Whose card this is — a key is never handed out on a guess. */
+  userId: string;
 }): Promise<void> {
   const contract = getConnector(connectorId);
   if (!contract) {
@@ -5214,7 +5217,9 @@ async function runStandardConnectorNode({
     // A frame the architect built carries its own key, stored encrypted against
     // that frame. It sits underneath everything else so a business supplying
     // their own key still wins.
-    ...(contract.source === "architect" ? cachedArchitectSecrets(contract.id) : {}),
+    /* The key belongs to the architect who built the card — named, never
+       guessed (the platform audit, 2026-08-27). */
+    ...(contract.source === "architect" ? cachedArchitectSecrets(contract.id, userId) : {}),
     ...(node.data ?? {})
   };
   let installedConfig: Record<string, unknown> = {};
@@ -5872,7 +5877,7 @@ async function runConnectorNode({
   // the legacy name matching underneath and be run twice by two paths.
   const connectorId = asString(node.data?.connectorId);
   if (connectorId) {
-    await runStandardConnectorNode({ node, context, logs, mode, connectorId });
+    await runStandardConnectorNode({ node, context, logs, mode, connectorId, userId });
     return;
   }
 
