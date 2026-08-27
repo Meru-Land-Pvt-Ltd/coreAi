@@ -92,20 +92,14 @@ export const libraryGroups: LibraryGroup[] = [
         badge: "NEW"
       },
       {
-        nodeKind: "ai",
-        label: "AI Brain",
-        helper: "Generate text or JSON using a select LLM model",
-        icon: "sparkles",
-        accent: "violet",
+        /* Written by hand, it said "Generate text or JSON using a select LLM
+           model" while the node's own row said "Thinks about what has happened
+           so far and writes an answer, using the model you pick." One node,
+           two descriptions, and the shelf's was the machine's words. It reads
+           the row now, like every other card. Its test id is kept as it was. */
+        ...paletteItem("ai.llm_call", { icon: "sparkles", accent: "violet", kind: "AI Brain" }),
         badge: "NEW",
-        testId: "library-ai-llm-call",
-        overrides: {
-          type: "ai.llm_call",
-          nodeKind: "ai",
-          kind: "AI Brain",
-          title: "AI Brain",
-          subtitle: "Generate text or JSON using a select LLM model"
-        }
+        testId: "library-ai-llm-call"
       },
       /* Deciding by business hours is thinking, not acting — it lives here. */
       paletteItem("logic.condition", { icon: "diamond", accent: "orange", kind: "BUSINESS HOURS" }),
