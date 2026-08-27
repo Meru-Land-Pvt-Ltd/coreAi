@@ -737,7 +737,7 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
 
           <div data-testid="components-auth-auth-card-div-16" className="mt-8 text-center">
             <p data-testid="components-auth-auth-card-p-8" className="text-sm font-medium text-slate-600">
-              Join 2,400+ businesses already using Triven
+              Built for dentists, HVAC companies, law firms and more
             </p>
 
             <p className="mt-1.5 text-xs text-slate-400" data-testid="auth-auth-card-trusted-by-dentists-hvac-companies-law-firms-text">

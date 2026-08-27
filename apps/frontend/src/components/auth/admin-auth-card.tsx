@@ -294,15 +294,11 @@ export function AdminAuthCard() {
                   </p>
                 ) : null}
 
-                <label className="flex cursor-pointer select-none items-center gap-2.5">
-                  <input type="checkbox" className="peer sr-only" />
-                  <span className="grid h-5 w-5 place-items-center rounded-md border border-gray-300 bg-white transition-colors peer-checked:border-amber-500 peer-checked:bg-amber-500 peer-focus-visible:ring-2 peer-focus-visible:ring-amber-300">
-                    <svg aria-hidden="true" className="h-3 w-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M20 6 9 17l-5-5" />
-                    </svg>
-                  </span>
-                  <span className="text-sm text-slate-600">Remember this device for 30 days</span>
-                </label>
+                {/* "Remember this device for 30 days" — a checkbox with no
+                    state, no handler and no name, on the ADMIN sign-in screen.
+                    Nothing read it and neither sign-in request carried it, so
+                    an admin ticking it was asked to sign in again the next day
+                    believing they had said not to be. */}
 
                 <button
                   data-testid="admin-auth-submit"

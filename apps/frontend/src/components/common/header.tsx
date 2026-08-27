@@ -5,7 +5,12 @@ import Link from "next/link";
 import type { Route } from "next";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
-const RESOURCES_ROUTE = "#footer" as Route;
+/* "Docs" in the main navigation scrolled to the FOOTER — whose columns are
+   Platform, Pricing, About, Contact and the legal pages, and contain no
+   documentation of any kind. A visitor clicking Docs was dropped at the bottom
+   of the page with nothing to read. There is a real resources section, in our
+   own sitemap, and nothing linked to it. */
+const RESOURCES_ROUTE = "/resources" as Route;
 
 type CoreHeaderProps = {
   navTop: number;
@@ -65,7 +70,7 @@ export function CoreHeader({
             Contact US
           </Link>
 
-          <Link data-testid="header-docs-link" href="#footer" className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
+          <Link data-testid="header-docs-link" href={RESOURCES_ROUTE} className="text-sm font-medium text-slate-600 transition hover:text-slate-900">
             Docs
           </Link>
         </div>
@@ -154,7 +159,7 @@ export function CoreHeader({
 
             <Link
               data-testid="header-docs-link-2"
-              href="#footer"
+              href={RESOURCES_ROUTE}
               onClick={onCloseMenu}
               className="rounded-lg px-3 py-2.5 text-base font-medium text-slate-600 transition hover:bg-gray-100 hover:text-slate-900"
             >

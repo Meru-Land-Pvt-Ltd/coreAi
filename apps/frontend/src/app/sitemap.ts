@@ -11,7 +11,6 @@ const PUBLIC_PATHS = [
   "/resources",
   "/resources/architect",
   "/assignment",
-  "/projects",
   "/privacy",
   "/terms",
   "/security",

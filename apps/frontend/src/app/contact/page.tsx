@@ -116,19 +116,19 @@ const faqs: FaqItem[] = [
     id: "faq-3",
     question: "When will I be charged after my free trial?",
     answer:
-      "Your 7-day free trial starts the moment you complete setup. You'll be charged the one-time agent fee on day 8. You can cancel anytime during the trial with zero charge."
+      "Your free trial starts the moment you complete setup, and its length is set by whoever built the agent — the exact number of days is shown on the agent's page before you install it, and on your billing screen afterwards. You can cancel anytime during the trial with zero charge."
   },
   {
     id: "faq-4",
     question: "My agent isn't sending text messages. What do I do?",
     answer:
-      "First, check that your agent is active. Then verify your phone number is still connected under Settings → Phone. If both are fine, try the Test button on your agent. If the test works but real calls don't trigger it, contact support."
+      "First, check that your agent is active. Then open the agent's own setup screen and check its phone number is still connected there. If both are fine, try the Test button on your agent. If the test works but real calls do not, contact support and we will look at it with you."
   },
   {
     id: "faq-5",
     question: "Can I use Triven AI with multiple phone numbers?",
     answer:
-      "Yes. You can connect multiple business phone numbers and assign different agents to each one. Go to Settings → Phone Numbers → Add Number. Each number can have its own agent with different messages and hours."
+      "Yes — each agent gets its own number, with its own messages and hours. Numbers are assigned by the Triven team rather than self-served, so ask support for another one and we will set it up for you."
   },
   {
     id: "faq-6",

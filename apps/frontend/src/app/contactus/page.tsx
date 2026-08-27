@@ -313,15 +313,20 @@ export default function ContactPage() {
               Looking for answers?
             </h2>
 
+            {/* FOUR QUESTIONS AND NO ANSWERS. These were rendered as plain
+                boxes — not links — under the heading "Looking for answers?",
+                and the address on each pointed at a /help route that does not
+                exist. All four are answered on the Contact page's own FAQ,
+                which is where they now go. */}
             <div className="mt-8 grid gap-4 text-left sm:grid-cols-2">
               {quickLinks.map((link) => (
-                <div
+                <Link
                   key={link.label}
-                  aria-disabled="true"
-                  className="block rounded-xl border border-gray-100 px-5 py-4 text-slate-700"
+                  href={"/contact" as Route}
+                  className="block rounded-xl border border-gray-100 px-5 py-4 text-slate-700 transition hover:border-amber-300 hover:text-slate-900"
                 >
                   {link.label}
-                </div>
+                </Link>
               ))}
             </div>
           </div>
