@@ -21,6 +21,8 @@ import {
   getAdminBuilderEyes,
   updateAdminBuilderBrain,
   updateAdminBuilderEyes,
+  getLiveModels,
+  providerModels,
   type AdminBuilderBrainOption,
   type AdminBuilderEyes
 } from "@/components/admin/features/builder-brains";
@@ -52,10 +54,16 @@ function BuilderSlotCard({ slot }: { slot: Slot }) {
   const [model, setModel] = useState("");
   const [isDefault, setIsDefault] = useState(true);
   const [servicesThatSee, setServicesThatSee] = useState<string[]>([]);
+  /* Plain words when the list did not come from the provider just now. */
+  const [modelsNote, setModelsNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  /* When the service changes, its models must follow — and a model belonging
+     to the old service must not linger. */
+  const [savedProvider, setSavedProvider] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,6 +84,7 @@ function BuilderSlotCard({ slot }: { slot: Slot }) {
       setProviders(data.providers.length > 0 ? data.providers : ADMIN_BUILDER_BRAIN_FALLBACK_PROVIDERS);
       setModels(data.models);
       setProvider(data.providerId);
+      setSavedProvider(data.providerId);
       setModel(data.modelId ?? "");
       setIsDefault(data.isDefault);
       if (slot === "eyes") setServicesThatSee((data as AdminBuilderEyes).servicesThatSee ?? []);
@@ -88,6 +97,31 @@ function BuilderSlotCard({ slot }: { slot: Slot }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /* THE LIST IS PULLED LIVE (the founder's ruling, 2026-08-27). Whenever the
+     chosen service changes, the provider itself is asked what it has today —
+     the shipped catalogue shows only while that answer is in flight, and if
+     the provider cannot be reached the screen says so rather than pretending
+     its list is current. */
+  useEffect(() => {
+    if (!provider) return;
+    let alive = true;
+    if (savedProvider && provider !== savedProvider) {
+      setModel("");
+      setModels(providerModels(provider));
+    }
+    setModelsNote("");
+    void getLiveModels(provider).then((response) => {
+      if (!alive) return;
+      if (response.success && response.data) {
+        setModels(response.data.models);
+        setModelsNote(response.data.live ? "" : response.data.note ?? "");
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [provider, savedProvider]);
 
   async function save(restore = false) {
     setSaving(true);
@@ -160,24 +194,36 @@ function BuilderSlotCard({ slot }: { slot: Slot }) {
               <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 Model <span className="font-normal normal-case text-slate-400">(optional)</span>
               </span>
-              <input
+              {/* A real dropdown, not a text box with suggestions (the
+                  founder, 2026-08-27): a datalist ignored which service was
+                  chosen and offered Claude models under OpenAI. The list is
+                  the chosen service's own models, refetched when it changes;
+                  a saved model the list does not know still appears, so an
+                  older choice is never silently dropped. */}
+              <select
                 value={model}
                 onChange={(event) => setModel(event.target.value)}
-                maxLength={ADMIN_BUILDER_BRAIN_MODEL_MAX_LENGTH}
-                list={`${copy.testId}-models`}
-                placeholder="Leave blank for the standard model"
                 data-testid={`${copy.testId}-model`}
-                className="mt-1.5 h-11 w-full rounded-xl border border-gray-200 px-3 text-sm text-slate-800 outline-none focus:border-amber-400"
-              />
-              <datalist id={`${copy.testId}-models`}>
+                className="mt-1.5 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-amber-400"
+              >
+                <option value="">Standard model for this service</option>
                 {models.map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.displayName}
                   </option>
                 ))}
-              </datalist>
+                {model && !models.some((option) => option.id === model) ? (
+                  <option value={model}>{model}</option>
+                ) : null}
+              </select>
             </label>
           </div>
+
+          {modelsNote ? (
+            <p className="mt-2 text-[12px] text-slate-500" data-testid={`${copy.testId}-models-note`}>
+              {modelsNote}
+            </p>
+          ) : null}
 
           {slot === "eyes" && !canSee ? (
             <p className="mt-3 text-[12px] leading-5 text-amber-700" data-testid="admin-builder-eyes-cannot-see">

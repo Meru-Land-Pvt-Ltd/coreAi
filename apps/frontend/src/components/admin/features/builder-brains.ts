@@ -1,4 +1,4 @@
-import { LLM_PROVIDERS } from "@coreai/shared";
+import { LLM_PROVIDERS, getLlmModelsForProvider } from "@coreai/shared";
 import { apiGet, apiPatch } from "@/lib/api";
 
 /**
@@ -42,6 +42,29 @@ export type AdminBuilderEyes = AdminBuilderBrain & {
 export const ADMIN_BUILDER_BRAIN_FALLBACK_PROVIDERS: AdminBuilderBrainOption[] = LLM_PROVIDERS.map(
   (provider) => ({ id: provider.id, displayName: provider.displayName })
 );
+
+/**
+ * The models a service has RIGHT NOW, asked of the provider itself.
+ *
+ * The founder's ruling (2026-08-27): pull it in real time. A list written
+ * into our code is stale the day a provider ships something new — and it
+ * lies about what this platform's own key can actually reach. `live` is
+ * false when the provider could not be asked, and `note` says why in plain
+ * words rather than pretending.
+ */
+export function getLiveModels(providerId: string) {
+  return apiGet<{ models: AdminBuilderBrainOption[]; live: boolean; note?: string }>(
+    `/admin/live-models?provider=${encodeURIComponent(providerId)}`
+  );
+}
+
+/** The shipped catalogue — shown only while the live answer is on its way. */
+export function providerModels(providerId: string): AdminBuilderBrainOption[] {
+  return getLlmModelsForProvider(providerId).map((model) => ({
+    id: model.id,
+    displayName: model.displayName
+  }));
+}
 
 export function getAdminBuilderBrain() {
   return apiGet<{ builderBrain: AdminBuilderBrain }>("/admin/builder-brain");

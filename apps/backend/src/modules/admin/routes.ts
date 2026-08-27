@@ -128,6 +128,7 @@ import {
   saveBuilderEyesConfig,
   serviceCanSee
 } from "./builder-brain-settings";
+import { liveModelsFor } from "./live-models";
 import {
   listArchitectNodeGroups,
   listArchitectNodeVisibility,
@@ -1040,6 +1041,21 @@ function builderSlotPayload(setting: Awaited<ReturnType<typeof getBuilderBrainSe
     models: builderBrainModelOptions(setting.providerId)
   };
 }
+
+/**
+ * The models a service has RIGHT NOW — asked of the provider with our own
+ * key (the founder's ruling, 2026-08-27). A list written into our code is
+ * stale the day a provider ships something new, and it lies about what this
+ * platform can actually reach.
+ */
+adminRoutes.get("/live-models", async (c) => {
+  const provider = (c.req.query("provider") ?? "").trim().toLowerCase();
+  if (!provider) return errorResponse(c, "Say which AI service.", 422, "VALIDATION_ERROR");
+  if (!isSupportedBuilderBrainProvider(provider)) {
+    return errorResponse(c, "That AI service is not one we can run.", 422, "UNSUPPORTED_PROVIDER");
+  }
+  return successResponse(c, await liveModelsFor(provider));
+});
 
 adminRoutes.get("/builder-brain", async (c) => {
   const setting = await getBuilderBrainSetting();
