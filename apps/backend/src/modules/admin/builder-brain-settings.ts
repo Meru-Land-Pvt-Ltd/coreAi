@@ -37,12 +37,31 @@ import {
 
 /* --------------------------- the employee's brain ------------------------- */
 
-export const BUILDER_BRAIN_PROVIDER_KEY = "builderBrainProvider";
-export const BUILDER_BRAIN_MODEL_KEY = "builderBrainModel";
+/**
+ * ONE BRAIN FOR THE WHOLE EMPLOYEE (the founder's ruling, 2026-08-27).
+ *
+ * It briefly stood as TWO settings — one for the brain that talks and builds
+ * the machine, another for the brain that designs its screen. The founder
+ * named the real cost of that, and it is not money:
+ *
+ *   "It's like the backend and frontend are done by two people — how can we
+ *    expect synchronous results? Common sense says the one who builds the
+ *    backend also builds the frontend."
+ *
+ * Exactly right, and worse in code than between two humans: two people at
+ * least talk; two brains share no memory and no conversation. That split is
+ * how a Telegram agent — a machine with no page at all — ended up being
+ * given a website screen. One mind builds the machine AND its face, because
+ * it knows why the machine is that way.
+ *
+ * The storage keys stay the ones already in the database, so nothing an
+ * admin already saved is lost to a rename.
+ */
+export const BUILDER_BRAIN_PROVIDER_KEY = "smartDesignerProvider";
+export const BUILDER_BRAIN_MODEL_KEY = "smartDesignerModel";
 
-/** Mistral is the platform's live service today; blank model = its standard. */
-export const DEFAULT_BUILDER_BRAIN_PROVIDER = "mistral";
-export const DEFAULT_BUILDER_BRAIN_MODEL = "mistral-large-latest";
+export const DEFAULT_BUILDER_BRAIN_PROVIDER = "claude";
+export const DEFAULT_BUILDER_BRAIN_MODEL = "claude-opus-5";
 
 export const BUILDER_BRAIN_MODEL_MAX_LENGTH = BRAIN_MODEL_MAX_LENGTH;
 
@@ -63,7 +82,10 @@ export function invalidateBuilderBrainConfigCache(): void {
   builderBrainSlot.invalidateCache();
 }
 
-/** The battery the AI Builder thinks on. Cached 60s; never throws. */
+/**
+ * The ONE battery the AI Builder runs on — talking, composing the machine,
+ * repairing it, diagnosing a run, and designing the customer's screen.
+ */
 export function getBuilderBrainConfig(): Promise<BuilderBrainConfig> {
   return builderBrainSlot.getConfig();
 }
