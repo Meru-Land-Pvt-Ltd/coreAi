@@ -47,7 +47,7 @@ export type FaceLayoutEntry = {
 export type FaceLayoutMap = Record<string, FaceLayoutEntry>;
 
 /**
- * Design Brain dials — mirrors the backend contract exactly (see
+ * AI Builder dials — mirrors the backend contract exactly (see
  * apps/backend/src/modules/agent-pages/design.ts). The API always sends the
  * full resolved config; `agentPageDesign` fills defaults for older fixtures
  * and preview data that omit it.
@@ -131,7 +131,7 @@ export type AgentPageData = {
    */
   blueprint?: FaceBlueprint | null;
   /**
-   * Design Brain dials, resolved to a full config by the backend. Optional so
+   * AI Builder dials, resolved to a full config by the backend. Optional so
    * preview-built data and older fixtures keep compiling — read it through
    * `agentPageDesign(data)`, never directly, so absent always means defaults.
    */

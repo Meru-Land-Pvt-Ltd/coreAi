@@ -93,7 +93,7 @@ export async function canLook(): Promise<{ ok: true } | { ok: false; why: string
   if (!eyes || !serviceCanSee(eyes.providerId)) {
     return {
       ok: false,
-      why: "The seeing brain is not switched on. An admin sets it in Design Brain rules → The AI Builder's Eyes."
+      why: "The seeing brain is not switched on. An admin sets it in AI Builder → The Builder's Eyes."
     };
   }
   try {

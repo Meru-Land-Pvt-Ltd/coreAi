@@ -285,7 +285,7 @@ describe("PreviewPanel device frames", () => {
 
 describe("PreviewPanel design corner", () => {
   it("carries NO dock of its own — one employee, one dock, at the view level", () => {
-    /* The founder's ruling (2026-08-27): the preview's own Smart Designer
+    /* The founder's ruling (2026-08-27): the preview's own AI Builder
        dock was a twin that forgot separately on every tab switch. The one
        AI Builder dock is mounted above every tab; the preview has none. */
     render(<PreviewPanel {...makeProps()} />);
@@ -297,7 +297,7 @@ describe("PreviewPanel design corner", () => {
 });
 
 // ---------------------------------------------------------------------------
-// A BUILT product (Design Brain "Build" mode) must be visible in the preview.
+// A BUILT product (AI Builder "Build" mode) must be visible in the preview.
 // This is the regression that shipped once: product-chat saved a whole
 // multi-page product, the chat said "done", and no builder surface rendered
 // it — the architect saw nothing change.

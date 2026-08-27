@@ -16,7 +16,8 @@ import { getProviderEngine, initProviderEngine } from "../ai-provider-engine/ai-
 
 const RUN = `blocknodes-${process.pid}-${Date.now().toString(36)}`;
 const BLOCK_SKIP_MESSAGE = "Product section — shown to your customer, nothing to run";
-const DESIGN_BRAIN_SKIP_MESSAGE = "Design Brain — it styles your page, nothing to run";
+const DESIGN_BRAIN_SKIP_MESSAGE =
+  "A retired styling card — nothing to run. You style your product by telling the AI Builder.";
 
 let dbAvailable = false;
 let userId = "";
@@ -64,8 +65,8 @@ const productWorkflowJson = {
       type: "coreNode",
       position: { x: 0, y: 480 },
       // No nodeKind on purpose: "design.brain" has no "block." prefix, so only
-      // the explicit Design Brain check can skip it.
-      data: { label: "Design Brain", type: DESIGN_BRAIN_NODE_TYPE }
+      // the explicit AI Builder check can skip it.
+      data: { label: "Retired styling card", type: DESIGN_BRAIN_NODE_TYPE }
     }
   ],
   edges: [
@@ -149,7 +150,7 @@ describe("workflow runner with product block nodes", () => {
     expect(resultViewerLog?.status).toBe("success");
     expect(resultViewerLog?.message).toBe(BLOCK_SKIP_MESSAGE);
 
-    // The Design Brain (no nodeKind, no "block." prefix) got its own friendly skip.
+    // The AI Builder (no nodeKind, no "block." prefix) got its own friendly skip.
     const designBrainLog = result.logs.find((log) => log.nodeId === "design-brain-1");
     expect(designBrainLog?.status).toBe("success");
     expect(designBrainLog?.message).toBe(DESIGN_BRAIN_SKIP_MESSAGE);

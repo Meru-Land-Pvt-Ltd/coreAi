@@ -13,7 +13,7 @@ import { resolveConfiguredLlmProvider } from "../ai-provider-engine/llm-credenti
  * Swappable batteries — one shared mechanism, one slot per platform brain.
  *
  * The doors were the first battery: one provider/model an admin picks, powering
- * every AI door on every agent. The Design Brain is the second, and the same
+ * every AI door on every agent. The AI Builder is the second, and the same
  * three rules hold for both, which is why they share this factory rather than
  * two near-identical files that drift apart:
  *

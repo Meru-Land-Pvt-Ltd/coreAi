@@ -172,7 +172,7 @@ agentPagesRoutes.get("/:slug", async (c) => {
     architect: toPublicArchitectPayload(listing.architect),
     limits: { remainingToday },
     blueprint,
-    // Full Design Brain config (defaults filled in) — additive field, the
+    // Full AI Builder config (defaults filled in) — additive field, the
     // page shell renders every dial from it.
     design: resolveDesign(page.designJson)
   });

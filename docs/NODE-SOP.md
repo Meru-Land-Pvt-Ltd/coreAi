@@ -65,7 +65,7 @@ The dials on the node. **Every setting gets its own small form:**
 Never ask the architect for something only the business knows. Never invent a
 phone number, an address or a price.
 
-**This question is not paperwork.** The Smart Designer reads the limits to draw
+**This question is not paperwork.** The AI Builder reads the limits to draw
 the control correctly — a 200-character box that stops at 200. The AI Composer
 reads them to fill a setting in without inventing a value. A setting nobody
 wrote down is a setting neither of them can handle.

@@ -184,7 +184,7 @@ function telegramTestServices(value: string): string[] {
 
 /**
  * Keep the current selection only while its node still exists — the reload
- * contract for server-side graph changes (Design Brain rewires the canvas).
+ * contract for server-side graph changes (AI Builder rewires the canvas).
  */
 export function nextSelectedNodeId(
   current: string | null,
@@ -1171,7 +1171,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   /**
    * Lightweight refetch of the saved page + design for the Test preview —
-   * the Design Brain chat calls this right after a patch lands so the
+   * the AI Builder chat calls this right after a patch lands so the
    * preview iframe restyles without leaving the Build tab. Reads the id
    * from the ref so the callback stays stable across renders.
    */
@@ -1191,7 +1191,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
 
   /**
    * Graph reload contract: refetch the saved workflow row and replace the
-   * canvas nodes/edges with the server's copy — used when the Design Brain
+   * canvas nodes/edges with the server's copy — used when the AI Builder
    * (or any server-side helper) changed the saved graph behind the canvas.
    * The selection survives only if its node still exists; a failed fetch
    * leaves the canvas untouched.
@@ -1218,7 +1218,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   }, [setEdges, setNodes]);
 
   /**
-   * Design Brain result router: a pure styling change only refetches the
+   * AI Builder result router: a pure styling change only refetches the
    * page design; a graph change reloads the canvas from the server first,
    * then refetches the design (the blueprint derives from the saved graph).
    */
@@ -2872,7 +2872,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       <main className="fixed bottom-10 left-0 right-0 top-[6.5rem] overflow-hidden md:top-14">
         {/* ONE EMPLOYEE, EVERYWHERE (the founder's ruling, 2026-08-27).
             The AI Builder used to live twice — once on Build, once inside
-            Preview as "Smart Designer" — and each copy forgot separately on
+            Preview under another name — and each copy forgot separately on
             every tab switch. One dock now, mounted above every tab, its
             open state remembered across visits. */}
         <button

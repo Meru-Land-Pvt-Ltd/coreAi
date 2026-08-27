@@ -1,12 +1,12 @@
 # Frontend Builder — Canonical Roadmap (triple-verified 2026-08-16)
 
 **THE AI-OPERATED BUILDER RULING (founder law, supersedes feature-list reading):**
-The feature inventory below is the DESIGN BRAIN's toolbox, not the human's. The human keeps ~9
+The feature inventory below is the AI BUILDER's toolbox, not the human's. The human keeps ~9
 touches only (select, drag, delete, duplicate, undo/redo, inline text edit, device preview,
 open-in-Build, publish) plus the chat. Every other capability ships as a VALIDATED OPERATION the
-Design Brain invokes from natural language — never as human-facing menus/panels. Options held by
+The AI Builder invokes from natural language — never as human-facing menus/panels. Options held by
 the AI are power; options shown to the human are clutter. This is the anti-Wix guarantee and the
-2030 product: "The architect describes; the Design Brain designs, arranges, brands, and prepares
+2030 product: "The architect describes; the AI Builder designs, arranges, brands, and prepares
 to sell; the human approves and earns."
 
 **The Packaging Rule (founder law):** The page is the packaging; the AI's work is the product.
@@ -44,7 +44,7 @@ fill in the next step's request or tidy the last step's reply is now forbidden: 
 doors are not canvas nodes. Image Studio lost its prompt-writing brain this way (7 nodes → 6).
 
 ## Shipped
-Design Brain (create/restyle/remove components by typing, admin rulebook/HOUSE RULES, validated patches) ·
+AI Builder (create/restyle/remove components by typing, admin rulebook/HOUSE RULES, validated patches) ·
 Product Blocks + Faces (4 live templates, empty-canvas picker + Custom) · full-page Preview with
 Desktop/Tablet/Phone switcher · Arrange Editor (free drag, 8px snap, desktop-only layout, mobile auto-stack,
 reset) · pin-composer dial · Face/Brain/Hands palette · canvas Tidy button.

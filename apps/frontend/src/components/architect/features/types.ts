@@ -286,13 +286,13 @@ export type AgentPageManageData = {
    */
   blueprint?: FaceBlueprint | null;
   /**
-   * The saved Design Brain config, resolved to a full DesignConfig by the
+   * The saved AI Builder config, resolved to a full DesignConfig by the
    * backend. Optional so older fixtures keep compiling; absent reads as the
    * design defaults.
    */
   design?: DesignConfig | null;
   /**
-   * The saved ProductSpec — the whole product the Design Brain's Build mode
+   * The saved ProductSpec — the whole product the AI Builder's Build mode
    * wrote (pages, sections, copy, wires). Optional so older fixtures keep
    * compiling; absent reads as null (no product built yet).
    */
@@ -318,7 +318,7 @@ export type AgentPageUpdateBody = {
   };
 };
 
-/** One turn of the Design Brain conversation, oldest first. */
+/** One turn of the AI Builder conversation, oldest first. */
 export type DesignChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -352,7 +352,7 @@ export type ProductChatData = {
 
 /**
  * POST /agent-pages/manage/:workflowId/design-chat result. `patch` is the
- * validated set of dials the Design Brain just turned — empty when the ask
+ * validated set of dials the AI Builder just turned — empty when the ask
  * was impossible; `design` is the full post-patch DesignConfig.
  */
 export type DesignChatData = {
@@ -361,7 +361,7 @@ export type DesignChatData = {
   design: DesignConfig;
   page: Partial<AgentPageConfig> | null;
   /**
-   * True when the Design Brain also changed the saved canvas graph (added or
+   * True when the AI Builder also changed the saved canvas graph (added or
    * rewired pieces), so the builder must reload nodes/edges from the server —
    * not just refetch the page design. Additive: older backends omit it.
    */

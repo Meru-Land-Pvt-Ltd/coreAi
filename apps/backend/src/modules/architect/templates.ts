@@ -1,6 +1,5 @@
 import {
   BLOCK_NODE_TYPES,
-  DESIGN_BRAIN_NODE_TYPE,
   getNodeDefinition,
   TELEGRAM_NODE_TYPES,
   VOICE_NODE_PRESENTATION,
@@ -102,12 +101,8 @@ function tedge(id: string, source: string, target: string) {
 /** Palette presentation for product blocks (mirrors library.ts). Result Viewer
  * gets no `kind` here — its flat config already uses `kind: "auto"`. */
 const FACE_BLOCK_PRESENTATION: Record<string, Record<string, unknown>> = {
-  [DESIGN_BRAIN_NODE_TYPE]: { icon: "wand", accent: "rose", kind: "DESIGN" },
   [BLOCK_NODE_TYPES.promptComposer]: { icon: "edit", accent: "rose", kind: "PRODUCT" },
-  [BLOCK_NODE_TYPES.presetGallery]: { icon: "gallery", accent: "rose", kind: "PRODUCT" },
-  [BLOCK_NODE_TYPES.actionButton]: { icon: "pointer-click", accent: "rose", kind: "PRODUCT" },
   [BLOCK_NODE_TYPES.outputStage]: { icon: "eye", accent: "rose" },
-  [BLOCK_NODE_TYPES.historyShelf]: { icon: "clock", accent: "rose", kind: "PRODUCT" }
 };
 
 function blockData(type: string, config: Record<string, unknown> = {}): Record<string, unknown> {
@@ -151,14 +146,13 @@ const FORM_TOOL_SYSTEM_PROMPT =
 
 /**
  * Chatbot Face: Prompt Box → AI Brain → Result Viewer → History Shelf, styled
- * by a Design Brain. One Brain — it answers the customer, which is the whole
+ * by a AI Builder. One Brain — it answers the customer, which is the whole
  * product. The Result Viewer's own entry door turns that answer into what the
  * customer sees, so nothing here is asked to format anything.
  */
 function buildChatbotFaceWorkflow(): WorkflowTemplate["workflowJson"] {
   return {
     nodes: placedNodes([
-      { id: "design-brain", type: DESIGN_BRAIN_NODE_TYPE, x: 80, y: 80, data: blockData(DESIGN_BRAIN_NODE_TYPE) },
       {
         id: "prompt-box",
         type: BLOCK_NODE_TYPES.promptComposer,
@@ -168,13 +162,10 @@ function buildChatbotFaceWorkflow(): WorkflowTemplate["workflowJson"] {
       },
       { id: "ai-brain", type: "ai.llm_call", x: 400, y: 300, data: aiBrainData({ llmSystemPrompt: CHATBOT_SYSTEM_PROMPT }) },
       { id: "result-viewer", type: BLOCK_NODE_TYPES.outputStage, x: 720, y: 300, data: blockData(BLOCK_NODE_TYPES.outputStage) },
-      { id: "history-shelf", type: BLOCK_NODE_TYPES.historyShelf, x: 1040, y: 300, data: blockData(BLOCK_NODE_TYPES.historyShelf) }
     ]),
     edges: [
-      tedge("e-style", "design-brain", "prompt-box"),
       tedge("e-ask", "prompt-box", "ai-brain"),
       tedge("e-show", "ai-brain", "result-viewer"),
-      tedge("e-history", "result-viewer", "history-shelf")
     ]
   };
 }
@@ -256,27 +247,12 @@ function buildVoiceAgentFaceWorkflow(): WorkflowTemplate["workflowJson"] {
 function buildImageStudioFaceWorkflow(): WorkflowTemplate["workflowJson"] {
   return {
     nodes: placedNodes([
-      { id: "design-brain", type: DESIGN_BRAIN_NODE_TYPE, x: 80, y: 80, data: blockData(DESIGN_BRAIN_NODE_TYPE) },
       {
         id: "prompt-box",
         type: BLOCK_NODE_TYPES.promptComposer,
         x: 80,
         y: 300,
         data: blockData(BLOCK_NODE_TYPES.promptComposer, { placeholder: "Describe the picture you want…" })
-      },
-      {
-        id: "styles-gallery",
-        type: BLOCK_NODE_TYPES.presetGallery,
-        x: 80,
-        y: 520,
-        data: blockData(BLOCK_NODE_TYPES.presetGallery, {
-          presets: [
-            { id: "photo", title: "Photo", emoji: "📷", promptFragment: "a crisp, true-to-life photograph with natural light" },
-            { id: "watercolor", title: "Watercolor", emoji: "🎨", promptFragment: "a soft watercolor painting with gentle colors" },
-            { id: "3d", title: "3D", emoji: "🧊", promptFragment: "a polished 3D scene with soft studio lighting" },
-            { id: "sketch", title: "Sketch", emoji: "✏️", promptFragment: "a clean pencil sketch with simple, confident lines" }
-          ]
-        })
       },
       {
         id: "image-generation",
@@ -288,14 +264,10 @@ function buildImageStudioFaceWorkflow(): WorkflowTemplate["workflowJson"] {
         data: { icon: "image", accent: "violet", kind: "IMAGE GENERATION" }
       },
       { id: "result-viewer", type: BLOCK_NODE_TYPES.outputStage, x: 720, y: 300, data: blockData(BLOCK_NODE_TYPES.outputStage) },
-      { id: "history-shelf", type: BLOCK_NODE_TYPES.historyShelf, x: 720, y: 520, data: blockData(BLOCK_NODE_TYPES.historyShelf) }
     ]),
     edges: [
-      tedge("e-style", "design-brain", "prompt-box"),
       tedge("e-imagine", "prompt-box", "image-generation"),
-      tedge("e-styles", "styles-gallery", "image-generation"),
       tedge("e-show", "image-generation", "result-viewer"),
-      tedge("e-history", "result-viewer", "history-shelf")
     ]
   };
 }
@@ -315,19 +287,11 @@ function buildFormToolFaceWorkflow(): WorkflowTemplate["workflowJson"] {
         y: 300,
         data: blockData(BLOCK_NODE_TYPES.promptComposer, { placeholder: "Describe what you need" })
       },
-      {
-        id: "create-button",
-        type: BLOCK_NODE_TYPES.actionButton,
-        x: 80,
-        y: 520,
-        data: blockData(BLOCK_NODE_TYPES.actionButton, { label: "Create my report" })
-      },
       { id: "ai-brain", type: "ai.llm_call", x: 400, y: 300, data: aiBrainData({ llmSystemPrompt: FORM_TOOL_SYSTEM_PROMPT }) },
       { id: "result-viewer", type: BLOCK_NODE_TYPES.outputStage, x: 720, y: 300, data: blockData(BLOCK_NODE_TYPES.outputStage) }
     ]),
     edges: [
       tedge("e-ask", "prompt-box", "ai-brain"),
-      tedge("e-press", "create-button", "ai-brain"),
       tedge("e-show", "ai-brain", "result-viewer")
     ]
   };

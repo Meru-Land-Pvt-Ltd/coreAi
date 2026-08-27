@@ -447,7 +447,7 @@ export type ResolvedPublicProduct = {
   page: PublicProductPage;
   listing: PublicProductListing;
   architect: PublicProductArchitect | null;
-  /** Design Brain dials — the old renderer still needs them. */
+  /** AI Builder dials — the old renderer still needs them. */
   design: DesignConfig;
   /** The Face Blueprint, so blueprint-era callers keep working unchanged. */
   blueprint: FaceBlueprint | null;

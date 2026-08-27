@@ -182,7 +182,7 @@ export function deriveFaceBlueprint(workflowJson: unknown): FaceBlueprint | null
     if (!raw) return;
     const data = asRecord(raw.data) ?? {};
 
-    // Design Brain is never a rendered section — it styles the page through
+    // AI Builder is never a rendered section — it styles the page through
     // designJson, so it must not leak onto the customer page even if the
     // block-slug check below is ever loosened.
     if (isDesignBrainNodeType(typeof data.type === "string" ? data.type : null)) return;

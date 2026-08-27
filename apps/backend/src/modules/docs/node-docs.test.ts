@@ -17,11 +17,17 @@ describe("the documentation", () => {
   it("covers every node an architect can actually place", () => {
     expect(docs.length).toBeGreaterThan(30);
     /* A deleted card is not documented — documenting a thing nobody can
-       place would be documenting a thing that does not exist. */
+       place would be documenting a thing that does not exist. But a card that
+       still RUNS is documented even when it is off the shelf: "End" is in
+       voice agents architects already built, so it is marked asleep with the
+       reason, never hidden. */
     for (const doc of docs) {
       expect(doc.type).not.toBe("block.model_picker");
-      expect(doc.type).not.toBe("flow.end");
+      expect(doc.type).not.toBe("block.history_shelf");
+      expect(doc.type).not.toBe("design.brain");
     }
+    const end = docs.find((doc) => doc.type === "flow.end");
+    expect(end?.parked, "End still runs, so it is documented as asleep").toBeTruthy();
   });
 
   it("answers the first three questions for every node: what, needs, gives", () => {

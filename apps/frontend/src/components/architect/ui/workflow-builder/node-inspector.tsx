@@ -168,8 +168,8 @@ export function NodeInspector({
 
   const isProductBlock =
     isBlockNodeType(type) || String(selectedNode.data.nodeKind ?? "") === "block";
-  // Old canvases can still carry a design.brain node — it gets the plain
-  // block-style frame now; its chat was retired for the AI Builder.
+  // Old canvases can still carry the retired styling card — it gets the plain
+  // block-style frame now; you style your product by telling the AI Builder.
   const isDesignBrain = type === DESIGN_BRAIN_NODE_TYPE;
   const base: NodePropsPanel = { selectedNode, onUpdateNodeData, variableNodePrefixes };
 
@@ -245,7 +245,7 @@ export function NodeInspector({
                 every Face node wore it, so the panel never said which one was
                 open. */}
             {isDesignBrain
-              ? "Design Brain"
+              ? "Retired styling card"
               : getNodeDefinition(String(selectedNode.data.type ?? ""))?.label ??
                 String(selectedNode.data.title ?? "") ??
                 "Node properties"}
@@ -271,7 +271,7 @@ export function NodeInspector({
           id — on the screen where somebody is building a receptionist. */}
       {isLlmBrain ? null : (
         <>
-          {/* The Design Brain explains itself in chat — no step overview card. */}
+          {/* The retired styling card has nothing to set — no step overview card. */}
           {isDesignBrain ? null : <NodeOverviewPanel node={selectedNode} />}
 
           {/* The variable-mapping drawer is engine territory — never for blocks.

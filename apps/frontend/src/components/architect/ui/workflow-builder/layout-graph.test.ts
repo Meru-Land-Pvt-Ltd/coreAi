@@ -14,7 +14,7 @@ import {
 /**
  * "Clean up" layout — deterministic layered columns:
  *   col 0 Face inputs · col 1 brains+logic (BFS depth) · col 2 hands/actions
- *   · col 3 Face outputs · Design Brain parked bottom-left.
+ *   · col 3 Face outputs · AI Builder parked bottom-left.
  */
 
 /** Canvas node footprint (w-56 ≈ 224px wide, tallest cards ≈ 170px). */
@@ -50,7 +50,7 @@ function assertNoOverlaps(positions: Map<string, { x: number; y: number }>) {
 /**
  * The Yatra shape: an Image Studio product page — four Face input blocks
  * feeding an image brain, the result landing on an output stage + history
- * shelf, with the Design Brain sitting beside the flow. Positions are
+ * shelf, with the AI Builder sitting beside the flow. Positions are
  * deliberately messy (as after a real building session).
  */
 function yatraGraph(): { nodes: TidyNode[]; edges: TidyEdge[] } {
@@ -120,7 +120,7 @@ describe("computeTidyPositions — Yatra-shaped graph", () => {
     expect(positions.get("blk-button")!.y).toBe(TIDY_ROW_Y_START + 3 * TIDY_ROW_SPACING);
   });
 
-  it("parks the Design Brain bottom-left, below every column", () => {
+  it("parks the retired styling card bottom-left, below every column", () => {
     const { nodes, edges } = yatraGraph();
     const positions = computeTidyPositions(nodes, edges);
     const parked = positions.get("design-brain")!;

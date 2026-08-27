@@ -115,10 +115,10 @@ export function registerAgentPageManageRoutes(routes: Hono) {
       url: agentPageUrl(page.slug),
       defaultTemplate,
       blueprint,
-      // Full Design Brain config (defaults filled in) — additive field, the
+      // Full AI Builder config (defaults filled in) — additive field, the
       // builder's Test preview renders every dial from it.
       design: resolveDesign(page.designJson),
-      // The saved ProductSpec — the whole product the Design Brain's Build
+      // The saved ProductSpec — the whole product the AI Builder's Build
       // mode wrote. Additive: null until the architect builds one. The
       // public /a/ pages stay gated on approval; the architect's own preview
       // must not be, or a draft build is invisible everywhere.
@@ -157,7 +157,7 @@ export function registerAgentPageManageRoutes(routes: Hono) {
     // Design dials merge key by key over what is stored: Arrange mode sends
     // the complete arrangement (layout replaces the stored one wholesale,
     // {} = reset), the Preview toolbar sends contentWidth, and every other
-    // stored key — dials from the Design Brain included — rides along
+    // stored key — dials from the AI Builder included — rides along
     // untouched. designJson is only written when a dial is actually present.
     const layoutPatch = input.design?.layout;
     const contentWidthPatch = input.design?.contentWidth;
@@ -195,7 +195,7 @@ export function registerAgentPageManageRoutes(routes: Hono) {
     });
   });
 
-  /** Design Brain chat: natural language in, validated DesignPatch applied. */
+  /** AI Builder chat: natural language in, validated DesignPatch applied. */
 
   registerAgentPageProductRoutes(routes);
 
@@ -204,6 +204,6 @@ export function registerAgentPageManageRoutes(routes: Hono) {
      product-chat.ts and smart-composer.ts and are called by the Builder. */
 
   // the AI Builder: the AI Composer + its feedback chat. A separate, parallel
-  // feature — the Design Brain routes above stay exactly as they are.
+  // feature — the AI Builder routes above stay exactly as they are.
   registerPageHandRoutes(routes);
 }

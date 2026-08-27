@@ -20,7 +20,7 @@ import {
  * on this screen changes every door on every agent instantly.
  *
  * The storage, validation and caching rules live in {@link createBrainSlot},
- * shared with the Design Brain battery so the two can never drift apart. This
+ * shared with the AI Builder battery so the two can never drift apart. This
  * file is the door slot's identity: its keys, its default, its vocabulary.
  */
 

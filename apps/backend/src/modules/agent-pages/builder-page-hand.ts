@@ -5,7 +5,7 @@
  * are done by two people — how can we expect synchronous results?"
  *
  * Before this, one conversation cost THREE calls: the router decided it was
- * a page ask, a second employee ("the Smart Designer") changed the screen,
+ * a page ask, a second employee ("the AI Builder") changed the screen,
  * and if the ask turned out to be about packaging a THIRD employee handled
  * it. Three briefings, three strangers, none remembering the others — and
  * that is how a Telegram agent, a machine with no page at all, was handed a

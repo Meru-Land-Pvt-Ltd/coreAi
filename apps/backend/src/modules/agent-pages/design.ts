@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Design Brain dials for published agent pages (triven.ai/a/<slug>).
+ * AI Builder dials for published agent pages (triven.ai/a/<slug>).
  *
  * The whole feature turns on a fixed set of dials: the AI (and the manage
  * surface) may only ever set these values — nothing free-form ever reaches

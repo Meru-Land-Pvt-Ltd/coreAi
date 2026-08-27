@@ -76,7 +76,7 @@ export type DraftAgentPageWorkflow = {
 
 /**
  * Get (or lazily create) the listing AND page for a workflow — the universal
- * bootstrap behind Design Brain chat and the builder's Test preview. A draft
+ * bootstrap behind AI Builder chat and the builder's Test preview. A draft
  * workflow with no AgentListing gets a minimal DRAFT one (free, unpublished);
  * the page row is then ensured the usual way. The DRAFT listing never shows
  * publicly: the public page route requires listing status APPROVED.

@@ -2,8 +2,8 @@ import { prisma } from "../../lib/prisma";
 import { decryptSecret, encryptSecret } from "../../lib/crypto";
 
 /**
- * Design Brain rules ("constitution") — platform-wide guidance the Design Brain
- * follows on every styling conversation, editable from Admin → Design Brain rules.
+ * AI Builder rules ("constitution") — platform-wide guidance the AI Builder
+ * follows on every styling conversation, editable from Admin → AI Builder rules.
  *
  * Storage reuses the existing PlatformApiSetting key/value table (the same store
  * that backs Admin → Manage API) under the key "designBrainRules" — no new table
@@ -70,7 +70,7 @@ async function readStoredRow(): Promise<{ value: string; updatedAt: Date | null 
 }
 
 /**
- * The effective Design Brain rules for prompt building: the admin-saved text,
+ * The effective AI Builder rules for prompt building: the admin-saved text,
  * or the platform default when nothing is saved.
  *
  * Never throws. On a database error it returns the last cached value when one

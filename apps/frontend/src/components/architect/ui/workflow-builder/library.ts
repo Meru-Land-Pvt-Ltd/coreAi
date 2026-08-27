@@ -57,10 +57,10 @@ export const libraryGroups: LibraryGroup[] = [
     title: "Face",
     subtitle: "What your customer sees",
     items: [
-      /* The old Design Brain card lived here. Removed: the Smart Designer now
-         generates and fixes the interface — no draggable design node needed.
-         Old canvases that still carry a design.brain node keep rendering; the
-         registry type and the runner's clean skip for it are untouched. */
+      /* A styling card used to sit here. Removed: the AI Builder generates and
+         fixes the interface, so a draggable design node was a second place to
+         ask for the same thing. Old canvases that still carry one keep
+         rendering; the runner's clean skip for it is untouched. */
       paletteItem(BLOCK_NODE_TYPES.promptComposer, { icon: "edit", accent: "rose", kind: "PRODUCT" }),
       { ...paletteItem("block.file_upload", { icon: "file", accent: "rose", kind: "PRODUCT" }), badge: "NEW" },
       paletteItem(BLOCK_NODE_TYPES.outputStage, { icon: "eye", accent: "rose", kind: "PRODUCT" }),

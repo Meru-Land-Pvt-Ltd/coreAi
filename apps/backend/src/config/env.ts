@@ -49,13 +49,6 @@ const envSchema = z.object({
   CALENDLY_OAUTH_REDIRECT_URI: z.string().url().optional(),
   CALENDLY_WEBHOOK_URL: z.string().url().optional(),
 
-  HUBSPOT_CLIENT_ID: z.string().optional(),
-  HUBSPOT_CLIENT_SECRET: z.string().optional(),
-  HUBSPOT_OAUTH_REDIRECT_URI: z.string().url().optional(),
-  HUBSPOT_WEBHOOK_URL: z.string().url().optional(),
-  /// HubSpot signs webhooks with the app client secret; kept separate so a
-  /// rotated webhook secret does not invalidate live OAuth tokens.
-  HUBSPOT_CLIENT_SECRET_WEBHOOK: z.string().optional(),
 
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),

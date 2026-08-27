@@ -98,7 +98,7 @@ export async function streamPlatformBrain(input: {
     const eyes = await getBuilderEyesConfig().catch(() => null);
     if (!eyes || !serviceCanSee(eyes.providerId)) {
       input.onWord(
-        "I can read your words, but I cannot look at pictures yet — the seeing service is not switched on. An admin sets it in Design Brain rules → The Builder's Eyes."
+        "I can read your words, but I cannot look at pictures yet — the seeing service is not switched on. An admin sets it in AI Builder → The Builder's Eyes."
       );
       return null;
     }

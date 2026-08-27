@@ -49,7 +49,7 @@ export function registerAgentPageProductRoutes(routes: Hono) {
       page: resolved.page,
       listing: resolved.listing,
       architect: resolved.architect,
-      // Design Brain dials ride along, same as GET /agent-pages/:slug — the
+      // AI Builder dials ride along, same as GET /agent-pages/:slug — the
       // live product surface reads them for composer placement and density.
       design: resolved.design
     });

@@ -14,7 +14,7 @@
  * then judges the whole $199/month on what the dashboard shows them; an agent
  * that only has a settings page gets cancelled in month three.
  *
- * This file works out WHAT the dashboard must contain. Smart Designer decides
+ * This file works out WHAT the dashboard must contain. AI Builder decides
  * what it looks like — that separation is deliberate, so a better composer
  * improves every agent's dashboard without anyone editing a template.
  */

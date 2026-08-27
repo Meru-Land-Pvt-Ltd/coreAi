@@ -14,13 +14,6 @@ import { startCallListWorker } from "./modules/architect/call-list";
 import { startConnectorHealthWorker, stopConnectorHealthWorker } from "./modules/connectors/health-worker";
 import { startArchitectFrameRefresh } from "./modules/connectors/architect-frames";
 import { startSelfHealingWorker, stopSelfHealingWorker } from "./modules/architect/self-healing/worker";
-// [DISABLED:non-handoff] worker imports for the commented starts below.
-// import { startReminderWorker, stopReminderWorker } from "./modules/business/reminders/reminder-worker";
-// import {
-//   startRetentionSweepWorker,
-//   stopRetentionSweepWorker
-// } from "./modules/business/conversation-understanding/retention";
-// import { evaluateRecentCalls } from "./modules/business/quality/evaluate";
 import { escalateStaleWaiting } from "./modules/business/inbox/inbox-service";
 import {
   registerTelegramManagerWebhook,
@@ -60,15 +53,6 @@ const server = serve(
     startMemoryRetentionWorker();
     // The Timer's patience: held conversations wake on silence, every 5 min.
     startHeldConversationsWorker();
-    // [DISABLED:non-handoff] reminder + retention workers and quality sweep.
-    // startReminderWorker();
-    // startRetentionSweepWorker();
-    // const qualitySweep = setInterval(() => {
-    //   evaluateRecentCalls({ limit: 20 }).catch((error) =>
-    //     console.error("[quality] sweep failed", error)
-    //   );
-    // }, 15 * 60 * 1000);
-    // qualitySweep.unref();
     /* Nobody claimed a waiting customer: the people who can do something
        about it get told once. Switched back on 2026-08-27 — it had been off,
        so a waiting customer was nobody's problem. */
@@ -105,9 +89,6 @@ async function shutdown(signal: string) {
   stopHeldConversationsWorker();
   if (frameRefresh) clearInterval(frameRefresh);
   stopSelfHealingWorker();
-  // [DISABLED:non-handoff]
-  // stopReminderWorker();
-  // stopRetentionSweepWorker();
 
   await prisma.$disconnect();
 

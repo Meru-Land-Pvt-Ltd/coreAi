@@ -71,7 +71,7 @@ import { ensureDraftAgentListingAndPage, type AgentPageTemplate } from "./slug";
  */
 
 /**
- * Product generation runs on the Design Brain battery an admin picks — never a
+ * Product generation runs on the AI Builder battery an admin picks — never a
  * provider hardcoded here. Both design paths share it: building a whole product
  * and restyling one is the same craft.
  */

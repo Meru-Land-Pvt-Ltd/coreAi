@@ -25,7 +25,7 @@ type ChatMessage = { role: "user" | "assistant"; content: string };
 
 /**
  * One this-session conversation. The chat always holds at least one; the
- * history sidebar (Design Brain dial) lets visitors keep several side by side.
+ * history sidebar (AI Builder dial) lets visitors keep several side by side.
  * Pure client state — nothing persists across reloads.
  */
 type Conversation = { id: string; messages: ChatMessage[]; sessionId: string | null };
@@ -97,7 +97,7 @@ export function ChatTemplate({ data, runtime }: AgentPageTemplateProps) {
   const accent = agentPageAccent(data);
   // Light accents flip button text/icons to dark slate so they stay legible.
   const accentText = agentPageAccentForeground(accent);
-  // The Design Brain dials + their theme tokens — every visual branch below
+  // The AI Builder dials + their theme tokens — every visual branch below
   // reads from these, so a design change re-renders the whole face.
   const design = agentPageDesign(data);
   const tokens = agentPageThemeTokens(design.theme);

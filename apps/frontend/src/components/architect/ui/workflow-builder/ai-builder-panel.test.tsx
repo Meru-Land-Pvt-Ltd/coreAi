@@ -4,10 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { AiBuilderPanel as SmartDesignerPanel } from "./ai-builder-panel";
 
 /**
- * The Smart Designer contract:
+ * The AI Builder contract:
  *
  * - Generate calls smart-compose once and fires the same onApplied refetch
- *   contract the Design Brain uses, so the preview updates in place.
+ *   contract the AI Builder uses, so the preview updates in place.
  * - The composer's merge win ("{n} inputs merged") is visible.
  * - A packaging redirect renders as a quiet boundary note — a redirect, not
  *   a failure — and NEVER fires onApplied (nothing changed).

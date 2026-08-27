@@ -21,7 +21,7 @@
  *
  * The Soul rides with EVERY request the Builder answers — compose and explain
  * both — fetched fresh each time. There is no button and nothing to remember.
- * The admin can download the whole Soul as a zip (Admin → Design Brain rules).
+ * The admin can download the whole Soul as a zip (Admin → AI Builder rules).
  */
 
 import { getNodeDefinition, type NodeDefinition } from "@coreai/shared";

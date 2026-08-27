@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   pageUpdate: vi.fn(),
   execute: vi.fn(),
   resolveProvider: vi.fn(),
-  getSmartDesignerBrainConfig: vi.fn()
+  getBuilderBrainConfig: vi.fn()
 }));
 
 vi.mock("../../lib/prisma", () => ({
@@ -53,16 +53,18 @@ vi.mock("../ai-provider-engine/provider-engine", () => ({
   getProviderEngine: () => ({ executeWithProvider: mocks.execute })
 }));
 
-// The the AI Builder battery an admin picks. The composer must read THIS slot
-// — never the Design Brain's, never a provider frozen into the module.
-vi.mock("../admin/ai-builder-page-brain-settings", () => ({
-  getSmartDesignerBrainConfig: mocks.getSmartDesignerBrainConfig
+/* The one brain slot an admin picks for the AI Builder. The composer must
+   read THIS slot — never a provider frozen into the module. This mock used to
+   name a module that does not exist, so it mocked nothing at all and the test
+   quietly read the real settings. */
+vi.mock("../admin/builder-brain-settings", () => ({
+  getBuilderBrainConfig: mocks.getBuilderBrainConfig
 }));
 
 import { deriveDeclarations, sanitizeProductSpec, type WorkflowDeclarations } from "@coreai/shared";
 import {
   SMART_COMPOSER_FALLBACK_REPLY,
-  SMART_DESIGNER_BOUNDARY_REPLY,
+  PAGE_BOUNDARY_REPLY,
   checkComposition,
   isPackagingRequest,
   registerPageHandRoutes
@@ -217,7 +219,7 @@ beforeEach(() => {
   });
   mocks.pageUpdate.mockResolvedValue({});
   mocks.resolveProvider.mockReturnValue({ providerId: "claude" });
-  mocks.getSmartDesignerBrainConfig.mockResolvedValue({
+  mocks.getBuilderBrainConfig.mockResolvedValue({
     providerId: "claude",
     modelId: "claude-opus-5"
   });

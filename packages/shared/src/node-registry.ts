@@ -77,7 +77,7 @@ export type NodeDoorSpec = {
  * declare `defaultConfig`, a bare pair of values — so every setting on this
  * platform lived inside one React panel and nothing else could read it.
  *
- * That is not paperwork. The Smart Designer reads `limits` to draw the control
+ * That is not paperwork. The AI Builder reads `limits` to draw the control
  * correctly: a box that stops at 200 characters because the setting says 200.
  * The AI Composer reads them to fill a setting in without inventing a value.
  * The admin Nodes page reads them to show what a node can be told to do. A
@@ -435,15 +435,18 @@ export function isBlockNodeType(type: string | null | undefined): boolean {
 }
 
 /**
- * Design Brain — the architect talks to it and the customer page restyles
- * itself (theme, layout, colors, wording). It is a canvas companion, not a
- * rendered page section and not engine work: the workflow runner skips it and
- * the Face Blueprint ignores it (its output lives in
- * PublishedAgentPage.designJson, applied via the design-chat endpoint).
+ * A RETIRED CARD, KEPT ONLY SO OLD CANVASES STILL OPEN (2026-08-27).
+ *
+ * This was a card an architect dropped on the canvas to talk to about styling.
+ * There is one AI Builder now, and you style your product by telling it — so a
+ * card for the same job was a second place to ask, and the two could disagree.
+ * The card is gone from the palette. The slug stays because it is saved inside
+ * workflows people already built: the runner skips it, the Face Blueprint
+ * ignores it, and nothing new ever writes it.
  */
 export const DESIGN_BRAIN_NODE_TYPE = "design.brain";
 
-/** True only for the Design Brain node slug. */
+/** True only for the retired styling card's slug. */
 export function isDesignBrainNodeType(type: string | null | undefined): boolean {
   return (type ?? "") === DESIGN_BRAIN_NODE_TYPE;
 }
@@ -1684,7 +1687,8 @@ export const PARKED_NODE_TYPES: Record<string, string> = {
   "ai.context_reply": "Folds into the AI Brain.",
   /* The founder's palette ruling, 2026-08-26. */
   "ai.image_generation": "Parked until an image key is added — a card that cannot run is a lie on the shelf.",
-  "trigger.call_list": "Parked until calling is done properly — dial systems carry real law."
+  "trigger.call_list": "Parked until calling is done properly — dial systems carry real law.",
+  "flow.end": "Not on the shelf — a flow ends where its last step ends. Voice agents built earlier still carry one, so it still runs."
 };
 
 /**
@@ -1696,13 +1700,12 @@ export const PARKED_NODE_TYPES: Record<string, string> = {
  * place one again, no palette shows one, and the Builder is not taught them.
  */
 export const DELETED_NODE_TYPES: Record<string, string> = {
-  "block.styles_gallery": "Decoration — the Builder generates style choices when a product needs them.",
+  "block.preset_gallery": "Decoration — the Builder generates style choices when a product needs them.",
   "block.model_picker": "Customers never pick engines — the model is admin-fixed.",
   "block.action_button": "The Builder generates buttons — one card per UI piece is the monster.",
   "block.continue_chain": "A button is a button.",
   "block.history_shelf": "The Builder generates a history view when a chat product needs one.",
-  "flow.end": "A flow ends where its last step ends.",
-  "tool.node_frame": "Folded into Create Node."
+  "design.brain": "You style your product by telling the AI Builder — a card for it was a second place to ask."
 };
 
 export function isDeletedNodeType(type: string): boolean {
@@ -3905,53 +3908,6 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       }
     ]
   }),
-  def({
-    type: BLOCK_NODE_TYPES.presetGallery,
-    label: "Styles Gallery",
-    category: "product",
-    description: "Ready-made styles your customer can pick with one tap.",
-    requiredConfig: [],
-    backendExecutable: false,
-    launchCritical: false,
-    comingSoon: false,
-    runtime: { nodeKind: "block" },
-    defaultConfig: { presets: [] }
-  }),
-  def({
-    type: BLOCK_NODE_TYPES.modelPicker,
-    label: "Model Picker",
-    category: "product",
-    description: "Lets your customer choose which AI creates their result.",
-    requiredConfig: [],
-    backendExecutable: false,
-    launchCritical: false,
-    comingSoon: false,
-    runtime: { nodeKind: "block" },
-    defaultConfig: { options: [] }
-  }),
-  def({
-    type: BLOCK_NODE_TYPES.actionButton,
-    label: "Button",
-    category: "product",
-    description: "A button your customer presses — wire it to the brains it should run.",
-    requiredConfig: [],
-    backendExecutable: false,
-    launchCritical: false,
-    comingSoon: false,
-    runtime: { nodeKind: "block" },
-    defaultConfig: { label: "Go" },
-    settings: [
-      {
-        key: "label",
-        name: "Words on the button",
-        whatItsFor: "What the button says — a verb your customer recognises, like Go or Generate.",
-        type: "text",
-        limits: { maxLength: 40 },
-        default: "Go",
-        whoFills: "architect"
-      }
-    ]
-  }),
   // NODE TWO. The lamp. See docs/NODE-SOP.md.
   //
   // A switch with no lamp proves nothing — this is the node that lets a human
@@ -3999,54 +3955,6 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     producedVariables: [],
     producesNothing: true
   }),
-  def({
-    type: BLOCK_NODE_TYPES.continueChain,
-    label: "Continue Button",
-    category: "product",
-    description: "One tap for your customer to keep going from their last result.",
-    requiredConfig: [],
-    backendExecutable: false,
-    launchCritical: false,
-    comingSoon: false,
-    runtime: { nodeKind: "block" },
-    defaultConfig: { label: "Continue" },
-    settings: [
-      {
-        key: "label",
-        name: "Words on the button",
-        whatItsFor: "What the button says. Appears after a result, so your customer can go again.",
-        type: "text",
-        limits: { maxLength: 120 },
-        default: "Continue",
-        whoFills: "architect"
-      }
-    ]
-  }),
-  def({
-    type: BLOCK_NODE_TYPES.historyShelf,
-    label: "History Shelf",
-    category: "product",
-    description: "Everything your customer made this visit, ready to bring back.",
-    requiredConfig: [],
-    backendExecutable: false,
-    launchCritical: false,
-    comingSoon: false,
-    runtime: { nodeKind: "block" },
-    defaultConfig: {}
-  }),
-  def({
-    type: DESIGN_BRAIN_NODE_TYPE,
-    label: "Design Brain",
-    category: "product",
-    description: "Talk to it to style your product — colors, theme, layout, wording.",
-    requiredConfig: [],
-    backendExecutable: false,
-    launchCritical: false,
-    comingSoon: false,
-    runtime: { nodeKind: "block" },
-    defaultConfig: {}
-  }),
-
   // ---- B. Near-term marketplace nodes (coming soon) ----
   /* 022 — START HERE under the laws: no dials, and that is an answer — the
      Run button needs nothing. Its one lie was the null PRODUCES row while

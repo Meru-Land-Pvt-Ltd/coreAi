@@ -1,7 +1,7 @@
 import { apiGet, apiPatch } from "@/lib/api";
 
 /**
- * Admin → Design Brain rules. One plain-text "constitution" the Design Brain
+ * Admin → AI Builder rules. One plain-text "constitution" the AI Builder
  * follows on every styling conversation. While nothing is saved the platform
  * default applies, so the Brain is never rule-less; saving blank restores it.
  */

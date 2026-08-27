@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   analyzeWorkflowGraph,
   BLOCK_NODE_TYPES,
-  DESIGN_BRAIN_NODE_TYPE,
   hasNodeDoors,
+  isDeletedNodeType,
   nodeDoorsEnabled,
   VOICE_NODE_TYPES
 } from "@coreai/shared";
@@ -57,21 +57,20 @@ describe("face template seeds", () => {
     expect(new Set(slugs).size).toBe(slugs.length);
   });
 
-  it("chatbot: Prompt Box → AI Brain (gemini) → Result Viewer → History Shelf, Design Brain styling", () => {
+  it("chatbot: Prompt Box → AI Brain (gemini) → Result Viewer", () => {
     const graph = graphOf("chatbot");
+    /* A template may only carry cards an architect can also add by hand. The
+       styling card and the history shelf were retired; a template that still
+       dropped them handed out cards that are not on the shelf. */
     expect(graph.nodes.map((candidate) => candidate.data.type)).toEqual([
-      DESIGN_BRAIN_NODE_TYPE,
       BLOCK_NODE_TYPES.promptComposer,
       "ai.llm_call",
-      BLOCK_NODE_TYPES.outputStage,
-      BLOCK_NODE_TYPES.historyShelf
+      BLOCK_NODE_TYPES.outputStage
     ]);
     expectEdgesResolve(graph);
     expect(edgePairs(graph)).toEqual([
-      "design-brain->prompt-box",
       "prompt-box->ai-brain",
-      "ai-brain->result-viewer",
-      "result-viewer->history-shelf"
+      "ai-brain->result-viewer"
     ]);
 
     const brain = node(graph, "ai-brain");
@@ -90,7 +89,6 @@ describe("face template seeds", () => {
 
     // Result Viewer keeps its flat config kind ("auto"), same as a palette drop.
     expect(node(graph, "result-viewer").data.kind).toBe("auto");
-    expect(node(graph, "design-brain").data.kind).toBe("DESIGN");
   });
 
   it("voice-agent: mirrors the dental voice chain with generic business copy", () => {
@@ -118,36 +116,20 @@ describe("face template seeds", () => {
     expect(String(node(graph, "end-flow").data.closingMessage).length).toBeGreaterThan(0);
   });
 
-  it("image-studio: Prompt Box + Styles Gallery → Image Generation → Result Viewer → History Shelf", () => {
+  it("image-studio: Prompt Box → Image Generation → Result Viewer", () => {
     const graph = graphOf("image-studio");
     // No prompt-writing brain: turning the customer's words and their chosen
     // style into the picture request is door work, not a canvas node.
     expect(graph.nodes.map((candidate) => candidate.data.type)).toEqual([
-      DESIGN_BRAIN_NODE_TYPE,
       BLOCK_NODE_TYPES.promptComposer,
-      BLOCK_NODE_TYPES.presetGallery,
       "ai.image_generation",
-      BLOCK_NODE_TYPES.outputStage,
-      BLOCK_NODE_TYPES.historyShelf
+      BLOCK_NODE_TYPES.outputStage
     ]);
     expectEdgesResolve(graph);
     expect(edgePairs(graph)).toEqual([
-      "design-brain->prompt-box",
       "prompt-box->image-generation",
-      "styles-gallery->image-generation",
-      "image-generation->result-viewer",
-      "result-viewer->history-shelf"
+      "image-generation->result-viewer"
     ]);
-
-    const gallery = node(graph, "styles-gallery");
-    const presets = gallery.data.presets as Array<Record<string, unknown>>;
-    expect(presets).toHaveLength(4);
-    for (const preset of presets) {
-      expect(typeof preset.id).toBe("string");
-      expect(typeof preset.title).toBe("string");
-      expect(typeof preset.emoji).toBe("string");
-      expect(String(preset.promptFragment).length).toBeGreaterThan(0);
-    }
 
     // Empty image prompt on purpose: the image step reads the customer's own
     // request — what they typed plus the style they picked.
@@ -158,23 +140,20 @@ describe("face template seeds", () => {
     expect(graph.nodes.some((candidate) => candidate.data.type === "ai.llm_call")).toBe(false);
   });
 
-  it("form-tool: Prompt Box + Button → AI Brain (structured report) → Result Viewer", () => {
+  it("form-tool: Prompt Box → AI Brain (structured report) → Result Viewer", () => {
     const graph = graphOf("form-tool");
     expect(graph.nodes.map((candidate) => candidate.data.type)).toEqual([
       BLOCK_NODE_TYPES.promptComposer,
-      BLOCK_NODE_TYPES.actionButton,
       "ai.llm_call",
       BLOCK_NODE_TYPES.outputStage
     ]);
     expectEdgesResolve(graph);
     expect(edgePairs(graph)).toEqual([
       "prompt-box->ai-brain",
-      "create-button->ai-brain",
       "ai-brain->result-viewer"
     ]);
 
     expect(node(graph, "prompt-box").data.placeholder).toBe("Describe what you need");
-    expect(node(graph, "create-button").data.label).toBe("Create my report");
     expect(String(node(graph, "ai-brain").data.llmSystemPrompt)).toContain("report");
   });
 
@@ -292,11 +271,9 @@ describe("door-native template graphs", () => {
   it("inserts the node types each live Face promises, and no filler", () => {
     const expected: Record<string, string[]> = {
       chatbot: [
-        DESIGN_BRAIN_NODE_TYPE,
         BLOCK_NODE_TYPES.promptComposer,
         "ai.llm_call",
-        BLOCK_NODE_TYPES.outputStage,
-        BLOCK_NODE_TYPES.historyShelf
+        BLOCK_NODE_TYPES.outputStage
       ],
       "voice-agent": [
         VOICE_NODE_TYPES.phoneCallTrigger,
@@ -306,16 +283,12 @@ describe("door-native template graphs", () => {
         VOICE_NODE_TYPES.endFlow
       ],
       "image-studio": [
-        DESIGN_BRAIN_NODE_TYPE,
         BLOCK_NODE_TYPES.promptComposer,
-        BLOCK_NODE_TYPES.presetGallery,
         "ai.image_generation",
-        BLOCK_NODE_TYPES.outputStage,
-        BLOCK_NODE_TYPES.historyShelf
+        BLOCK_NODE_TYPES.outputStage
       ],
       "form-tool": [
         BLOCK_NODE_TYPES.promptComposer,
-        BLOCK_NODE_TYPES.actionButton,
         "ai.llm_call",
         BLOCK_NODE_TYPES.outputStage
       ]
@@ -326,6 +299,17 @@ describe("door-native template graphs", () => {
       const graph = template.workflowJson as unknown as AnyGraph;
       expect(graph.nodes.map(typeOf), slug).toEqual(expected[slug]);
       expect(template.nodeCount, slug).toBe(expected[slug].length);
+    }
+  });
+
+  it("never hands out a card that has been taken off the shelf", () => {
+    /* A template that drops a retired card gives an architect something they
+       could not have added themselves, and could never add again. */
+    for (const template of TEMPLATE_SEED) {
+      const graph = template.workflowJson as unknown as AnyGraph;
+      for (const candidate of graph.nodes) {
+        expect(isDeletedNodeType(typeOf(candidate)), `${template.slug}/${typeOf(candidate)}`).toBe(false);
+      }
     }
   });
 });

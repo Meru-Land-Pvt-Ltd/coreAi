@@ -153,7 +153,7 @@ function readGraph(workflowJson: unknown): { nodes: GraphNode[]; edges: Array<{ 
     const record = raw as Record<string, unknown>;
     const data = typeof record.data === "object" && record.data !== null ? (record.data as Record<string, unknown>) : {};
     const type = String(data.type ?? record.type ?? "");
-    // Design Brain is a canvas companion, not part of the product interface.
+    // AI Builder is a canvas companion, not part of the product interface.
     if (!type || isDesignBrainNodeType(type)) return;
 
     // Config lives flat on data (how the builder saves it) or nested under

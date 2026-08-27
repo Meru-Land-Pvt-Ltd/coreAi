@@ -94,6 +94,9 @@ vi.mock("@/components/business/features/api", () => ({
   }),
   putBusinessHours: vi.fn().mockResolvedValue({ success: true, data: {} }),
   syncBusinessHoursToLiveAgent: vi.fn().mockResolvedValue({ success: true, data: {} }),
+  /* The setup page asks for these on mount. Without it in the mock every
+     test in this file dies before it renders a single field. */
+  getInboundAddresses: vi.fn().mockResolvedValue({ success: true, data: { addresses: [] } }),
   getBusinessPhoneAssignment: vi.fn().mockResolvedValue({ success: true, data: { assigned: false } }),
   getBusinessSetup: vi.fn(),
   getMarketplaceListing: vi.fn().mockResolvedValue({ success: true, data: { listing: null } }),

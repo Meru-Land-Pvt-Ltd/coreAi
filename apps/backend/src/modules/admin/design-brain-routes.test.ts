@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Admin → Design Brain rules routes, exercised through the REAL auth middleware:
+ * Admin → AI Builder rules routes, exercised through the REAL auth middleware:
  * requireAuth + requireRole(["ADMIN"]) are not mocked, so these tests prove the
  * endpoints are actually behind the admin guard — not just that handlers work.
  * Only the token verification, session check and database are stubbed.

@@ -5,7 +5,7 @@ import { NODE_SETTINGS_PAGES, hasNodeSettingsPage, nodeSettingsPage } from "./no
  * A NODE'S SETTINGS BELONG TO THAT NODE.
  *
  * The sidebar used to grow an entry every time any node gained a setting — "AI
- * models", "Design Brain rules", "Builder nodes" — and within a year an admin
+ * models", "AI Builder rules", "Builder nodes" — and within a year an admin
  * would be hunting through twenty items trying to remember which node each one
  * belonged to. Now the sidebar has one entry and each node has its own page.
  */

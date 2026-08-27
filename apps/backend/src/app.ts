@@ -9,8 +9,6 @@ import { authRoutes } from "./modules/auth/routes";
 import { healthRoutes } from "./modules/health/routes";
 import { architectRoutes } from "./modules/architect/routes";
 import { businessRoutes } from "./modules/business/routes";
-// [DISABLED] import { crmRoutes } from "./modules/crm/routes";
-// [DISABLED] import { handleHubSpotWebhookPost } from "./modules/crm/hubspot/webhook";
 import { mailRoutes } from "./modules/mails/routes";
 import { approvalRoutes } from "./modules/approvals/routes";
 import { adminRoutes } from "./modules/admin/routes";
@@ -60,9 +58,6 @@ app.route("/architect", architectRoutes);
 app.route("/api/architect", architectRoutes);
 app.route("/business", businessRoutes);
 app.route("/api/business", businessRoutes);
-// [DISABLED] HubSpot CRM routes
-// app.route("/crm", crmRoutes);
-// app.route("/api/crm", crmRoutes);
 app.route("/integrations", integrationsRoutes);
 app.route("/api/integrations", integrationsRoutes);
 app.route("/mail", mailRoutes);
@@ -122,10 +117,6 @@ app.get("/webhook/in/:token", handleInboundAgentWebhookProbe);
 app.post("/webhook/in/:token", webhookBodyLimit, handleInboundAgentWebhookPost);
 app.get("/api/webhook/in/:token", handleInboundAgentWebhookProbe);
 app.post("/api/webhook/in/:token", webhookBodyLimit, handleInboundAgentWebhookPost);
-
-// [DISABLED] HubSpot CRM public webhook.
-// app.post("/webhook/hubspot", handleHubSpotWebhookPost);
-// app.post("/api/webhook/hubspot", handleHubSpotWebhookPost);
 
 app.notFound((c) => {
   console.warn(`[app] Route not found: ${c.req.method} ${c.req.url}`);

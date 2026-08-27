@@ -2,7 +2,7 @@
  * THE AI BUILDER — one assistant instead of three.
  *
  * The platform had grown three faces: the AI Composer built the canvas, the
- * the AI Builder edited the page, and a third — the Design Brain — was already
+ * the AI Builder edited the page, and a third — the AI Builder — was already
  * a corpse still registered in the palette. Three boxes, three names, and none
  * of them knew what the other two did or what the last run said. Nobody's
  * friend works like that; ChatGPT is one box that hears everything.

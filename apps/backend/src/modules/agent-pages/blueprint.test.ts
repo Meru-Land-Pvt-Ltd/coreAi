@@ -228,13 +228,13 @@ describe("deriveFaceBlueprint", () => {
     expect(label.startsWith("Keep going")).toBe(true);
   });
 
-  it("excludes Design Brain nodes — they style the page, they are never a section", () => {
+  it("excludes the retired styling card — it was never a page section", () => {
     // Alone on the canvas: no blueprint at all (default Face is kept).
     expect(
       deriveFaceBlueprint({ nodes: [canvasNode("design.brain", { x: 0, y: 0 })] })
     ).toBeNull();
 
-    // Mixed with real blocks: the Design Brain never appears in the block list,
+    // Mixed with real blocks: the AI Builder never appears in the block list,
     // whether its slug sits on data.type (builder graphs) or on the top-level
     // node.type (hand-written graphs).
     const blueprint = deriveFaceBlueprint({

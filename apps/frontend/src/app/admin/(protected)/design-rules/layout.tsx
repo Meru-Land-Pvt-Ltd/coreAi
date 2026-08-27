@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { pageTitle } from "@/lib/site-metadata";
 
-export const metadata: Metadata = pageTitle("Design Brain rules");
+export const metadata: Metadata = pageTitle("AI Builder");
 
 export default function Layout({ children }: { children: ReactNode }) {
   return children;

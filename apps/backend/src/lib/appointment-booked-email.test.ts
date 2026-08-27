@@ -43,7 +43,9 @@ describe("appointment-booked email template", () => {
       appointmentLink: "javascript:alert(1)"
     });
 
-    expect(html).toContain('href="http://localhost:3000/business/dashboard"');
+    /* The host comes from this machine's own settings, so pin the path, not
+       the address — otherwise the test passes or fails on whose laptop it is. */
+    expect(html).toMatch(/href="https?:\/\/[^"]*\/business\/dashboard"/);
     expect(html).not.toContain("javascript:");
   });
 });

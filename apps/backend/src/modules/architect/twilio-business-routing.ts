@@ -51,7 +51,7 @@ import { checkUsageCapAndNotify } from "../business/usage-cap";
 //   rescheduleRemindersForAppointment,
 //   scheduleRemindersForAppointment
 // } from "../business/reminders/reminder-service";
-// import { redactSensitiveText } from "../business/conversation-understanding/redaction";
+import { redactSensitiveText } from "../business/conversation-understanding/redaction";
 // import { evaluateCall } from "../business/quality/evaluate";
 // import { recordUnansweredQuestion } from "../business/knowledge-v2/unanswered-questions";
 // import { ensureCustomerByIdentity } from "../business/customers/customer-service";
@@ -5916,14 +5916,22 @@ export async function handleVapiWebhook(c: Context) {
       (typeof metadata.customerPhone === "string" ? metadata.customerPhone : "");
     const conversationId = typeof metadata.conversationId === "string" ? metadata.conversationId : undefined;
     const messageType = firstNestedString(body, [["message", "type"], ["type"]]);
-    // [DISABLED:non-handoff] PII redaction wrap — original extraction restored.
-    // const summary = redactSensitiveText(...).redacted; const transcript = redactSensitiveText(...).redacted;
-    const summary = firstNestedString(body, [["message", "summary"], ["summary"]]);
-    const transcript =
+    /* A CARD NUMBER SAID OUT LOUD MUST NOT LAND IN OUR DATABASE.
+       This was switched off, so a caller reading their card, CVV or social
+       security number to the agent had it stored in plain text in the call's
+       transcript and summary — for as long as the business kept the record.
+       Switched back on 2026-08-27. It is deterministic, costs nothing, and is
+       deliberately conservative: it only removes digits that pass a card
+       checksum or sit next to a CVV/SSN label, so phone numbers and order
+       ids survive. */
+    const rawSummary = firstNestedString(body, [["message", "summary"], ["summary"]]);
+    const rawTranscript =
       firstNestedString(body, [["message", "transcript"], ["transcript"]]) ||
       extractStructuredCallTurns(body)
         .map((turn) => `${turn.role === "assistant" ? "AI" : "User"}: ${turn.content}`)
         .join("\n");
+    const summary = rawSummary ? redactSensitiveText(rawSummary).redacted : rawSummary;
+    const transcript = redactSensitiveText(rawTranscript).redacted;
 
     const agentPaused = businessContext?.businessId
       ? await isVapiInstalledAgentPaused(businessContext.businessId, metadataInstalledAgentId)

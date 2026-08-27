@@ -12,7 +12,7 @@ import {
 } from "./brain-slot-settings";
 
 /**
- * The Design Brain battery — the model that designs products.
+ * The AI Builder battery — the model that designs products.
  *
  * Both design paths run on it: the full product generation ("build me the whole
  * page") and the small styling edits an architect types ("make it wider", "use
@@ -31,6 +31,11 @@ import {
  * stronger design model arrives, it is one dropdown.
  */
 
+/* THE NAMES STAY BECAUSE THE SAVED VALUES DO. These two strings are the keys
+   the settings already sit under in the database. Renaming them to match what
+   the screen now says would leave every value an admin has chosen behind under
+   the old key, and the platform would come back up with defaults. The screen's
+   words changed; the drawer label did not. */
 export const DESIGN_BRAIN_PROVIDER_KEY = "designBrainProvider";
 export const DESIGN_BRAIN_MODEL_KEY = "designBrainModel";
 

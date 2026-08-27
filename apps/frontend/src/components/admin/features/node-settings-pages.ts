@@ -3,7 +3,7 @@
  *
  * A node's settings belong to that node, not to the sidebar. The sidebar used
  * to grow by one entry every time a node gained a setting — "AI models",
- * "Design Brain rules", "Builder nodes" — and within a year an admin would be
+ * "AI Builder rules", "Builder nodes" — and within a year an admin would be
  * hunting through twenty items trying to remember which node each belonged to.
  *
  * So the sidebar keeps one entry, Nodes, and anything that configures a node

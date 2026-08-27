@@ -15,7 +15,7 @@ import { BuilderIcon } from "./icons";
  * THE AI BUILDER — one assistant instead of three.
  *
  * The platform had grown three AI faces: the AI Composer built the canvas, the
- * the AI Builder edited the page, and the Design Brain was already a corpse
+ * the AI Builder edited the page, and the AI Builder was already a corpse
  * with its name still on things. Three boxes, three names — and none of them
  * knew what the other two did, or what the architect's last run said. Nobody's
  * friend works like that; ChatGPT is one box that hears everything.

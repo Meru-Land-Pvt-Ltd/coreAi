@@ -11,9 +11,9 @@ import { BuilderBrainCard, BuilderEyesCard } from "@/components/admin/ui/builder
 import { BuilderSoulCard } from "@/components/admin/ui/builder-soul-card";
 
 /**
- * Admin → Design Brain rules.
+ * Admin → AI Builder rules.
  *
- * One plain-text rulebook the Design Brain follows on every styling request.
+ * One plain-text rulebook the AI Builder follows on every styling request.
  * While nothing is saved the platform default applies, so the Brain is never
  * rule-less. "Restore default" saves blank, which brings the default back.
  *
@@ -73,8 +73,8 @@ export default function DesignRulesPage() {
     setIsDefault(rules.isDefault);
     setMessage(
       restoring || restoredDefault
-        ? "Default rules restored. The Design Brain follows them right away."
-        : "Rules saved. The Design Brain follows them right away."
+        ? "Default rules restored. The AI Builder follows them right away."
+        : "Rules saved. The AI Builder follows them right away."
     );
     setSaving(false);
   }
@@ -84,7 +84,7 @@ export default function DesignRulesPage() {
       <header className="mb-6">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-bold text-slate-900" data-testid="admin-design-rules-heading">
-            Design Brain rules
+            AI Builder
           </h1>
           <span
             data-testid="admin-design-rules-status"
@@ -98,7 +98,7 @@ export default function DesignRulesPage() {
           </span>
         </div>
         <p className="mt-1 text-sm text-slate-600" data-testid="admin-design-rules-subtitle">
-          These rules discipline the Design Brain on every styling request.
+          These rules discipline the AI Builder on every styling request.
         </p>
       </header>
 
@@ -179,7 +179,7 @@ export default function DesignRulesPage() {
 
           {value.trim() === "" ? (
             <p className="mt-3 text-[11px] text-slate-400" data-testid="admin-design-rules-blank-hint">
-              Saving an empty rulebook brings back the platform default — the Design Brain is never
+              Saving an empty rulebook brings back the platform default — the AI Builder is never
               left without rules.
             </p>
           ) : null}

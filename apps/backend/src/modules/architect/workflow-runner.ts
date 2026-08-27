@@ -7679,13 +7679,13 @@ async function executeNodeOnConfig(params: {
       return { logs: nodeLogs, runFailed: false };
     }
 
-    // Design Brain styles the customer page (via the design-chat endpoint) —
-    // never engine work. Its own skip line keeps the run log friendly even on
-    // hand-written graphs that lack nodeKind (the "block." prefix check below
-    // would miss "design.brain").
+    /* A retired styling card. It is off the shelf, but old canvases still
+       carry one, and a saved agent must keep running. Its own skip line keeps
+       the run log friendly even on hand-written graphs that lack nodeKind
+       (the "block." prefix check below would miss "design.brain"). */
     if (isDesignBrainNodeType(asString(node.data?.type))) {
       nodeLogs.push(
-        createLog(node, "success", "Design Brain — it styles your page, nothing to run")
+        createLog(node, "success", "A retired styling card — nothing to run. You style your product by telling the AI Builder.")
       );
       return { logs: nodeLogs, runFailed: false };
     }

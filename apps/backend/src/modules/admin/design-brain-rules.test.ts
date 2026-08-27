@@ -10,7 +10,7 @@ import {
 } from "./design-brain-rules";
 
 /**
- * Design Brain constitution. The contract that matters:
+ * AI Builder constitution. The contract that matters:
  *   saved rules win → otherwise the platform default → never rule-less
  * and clearing restores the default rather than storing an empty constitution.
  */

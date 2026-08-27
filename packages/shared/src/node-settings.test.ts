@@ -6,7 +6,7 @@ import { allPlatformDials, getNodeDefinition, nodeCatalogue, type NodeSetting } 
  *
  * A node could only ever declare `defaultConfig` — a bare pair of values — so
  * every setting on this platform lived inside one React panel and nothing else
- * could read it. The Smart Designer could not know a box stops at 200
+ * could read it. The AI Builder could not know a box stops at 200
  * characters, and the AI Composer could not fill a setting in without
  * inventing a value.
  *

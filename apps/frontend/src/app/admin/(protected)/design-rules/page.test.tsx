@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import DesignRulesPage from "./page";
 
 /**
- * Admin → Design Brain rules page: load, edit + save, and restore-default —
+ * Admin → AI Builder rules page: load, edit + save, and restore-default —
  * with the API client mocked, mirroring the other admin page suites.
  */
 
@@ -45,7 +45,7 @@ beforeEach(() => {
   updateAdminDesignRulesMock.mockReset();
 });
 
-describe("Design Brain rules page", () => {
+describe("AI Builder rules page", () => {
   it("loads the effective rules into the editor with a character count", async () => {
     render(<DesignRulesPage />);
 
@@ -58,7 +58,7 @@ describe("Design Brain rules page", () => {
       `${DEFAULT_RULES.length} / 8000`
     );
     expect(screen.getByTestId("admin-design-rules-subtitle").textContent).toBe(
-      "These rules discipline the Design Brain on every styling request."
+      "These rules discipline the AI Builder on every styling request."
     );
     // Nothing edited yet — Save stays off.
     expect(screen.getByTestId("admin-design-rules-save").hasAttribute("disabled")).toBe(true);

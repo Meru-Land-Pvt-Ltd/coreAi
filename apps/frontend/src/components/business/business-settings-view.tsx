@@ -41,12 +41,6 @@ import {
   type BusinessSetupData
 } from "@/components/business/features/api";
 import { BusinessPaymentMethodModal } from "@/components/business/business-payment-method-modal";
-import {
-  disconnectHubSpot as disconnectBusinessHubSpot,
-  getCrmProviders,
-  getHubSpotOAuthUrl,
-  type CrmProviderEntry
-} from "@/components/business/crm/api";
 import { apiGet, apiPatch } from "@/lib/api";
 import { downloadInvoicePdf } from "@/lib/invoice-print";
 import { getAuthUser, logout, saveAuthSession, updateAuthUser, type AuthUser } from "@/lib/auth";
@@ -1168,10 +1162,6 @@ export function BusinessSettingsView() {
   const [whatsappPhoneNumber, setWhatsappPhoneNumber] = useState<string | null>(null);
   const [whatsappDisplayName, setWhatsappDisplayName] = useState<string | null>(null);
   const [whatsappConnectOpen, setWhatsappConnectOpen] = useState(false);
-  // Customer CRM providers — HubSpot is live, the rest are catalog entries so
-  // the buyer can see what is coming without a second settings page.
-  const [crmProviders, setCrmProviders] = useState<CrmProviderEntry[]>([]);
-  const [crmBusy, setCrmBusy] = useState(false);
 
   const [profileForm, setProfileForm] = useState(() => buildProfileForm(authUser, null));
   const [accountEmail, setAccountEmail] = useState(authUser?.email ?? "");
@@ -1241,7 +1231,7 @@ export function BusinessSettingsView() {
   }
 
   const loadData = useCallback(async () => {
-    const [setupResult, billingResult, calendarResult, calendlyResult, whatsappResult, profileResult, sessionsResult, loginHistoryResult, crmResult] =
+    const [setupResult, billingResult, calendarResult, calendlyResult, whatsappResult, profileResult, sessionsResult, loginHistoryResult] =
       await Promise.all([
         getBusinessSetup(),
         apiGet<{ billing: BillingData }>("/payments/billing"),
@@ -1250,13 +1240,8 @@ export function BusinessSettingsView() {
         getBusinessWhatsAppStatus(),
         getBusinessSettingsProfile(),
         getBusinessActiveSessions(),
-        getBusinessLoginHistory(),
-        getCrmProviders()
+        getBusinessLoginHistory()
       ]);
-
-    if (crmResult.success && crmResult.data) {
-      setCrmProviders(crmResult.data.providers);
-    }
 
     const settingsProfile =
       profileResult.success && profileResult.data?.profile ? profileResult.data.profile : null;
@@ -1599,37 +1584,6 @@ export function BusinessSettingsView() {
       return;
     }
     showToast(result.error ?? "Could not disconnect Calendly");
-  }
-
-  // Both entry points (Settings and the CRM empty state) call the same OAuth
-  // start endpoint; only the return path differs.
-  async function handleConnectHubSpot() {
-    if (crmBusy) return;
-    setCrmBusy(true);
-    const result = await getHubSpotOAuthUrl("/business/setting?tab=integrations");
-    setCrmBusy(false);
-
-    if (result.success && result.data?.url) {
-      window.location.href = result.data.url;
-      return;
-    }
-    showToast(result.error ?? "Could not start the HubSpot connection");
-  }
-
-  async function handleDisconnectHubSpot() {
-    const result = await disconnectBusinessHubSpot();
-    if (result.success) {
-      setCrmProviders((providers) =>
-        providers.map((provider) =>
-          provider.id === "HUBSPOT"
-            ? { ...provider, connected: false, isActive: false, lastSyncedAt: null }
-            : provider
-        )
-      );
-      showToast("HubSpot disconnected");
-      return;
-    }
-    showToast(result.error ?? "Could not disconnect HubSpot");
   }
 
   function handleConnectWhatsApp() {
@@ -2450,49 +2404,6 @@ export function BusinessSettingsView() {
                   icon="quickbooks"
                   onConnect={() => showToast("QuickBooks connection coming soon")}
                 /> */}
-              </div>
-
-              {/*
-                Customer CRM. Triven does not replace the CRM a business already
-                uses — it becomes the AI layer on top of it. HubSpot is the first
-                live adapter; the rest are listed so the buyer can see the
-                roadmap without a second settings page.
-              */}
-              <div className="mb-6 mt-10">
-                <h2 className="text-lg font-bold text-slate-900">Customer CRM</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Connect your CRM so agents greet returning customers by name and log every call
-                  back to their record. Email and company are optional.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                {crmProviders.map((provider) => {
-                  const live = provider.status === "live";
-                  const isHubSpot = provider.id === "HUBSPOT";
-
-                  return (
-                    <IntegrationCard
-                      key={provider.id}
-                      name={provider.name}
-                      description={provider.description}
-                      connected={live && provider.connected}
-                      connectedDetail={
-                        provider.isActive ? "Connected · used for customer context" : undefined
-                      }
-                      testId={provider.id.toLowerCase()}
-                      icon={provider.id.toLowerCase()}
-                      onConnect={
-                        isHubSpot
-                          ? handleConnectHubSpot
-                          : () => showToast(`${provider.name} connection coming soon`)
-                      }
-                      onDisconnect={
-                        isHubSpot && provider.connected ? handleDisconnectHubSpot : undefined
-                      }
-                    />
-                  );
-                })}
               </div>
             </SettingsSection>
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DESIGN_DEFAULTS, designConfigSchema, resolveDesign } from "./design";
 
 /**
- * Design Brain resolution: designJson is untrusted storage — resolveDesign
+ * AI Builder resolution: designJson is untrusted storage — resolveDesign
  * must always return a full, valid DesignConfig (defaults filled in, invalid
  * values salvaged per key, unknown keys ignored) and never throw.
  */
@@ -92,7 +92,7 @@ describe("resolveDesign — contentWidth (how wide the page runs)", () => {
     }
   });
 
-  it("is one of the schema's dials, so the Design Brain can turn it", () => {
+  it("is one of the schema's dials, so the AI Builder can turn it", () => {
     expect(Object.keys(designConfigSchema.shape)).toContain("contentWidth");
   });
 });

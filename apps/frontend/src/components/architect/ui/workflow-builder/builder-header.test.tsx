@@ -5,7 +5,7 @@ import { BuilderHeader } from "./builder-header";
 
 /**
  * The standalone Preview button is gone — the live preview now lives in the
- * Test tab with the Design Brain docked beside it. The header keeps exactly
+ * Test tab with the AI Builder docked beside it. The header keeps exactly
  * "Run" and "Publish Agent" as its actions, and on the Preview step it also
  * carries the compact device switcher plus the quiet "Advanced testing"
  * link (both moved up from the old preview toolbar strip).

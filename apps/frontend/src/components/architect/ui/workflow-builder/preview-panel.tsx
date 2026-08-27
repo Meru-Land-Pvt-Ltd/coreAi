@@ -41,7 +41,7 @@ import { updateAgentPageConfig } from "@/components/architect/features/api";
  * centered device frame instead. When the graph carries product blocks
  * (`blueprint`), the page is block-assembled (FaceRenderer) — exactly like
  * the live page. The engines arrive as props; the one exception is the
- * floating Design Brain panel (bottom-right launcher), whose chat talks to
+ * floating AI Builder panel (bottom-right launcher), whose chat talks to
  * the styling endpoint itself and reports back through onDesignApplied so
  * the page refetches and restyles in place.
  */
@@ -81,7 +81,7 @@ export type PreviewPanelProps = {
    */
   blueprint?: FaceBlueprint | null;
   /**
-   * The saved ProductSpec — the whole product the Design Brain's Build mode
+   * The saved ProductSpec — the whole product the AI Builder's Build mode
    * wrote (pages, copy, wires). Non-null means the architect built a product,
    * and the preview shows THAT — the real multi-page site — over the single
    * assembled Face. Absent/null keeps every pre-Build behavior untouched.
@@ -94,7 +94,7 @@ export type PreviewPanelProps = {
    */
   configLoading?: boolean;
   /**
-   * The saved Design Brain config (GET /agent-pages/manage/:id `design`).
+   * The saved AI Builder config (GET /agent-pages/manage/:id `design`).
    * Passed straight into the page data so the shell + templates render every
    * dial exactly like the live page; a change here live-updates the preview.
    * Null/undefined falls back to the design defaults.
@@ -128,7 +128,7 @@ export type PreviewPanelProps = {
   onPurposeSaved?: (purpose: string) => void;
   onOpenAdvanced: () => void;
   /**
-   * Called after the floating Design Brain lands a styling change so the
+   * Called after the floating AI Builder lands a styling change so the
    * container refetches the saved page + design and the preview restyles
    * in front of the architect. `graphChanged` true means the saved canvas
    * graph changed too and the builder reloads nodes/edges from the server.
@@ -213,7 +213,7 @@ export function PreviewPanel({
   onOpenAdvanced,
   onDesignApplied
 }: PreviewPanelProps) {
-  /* The Smart Designer's own dock died with the founder's ruling
+  /* The AI Builder's own dock died with the founder's ruling
      (2026-08-27): one employee, one dock, mounted at the view level. */
 
   // Face priority: a manual pill pick wins; then the architect's saved page
@@ -222,7 +222,7 @@ export function PreviewPanel({
   const autoFace: AgentPageTemplate = hasVoiceNode ? "voice" : hasMediaNode ? "media" : "chat";
   const face = page?.template ?? defaultTemplate ?? autoFace;
 
-  // A built product (Design Brain "Build") outranks everything: the preview's
+  // A built product (AI Builder "Build") outranks everything: the preview's
   // promise is "what your customer will meet", and once a product exists,
   // that is the product. An empty spec reads as none.
   const productSpec = product && product.pages.length > 0 ? product : null;
@@ -406,7 +406,7 @@ export function PreviewPanel({
         ? { displayName: architectName.trim(), photoUrl: null }
         : null,
       limits: { remainingToday: 1 },
-      // The Design Brain dials — absent reads as defaults inside the shell.
+      // The AI Builder dials — absent reads as defaults inside the shell.
       design: design ?? null
     }),
     [architectName, design, face, page, workflowId, workflowName]

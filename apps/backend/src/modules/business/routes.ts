@@ -22,20 +22,7 @@ import { calendarEventTitleForMode,
 import { env, isProduction } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
 import { apiErrorStatus, errorMessage, isRecord } from "../../lib/error-utils";
-// [DISABLED] import { teamRoutes } from "./team/team-routes";
-// [DISABLED] import { acceptInvite, TeamServiceError } from "./team/team-service";
-// [DISABLED] import { inboxRoutes } from "./inbox/inbox-routes";
-// [DISABLED:non-handoff] imports for the commented mounts below.
-// import { reminderRoutes } from "./reminders/reminder-routes";
-// import { qualityRoutes } from "./quality/quality-routes";
-// import { businessRulesRoutes } from "./rules/rules-routes";
-// import { customerRoutes } from "./customers/customer-routes";
-// import { knowledgeV2Routes } from "./knowledge-v2/knowledge-v2-routes";
-// import { requireBusinessPermission } from "./team/membership";
-// import { attachConnectionToBusiness } from "../whatsapp/buyer-runtime";
-// import { logBusinessActivity } from "./activity-log";
 import { callListRoutes } from "./call-list-routes";
-// import { callsRoutes } from "./calls-routes";
 import { analyticsRoutes } from "./analytics/routes";
 import {
   findPhoneCountry,
@@ -407,83 +394,13 @@ businessRoutes.post("/billing/webhook", handleStripeWebhook);
 
 businessRoutes.use("*", requireAuth);
 
-/* [DISABLED] team invite acceptance (sits before the BUSINESS role gate).
-businessRoutes.post("/team/invites/accept", async (c) => {
-  const authUser = c.get("authUser");
-  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-  const token = typeof body.token === "string" ? body.token : "";
-  if (!token) return errorResponse(c, "Invite token is required", 422, "TOKEN_REQUIRED");
-  try {
-    const result = await acceptInvite({ userId: authUser.id, userEmail: authUser.email, token });
-    return successResponse(c, result);
-  } catch (error) {
-    if (error instanceof TeamServiceError) {
-      return errorResponse(c, error.message, error.httpStatus as 400, error.code);
-    }
-    console.error("[team] invite accept failed", error);
-    return errorResponse(c, "Could not accept the invite", 500, "INVITE_ACCEPT_FAILED");
-  }
-});
-*/
-
 businessRoutes.use("*", requireRole(["BUSINESS"]));
 
-// [DISABLED] staff/team + shared inbox mounts.
-// businessRoutes.route("/team", teamRoutes);
-// businessRoutes.route("/inbox", inboxRoutes);
-// [DISABLED:non-handoff] Re-enable by uncommenting the mounts below.
-// businessRoutes.route("/reminders", reminderRoutes);
-// businessRoutes.route("/quality", qualityRoutes);
-// businessRoutes.route("/rules", businessRulesRoutes);
-// businessRoutes.route("/customers", customerRoutes);
-// businessRoutes.route("/knowledge-v2", knowledgeV2Routes);
-// businessRoutes.route("/calls", callsRoutes);
 businessRoutes.route("/analytics", analyticsRoutes);
 // The buyer's own call lists: their people, their Start/Stop, their numbers.
 // Mounted flat rather than under a prefix so the paths read as
 // /business/agents/:id/call-lists and /business/call-lists/:id.
 businessRoutes.route("/", callListRoutes);
-
-// [DISABLED:non-handoff] WhatsApp buyer scoping — disabled with the buyer
-// runtime; re-enable both together by uncommenting this block.
-// businessRoutes.post(
-//   "/channels/whatsapp/attach",
-//   requireBusinessPermission("manage_integrations"),
-//   async (c) => {
-//     const membership = c.get("businessMembership");
-//     const authUser = c.get("authUser");
-//     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-//     const connectionId = typeof body.connectionId === "string" ? body.connectionId : "";
-//     if (!connectionId) return errorResponse(c, "connectionId is required", 422, "CONNECTION_REQUIRED");
-//
-//     const connection = await prisma.whatsAppConnection.findFirst({
-//       where: { id: connectionId, architectUserId: authUser.id },
-//       select: { id: true }
-//     });
-//     if (!connection) {
-//       return errorResponse(c, "WhatsApp connection not found for this account", 404, "CONNECTION_NOT_FOUND");
-//     }
-//
-//     try {
-//       await attachConnectionToBusiness({
-//         connectionId,
-//         businessId: membership.businessId,
-//         installedAgentId: typeof body.installedAgentId === "string" ? body.installedAgentId : null
-//       });
-//     } catch (error) {
-//       return errorResponse(c, errorMessage(error), 422, "ATTACH_FAILED");
-//     }
-//     await logBusinessActivity({
-//       businessId: membership.businessId,
-//       action: "INTEGRATION_CHANGED",
-//       actorUserId: authUser.id,
-//       targetType: "WhatsAppConnection",
-//       targetId: connectionId,
-//       detail: { channel: "WHATSAPP", attached: true }
-//     });
-//     return successResponse(c, { attached: true });
-//   }
-// );
 
 businessRoutes.post("/billing/checkout", createCheckoutSession);
 businessRoutes.get("/billing/status", getBillingStatus);
@@ -1618,8 +1535,6 @@ const businessSetupSchema = z.object({
   timeZone: z.string().trim().optional().or(z.literal("")),
   tone: z.string().trim().default("friendly"),
   escalationRules: z.string().trim().optional().or(z.literal("")),
-  // [DISABLED] transferConditions: z.string().trim().max(1500).optional().or(z.literal("")),
-  // [DISABLED] transferEnabled: z.boolean().optional(),
 
   services: z.array(z.string().trim().min(1)).default([]),
   faqs: z.array(faqItemSchema).default([]),
@@ -4298,7 +4213,6 @@ businessRoutes.post("/setup", async (c) => {
         escalationRules: cleanOptional(input.escalationRules),
         bookingUrl: cleanOptional(input.bookingUrl),
         teamPhone: cleanOptional(input.teamPhone),
-        // [DISABLED] transferConditions / transferEnabled persistence.
         ...(input.hours.length > 0 ? { hours: input.hours } : {})
       },
       silence: {

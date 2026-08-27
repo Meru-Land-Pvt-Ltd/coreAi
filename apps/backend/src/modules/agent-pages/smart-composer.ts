@@ -62,7 +62,7 @@ import { ensureDraftAgentListingAndPage, type AgentPageTemplate } from "./slug";
  * other violation back for exactly one retry. A spec that still fails is never
  * saved.
  *
- * This is a completely separate, parallel feature: the existing Design Brain
+ * This is a completely separate, parallel feature: the existing AI Builder
  * node and its Style/Build chat are untouched, and this module runs on its own
  * admin battery (`getBuilderBrainConfig`) so its model is swappable
  * without ever affecting the old designer.

@@ -15,7 +15,7 @@ import { BLOCK_NODE_TYPES, DESIGN_BRAIN_NODE_TYPE, isBlockNodeType } from "@core
  *   column 3  Face output blocks (result stage, history shelf) — what the
  *             customer sees at the end, stacked in current order.
  *
- * The Design Brain is a canvas companion, not a step in the flow — it parks
+ * The AI Builder is a canvas companion, not a step in the flow — it parks
  * bottom-left, under column 0, out of the reading path.
  *
  * Everything here is pure and deterministic: the same nodes + edges always
@@ -42,7 +42,7 @@ export const TIDY_COLUMN_X_START = 80;
 export const TIDY_COLUMN_SPACING = 340;
 export const TIDY_ROW_Y_START = 80;
 export const TIDY_ROW_SPACING = 190;
-/** Extra air between the last column row and the parked Design Brain. */
+/** Extra air between the last column row and the parked AI Builder. */
 export const TIDY_PARK_GAP = 70;
 
 /** Face blocks the customer fills in — they feed the brain. */
@@ -65,7 +65,7 @@ function nodeKind(node: TidyNode): string {
   return String(node.data?.nodeKind ?? "");
 }
 
-/** Which lane a node belongs to (column 0–3, or parked for the Design Brain). */
+/** Which lane a node belongs to (column 0–3, or parked for the AI Builder). */
 export function tidyLaneFor(node: TidyNode): TidyLane {
   const type = nodeType(node);
 
@@ -185,7 +185,7 @@ export function computeTidyPositions(
     tallestColumn = Math.max(tallestColumn, column.length);
   });
 
-  // Park the Design Brain bottom-left, clear of every column row.
+  // Park the AI Builder bottom-left, clear of every column row.
   const parkedYStart =
     TIDY_ROW_Y_START + Math.max(tallestColumn, 1) * TIDY_ROW_SPACING + TIDY_PARK_GAP;
   parked.forEach((node, rowIndex) => {

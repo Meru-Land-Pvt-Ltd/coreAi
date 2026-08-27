@@ -417,7 +417,7 @@ adminRoutes.put("/api-settings", async (c) => {
   return successResponse(c, { groups: await listPlatformApiSettings(), ...result }, "API settings saved");
 });
 
-/* ------------------ Design Brain rules (platform constitution) ------------------ */
+/* ------------------ AI Builder rules (platform constitution) ------------------ */
 
 adminRoutes.get("/design-rules", async (c) => {
   const rules = await getDesignBrainRulesSetting();
@@ -441,6 +441,8 @@ adminRoutes.patch("/design-rules", async (c) => {
   // The rules text itself is not logged — only that it changed, and how.
   await logAdminAction({
     adminUserId: authUser.id,
+    /* The stored name of this event. It stays as written: the audit log
+       already carries rows under it, and renaming splits one history in two. */
     action: "DESIGN_BRAIN_RULES_UPDATED",
     targetType: "PlatformApiSetting",
     meta: { restoredDefault: result.restoredDefault, length: parsed.data.value.trim().length }
@@ -450,7 +452,7 @@ adminRoutes.patch("/design-rules", async (c) => {
   return successResponse(
     c,
     { rules: { ...rules, defaultValue: DEFAULT_DESIGN_BRAIN_RULES }, ...result },
-    result.restoredDefault ? "Default rules restored" : "Design Brain rules saved"
+    result.restoredDefault ? "Default rules restored" : "AI Builder rules saved"
   );
 });
 
