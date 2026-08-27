@@ -10,7 +10,7 @@ import { ARCHITECT_MY_AGENTS_PATH } from "@/lib/routes";
 import { CategoryTagsPill } from "@/components/common/category-tags-pill";
 import { resolveBrowseIndustries } from "@coreai/shared";
 
-type StatusState = 1 | 2 | 3 | 4;
+type StatusState = 1 | 2 | 3 | 5;
 
 const PUBLISH_STATUS_STYLES = `
 :root{--ps-amber:#f59e0b;--ps-green:#10b981;--ps-red:#ef4444;--ps-blue:#3b82f6}
@@ -47,6 +47,10 @@ const PUBLISH_STATUS_STYLES = `
 function statusToState(status: ArchitectListing["status"]): StatusState {
   if (status === "APPROVED") return 2;
   if (status === "REJECTED" || status === "SUSPENDED") return 3;
+  /* A PAUSED OR DRAFT AGENT WAS SHOWN AS "being reviewed by our team", with a
+     Cancel submission button the server refuses outright — nobody is reviewing
+     it, and there is nothing to cancel. 5 means "not in review at all". */
+  if (status === "PAUSED" || status === "DRAFT") return 5;
   return 1;
 }
 
@@ -66,10 +70,11 @@ function buildReviewTimelineEntries(state: StatusState, agent: ResolvedAgent): T
       ? agent.updatedAt
       : null;
 
+  /* "Automated security scan passed" and "Assigned to reviewer" were shown
+     with green and blue ticks on every submission. There is no scan, and
+     nobody is assigned — submitting writes one row and waits for an admin. */
   const base: TimelineEntry[] = [
-    { t: "Step 1", d: "Agent submitted for review", c: "green", date: submittedDate },
-    { t: "Step 2", d: "Automated security scan passed", c: "green" ,date: submittedDate },
-    { t: "Step 3", d: "Assigned to reviewer", c: "blue" ,date: submittedDate }
+    { t: "Step 1", d: "Agent submitted for review", c: "green", date: submittedDate }
   ];
 
   switch (state) {
@@ -87,13 +92,6 @@ function buildReviewTimelineEntries(state: StatusState, agent: ResolvedAgent): T
       return [
         ...base,
         { t: "Latest", d: "Review completed — Changes required", c: "amber", date: reviewedDate }
-      ];
-    case 4:
-      return [
-        ...base,
-        { t: "Earlier", d: "Review completed — Changes required", c: "amber", date: reviewedDate },
-        { t: "Resubmitted", d: "Resubmitted with fixes", c: "blue", date: submittedDate ?? reviewedDate },
-        { t: "In progress", d: "Re-review in progress", c: "amber", pulse: true }
       ];
     default:
       return base;
@@ -174,15 +172,6 @@ function AgentHeaderIcon({ iconUrl }: { iconUrl: string | null }) {
   );
 }
 
-function StatBox({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="rounded-xl border border-[#eef2f7] bg-[#f8fafc] px-3.5 py-3">
-      <div className="text-2xl font-bold text-slate-900">{value}</div>
-      <div className="mt-0.5 text-xs text-slate-500">{label}</div>
-    </div>
-  );
-}
-
 //==============under review panel================
 function UnderReviewPanel({
   agent,
@@ -215,17 +204,21 @@ function UnderReviewPanel({
               Submitted {formatDate(agent.submittedAt ?? agent.createdAt)}
             </span>
           </div>
-          <div className="h-2.5 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={60} aria-valuemin={0} aria-valuemax={100}>
-            <div className="ps-bar-fill h-full rounded-full" style={{ width: "60%", background: "var(--ps-amber)" }} />
+          {/* Hardcoded at 60% for everyone, forever — a progress bar that
+              measures nothing is a promise about time we cannot keep. It
+              moves gently instead of claiming a position. */}
+          <div className="h-2.5 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label="In review">
+            <div
+              className="ps-bar-fill h-full w-1/3 animate-pulse rounded-full"
+              style={{ background: "var(--ps-amber)" }}
+            />
           </div>
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-3">
-        <StatBox value="#3" label="Position in queue" />
-        <StatBox value="2" label="Agents ahead" />
-        <StatBox value="18h" label="Avg. review time" />
-      </div>
+      {/* "#3 in queue", "2 agents ahead", "18h average review time" — three
+          literals shown identically to every architect on the platform.
+          Nothing anywhere measures a queue position or a review time. */}
 
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6" data-testid="publishing-status-while-you-wait">
         <h3 className="mb-3 text-sm font-semibold text-slate-900">While you wait</h3>
@@ -595,59 +588,6 @@ function ChangesRequiredPanel({ agent, onResubmit }: { agent: ResolvedAgent; onR
   );
 }
 
-function ReReviewPanel({ agent }: { agent: ResolvedAgent }) {
-  return (
-    <div className="ps-reveal" role="status" aria-label="Agent status: Re-review Pending" data-testid="publishing-status-panel-re-review">
-      <div className="ps-glow-blue rounded-2xl border border-slate-200 bg-white p-5 sm:p-6" style={{ borderLeft: "4px solid var(--ps-blue)" }}>
-        <div className="flex items-start gap-4">
-          <div className="ps-pulse-blue grid h-12 w-12 shrink-0 place-items-center rounded-full text-white" style={{ background: "var(--ps-blue)" }}>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 16v-4M12 8h.01" />
-            </svg>
-          </div>
-          <div className="min-w-0">
-            <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold text-white" style={{ background: "var(--ps-blue)" }}>
-              Re-review Pending
-            </span>
-            <h2 className="mt-2 text-xl font-bold text-slate-900">Your updated agent is back in the review queue</h2>
-            <p className="mt-1.5 text-sm text-slate-400">
-              Resubmitted {formatDate(agent.submittedAt ?? agent.updatedAt ?? agent.createdAt)}
-            </p>
-            <p className="mt-1 text-sm font-medium" style={{ color: "#1d4ed8" }}>
-              Priority review — resubmissions are reviewed within 12 hours.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
-        <h3 className="mb-3 text-sm font-semibold text-slate-900">Previous issues addressed</h3>
-        <ul className="space-y-3 text-sm">
-          <li className="flex items-start gap-2.5">
-            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full" style={{ background: "#d1fae5", color: "#059669" }}>
-              <CheckIcon />
-            </span>
-            <span className="text-slate-400 line-through">API key moved to Secure Credentials Vault</span>
-          </li>
-          <li className="flex items-start gap-2.5">
-            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full" style={{ background: "#d1fae5", color: "#059669" }}>
-              <CheckIcon />
-            </span>
-            <span className="text-slate-400 line-through">Phone-number normalization added</span>
-          </li>
-          <li className="flex items-start gap-2.5">
-            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full" style={{ background: "#dbeafe", color: "#1d4ed8" }}>
-              <ArrowIcon />
-            </span>
-            <span className="text-slate-400 line-through">Competitor reference removed</span>
-          </li>
-        </ul>
-      </div>
-    </div>
-  );
-}
-
 type ResolvedAgent = {
   id: string;
   name: string;
@@ -879,7 +819,18 @@ function PublishingStatusContent() {
                   </>
                 ) : null}
                 {activeState === 3 ? <ChangesRequiredPanel agent={headerAgent} onResubmit={viewAgent} /> : null}
-                {activeState === 4 ? <ReReviewPanel agent={headerAgent} /> : null}
+                {activeState === 5 ? (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {headerAgent.status === "PAUSED" ? "This agent is paused" : "This agent is still a draft"}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {headerAgent.status === "PAUSED"
+                        ? "It is not on the marketplace and nobody is reviewing it. Publish it again from My Agents when you are ready."
+                        : "It has not been submitted for review yet. Finish it in the builder and submit it when you are ready."}
+                    </p>
+                  </div>
+                ) : null}
 
                 <ReviewTimeline entries={buildReviewTimelineEntries(activeState, headerAgent)} />
               </>

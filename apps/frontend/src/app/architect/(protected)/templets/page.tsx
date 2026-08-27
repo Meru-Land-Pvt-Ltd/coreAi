@@ -385,9 +385,10 @@ export default function ArchitectTemplateGalleryPage() {
       return true;
     };
     const list = templates.filter(matches);
-    if (sort === "popular") list.sort((x, y) => y.forks - x.forks);
+    /* "Popular" used to mean "most forks", and nothing counts forks — so an
+       invented number decided the order an architect met the gallery in. */
+    if (sort === "popular") list.sort((x, y) => x.title.localeCompare(y.title));
     else if (sort === "newest") list.sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime());
-    else if (sort === "forks") list.sort((x, y) => y.forks - x.forks);
     return list;
   }, [templates, category, industry, complexity, sort, search]);
 
@@ -554,8 +555,8 @@ export default function ArchitectTemplateGalleryPage() {
 
                 <div className="mt-7 flex items-center gap-7">
                   <div>
-                    <div className="text-2xl font-extrabold tracking-tight text-slate-900">{featured.forks}</div>
-                    <div className="mt-0.5 text-xs font-medium text-slate-400">forks</div>
+                    <div className="text-2xl font-extrabold tracking-tight text-slate-900">{featured.nodeCount}</div>
+                    <div className="mt-0.5 text-xs font-medium text-slate-400">steps</div>
                   </div>
                   <div className="h-9 w-px bg-slate-200" />
                   <div>
@@ -638,7 +639,6 @@ export default function ArchitectTemplateGalleryPage() {
             <select aria-label="Sort templates" value={sort} onChange={(e) => setSort(e.target.value)} className={selectClass} data-testid="architect-templates-sort-select">
               <option value="popular">Most popular</option>
               <option value="newest">Newest</option>
-              <option value="forks">Most forks</option>
             </select>
           </div>
           <div className="min-w-0 overflow-x-auto no-scrollbar">
@@ -729,8 +729,8 @@ export default function ArchitectTemplateGalleryPage() {
                             <path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9" />
                             <path d="M12 12v3" />
                           </svg>
-                          <span className="text-xl font-bold text-slate-900">{t.forks}</span>
-                          <span className="text-xs font-medium text-slate-400">forks</span>
+                          <span className="text-xl font-bold text-slate-900">{t.nodeCount}</span>
+                          <span className="text-xs font-medium text-slate-400">steps</span>
                         </div>
                       </div>
 
@@ -833,10 +833,8 @@ export default function ArchitectTemplateGalleryPage() {
               </div>
             </div>
 
-            <div className="w-full flex-shrink-0 rounded-2xl border border-amber-100 bg-amber-50/70 px-6 py-6 text-center sm:w-auto sm:px-9 sm:py-7">
-              <div className="text-4xl font-extrabold tracking-tight text-amber-600">4.2 hrs</div>
-              <div className="mt-1.5 max-w-[12rem] text-sm font-medium text-slate-500">saved per agent, on average, by starting from a template</div>
-            </div>
+            {/* "4.2 hrs saved per agent, on average" — a literal. Nothing on
+                this platform times how long an agent takes to build. */}
           </div>
         </div>
       </section>
@@ -891,7 +889,7 @@ export default function ArchitectTemplateGalleryPage() {
                       { label: "Category", value: modalTemplate.category },
                       { label: "Difficulty", value: modalTemplate.difficulty },
                       { label: "Nodes", value: String(modalTemplate.nodeCount) },
-                      { label: "Forks", value: String(modalTemplate.forks) }
+                      { label: "Steps", value: String(modalTemplate.nodeCount) }
                     ].map((row) => (
                       <div key={row.label} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3.5">
                         <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-slate-100 bg-white text-amber-500">

@@ -996,7 +996,7 @@ export default function ArchitectSettingsPage() {
                     />
                     <div className="text-sm text-slate-500">
                       <p className="font-medium text-slate-700">Profile photo</p>
-                      <p>JPG or PNG, up to 2MB. Saved when you click Save changes.</p>
+                      <p>JPG or PNG, up to 2MB. Saved as soon as you choose it.</p>
                       <label className="mt-2 inline-flex cursor-pointer rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-gray-50">
                         {profilePhotoSelecting ? "Loading preview..." : "Upload photo"}
                         <input
@@ -1829,7 +1829,7 @@ export default function ArchitectSettingsPage() {
           onSaved={async () => {
             setPayoutMethodModal(null);
             await loadSettings();
-            showToast(payoutMethodModal === "backup" ? "Backup payout method added ✓" : "Payout method saved ✓");
+            showToast(payoutMethodModal === "backup" ? "Stripe opened — the account appears here once it syncs" : "Payout method saved ✓");
           }}
         />
       ) : null}

@@ -326,7 +326,7 @@ export default function ArchitectPayoutsPage() {
             <MetricCard
               label="Pending"
               value={formatUsd(pendingCents)}
-              hint="Paid in 7 days"
+              hint="Released after review"
               testId="architect-payouts-pending"
             />
             <MetricCard

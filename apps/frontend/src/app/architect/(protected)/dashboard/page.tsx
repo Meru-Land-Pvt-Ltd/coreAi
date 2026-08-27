@@ -536,7 +536,11 @@ function MetricCard({
   icon,
   hint,
   testId,
-  showSparkline = true
+  /* DEFAULTED ON, AND DRAWN FROM NOTHING. The little chart is a fixed
+     climbing line — its own comment calls it decorative — so an architect
+     with $0.00 and no installs was shown a rising graph on both money cards.
+     Off unless a card is given real points to draw. */
+  showSparkline = false
 }: {
   label: string;
   value: string;
@@ -693,23 +697,10 @@ export default function ArchitectDashboardPage() {
     setLoading(false);
   }, []);
 
-  const [payout, setPayout] = useState<ArchitectPayoutSummary | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadPayoutSummary() {
-      const result = await getArchitectPayoutSummary();
-      if (mounted && result.success && result.data) setPayout(result.data);
-    }
-
-    void loadPayoutSummary();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
+  /* A SECOND PAYOUT FETCH WHOSE ANSWER WAS NEVER READ. The value was stored
+     and never used anywhere on this page, and that endpoint syncs with Stripe
+     and releases earnings before it answers — so every dashboard load did that
+     work twice. Removed 2026-08-27. */
   useEffect(() => {
     void loadListings();
   }, [loadListings]);
@@ -964,31 +955,20 @@ export default function ArchitectDashboardPage() {
           <MetricCard
             label="Total Installs"
             value={loading ? "—" : String(counts.installs)}
-            hint={
-              loading ? (
-                "Loading…"
-              ) : (
-                <span className="font-semibold text-green-600" data-testid="architect-dashboard-installs-this-month-text">
-                  +{counts.installs} this month
-                </span>
-              )
-            }
+            /* Printed the SAME lifetime number twice: once as the total and
+               again beneath it as "+N this month", in green. An architect with
+               forty installs across two years read it as forty this month. */
+            hint={loading ? "Loading…" : "since you published"}
             testId="architect-dashboard-total-installs-text"
             icon={<ChartLineUpIcon className="h-5 w-5" />}
           />
           <MetricCard
             label="Active Agents"
             value={loading ? "—" : String(counts.approved)}
-            showSparkline={false}
-            hint={
-              loading ? (
-                "Loading…"
-              ) : (
-                <span className="font-semibold text-green-600" data-testid="architect-dashboard-active-agents-health-text">
-                  All healthy
-                </span>
-              )
-            }
+            /* "All healthy", in green, on every load. This card is given a
+               count of approved listings and nothing else — it has never seen
+               a failure rate. */
+            hint={loading ? "Loading…" : "live on the marketplace"}
             testId="architect-dashboard-active-agents-text"
             icon={
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

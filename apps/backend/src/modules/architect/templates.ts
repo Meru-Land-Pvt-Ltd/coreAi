@@ -16,6 +16,11 @@ export type WorkflowTemplate = {
   difficulty: "Beginner" | "Intermediate" | "Advanced" | "Beginner/Intermediate";
   nodeCount: number;
   description: string;
+  /* Nothing on this platform ever increments this. The seeded templates
+     carried invented counts (312, 234, 189…) while a real architect's own
+     template always showed 0 — and the gallery's default "popular" order was
+     built on them, so made-up numbers decided what an architect saw first.
+     All zero now, and the gallery no longer shows or sorts by them. */
   forks: number;
   rating: number;
   reviewCount: number;
@@ -750,7 +755,7 @@ const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | 
     category: "Dental",
     difficulty: "Beginner/Intermediate",
     description: "Incoming call → AI receptionist → check calendar → book appointment → send SMS → end call.",
-    forks: 312,
+    forks: 0,
     rating: 5.0,
     reviewCount: 52,
     tags: ["Dental", "Medical", "Scheduling"],
@@ -779,7 +784,7 @@ const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | 
     category: "Communication",
     difficulty: "Beginner",
     description: "Detect missed calls → generate an AI response → send an SMS. Average 28-second response time.",
-    forks: 234,
+    forks: 0,
     rating: 4.9,
     reviewCount: 47,
     tags: ["Dental", "HVAC", "Legal", "Medical"],
@@ -849,7 +854,7 @@ const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | 
     category: "Scheduling",
     difficulty: "Beginner",
     description: "24-hour reminder → wait for reply → confirm or reschedule → update the calendar automatically.",
-    forks: 189,
+    forks: 0,
     rating: 4.8,
     reviewCount: 38,
     tags: ["Dental", "Medical", "Legal", "Salon"],
@@ -867,7 +872,7 @@ const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | 
     category: "Reviews",
     difficulty: "Intermediate",
     description: "After appointment completion → wait 2 hours → send a review request → track response → follow up if no review.",
-    forks: 156,
+    forks: 0,
     rating: 4.8,
     reviewCount: 31,
     tags: ["Dental", "Medical Spa", "Restaurant"],
@@ -886,7 +891,7 @@ const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | 
     category: "Lead Gen",
     difficulty: "Intermediate",
     description: "New inquiry → ask qualifying questions → score the lead → route hot leads to the owner → nurture cold leads.",
-    forks: 98,
+    forks: 0,
     rating: 4.7,
     reviewCount: 22,
     tags: ["Real Estate", "HVAC", "Legal"],
@@ -906,7 +911,7 @@ const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | 
     category: "Customer Service",
     difficulty: "Advanced",
     description: "A full virtual receptionist: greet → identify intent → book an appointment, answer an FAQ, or escalate to a human.",
-    forks: 67,
+    forks: 0,
     rating: 4.9,
     reviewCount: 15,
     tags: ["Dental", "Medical", "Legal", "Salon"],
@@ -928,7 +933,7 @@ const SEED: Array<Omit<WorkflowTemplate, "nodeCount" | "status" | "createdAt" | 
     category: "Communication",
     difficulty: "Beginner",
     description: "Overdue invoice detected → send a friendly reminder → escalate if no payment within 48 hours.",
-    forks: 45,
+    forks: 0,
     rating: 4.6,
     reviewCount: 12,
     tags: ["HVAC", "Plumbing", "Contractor"],
