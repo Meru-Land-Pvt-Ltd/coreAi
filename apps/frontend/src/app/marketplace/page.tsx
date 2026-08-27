@@ -412,11 +412,8 @@ function mapListingToAgent(listing: ApiListing): Agent {
     price: Math.round((listing.priceCents ?? 0) / 100),
     installs: listing.installCount ?? 0,
     rating: profile?.rating ?? 0,
-    author:
-      listing.architect?.fullName ||
-      profile?.title ||
-      listing.architect?.email ||
-      "Triven Architect",
+    /* Never their email — see getListingAuthor. */
+    author: listing.architect?.fullName || profile?.title || "Triven Architect",
     isNew: isRecentlyCreated(listing.createdAt),
     featured: Boolean(listing.featured ?? listing.featuredAt),
     freeTrial:
@@ -709,7 +706,10 @@ export default function MarketplacePage() {
     ],
     [agents]
   );
-  const featuredAgent = agents.find((agent) => agent.featured) ?? agents[0] ?? null;
+  /* Featured means an admin featured it. The `?? agents[0]` fallback badged
+     whatever happened to be first as "⭐ Featured", which is an endorsement
+     nobody gave. No featured listing now means no featured slot. */
+  const featuredAgent = agents.find((agent) => agent.featured) ?? null;
 
   const selectedBrowseIndustry = useMemo(
     () => resolveSelectedBrowseIndustry(industry, dropdownIndustries),
@@ -1092,9 +1092,13 @@ export default function MarketplacePage() {
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
-              <Metric label="Agents" value="Verified" />
-              <Metric label="Businesses" value="2,400+" />
-              <Metric label="Average rating" value="4.9 ⭐" />
+              {/* NUMBERS NOBODY COUNTED. "2,400+ businesses" and "4.9 stars"
+                  were literal strings — there is no review anywhere on this
+                  platform, and every stored rating is zero. A first customer
+                  deciding whether to trust us was reading a made-up number.
+                  What is shown now is counted from what is on the page. */}
+              <Metric label="Agents" value={`${agents.length}`} />
+              <Metric label="Industries" value={`${Math.max(industries.length - 1, 0)}`} />
             </div>
           </div>
         </div>
@@ -1674,8 +1678,11 @@ export default function MarketplacePage() {
         <div data-testid="app-marketplace-page-div-39" className="w-full max-w-none px-4 sm:px-6 lg:px-8">
           <div data-testid="app-marketplace-page-div-40" className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-sm text-white/80">
             <TrustItem text="256-bit encryption" />
-            <TrustItem text="99.9% uptime" />
-            <TrustItem text="SOC 2 compliant" />
+            {/* "SOC 2 compliant" and "99.9% uptime" stood here until 2026-08-27.
+                Our own security page says we hold no such certification, and
+                nothing on the platform measures uptime. Claiming a
+                certification we do not hold, to businesses choosing us for
+                regulated work, is the most expensive kind of lie. */}
             <TrustItem text="30-day money back" />
             <TrustItem text="24/7 support" />
           </div>

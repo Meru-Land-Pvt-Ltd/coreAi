@@ -230,6 +230,33 @@ export async function applyRefundToSettlement(params: {
       where: { id: payment.id },
       data: { status: "REFUNDED" }
     });
+
+    /* A REFUND MUST END THE ACCESS IT PAID FOR.
+       Giving the money back only marked the payment refunded; the installed
+       agent kept its status, so it kept running and the buyer kept full
+       access. Worse, the next renewal invoice is raised from the last
+       SUCCEEDED payment — once this one turned REFUNDED, no renewal was ever
+       raised again, so the agent ran free for good. This mirrors what the
+       buyer's own cancel button does. */
+    const canceled = await prisma.installedAgent.updateMany({
+      where: {
+        status: { notIn: ["CANCELED", "INACTIVE"] },
+        ...(payment.installedAgentId
+          ? { id: payment.installedAgentId }
+          : payment.businessId && payment.listingId
+            ? { businessId: payment.businessId, listingId: payment.listingId }
+            : { id: "__no-agent-to-cancel__" })
+      },
+      data: { status: "CANCELED" }
+    });
+
+    if (canceled.count === 0) {
+      console.warn("[refund] refunded a payment with no agent to switch off", {
+        paymentId: payment.id,
+        installedAgentId: payment.installedAgentId,
+        businessId: payment.businessId
+      });
+    }
   }
 
   const earning = payment.earning;

@@ -50,25 +50,3 @@ export async function executeImageGeneration(options: ImageGenOptions): Promise<
   // Default fallback to Gemini Imagen adapter
   return geminiImagenAdapter.execute(request);
 }
-
-export async function executeImageGenerationWithLangGraph(options: ImageGenOptions): Promise<AIExecuteResponse> {
-  const workflow = new StateGraph(ImageNodeStateAnnotation)
-    .addNode("dispatch_image_gen", async (state) => {
-      const res = await executeImageGeneration({
-        prompt: state.prompt,
-        model: state.model,
-        referenceImage: state.referenceImage
-      });
-      return { imageResult: res };
-    })
-    .addEdge("__start__", "dispatch_image_gen");
-
-  const app = workflow.compile();
-  const state = await app.invoke({
-    prompt: options.prompt,
-    model: options.model,
-    referenceImage: options.referenceImage
-  });
-
-  return state.imageResult ?? await executeImageGeneration(options);
-}

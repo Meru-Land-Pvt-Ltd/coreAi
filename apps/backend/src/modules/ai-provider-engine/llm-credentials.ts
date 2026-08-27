@@ -5,8 +5,8 @@ const LLM_PROVIDER_ENV_KEYS = {
   openai: ["OPENAI_API_KEY"],
   claude: ["ANTHROPIC_API_KEY"],
   gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-  groq: ["GROQ_API_KEY", "OPENAI_API_KEY"],
-  deepseek: ["DEEPSEEK_API_KEY", "OPENAI_API_KEY"],
+  groq: ["GROQ_API_KEY"],
+  deepseek: ["DEEPSEEK_API_KEY"],
   mistral: ["MISTRAL_API_KEY"],
 } as const satisfies Record<string, readonly LlmEnvKey[]>;
 

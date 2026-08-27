@@ -153,7 +153,11 @@ export async function fetchMarketplaceListingsByIds(ids: string[]) {
         select: {
           id: true,
           fullName: true,
-          email: true,
+          /* NOT THE EMAIL. These listings go out on the public marketplace
+             feed, which needs no sign-in, so every architect's email address
+             was readable by anyone who asked for the page — and two bylines
+             printed it on screen whenever an architect had not set a name.
+             Admin screens read emails through their own routes. */
           architectProfile: {
             select: {
               title: true,

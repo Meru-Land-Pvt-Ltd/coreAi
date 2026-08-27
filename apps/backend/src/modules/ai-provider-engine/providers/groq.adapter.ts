@@ -44,7 +44,13 @@ class GroqAdapter implements AIProviderAdapter {
   private _client: OpenAI | null = null;
   private get client(): OpenAI {
     if (!this._client) {
-      const apiKey = env.GROQ_API_KEY ?? env.OPENAI_API_KEY ?? "";
+      /* NEVER ANOTHER COMPANY'S KEY. This fell back to OPENAI_API_KEY, so
+         our OpenAI key was sent, in an Authorization header, to a different
+         company's servers — on an ordinary customer action. It cannot work
+         (they would reject it) and it hands our secret to a third party, which
+         is the part that does not undo. Each provider uses its own key or is
+         not available. */
+      const apiKey = env.GROQ_API_KEY ?? "";
       this._client = new OpenAI({
         apiKey,
         baseURL: "https://api.groq.com/openai/v1",
@@ -58,10 +64,7 @@ class GroqAdapter implements AIProviderAdapter {
   }
 
   async validate(): Promise<ValidationResult> {
-    if (env.GROQ_API_KEY) {
-      return { valid: true, message: "GROQ_API_KEY set" };
-    }
-    return checkEnvKey("OPENAI_API_KEY");
+    return checkEnvKey("GROQ_API_KEY");
   }
 
   async execute(request: AIExecuteRequest): Promise<AIExecuteResponse> {

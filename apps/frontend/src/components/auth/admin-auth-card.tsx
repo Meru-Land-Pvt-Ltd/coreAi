@@ -373,7 +373,7 @@ export function AdminAuthCard() {
           </div>
 
           <p className="mt-6 text-center text-xs tracking-normal text-slate-500" data-testid="auth-admin-auth-card-256-bit-encryption-soc-2-compliant-restricted-text">
-            256-bit encryption &nbsp;•&nbsp; SOC 2 compliant &nbsp;•&nbsp; Restricted access
+            256-bit encryption &nbsp;•&nbsp; Restricted access
           </p>
         </section>
       </main>

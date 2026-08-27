@@ -295,10 +295,11 @@ export function getAgentDescription(listing: ApiListing): string {
 }
 
 export function getListingAuthor(listing: ApiListing): string {
+  /* Never their email. An architect who has not set a name had their email
+     address printed as the byline on a public page. */
   return (
     listing.architect?.fullName ||
     listing.architect?.architectProfile?.title ||
-    listing.architect?.email ||
     "Triven AI Architect"
   );
 }

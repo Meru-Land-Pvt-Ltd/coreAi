@@ -1250,7 +1250,9 @@ export default function MarketplacePage() {
               <Metric label="Agents" value={`${agents.length}`} />
               <Metric label="Industries" value={`${Math.max(industries.length - 1, 0)}`} />
 
-              <Metric label="Average rating" value={"4.9 ⭐"} />
+              {/* Removed 2026-08-27: a literal "4.9" between two counted
+                  tiles. Nothing on this platform collects a review, and every
+                  stored rating is zero. */}
             </div>
           </div>
 
@@ -1889,8 +1891,8 @@ export default function MarketplacePage() {
         <div className="mx-auto max-w-7xl px-3 sm:px-4">
           <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-sm text-white/80">
             <TrustItem text="256-bit encryption" />
-            <TrustItem text="99.9% uptime" />
-            <TrustItem text="SOC 2 compliant" />
+            {/* Removed 2026-08-27: our own security page states we hold no
+                such certification, and nothing measures uptime. */}
             <TrustItem text="30-day money back" />
             <TrustItem text="24/7 support" />
           </div>

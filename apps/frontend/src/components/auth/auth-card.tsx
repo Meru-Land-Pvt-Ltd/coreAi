@@ -745,7 +745,7 @@ function CoreOtpAuthInner({ initialRole }: CoreOtpAuthProps) {
             </p>
 
             <p data-testid="components-auth-auth-card-p-10" className="mt-4 text-xs text-slate-400 tracking-wide">
-              256-bit encryption &nbsp;•&nbsp; SOC 2 compliant &nbsp;•&nbsp; No credit card required
+              256-bit encryption &nbsp;•&nbsp; No credit card required
             </p>
           </div>
         </div>
