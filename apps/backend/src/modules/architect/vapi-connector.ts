@@ -17,8 +17,6 @@ import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { getProviderRegistry } from "../ai-provider-engine/ai-provider-engine";
 import { withRecordingDisclosure } from "../agent-runtime/graph-runner";
-// [DISABLED] import { storeVoiceTransferContext } from "./voice-transfer-store";
-
 export function isVapiConfigured(): boolean {
   const key = env.VAPI_API_KEY;
   return Boolean(key && !key.includes("your_") && !key.includes("xxx"));
@@ -561,22 +559,6 @@ export async function startVapiOutboundCall({
     throw new Error(vapiErrorMessage(responseJson, response.status, "Vapi outbound call failed"));
   }
 
-  /* [DISABLED] Best-effort transfer context for AI callbacks.
-  const outboundCallId = stringField(responseJson, "id");
-  const providerCallSid = stringField(responseJson, "phoneCallProviderId");
-  if (outboundCallId && providerCallSid?.startsWith("CA")) {
-    await storeVoiceTransferContext(outboundCallId, {
-      twilioCallSid: providerCallSid,
-      businessId: business.businessId ?? null,
-      installedAgentId:
-        typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : null,
-      workflowId: typeof metadata.workflowId === "string" ? metadata.workflowId : null,
-      calledNumber: null,
-      callerNumber: customerPhone
-    });
-  }
-  */
-
   return {
     id: stringField(responseJson, "id") ?? null,
     status: stringField(responseJson, "status") ?? null,
@@ -649,11 +631,6 @@ export async function createVapiInboundTwiml({
         callerContext
       }),
       ...(firstMessageOverride?.trim() ? { firstMessage: firstMessageOverride.trim() } : {}),
-      /* [DISABLED] CRM caller-context system message.
-      ...(crmContextSection?.trim()
-        ? { model: { messages: [{ role: "system", content: crmContextSection.trim() }] } }
-        : {})
-      */
     },
     metadata: {
       ...metadata,
@@ -707,46 +684,6 @@ export async function createVapiInboundTwiml({
   const twiml = stringField(providerDetails, "twiml");
 
   if (typeof twiml !== "string" || twiml.trim().length === 0) return null;
-
-  /* [DISABLED] live-transfer context storage (Redis + durable CallSid stamp).
-  const vapiCallId = stringField(responseJson, "id");
-  const cleanCallSid = clean(twilioCallSid);
-  if (vapiCallId && cleanCallSid) {
-    await storeVoiceTransferContext(vapiCallId, {
-      twilioCallSid: cleanCallSid,
-      businessId: business.businessId ?? null,
-      installedAgentId:
-        typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : null,
-      workflowId: typeof metadata.workflowId === "string" ? metadata.workflowId : null,
-      calledNumber: clean(phoneNumber) || null,
-      callerNumber
-    });
-    if (business.businessId) {
-      const durableBusinessId = business.businessId;
-      void prisma.vapiCall
-        .upsert({
-          where: { callId: vapiCallId },
-          update: { twilioCallSid: cleanCallSid },
-          create: {
-            businessId: durableBusinessId,
-            installedAgentId:
-              typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : null,
-            callId: vapiCallId,
-            customerPhone: callerNumber,
-            executionMode: "LIVE",
-            status: "STARTED",
-            twilioCallSid: cleanCallSid
-          }
-        })
-        .catch((error) =>
-          console.error("[voice-transfer] durable CallSid stamp failed", {
-            vapiCallId,
-            message: error instanceof Error ? error.message : String(error)
-          })
-        );
-    }
-  }
-  */
 
   return twiml;
 }
@@ -1307,29 +1244,6 @@ export function genericAssistantTools() {
         }
       }
     },
-    /* [DISABLED] transfer_to_human (live human handoff).
-    {
-      type: "function",
-      messages: [
-        {
-          type: "request-start",
-          content: "Of course — let me connect you with the team now. One moment, please stay on the line."
-        }
-      ],
-      function: {
-        name: VOICE_TOOL_NAMES.transferToHuman,
-        description: "Connect the caller to a real person on the business team RIGHT NOW, on this same call.",
-        parameters: {
-          type: "object",
-          properties: {
-            reason: { type: "string", description: "One short neutral sentence on why the caller needs a person." },
-            caller_requested: { type: "boolean", description: "true when the caller explicitly asked for a human." }
-          },
-          required: ["reason"]
-        }
-      }
-    }
-    */
   ];
 }
 
@@ -1356,7 +1270,6 @@ export function shouldIncludeAssistantTool(
   if (toolName === VOICE_TOOL_NAMES.recordSmsConsent) {
     return includeTools?.recordSmsConsent === true;
   }
-  // [DISABLED] transfer_to_human is never attached while handoff is off.
   if (toolName === VOICE_TOOL_NAMES.transferToHuman) {
     return false;
   }

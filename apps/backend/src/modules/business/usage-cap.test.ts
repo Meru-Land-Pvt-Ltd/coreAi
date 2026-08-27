@@ -44,27 +44,6 @@ describe("cap exposure boundaries", () => {
     expect(status.exceeded).toBe(true);
   });
 
-  // [DISABLED:non-handoff] provisional-exposure tests — re-enable with the
-  // provisional math in usage-cap.ts.
-  // it("unpriced open calls add provisional exposure that can trip the cap", async () => {
-  //   mocks.currentSpend.mockResolvedValue(9_000_000);
-  //   mocks.vapiCallAggregate.mockResolvedValue({ _sum: { durationSeconds: null }, _count: { _all: 4 } });
-  //   const status = await getLiveUsageCapStatus("biz-1");
-  //   const provisional = 8 * env.LIVE_USAGE_PROVISIONAL_CENTS_PER_MIN * 10_000;
-  //   expect(status.exposureMicroUsd).toBe(9_000_000 + provisional);
-  //   expect(status.exceeded).toBe(provisional >= 1_000_000);
-  // });
-  // it("uses real durations when they exceed the per-call floor", async () => {
-  //   mocks.vapiCallAggregate.mockResolvedValue({ _sum: { durationSeconds: 1200 }, _count: { _all: 1 } });
-  //   const status = await getLiveUsageCapStatus("biz-1");
-  //   expect(status.exposureMicroUsd).toBe(20 * env.LIVE_USAGE_PROVISIONAL_CENTS_PER_MIN * 10_000);
-  // });
-  // it("standalone SMS ledger spend counts toward exposure", async () => {
-  //   mocks.smsCount.mockResolvedValue(50);
-  //   const status = await getLiveUsageCapStatus("biz-1");
-  //   expect(status.exposureMicroUsd).toBe(50 * env.LIVE_USAGE_SMS_ESTIMATE_CENTS * 10_000);
-  // });
-
   it("exposure equals priced spend while provisional exposure is disabled", async () => {
     mocks.currentSpend.mockResolvedValue(5_000_000);
     mocks.vapiCallAggregate.mockResolvedValue({ _sum: { durationSeconds: 1200 }, _count: { _all: 4 } });

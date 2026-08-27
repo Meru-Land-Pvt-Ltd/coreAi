@@ -39,22 +39,7 @@ import {
 } from "../agent-runtime/graph-runner";
 import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/agent-knowledge";
 import { checkUsageCapAndNotify } from "../business/usage-cap";
-// [DISABLED] human-handoff imports.
-// import {
-//   resolveTransferCallerId,
-//   runTransferToHumanTool
-// } from "../agent-runtime/ai-voice-assistant/human-transfer";
-// import { parsePendingTargets, sendWarmHandoffContext } from "../business/team/handoff-routing";
-// [DISABLED:non-handoff] imports for the commented hooks in this file.
-// import {
-//   cancelRemindersForAppointment,
-//   rescheduleRemindersForAppointment,
-//   scheduleRemindersForAppointment
-// } from "../business/reminders/reminder-service";
 import { redactSensitiveText } from "../business/conversation-understanding/redaction";
-// import { evaluateCall } from "../business/quality/evaluate";
-// import { recordUnansweredQuestion } from "../business/knowledge-v2/unanswered-questions";
-// import { ensureCustomerByIdentity } from "../business/customers/customer-service";
 import {
   classifyCallOutcome,
   classifySentiment
@@ -134,7 +119,6 @@ import {
   smsHelpReplyText
 } from "../notifications/sms-consent";
 import { createVapiInboundTwiml, isRealId, startVapiOutboundCall, type VapiCallerContext } from "./vapi-connector";
-// [DISABLED] import { buildCrmGreeting, buildCrmPromptSection, loadCrmCallerContext, syncCallToCrm } from "../crm";
 import { enqueueEmail } from "../email/email-queue";
 import {
   applyBuyerEmailRecipients,
@@ -749,20 +733,6 @@ async function upsertConversation({
     }
   });
 
-  // [DISABLED:non-handoff] canonical customer linking.
-  // if (!conversation.customerId) {
-  //   void ensureCustomerByIdentity({ businessId, kind: "PHONE", value: customerPhone, source: "sms" })
-  //     .then((result) =>
-  //       result.outcome !== "SKIPPED"
-  //         ? prisma.conversation.update({
-  //             where: { id: conversation.id },
-  //             data: { customerId: result.customerId }
-  //           })
-  //         : null
-  //     )
-  //     .catch(() => null);
-  // }
-
   await prisma.conversationMessage.create({
     data: {
       conversationId: conversation.id,
@@ -813,23 +783,6 @@ async function upsertLead({
       name
     }
   });
-
-  // [DISABLED:non-handoff] canonical customer linking.
-  // if (!lead.customerId) {
-  //   void ensureCustomerByIdentity({
-  //     businessId,
-  //     kind: "PHONE",
-  //     value: phoneNumber,
-  //     displayName: name ?? undefined,
-  //     source: "lead"
-  //   })
-  //     .then((result) =>
-  //       result.outcome !== "SKIPPED"
-  //         ? prisma.lead.update({ where: { id: lead.id }, data: { customerId: result.customerId } })
-  //         : null
-  //     )
-  //     .catch(() => null);
-  // }
 
   return lead;
 }
@@ -1018,11 +971,6 @@ async function createBusinessAppointment({
       console.error("[appointment-email] buyer notification failed (appointment kept)", error);
     }
   }
-
-  // [DISABLED:non-handoff] appointment reminders.
-  // void scheduleRemindersForAppointment({ appointmentId: appointment.id }).catch((error) =>
-  //   console.error("[reminders] schedule failed (booking kept)", error)
-  // );
 
   return { calendarEvent, appointment };
 }
@@ -1445,20 +1393,6 @@ async function buildVapiAnswerTwiml({
 
   const callerContext = await resolveCallerContext(business.businessId, callerNumber, business.timeZone);
 
-  /* [DISABLED] Customer-context CRM lookup + personalised greeting.
-   * const crmContext = business.businessId
-   *   ? await loadCrmCallerContext({ businessId: business.businessId, phone: callerNumber, deep: true })
-   *   : null;
-   * if (!firstMessageOverride && crmContext?.known) {
-   *   const crmGreeting = buildCrmGreeting({ context: crmContext, businessName: business.businessName });
-   *   if (crmGreeting) {
-   *     firstMessageOverride = workflowCallRecordingEnabled(agent.workflowJson)
-   *       ? withRecordingDisclosure(crmGreeting)
-   *       : crmGreeting;
-   *   }
-   * }
-   */
-
   return createVapiInboundTwiml({
     callerNumber,
     callerName: callerName ?? null,
@@ -1466,7 +1400,6 @@ async function buildVapiAnswerTwiml({
     businessHours: hoursVariables,
     firstMessageOverride,
     callerContext,
-    // [DISABLED] crmContextSection: crmContext ? buildCrmPromptSection(crmContext) : null,
     business: {
       businessId: business.businessId,
       businessName: business.businessName,
@@ -1764,7 +1697,6 @@ export async function handleTwilioVoice(c: Context) {
       callerName,
       calledNumber,
       reason: "Inbound call answered live by the AI receptionist."
-      // [DISABLED] twilioCallSid: readBodyString(body, ["CallSid", "callSid"]) || null
     });
 
     if (aiTwiml) {
@@ -1868,203 +1800,6 @@ export async function handleTwilioMissedCall(c: Context) {
  * call and runs the missed-call machinery (lead + consent-gated text-back),
  * so a failed handoff never dead-ends.
  */
-/* [DISABLED] live human-handoff dial-result callback (cascade + settle).
-export async function handleTwilioTransferResult(c: Context) {
-  const handoffId = c.req.param("handoffId") || "";
-  const body = await parseBody(c);
-
-  if (!isValidTwilioRequest(c, body)) {
-    return c.text("<Response></Response>", 403, { "Content-Type": "text/xml" });
-  }
-
-  const dialStatus = readBodyString(body, ["DialCallStatus", "DialStatus", "CallStatus"]);
-  const handoff = handoffId
-    ? await prisma.handoffEvent.findUnique({ where: { id: handoffId } }).catch(() => null)
-    : null;
-
-  if (!handoff) {
-    console.error("[human-transfer] transfer-result callback for unknown handoff", { handoffId });
-    return sayTwiml(c, "Thank you for calling. Goodbye.");
-  }
-
-  // Twilio reports "completed" when the bridged leg ended normally and
-  // "answered" when the child leg picked up and is still in progress — both
-  // mean a human actually took the call.
-  const answered = dialStatus === "completed" || dialStatus === "answered";
-  const now = new Date();
-  const waitSeconds = Math.max(0, Math.round((now.getTime() - handoff.createdAt.getTime()) / 1000));
-  const priorMetadata =
-    handoff.metadataJson && typeof handoff.metadataJson === "object" && !Array.isArray(handoff.metadataJson)
-      ? (handoff.metadataJson as Record<string, unknown>)
-      : {};
-
-  // Settle the attempt that just finished ringing.
-  const attemptOutcome = answered
-    ? "CONNECTED"
-    : dialStatus === "busy"
-      ? "BUSY"
-      : dialStatus === "no-answer"
-        ? "NO_ANSWER"
-        : "FAILED";
-  await prisma.handoffAttempt
-    .updateMany({
-      where: { handoffEventId: handoff.id, endedAt: null },
-      data: { endedAt: now, outcome: attemptOutcome, ...(answered ? { connectedAt: now } : {}) }
-    })
-    .catch((error) => console.error("[human-transfer] attempt settle failed", { handoffId, error }));
-
-  if (answered) {
-    await prisma.handoffEvent
-      .update({
-        where: { id: handoff.id },
-        data: {
-          status: "CONNECTED",
-          waitSeconds,
-          connectedAt: handoff.connectedAt ?? now,
-          resolvedAt: now,
-          metadataJson: { ...priorMetadata, dialStatus: dialStatus || null }
-        }
-      })
-      .catch((error) => console.error("[human-transfer] failed to settle handoff status", { handoffId, error }));
-    // The human leg finished; the call is over. Nothing more to play.
-    return c.text("<Response></Response>", 200, { "Content-Type": "text/xml" });
-  }
-
-  // Retry cascade (plan Part 1): dial the next eligible team member on the
-  // SAME call before giving up. Targets were resolved server-side at transfer
-  // time — this handler never invents destinations.
-  const pendingTargets = parsePendingTargets(priorMetadata.pendingTargets);
-  if (pendingTargets.length > 0) {
-    const [next, ...rest] = pendingTargets;
-    const attemptOrder = (handoff.attemptsCount || 1) + 1;
-
-    await prisma.handoffEvent
-      .update({
-        where: { id: handoff.id },
-        data: {
-          destination: next.destination,
-          assignedTeamMemberId: next.teamMemberId,
-          attemptsCount: attemptOrder,
-          metadataJson: {
-            ...priorMetadata,
-            pendingTargets: rest.map((t) => ({
-              teamMemberId: t.teamMemberId,
-              destination: t.destination,
-              displayName: t.displayName
-            })),
-            dialStatus: dialStatus || null
-          }
-        }
-      })
-      .catch((error) => console.error("[human-transfer] cascade update failed", { handoffId, error }));
-    await prisma.handoffAttempt
-      .create({
-        data: {
-          handoffEventId: handoff.id,
-          teamMemberId: next.teamMemberId,
-          destination: next.destination,
-          attemptOrder
-        }
-      })
-      .catch((error) => console.error("[human-transfer] attempt record failed", { handoffId, error }));
-
-    if (handoff.businessId) {
-      sendWarmHandoffContext({
-        businessId: handoff.businessId,
-        installedAgentId: handoff.installedAgentId,
-        vapiCallId: handoff.vapiCallId,
-        target: next,
-        callerNumber: handoff.customerPhone,
-        callerName: typeof priorMetadata.callerName === "string" ? priorMetadata.callerName : null,
-        reason: handoff.reason ?? "Caller asked for a person.",
-        summary: typeof priorMetadata.summary === "string" ? priorMetadata.summary : null
-      });
-    }
-
-    const actionUrl = `${env.BACKEND_URL.replace(/\/$/, "")}/architect/connectors/twilio/transfer-result/${handoff.id}`;
-    // International destinations present the business's own number as caller
-    // ID — foreign routes with local caller IDs get rejected (anti-spoofing).
-    const cascadeCallerId = resolveTransferCallerId(
-      next.destination,
-      typeof priorMetadata.calledNumber === "string" ? priorMetadata.calledNumber : null
-    );
-    const nextDialTwiml = [
-      "<Response>",
-      "<Say>Trying the next available team member. Please hold.</Say>",
-      `<Dial timeout="${env.TWILIO_FORWARD_TIMEOUT_SECONDS}" action="${escapeXml(actionUrl)}" method="POST" answerOnBridge="true"${
-        cascadeCallerId ? ` callerId="${escapeXml(cascadeCallerId)}"` : ""
-      }>`,
-      `<Number>${escapeXml(next.destination)}</Number>`,
-      "</Dial>",
-      "</Response>"
-    ].join("");
-    return c.text(nextDialTwiml, 200, { "Content-Type": "text/xml" });
-  }
-
-  const finalStatus = dialStatus === "no-answer" || dialStatus === "busy" ? "NO_ANSWER" : "FAILED";
-
-  try {
-    await prisma.handoffEvent.update({
-      where: { id: handoff.id },
-      data: {
-        status: finalStatus,
-        waitSeconds,
-        resolvedAt: now,
-        metadataJson: { ...priorMetadata, dialStatus: dialStatus || null }
-      }
-    });
-  } catch (error) {
-    console.error("[human-transfer] failed to settle handoff status", { handoffId, error });
-  }
-
-  // Nobody picked up: never dead-end. Decide HONESTLY whether the missed-call
-  // follow-up will actually run before promising the caller a callback.
-  const calledNumber = typeof priorMetadata.calledNumber === "string" ? priorMetadata.calledNumber : "";
-  const workflowId = typeof priorMetadata.workflowId === "string" ? priorMetadata.workflowId : undefined;
-  const callerNumber = handoff.customerPhone || readBodyString(body, ["From", "Caller", "from"]);
-
-  let followUpAgent: Awaited<ReturnType<typeof resolveAgent>> = null;
-  let capExceeded = false;
-  if (callerNumber && (calledNumber || workflowId)) {
-    try {
-      followUpAgent = await resolveAgent({ calledNumber, workflowId });
-      if (followUpAgent?.business?.businessId) {
-        capExceeded = (await checkUsageCapAndNotify(followUpAgent.business.businessId)).exceeded;
-      }
-    } catch (error) {
-      console.error("[human-transfer] post-transfer agent resolution failed", { handoffId, error });
-      followUpAgent = null;
-    }
-  }
-
-  if (followUpAgent && !followUpAgent.agentPaused && !capExceeded && callerNumber) {
-    const agentForFollowUp = followUpAgent;
-    // The slow part (LLM compose + SMS + optional Vapi callback) runs in the
-    // background so the caller hears the closing message immediately instead
-    // of dead air past Twilio's webhook deadline.
-    void runMissedCallAgent({
-      agent: agentForFollowUp,
-      callerNumber,
-      callSid: handoff.twilioCallSid,
-      reason: `Caller asked for a person during an AI call; the team did not answer the transfer. Dial status: ${dialStatus || "unknown"}.`
-    }).catch((error) => {
-      console.error("[human-transfer] post-transfer follow-up failed", { handoffId, error });
-    });
-
-    return sayTwiml(
-      c,
-      "I'm sorry, no one on the team is available right now. The team has been notified and will call you back as soon as possible. Thank you for calling."
-    );
-  }
-
-  // No follow-up will run — never claim the team was notified.
-  return sayTwiml(
-    c,
-    "I'm sorry, no one on the team is available right now. Please try again a little later. Thank you for calling."
-  );
-}
-*/
-
 function isSmsCancelRequest(body: string): boolean {
   return /^c$/i.test((body ?? "").trim().replace(/[.!]+$/, ""));
 }
@@ -2121,7 +1856,6 @@ async function cancelAppointmentFromSms(
     }
   }
 
-  // [DISABLED:non-handoff] await cancelRemindersForAppointment(target.id).catch(() => null);
   await prisma.appointment.update({
     where: { id: target.id },
     data: {
@@ -2468,32 +2202,6 @@ export async function handleTwilioInboundSms(c: Context) {
         : `${agent.business.businessName}: ${describeOpenStatus(status)}${agent.business.bookingUrl ? ` Book anytime: ${agent.business.bookingUrl}` : ""
         }`;
   } else {
-    // [DISABLED:non-handoff] LLM SMS conversations — template replies restored.
-    // let aiReply: string | null = null;
-    // if (agent.business?.businessId) {
-    //   try {
-    //     const result = await generateSmsAiReply({
-    //       context: {
-    //         businessId: agent.business.businessId,
-    //         installedAgentId: agent.business.installedAgentId ?? null,
-    //         businessName: agent.business.businessName,
-    //         businessType: agent.business.businessType,
-    //         services: agent.business.services,
-    //         faqs: agent.business.faqs,
-    //         tone: agent.business.tone,
-    //         bookingUrl: agent.business.bookingUrl
-    //       },
-    //       conversationId: conversation?.id ?? null,
-    //       customerPhone,
-    //       inboundBody: incomingBody,
-    //       history
-    //     });
-    //     aiReply = result.reply;
-    //   } catch (error) {
-    //     console.error("[inbound-sms] AI reply failed — using template fallback", error);
-    //   }
-    // }
-    // replyBody = aiReply ?? buildInboundSmsReply(agent, incomingBody, history);
     replyBody = buildInboundSmsReply(agent, incomingBody, history);
   }
 
@@ -4060,12 +3768,6 @@ export async function runBookAppointmentTool(args: Record<string, unknown>, ctx:
           phoneSource: "confirmed",
           smsRecipientE164: patientPhone
         });
-        // [DISABLED:non-handoff] appointment reminders.
-        // if (localAppointment) {
-        //   void scheduleRemindersForAppointment({ appointmentId: localAppointment.id }).catch((error) =>
-        //     console.error("[reminders] schedule failed (booking kept)", error)
-        //   );
-        // }
       } catch (error) {
         // The appointment exists; only the call's contact memory did not
         // update. Not worth losing a real booking over.
@@ -4429,7 +4131,6 @@ export async function runCancelAppointmentTool(args: Record<string, unknown>, ct
     }
   }
 
-  // [DISABLED:non-handoff] await cancelRemindersForAppointment(target.id).catch(() => null);
   await prisma.appointment.update({
     where: { id: target.id },
     data: {
@@ -4780,9 +4481,6 @@ export async function runRescheduleAppointmentTool(args: Record<string, unknown>
           .join("\n")
       }
     });
-    // [DISABLED:non-handoff] reminder rescheduling.
-    // await rescheduleRemindersForAppointment(target.id).catch(() => null);
-    // await scheduleRemindersForAppointment({ appointmentId: target.id }).catch(() => null);
     return { moved: true };
   };
 
@@ -4998,15 +4696,6 @@ export async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx:
   ];
 
   if (sections.length === 0) {
-    // [DISABLED:non-handoff] knowledge-gap logging.
-    // if ((ctx.executionMode ?? "LIVE") === "LIVE") {
-    //   await recordUnansweredQuestion({
-    //     businessId,
-    //     installedAgentId: ctx.installedAgentId ?? null,
-    //     channel: "VOICE",
-    //     question: query.slice(0, 500)
-    //   });
-    // }
     return {
       found: false,
       sections: [],
@@ -5986,24 +5675,6 @@ export async function handleVapiWebhook(c: Context) {
           },
           select: { id: true, customerId: true }
         });
-        // [DISABLED:non-handoff] canonical customer linking.
-        // if (!storedCallRow.customerId && customerPhone && executionMode === "LIVE") {
-        //   void ensureCustomerByIdentity({
-        //     businessId: businessContext.businessId,
-        //     kind: "PHONE",
-        //     value: customerPhone,
-        //     source: "voice"
-        //   })
-        //     .then((result) =>
-        //       result.outcome !== "SKIPPED"
-        //         ? prisma.vapiCall.update({
-        //             where: { id: storedCallRow.id },
-        //             data: { customerId: result.customerId }
-        //           })
-        //         : null
-        //     )
-        //     .catch(() => null);
-        // }
         void storedCallRow;
       } catch (error) {
         console.error("[vapi-webhook] vapiCall.upsert failed (non-fatal)", error);
@@ -6223,19 +5894,6 @@ export async function handleVapiWebhook(c: Context) {
       }
     };
 
-    /* [DISABLED] After-call CRM sync (customer-context CRM).
-     * const syncCallToCrmOnCallEnd = () => {
-     *   if (executionMode !== "LIVE" || !isEndOfCallEvent) return;
-     *   if (!businessContext?.businessId || !customerPhone) return;
-     *   void syncCallToCrm({
-     *     businessId: businessContext.businessId,
-     *     customerPhone,
-     *     summary: summary ?? null,
-     *     callId: callId ?? null,
-     *     channel: "VOICE"
-     *   }).catch((error) => console.error("[vapi-webhook] CRM sync failed (non-fatal)", error));
-     * };
-     */
     const syncCallToCrmOnCallEnd = () => {};
 
     if (toolCalls.length === 0) {
@@ -6346,11 +6004,6 @@ export async function handleVapiWebhook(c: Context) {
       const isCheck = !isConsent && !isLookup && !isCancel && !isReschedule && !isVerify && (fnName.startsWith("check") || fnName.includes("availab"));
       const isBook = !isConsent && !isLookup && !isCancel && !isReschedule && !isVerify && fnName.startsWith("book");
       const isNotify = !isConsent && !isLookup && !isCancel && !isReschedule && !isVerify && (fnName.startsWith("send") || fnName.includes("notif"));
-      /* [DISABLED] live human handoff dispatch.
-      const isTransfer =
-        !isConsent && !isLookup && !isUpdateContact && !isCancel && !isReschedule && !isVerify && !isCheck && !isBook && !isNotify &&
-        (fnName.includes("transfer") || fnName.includes("human") || fnName.includes("forward"));
-      */
       const ctx: VapiToolContext = {
         ...baseCtx,
         patientPhone: argStr(toolCall.parameters, PHONE_ARG_KEYS) || customerPhone
@@ -6390,18 +6043,6 @@ export async function handleVapiWebhook(c: Context) {
           else if (isCheck) payload = await runCheckAvailabilityTool(toolCall.parameters, ctx);
           else if (isBook) payload = await runBookAppointmentTool(toolCall.parameters, ctx);
           else if (isNotify) payload = await runSendNotificationTool(toolCall.parameters, ctx);
-          /* [DISABLED] live human handoff dispatch.
-          else if (isTransfer) {
-            payload = await runTransferToHumanTool(toolCall.parameters, {
-              business: businessContext,
-              customerPhone,
-              callId,
-              executionMode,
-              installedAgentId: metadataInstalledAgentId,
-              summary
-            });
-          }
-          */
           else payload = { ok: true };
         } catch (error) {
           // #8 Distributed call state unavailable → deterministic fail-closed

@@ -50,10 +50,6 @@ export async function getLiveUsageCapStatus(
   if (!businessId) return open;
 
   try {
-    // [DISABLED:non-handoff] provisional exposure (unpriced calls + SMS
-    // ledger estimates). Restore the commented Promise.all + exposure math
-    // when re-enabling; until then the cap compares priced spend only.
-    // const { start, end } = billingMonthWindow(billingMonth);
     const [business, spentMicroUsd] = await Promise.all([
       prisma.business.findUnique({
         where: { id: businessId },

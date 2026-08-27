@@ -669,23 +669,6 @@ export async function routeInboundEmailToBusiness(input: InboundEmailInput): Pro
     forwarded = result.ok;
   }
 
-  // [DISABLED:non-handoff] AI email replies.
-  // if (!isLoop) {
-  //   void import("./email-ai-responder.js")
-  //     .then(({ maybeSendAiEmailReply }) =>
-  //       maybeSendAiEmailReply({
-  //         businessId: alias.businessId,
-  //         installedAgentId: alias.installedAgentId,
-  //         aliasEmail: alias.emailAddress,
-  //         inboundMessageId: stored.id,
-  //         fromEmail: input.fromEmail,
-  //         subject: input.subject,
-  //         textBody
-  //       })
-  //     )
-  //     .catch((error) => console.error("[email-ai] reply attempt failed (inbound stored)", error));
-  // }
-
   /*
    * NODE 010 — THE EAR FIRES.
    *

@@ -3,9 +3,6 @@ import { Hono } from "hono";
 import { env } from "../../config/env";
 import { sendFreeAssignmentEmail, sendPaymentFailedEmail } from "../../lib/mailer";
 import { requireAuth } from "../../middleware/auth";
-// [DISABLED:non-handoff]
-// import { getSharedRedis } from "../../lib/redis";
-
 /**
  * Only two mail endpoints exist on purpose:
  * - the lead-magnet route stays public (the landing page calls it before any
@@ -62,25 +59,6 @@ function pruneRateMaps(now: number): void {
  * when Redis is unavailable. true = allowed.
  */
 async function allowFreeAssignmentSend(ip: string, email: string): Promise<boolean> {
-  // [DISABLED:non-handoff] Redis-first distributed limiting — uncomment to
-  // restore; the in-memory limiter below is the previously-shipped behavior.
-  // const redis = getSharedRedis();
-  // if (redis) {
-  //   try {
-  //     const ipKey = `rl:free-assignment:ip:${ip}`;
-  //     const emailKey = `rl:free-assignment:email:${email}`;
-  //     const ipCount = await redis.incr(ipKey);
-  //     if (ipCount === 1) await redis.pexpire(ipKey, FREE_ASSIGNMENT_IP_WINDOW_MS);
-  //     if (ipCount > FREE_ASSIGNMENT_IP_LIMIT) return false;
-  //     const claimed = await redis.set(emailKey, "1", "PX", FREE_ASSIGNMENT_EMAIL_COOLDOWN_MS, "NX");
-  //     return claimed === "OK";
-  //   } catch (error) {
-  //     console.error("[mails] Redis rate limit failed — using in-memory fallback", {
-  //       message: error instanceof Error ? error.message : String(error)
-  //     });
-  //   }
-  // }
-
   const now = Date.now();
   pruneRateMaps(now);
 

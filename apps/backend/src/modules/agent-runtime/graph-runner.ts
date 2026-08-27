@@ -672,23 +672,6 @@ export async function runAgentWorkflow(params: {
     name: resolveBusinessName(input.business.name)
   };
 
-  // [DISABLED:non-handoff] owner-rules loading for this runtime.
-  // if (business.businessId && !business.rulesSection) {
-  //   try {
-  //     const { compileRulesPromptSection, getEffectiveRules } = await import(
-  //       "../business/rules/rules-service.js"
-  //     );
-  //     business.rulesSection = compileRulesPromptSection(
-  //       await getEffectiveRules({
-  //         businessId: business.businessId,
-  //         installedAgentId: business.installedAgentId ?? null
-  //       })
-  //     );
-  //   } catch (error) {
-  //     console.error("[graph-runner] rules load failed (run continues without them)", error);
-  //   }
-  // }
-
   const firstMessage = firstMessageOf(aiNode, business);
   const nodeInstructions = aiNodeInstructions(aiNode);
 

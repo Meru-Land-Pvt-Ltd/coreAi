@@ -33,8 +33,6 @@ import {
 import { loadBusinessAgentKnowledge } from "./agent-knowledge";
 import { loadBusinessFacts } from "./business-facts";
 import { buildHoursPromptLines, loadBusinessHoursState } from "./business-hours-state";
-// [DISABLED:non-handoff]
-// import { compileRulesPromptSection, getEffectiveRules } from "./rules/rules-service";
 import {
   buildAfterHoursSnapshotForBusiness,
   logAfterHoursRouting,
@@ -364,12 +362,6 @@ async function buildInstalledAgentAssistantPlan(
       ? `Verified business facts (answer these directly and exactly; NEVER invent a street, city, state, postal code, landmark, or link that is not listed):\n${facts.promptLines.map((line) => `- ${line}`).join("\n")}`
       : "";
 
-  // [DISABLED:non-handoff] owner-rules prompt section.
-  // const rulesSection = compileRulesPromptSection(
-  //   await getEffectiveRules({ businessId: business.id, installedAgentId: installedAgent.id }).catch(
-  //     () => []
-  //   )
-  // );
   const rulesSection = "";
 
   // Escalation rules are per-agent (configJson.businessDetails), falling back to
@@ -583,7 +575,6 @@ export async function deployInstalledAgentVoiceAssistant(
       bookAppointment: plan.capabilities.canBook,
       sendNotification: plan.capabilities.canText || plan.capabilities.canEmail === true,
       recordSmsConsent: plan.capabilities.canText
-      // [DISABLED] transferToHuman: Boolean(plan.teamPhone) && plan.transferEnabled
     }
   });
 
@@ -917,7 +908,6 @@ export async function startInstalledAgentPreviewCall(
       bookAppointment: plan.capabilities.canBook,
       sendNotification: plan.capabilities.canText || plan.capabilities.canEmail === true,
       recordSmsConsent: plan.capabilities.canText
-      // [DISABLED] transferToHuman: Boolean(plan.teamPhone) && plan.transferEnabled
     },
     silenceTimeoutSeconds: 60,
     maxDurationSeconds: PREVIEW_MAX_DURATION_SECONDS,

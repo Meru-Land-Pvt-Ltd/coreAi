@@ -89,8 +89,6 @@ export async function loadBusinessAgentKnowledge(params: {
   promptBudgetChars?: number;
 }): Promise<BusinessAgentKnowledge> {
   const [rows, documents] = await Promise.all([
-    // [DISABLED:non-handoff] lifecycle/visibility retrieval filters — restore
-    // the AND-wrapped variants when knowledge-v2 is re-enabled.
     prisma.businessKnowledgeBase.findMany({
       where: { businessId: params.businessId, ...agentScopeFilter(params.installedAgentId) },
       select: { title: true, content: true, sourceFileId: true, chunkIndex: true, createdAt: true },
@@ -217,8 +215,6 @@ export async function retrieveRelevantKnowledge(params: {
   const terms = expandTerms([...new Set([...baseTerms, ...intentTerms])]);
   const locationIntent = terms.includes("address") || terms.includes("location");
 
-  // [DISABLED:non-handoff] lifecycle/visibility retrieval filter removed with
-  // knowledge-v2; restore the AND-wrapped where-clause when re-enabling.
   const rows = await prisma.businessKnowledgeBase.findMany({
     where: { businessId: params.businessId, ...agentScopeFilter(params.installedAgentId) },
     select: {
