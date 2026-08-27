@@ -142,6 +142,33 @@ function fillDeep(
 }
 
 /** One request from a recipe, shared by the heart and the self-test. */
+
+/**
+ * The host an architect actually declared, with any placeholder left in it.
+ *
+ * `https://{{config.region}}.api.acme.com/v1` gives "acme.com": the parts a
+ * setup answer may fill are allowed to vary, the company is not.
+ */
+function hostOf(rawUrl: string): string | null {
+  const withoutPlaceholders = rawUrl.replace(/\{\{[^}]*\}\}/g, "x");
+  try {
+    return new URL(withoutPlaceholders).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** Same registrable site: acme.com, api.acme.com and eu.api.acme.com agree. */
+function sameSite(declared: string, actual: string): boolean {
+  const tail = (host: string) => host.toLowerCase().split(".").slice(-2).join(".");
+  const a = declared.toLowerCase();
+  const b = actual.toLowerCase();
+  if (a === b) return true;
+  /* A placeholder standing in for a whole label ("x.api.acme.com") must not
+     let the last two labels themselves be swapped. */
+  return tail(a) === tail(b) && tail(a).includes(".");
+}
+
 async function runRecipe(
   recipe: FrameRecipe,
   context: { http: HeartContext["http"]; credentials: Record<string, string>; log: HeartContext["log"] },
@@ -162,6 +189,25 @@ async function runRecipe(
   const problem = checkRecipeUrl(url.toString());
   if (problem) {
     const error = new Error(problem) as Error & { status: number };
+    error.status = 400;
+    throw error;
+  }
+
+  /* AND IT MUST STILL BE THE SAME COMPANY.
+     The check above refuses addresses inside our own network. It does not
+     refuse evil.com — nothing did. A placeholder inside the address means a
+     business's own setup answer could point the request anywhere on the
+     internet, and the architect's API key travels in the headers a few lines
+     below. That is somebody else's key, sent to a stranger's server, by a
+     value a third party typed into a form.
+
+     So the host is pinned to the one the architect declared. Filling in a
+     region or an account id is fine; changing whose server this is is not. */
+  const declaredHost = hostOf(recipe.url);
+  if (declaredHost && !sameSite(declaredHost, url.hostname)) {
+    const error = new Error(
+      `This step is set up to talk to ${declaredHost}, and something changed the address to ${url.hostname}. It was not sent.`
+    ) as Error & { status: number };
     error.status = 400;
     throw error;
   }

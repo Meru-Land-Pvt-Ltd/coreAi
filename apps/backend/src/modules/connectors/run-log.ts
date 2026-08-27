@@ -34,9 +34,15 @@ function unitsFrom(contract: NodeFrame, result: ConnectorRunResult): number {
     const value = result.outputs[output.key];
     if (Array.isArray(value)) units += value.length;
   }
-  // A connector that produces one object rather than a list still did one
-  // thing, and "0 messages sent" after a successful send would be wrong.
-  if (units === 0 && result.ok) units = result.pagesFetched;
+  /* A CARD THAT FOUND NOBODY REPORTED FINDING ONE.
+     The fallback below is right for a card that produces a single thing — "0
+     messages sent" after a successful send would be wrong. But it also fired
+     for a card that declares a LIST and came back with an empty one, so a
+     search that found nobody was written down as one unit, and the business's
+     dashboard counted leads that were never found. An empty list is a real
+     answer, and its answer is zero. */
+  const producesAList = contract.produces.some((output) => output.kind === "list");
+  if (units === 0 && result.ok && !producesAList) units = result.pagesFetched;
   return units;
 }
 
