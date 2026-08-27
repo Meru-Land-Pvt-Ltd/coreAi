@@ -3994,13 +3994,21 @@ businessRoutes.post("/setup", async (c) => {
       return errorResponse(c, "That phone number is already assigned to another business.", 409, "PHONE_NUMBER_TAKEN");
     }
 
+    const agentForAccessCheck = resolveSetupAgent(existing?.installedAgents, input.listingId);
+
+    /* SAVING SETTINGS MUST NOT CHANGE WHICH AGENT THEY OWN.
+       When the request named neither an agent nor a workflow — which is every
+       ordinary save from the Settings screen — the resolver went looking
+       across the WHOLE platform for anything that looked like a receptionist,
+       and failing that invented a brand new workflow. A business with one
+       agent then had its agent's workflow and name overwritten by a stranger's
+       listing, or got a second agent carrying somebody else's execution fee.
+       Their own agent is the answer. */
     const resolved = await resolveReceptionistWorkflow({
       ownerId: authUser.id,
-      workflowId: input.workflowId || undefined,
-      listingId: input.listingId || undefined
+      workflowId: input.workflowId || agentForAccessCheck?.workflowId || undefined,
+      listingId: input.listingId || agentForAccessCheck?.listingId || undefined
     });
-
-    const agentForAccessCheck = resolveSetupAgent(existing?.installedAgents, input.listingId);
 
     const setupAccess = await canBusinessRunSetup({
       userId: authUser.id,

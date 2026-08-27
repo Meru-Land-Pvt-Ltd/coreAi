@@ -300,7 +300,14 @@ async function saveBusinessSettingsProfile(c: Context) {
     data: {
       name: input.businessName ?? undefined,
       type: input.businessType ?? undefined,
-      billingAddress: input.businessAddress || null
+      /* AN ABSENT FIELD IS NOT AN INSTRUCTION TO ERASE. The profile form does
+         not carry the invoice address at all, so every ordinary profile save
+         arrived with this field missing and wiped the column — and that column
+         is what goes on their invoices. The address has its own screen and its
+         own route; only a request that actually names it may change it. */
+      ...(input.businessAddress !== undefined
+        ? { billingAddress: input.businessAddress || null }
+        : {})
     }
   });
 
