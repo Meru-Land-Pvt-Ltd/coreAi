@@ -7,7 +7,7 @@
  *   DASHBOARD — every number and board worth showing them afterwards
  *
  * deriveBuyerContract (packages/shared) reads the architect's nodes and says
- * WHAT must appear. This file asks Smart Designer HOW it should look, and then
+ * WHAT must appear. This file asks the AI Builder HOW it should look, and then
  * refuses anything that would lie to a paying customer: a field the platform
  * cannot save, a number it cannot fill, a control that does nothing.
  *

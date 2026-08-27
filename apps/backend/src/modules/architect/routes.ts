@@ -121,6 +121,7 @@ import { getVoiceAnswerStatus } from "./vapi-connector";
 import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
 import { getConditionRoadLimit, DEFAULT_CONDITION_ROADS } from "../admin/node-limits";
 import { aiBuilderAnswer, aiBuilderAnswerStreaming } from "./ai-builder";
+import { builderPageHand } from "../agent-pages/builder-page-hand";
 import { checkAgent } from "./agent-check";
 import { deleteBuilderLesson, listBuilderLessons, saveBuilderLesson } from "./builder-lessons";
 import { refuseUploadIfBeyondLimits } from "./upload-limits";
@@ -2950,6 +2951,49 @@ architectRoutes.post("/workflows/:workflowId/ai-builder/stream", async (c) => {
       await send("failed", { message: "The AI Builder could not answer just now. Try once more." });
     }
   });
+});
+
+/**
+ * THE BUILDER'S PAGE HAND — one door (the founder's ruling, 2026-08-27).
+ *
+ * The panel used to make THREE calls for one conversation: the router, then
+ * the page designer, then — if the ask turned out to be about packaging —
+ * a third. Three round trips, three briefings, three strangers. The employee
+ * now owns all of it behind his own door: he decides which hand, runs it,
+ * and answers once.
+ */
+architectRoutes.post("/workflows/:workflowId/ai-builder/page", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+  const body = z
+    .object({
+      instruction: z.string().trim().min(1).max(4000),
+      history: z
+        .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(4000) }))
+        .max(10)
+        .optional()
+    })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return errorResponse(c, "Say what you want changed.", 422, "VALIDATION_ERROR");
+
+  const workflow = await prisma.workflowDefinition.findFirst({
+    where: { id: workflowId, architectUserId: authUser.id },
+    select: { id: true }
+  });
+  if (!workflow) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+
+  try {
+    const result = await builderPageHand({
+      architectUserId: authUser.id,
+      workflowId,
+      instruction: body.data.instruction,
+      history: body.data.history ?? []
+    });
+    return successResponse(c, result, result.reply);
+  } catch (error) {
+    console.error("[ai-builder] page hand failed", error);
+    return errorResponse(c, "That change could not be made just now. Try once more.", 500, "PAGE_HAND_FAILED");
+  }
 });
 
 /**

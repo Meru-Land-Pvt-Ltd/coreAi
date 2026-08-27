@@ -1,7 +1,7 @@
 /**
  * The real numbers behind a composed dashboard.
  *
- * Smart Designer decides what the business sees and where; this decides what
+ * the AI Builder decides what the business sees and where; this decides what
  * the numbers actually are. The two are joined by {{metric.key}} tokens, so a
  * dashboard designed once shows today's figures every time it is opened.
  *

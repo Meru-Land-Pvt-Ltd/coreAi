@@ -388,15 +388,15 @@ export type SmartComposeData = {
 /**
  * POST /agent-pages/manage/:workflowId/smart-designer — the feedback loop.
  * The architect says what the composed interface got wrong ("this box isn't
- * capturing email separately") and the Smart Designer fixes the spec.
+ * capturing email separately") and the AI Builder fixes the spec.
  */
-export type SmartDesignerBody = {
+export type BuilderPageBody = {
   instruction: string;
   /** Up to the last 10 turns, for follow-ups like "actually make it optional". */
   history?: DesignChatMessage[];
 };
 
-export type SmartDesignerData = {
+export type BuilderPageData = {
   reply: string;
   /** The updated Product Spec after this instruction (unchanged on a redirect). */
   product: unknown;

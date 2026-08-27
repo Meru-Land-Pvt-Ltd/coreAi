@@ -169,7 +169,7 @@ export function NodeInspector({
   const isProductBlock =
     isBlockNodeType(type) || String(selectedNode.data.nodeKind ?? "") === "block";
   // Old canvases can still carry a design.brain node — it gets the plain
-  // block-style frame now; its chat was retired for the Smart Designer.
+  // block-style frame now; its chat was retired for the AI Builder.
   const isDesignBrain = type === DESIGN_BRAIN_NODE_TYPE;
   const base: NodePropsPanel = { selectedNode, onUpdateNodeData, variableNodePrefixes };
 

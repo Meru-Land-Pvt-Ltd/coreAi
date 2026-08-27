@@ -18,7 +18,7 @@ import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import { MISSING_LLM_CREDENTIALS_MESSAGE } from "../ai-provider-engine/llm-credentials";
 import { resolveBrainSlot } from "../admin/brain-slot-settings";
-import { getSmartDesignerBrainConfig } from "../admin/smart-designer-brain-settings";
+import { getBuilderBrainConfig } from "../admin/builder-brain-settings";
 import {
   recordLlmProviderFailure,
   recordLlmProviderSuccess
@@ -64,20 +64,20 @@ import { ensureDraftAgentListingAndPage, type AgentPageTemplate } from "./slug";
  *
  * This is a completely separate, parallel feature: the existing Design Brain
  * node and its Style/Build chat are untouched, and this module runs on its own
- * admin battery (`getSmartDesignerBrainConfig`) so its model is swappable
+ * admin battery (`getBuilderBrainConfig`) so its model is swappable
  * without ever affecting the old designer.
  */
 
 /** Graceful reply when the composer never produces a valid interface. */
 export const SMART_COMPOSER_FALLBACK_REPLY =
-  "I couldn't put the interface together this time. Run it again, or tell the Smart Designer what the page should capture.";
+  "I couldn't put the interface together this time. Run it again, or tell the AI Builder what the page should capture.";
 
 /** Graceful reply when a designer edit never survives validation. */
-export const SMART_DESIGNER_FALLBACK_REPLY =
+export const PAGE_FALLBACK_REPLY =
   "I couldn't apply that change safely, so I left your page as it was. Tell me again in a sentence what should be different.";
 
 /** The one-line redirect for asks that belong to Packaging, not the product. */
-export const SMART_DESIGNER_BOUNDARY_REPLY =
+export const PAGE_BOUNDARY_REPLY =
   "That belongs to Packaging — the place for sell pages, pricing, privacy and terms. I only shape the working product screen, so your page is unchanged.";
 
 /** Roomy: a composed interface is a big JSON document (8k+ tokens of spec). */
@@ -86,7 +86,7 @@ const MAX_OUTPUT_TOKENS = 16000;
 /** Above this the current product is summarized instead of pasted in full. */
 const MAX_CURRENT_PRODUCT_CHARS = 60000;
 
-export const smartDesignerBodySchema = z.object({
+export const pageHandBodySchema = z.object({
   instruction: z
     .string()
     .trim()
@@ -111,7 +111,7 @@ export const smartDesignerBodySchema = z.object({
 /**
  * Requests that are about the wrapper around the product, not the product's
  * working screen. The founder's boundary: privacy/terms, landing/sell pages,
- * marketing sites live in Packaging — the Smart Designer must redirect, never
+ * marketing sites live in Packaging — the AI Builder must redirect, never
  * attempt. This regex is the guardrail; the prompt teaches the model the same
  * boundary for phrasings no pattern anticipates.
  */
@@ -209,13 +209,13 @@ function describeCurrentProduct(product: ProductSpec | null): string {
   return ["THE PRODUCT RIGHT NOW is too large to show in full. Its outline:", outline].join("\n");
 }
 
-export function buildSmartDesignerSystemPrompt(args: {
+export function buildPageBriefing(args: {
   agent: ComposerAgentFacts;
   declarations: WorkflowDeclarations;
   current: ProductSpec | null;
 }): string {
   return [
-    `You are the Smart Designer for "${args.agent.name}". The interface was composed from the architect's orchestration; the architect now fixes it by TALKING to you — "this box isn't capturing email separately", "put the results above the fields". You adjust the interface and nothing else.`,
+    `You are the AI Builder for "${args.agent.name}". The interface was composed from the architect's orchestration; the architect now fixes it by TALKING to you — "this box isn't capturing email separately", "put the results above the fields". You adjust the interface and nothing else.`,
     "",
     "YOUR BOUNDARY: you shape ONLY the working product interface derived from the orchestration. If the architect asks for anything beyond it — a privacy policy, terms, a landing page, a sell page, pricing, a marketing site — do not attempt it. Answer exactly:",
     '{ "reply": "<one friendly line redirecting them to Packaging>", "boundary": "packaging" }',
@@ -541,7 +541,9 @@ type ComposerOutcome =
   | { kind: "boundary"; reply: string }
   | { kind: "failed" };
 
-async function runComposerBrain(args: {
+/* Exported for the Builder's page hand — the tool survives, the rival
+   employee that used to own it does not (2026-08-27). */
+export async function runComposerBrain(args: {
   brain: ComposerBrain;
   systemPrompt: string;
   conversationHistory: AIMessage[];
@@ -665,14 +667,14 @@ async function runComposerBrain(args: {
 // Shared route plumbing.
 // ---------------------------------------------------------------------------
 
-type WorkflowRow = {
+export type WorkflowRow = {
   id: string;
   name: string;
   architectUserId: string;
   workflowJson: unknown;
 };
 
-type ComposerContext = {
+export type ComposerContext = {
   workflow: WorkflowRow;
   page: PublishedAgentPage;
   agent: ComposerAgentFacts;
@@ -702,7 +704,7 @@ function collectGraphNodeIds(workflowJson: unknown): Set<string> {
   return ids;
 }
 
-async function loadComposerContext(workflow: WorkflowRow): Promise<ComposerContext> {
+export async function loadComposerContext(workflow: WorkflowRow): Promise<ComposerContext> {
   // Draft agents are first-class: no page row yet means we bootstrap the
   // DRAFT listing + page, exactly like the manage GET does.
   let page = await prisma.publishedAgentPage.findFirst({ where: { workflowId: workflow.id } });
@@ -762,7 +764,7 @@ function mergedCount(declarations: WorkflowDeclarations): number {
 // Routes.
 // ---------------------------------------------------------------------------
 
-export function registerSmartDesignerRoutes(routes: Hono) {
+export function registerPageHandRoutes(routes: Hono) {
   /**
    * WHAT THE BUSINESS WILL SEE — for the architect, before anyone buys it.
    *
@@ -817,7 +819,7 @@ export function registerSmartDesignerRoutes(routes: Hono) {
   );
 
   /**
-   * THE WHOLE BUSINESS SIDE, designed by Smart Designer.
+   * THE WHOLE BUSINESS SIDE, designed by the AI Builder.
    *
    * Two surfaces from one contract: the setup form that asks the business for
    * what the agent needs, and the daily screen that shows them what it did.
@@ -842,7 +844,7 @@ export function registerSmartDesignerRoutes(routes: Hono) {
       const context = await loadComposerContext(workflow);
       const contract = deriveBuyerContract(workflow.workflowJson, { connectors: [...allConnectors(), ...allCachedArchitectFrames()] });
 
-      const brain = resolveBrainSlot(await getSmartDesignerBrainConfig());
+      const brain = resolveBrainSlot(await getBuilderBrainConfig());
       if (!brain) return errorResponse(c, MISSING_LLM_CREDENTIALS_MESSAGE, 503, "LLM_NOT_CONFIGURED");
 
       const shared = {
@@ -929,9 +931,9 @@ export function registerSmartDesignerRoutes(routes: Hono) {
       const context = await loadComposerContext(workflow);
       const merged = mergedCount(context.declarations);
 
-      // The battery an admin picked for the Smart Designer — never a provider
+      // The battery an admin picked for the AI Builder — never a provider
       // frozen into this file, and never the old designer's battery.
-      const brain = resolveBrainSlot(await getSmartDesignerBrainConfig());
+      const brain = resolveBrainSlot(await getBuilderBrainConfig());
       if (!brain) {
         return errorResponse(c, MISSING_LLM_CREDENTIALS_MESSAGE, 503, "LLM_NOT_CONFIGURED");
       }
@@ -990,162 +992,19 @@ export function registerSmartDesignerRoutes(routes: Hono) {
     }
   );
 
-  /** SMART DESIGNER CHAT: the feedback loop, bounded to the product interface. */
-  routes.post(
-    "/manage/:workflowId/smart-designer",
-    requireAuth,
-    requireRole(["ARCHITECT"]),
-    async (c) => {
-      const authUser = c.get("authUser");
-      // Registered on a plain Hono, param() types as string | undefined; a
-      // missing value must read as "no such agent", never as "any agent".
-      const workflowId = c.req.param("workflowId") ?? "";
-
-      const workflow = await prisma.workflowDefinition.findFirst({
-        where: { id: workflowId, architectUserId: authUser.id },
-        select: { id: true, name: true, architectUserId: true, workflowJson: true }
-      });
-      if (!workflow) {
-        return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
-      }
-
-      let input: z.infer<typeof smartDesignerBodySchema>;
-      try {
-        input = smartDesignerBodySchema.parse(await c.req.json().catch(() => ({})));
-      } catch (error) {
-        if (error instanceof z.ZodError) {
-          return errorResponse(c, error.issues[0]?.message ?? "Invalid request", 422, "VALIDATION_ERROR");
-        }
-        throw error;
-      }
-
-      const context = await loadComposerContext(workflow);
-
-      // The boundary guardrail: packaging asks never reach the model and never
-      // touch the page. The prompt teaches the model the same line for
-      // phrasings this pattern cannot anticipate.
-      if (isPackagingRequest(input.instruction)) {
-        return successResponse(c, {
-          reply: SMART_DESIGNER_BOUNDARY_REPLY,
-          product: context.unchangedProduct(),
-          boundary: "packaging"
-        });
-      }
-
-      const brain = resolveBrainSlot(await getSmartDesignerBrainConfig());
-      if (!brain) {
-        return errorResponse(c, MISSING_LLM_CREDENTIALS_MESSAGE, 503, "LLM_NOT_CONFIGURED");
-      }
-
-      const outcome = await runComposerBrain({
-        brain,
-        systemPrompt: buildSmartDesignerSystemPrompt({
-          agent: context.agent,
-          declarations: context.declarations,
-          current: context.stored
-        }),
-        conversationHistory: (input.history ?? []).map((turn) => ({
-          role: turn.role,
-          content: turn.content
-        })),
-        userMessage: input.instruction,
-        declarations: context.declarations,
-        graphNodeIds: context.graphNodeIds,
-        allowBoundary: true,
-        task: "agent-page-smart-designer",
-        workflowId
-      });
-
-      if (outcome.kind === "boundary") {
-        return successResponse(c, {
-          reply: outcome.reply,
-          product: context.unchangedProduct(),
-          boundary: "packaging"
-        });
-      }
-
-      if (outcome.kind !== "composed") {
-        return successResponse(c, {
-          reply: SMART_DESIGNER_FALLBACK_REPLY,
-          product: context.unchangedProduct(),
-          boundary: null
-        });
-      }
-
-      // THE EYES. The designer used to say "done" blind — the founder caught
-      // it claiming a move three times while nothing moved. Now every change
-      // is LOOKED AT: a cold second call compares before/after against the
-      // ask. Wrong -> one corrective pass with the exact problems -> look
-      // again. The reply never claims more than the look confirmed.
-      const before = context.stored ?? context.unchangedProduct();
-      let product = outcome.product;
-      let reply = outcome.reply;
-      let verdict = await verifyDesignChange({
-        brain,
-        instruction: input.instruction,
-        before,
-        after: product,
-        workflowId
-      });
-
-      if (verdict && !verdict.satisfied && verdict.problems.length > 0) {
-        const correction = await runComposerBrain({
-          brain,
-          systemPrompt: buildSmartDesignerSystemPrompt({
-            agent: context.agent,
-            declarations: context.declarations,
-            current: product
-          }),
-          conversationHistory: [
-            ...(input.history ?? []).map((turn) => ({ role: turn.role, content: turn.content })),
-            { role: "user" as const, content: input.instruction },
-            { role: "assistant" as const, content: reply }
-          ],
-          userMessage: `I looked at the page and the change is NOT right yet: ${verdict.problems.join(" ")} Fix exactly this.`,
-          declarations: context.declarations,
-          graphNodeIds: context.graphNodeIds,
-          allowBoundary: false,
-          task: "agent-page-smart-designer",
-          workflowId
-        });
-        if (correction.kind === "composed") {
-          product = correction.product;
-          reply = correction.reply;
-          verdict = await verifyDesignChange({
-            brain,
-            instruction: input.instruction,
-            before,
-            after: product,
-            workflowId
-          });
-        }
-      }
-
-      let saved: ProductSpec;
-      try {
-        saved = await saveProductSpec(context.page.id, product);
-      } catch (error) {
-        console.error("[smart-designer] could not save product", {
-          workflowId,
-          message: error instanceof Error ? error.message : String(error)
-        });
-        return successResponse(c, {
-          reply: SMART_DESIGNER_FALLBACK_REPLY,
-          product: context.unchangedProduct(),
-          boundary: null
-        });
-      }
-
-      // Honesty in one line: checked and right, checked and still wrong (say
-      // what), or the look itself failed (never pretend it happened).
-      const honestReply =
-        verdict === null
-          ? reply
-          : verdict.satisfied
-            ? `${reply} — checked, it's really there.`
-            : `${reply} — but I checked, and it's still not right: ${verdict.problems.join(" ")} Tell me to try again or say it differently.`;
-
-      return successResponse(c, { reply: honestReply, product: saved, boundary: null });
-    }
-  );
+  /**
+ * THE BUILDER'S PAGE HAND — the same employee, designing the screen.
+ *
+ * This was a rival: "the AI Builder", with its own name, its own manners
+ * and its own router inside one product. The founder killed the name and the
+ * person on 2026-08-27 — "one who builds the backend also builds the
+ * frontend" — and kept the tools. What survives is machinery: read the
+ * agent, brief the model on THIS agent's facts, gate the result, verify the
+ * change with the eyes. The identity and the manners now come from the one
+ * mind (builder-mind.ts), like every other hand.
+ */
+  /* The page route lived here until 2026-08-27. One employee owns every
+     hand now: the Builder's own door (POST /architect/workflows/:id/
+     ai-builder/page → builder-page-hand.ts) calls these tools directly, so
+     an architect never meets a second endpoint or a second personality. */
 }

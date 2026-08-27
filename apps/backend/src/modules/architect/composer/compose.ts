@@ -17,14 +17,12 @@
  */
 
 import { resolveBrainSlot } from "../../admin/brain-slot-settings";
-import { getSmartDesignerBrainConfig } from "../../admin/smart-designer-brain-settings";
+import { getBuilderBrainConfig } from "../../admin/builder-brain-settings";
 import { getProviderEngine } from "../../ai-provider-engine/provider-engine";
 import type { AIExecuteRequest, AIMessage } from "../../ai-provider-engine/types";
 import { checkPlan, type ComposerPlan } from "./check-plan";
 import { composerMenu, menuAsText, type MenuEntry } from "./node-menu";
-import { builderSoulText, connectionWisdom } from "../builder-soul";
-import { builderIntelligenceText } from "../builder-intelligence";
-import { lessonsForPrompt } from "../builder-lessons";
+import { builderMind } from "../builder-mind";
 
 /** What the architect sees while it works. */
 export type ComposerProgress = {
@@ -42,7 +40,7 @@ export type ComposerResult =
 
 const MAX_ATTEMPTS = 3;
 
-function systemPrompt(menu: string, personalLessons: string, connections: string): string {
+function systemPrompt(menu: string, mind: string): string {
   return [
     "You assemble agents for Triven, out of steps that already exist.",
     "",
@@ -76,13 +74,11 @@ function systemPrompt(menu: string, personalLessons: string, connections: string
     "  button verb they recognise. Never a platform word on the screen. When nobody visits the page",
     "  (a Timer, an email ear, a webhook), compose NO Face at all.",
     "",
-    /* The Soul (law) and Builder Intelligence (character) ride with every
-       request — fetched fresh, so a swapped LLM is the same employee on its
-       first breath. */
-    builderSoulText(connections),
-    "",
-    builderIntelligenceText(),
-    ...(personalLessons ? ["", personalLessons] : []),
+    /* ONE MIND, EVERY HAND (the founder's ruling, 2026-08-27). Who he is,
+       the laws, the manners and this architect's own lessons — assembled in
+       one place so the hand that builds the machine and the hand that
+       designs its screen are the same employee, not two strangers. */
+    mind,
     "",
     "OUTPUT",
     'Return ONLY JSON: { "summary": string, "nodes": [...], "edges": [...], "asksTheBusiness": [string] }',
@@ -158,7 +154,7 @@ export async function composeOrchestration(input: {
      the architect sits WITH the work instead of waiting on it. */
   say("Reading what you asked for", input.existingPlan ? "an agent you already built" : undefined);
 
-  const brain = resolveBrainSlot(await getSmartDesignerBrainConfig());
+  const brain = resolveBrainSlot(await getBuilderBrainConfig());
   if (!brain) {
     return {
       ok: false,
@@ -167,10 +163,7 @@ export async function composeOrchestration(input: {
   }
 
   say("Looking at every step available to you");
-  const [menu, personalLessons] = await Promise.all([
-    composerMenu(input.architectUserId, input.hiddenNodeTypes ?? []),
-    lessonsForPrompt(input.architectUserId)
-  ]);
+  const menu = await composerMenu(input.architectUserId, input.hiddenNodeTypes ?? []);
   if (menu.length === 0) {
     return { ok: false, message: "There are no steps available to build with." };
   }
@@ -206,9 +199,13 @@ export async function composeOrchestration(input: {
   }
 
   /* Connection cards are born after the Soul ships, so their wisdom is
-     generated from their own rows (the founder's third hole, 2026-08-26). */
-  const connections = connectionWisdom(
-    menu
+     generated from their own rows (2026-08-26) — and rides inside the one
+     mind, like everything else. */
+  const mind = await builderMind({
+    hand: input.existingPlan ? "repair" : "compose",
+    architectUserId: input.architectUserId,
+    focus: input.want,
+    connections: menu
       .filter((entry) => entry.type.startsWith("connector."))
       .map((entry) => ({
         id: entry.type.replace(/^connector\./, ""),
@@ -216,7 +213,7 @@ export async function composeOrchestration(input: {
         description: entry.does,
         gives: entry.gives
       }))
-  );
+  });
 
   const messages: AIMessage[] = [
     ...(input.existingPlan
@@ -247,7 +244,7 @@ export async function composeOrchestration(input: {
 
     const request: AIExecuteRequest = {
       capability: "llm",
-      systemPrompt: systemPrompt(menuAsText(menu), personalLessons, connections),
+      systemPrompt: systemPrompt(menuAsText(menu), mind),
       conversationHistory: [],
       messages: [...messages],
       // Low, because this is arithmetic dressed as writing: which step, wired

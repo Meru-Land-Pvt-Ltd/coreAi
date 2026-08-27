@@ -36,10 +36,29 @@ describe("Builder Intelligence", () => {
     }
   });
 
-  it("rides with every compose request, beside the Soul", () => {
-    const compose = readFileSync(join(__dirname, "composer", "compose.ts"), "utf8");
-    expect(compose).toContain("builderIntelligenceText()");
-    expect(compose).toContain("builderSoulText(");
+  it("rides inside the ONE mind every hand carries", () => {
+    /* The founder's ruling (2026-08-27): eight hands each briefed themselves
+       differently — the chat carried the Soul, the page designer did not,
+       and that is how a Telegram agent was handed a website screen. The
+       character and the laws now live in one mind, assembled once. */
+    const mind = readFileSync(join(__dirname, "builder-mind.ts"), "utf8");
+    expect(mind).toContain("builderIntelligenceText()");
+    expect(mind).toContain("builderSoulText(");
+    for (const hand of ["compose", "explain", "design-page", "repair"]) {
+      expect(mind).toContain(hand);
+    }
+  });
+
+  it("every hand reads that one mind — none brief themselves", () => {
+    const hands = [
+      join(__dirname, "composer", "compose.ts"),
+      join(__dirname, "ai-builder.ts"),
+      join(__dirname, "..", "agent-pages", "builder-page-hand.ts")
+    ];
+    for (const hand of hands) {
+      const source = readFileSync(hand, "utf8");
+      expect(source, hand).toContain("builderMind(");
+    }
   });
 
   it("is one text, ready for any brain", () => {

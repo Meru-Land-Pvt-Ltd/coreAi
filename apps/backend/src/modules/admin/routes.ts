@@ -101,17 +101,6 @@ import {
   saveDoorBrainConfig
 } from "./door-brain-settings";
 import {
-  DEFAULT_SMART_DESIGNER_BRAIN_PROVIDER,
-  DEFAULT_SMART_DESIGNER_BRAIN_MODEL,
-  SMART_DESIGNER_BRAIN_MODEL_MAX_LENGTH,
-  smartDesignerBrainModelMismatch,
-  smartDesignerBrainModelOptions,
-  smartDesignerBrainProviderOptions,
-  getSmartDesignerBrainSetting,
-  isSupportedSmartDesignerBrainProvider,
-  saveSmartDesignerBrainConfig
-} from "./smart-designer-brain-settings";
-import {
   BUILDER_BRAIN_MODEL_MAX_LENGTH,
   DEFAULT_BUILDER_BRAIN_MODEL,
   DEFAULT_BUILDER_BRAIN_PROVIDER,
@@ -1014,10 +1003,10 @@ adminRoutes.patch("/door-brain", async (c) => {
   );
 });
 
-/* ------------- Smart Designer brain (the composer's battery) ------------- */
+/* ------------- the AI Builder brain (the composer's battery) ------------- */
 
 /**
- * The provider/model the AI Composer and Smart Designer chat run on. One
+ * The provider/model the AI Composer and the Builder's page hand run on. One
  * setting for the whole platform on purpose — architects never pick a model,
  * and swapping it here changes every composition instantly.
  */
@@ -1144,86 +1133,6 @@ async function saveBuilderSlot(c: Context, which: "brain" | "eyes") {
 adminRoutes.patch("/builder-brain", (c) => saveBuilderSlot(c, "brain"));
 adminRoutes.patch("/builder-eyes", (c) => saveBuilderSlot(c, "eyes"));
 
-adminRoutes.get("/smart-designer-brain", async (c) => {
-  const setting = await getSmartDesignerBrainSetting();
-  return successResponse(c, {
-    smartDesignerBrain: {
-      ...setting,
-      defaultProviderId: DEFAULT_SMART_DESIGNER_BRAIN_PROVIDER,
-      defaultModelId: DEFAULT_SMART_DESIGNER_BRAIN_MODEL,
-      providers: smartDesignerBrainProviderOptions(),
-      models: smartDesignerBrainModelOptions(setting.providerId)
-    }
-  });
-});
-
-const smartDesignerBrainUpdateSchema = z
-  .object({
-    // Blank clears the override and restores the platform default.
-    provider: z.string().trim().max(60).optional(),
-    model: z.string().trim().max(SMART_DESIGNER_BRAIN_MODEL_MAX_LENGTH).optional()
-  })
-  .refine((body) => body.provider !== undefined || body.model !== undefined, {
-    message: "Send a provider, a model, or both"
-  });
-
-adminRoutes.patch("/smart-designer-brain", async (c) => {
-  const authUser = c.get("authUser");
-  const parsed = smartDesignerBrainUpdateSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) {
-    return errorResponse(
-      c,
-      parsed.error.issues[0]?.message ?? "Invalid Smart Designer model payload",
-      422,
-      "VALIDATION_ERROR"
-    );
-  }
-
-  const provider = parsed.data.provider;
-  if (provider && !isSupportedSmartDesignerBrainProvider(provider)) {
-    return errorResponse(c, "That AI service is not one we can run the designer on.", 422, "UNSUPPORTED_PROVIDER");
-  }
-
-  // A model from a different service would be rejected by every composition.
-  const model = parsed.data.model;
-  const targetProvider = provider || (await getSmartDesignerBrainSetting()).providerId;
-  if (model && smartDesignerBrainModelMismatch(targetProvider, model)) {
-    return errorResponse(c, "That model belongs to a different AI service.", 422, "PROVIDER_MODEL_MISMATCH");
-  }
-
-  const result = await saveSmartDesignerBrainConfig(
-    { ...(provider !== undefined ? { provider } : {}), ...(model !== undefined ? { model } : {}) },
-    authUser.id
-  );
-
-  // Which keys changed is audited; the chosen values are not written to the log.
-  await logAdminAction({
-    adminUserId: authUser.id,
-    action: "SMART_DESIGNER_BRAIN_MODEL_UPDATED",
-    targetType: "PlatformApiSetting",
-    meta: {
-      providerChanged: provider !== undefined,
-      modelChanged: model !== undefined,
-      restoredDefault: result.restoredDefault
-    }
-  }).catch(() => undefined);
-
-  const setting = await getSmartDesignerBrainSetting();
-  return successResponse(
-    c,
-    {
-      smartDesignerBrain: {
-        ...setting,
-        defaultProviderId: DEFAULT_SMART_DESIGNER_BRAIN_PROVIDER,
-        defaultModelId: DEFAULT_SMART_DESIGNER_BRAIN_MODEL,
-        providers: smartDesignerBrainProviderOptions(),
-        models: smartDesignerBrainModelOptions(setting.providerId)
-      },
-      restoredDefault: result.restoredDefault
-    },
-    result.restoredDefault ? "Default Smart Designer model restored" : "Smart Designer model saved"
-  );
-});
 
 /* ---------------- Architect builder node visibility ---------------------- */
 

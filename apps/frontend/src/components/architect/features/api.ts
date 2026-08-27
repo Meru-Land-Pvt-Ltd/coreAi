@@ -9,8 +9,8 @@ import type {
   ProductChatBody,
   ProductChatData,
   SmartComposeData,
-  SmartDesignerBody,
-  SmartDesignerData,
+  BuilderPageBody,
+  BuilderPageData,
   ArchitectListing,
   ArchitectProfile,
   ArchitectProject,
@@ -1687,24 +1687,7 @@ export function updateAgentPageConfig(workflowId: string, body: AgentPageUpdateB
   return apiPatch<{ page: AgentPageConfig; url: string }>(`/agent-pages/manage/${workflowId}`, body);
 }
 
-/**
- * Design Brain chat: one styling instruction in the architect's own words,
- * with up to the last 10 turns for context. The backend validates the LLM's
- * patch against the dial schema before anything is saved.
- */
-export function designChat(workflowId: string, body: DesignChatBody) {
-  return apiPost<DesignChatData>(`/agent-pages/manage/${workflowId}/design-chat`, body);
-}
 
-/**
- * Product Architect: the other half of the Design Brain. Where designChat
- * restyles the page that exists, this one WRITES the product — pages,
- * sections, copy and the wires back to the agent — from one sentence.
- * The backend validates and auto-fixes the whole blueprint before saving.
- */
-export function productChat(workflowId: string, body: ProductChatBody) {
-  return apiPost<ProductChatData>(`/agent-pages/manage/${workflowId}/product-chat`, body);
-}
 
 /**
  * AI Composer: reads every node's declarations and generates the minimum
@@ -1716,14 +1699,6 @@ export function smartCompose(workflowId: string) {
   return apiPost<SmartComposeData>(`/agent-pages/manage/${workflowId}/smart-compose`, {});
 }
 
-/**
- * Smart Designer chat: the feedback loop on the composed interface. Product
- * UI only — packaging asks (privacy, landing, sell pages) come back with
- * `boundary: "packaging"` and nothing changed.
- */
-export function smartDesignerChat(workflowId: string, body: SmartDesignerBody) {
-  return apiPost<SmartDesignerData>(`/agent-pages/manage/${workflowId}/smart-designer`, body);
-}
 
 /* ------------------------------- AI Builder ------------------------------- */
 
@@ -1731,6 +1706,21 @@ export function smartDesignerChat(workflowId: string, body: SmartDesignerBody) {
  * One box that hears everything. The router says which hand a message belongs
  * to; for "explain" the answer arrives ready.
  */
+/**
+ * The Builder's page hand — ONE door (the founder's ruling, 2026-08-27).
+ * The three-call dance (page designer → packaging → reply) now happens
+ * behind the employee's own route, in one round trip.
+ */
+export function builderPageHand(
+  workflowId: string,
+  body: { instruction: string; history?: Array<{ role: "user" | "assistant"; content: string }> }
+) {
+  return apiPost<{ reply: string; product: unknown; boundary: "packaging" | null }>(
+    `/architect/workflows/${workflowId}/ai-builder/page`,
+    body
+  );
+}
+
 export function aiBuilderChat(
   workflowId: string,
   message: string,

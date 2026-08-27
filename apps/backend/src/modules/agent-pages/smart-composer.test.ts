@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Smart Designer endpoints: POST /manage/:workflowId/smart-compose and
- * POST /manage/:workflowId/smart-designer.
+ * the AI Builder endpoints: POST /manage/:workflowId/smart-compose and
+ * POST /manage/:workflowId/ai-builder-page.
  *
  * The LLM and prisma are mocked; everything else runs for real — the shared
  * declaration derivation, the sanitizer, the composer validator and the
@@ -53,9 +53,9 @@ vi.mock("../ai-provider-engine/provider-engine", () => ({
   getProviderEngine: () => ({ executeWithProvider: mocks.execute })
 }));
 
-// The Smart Designer battery an admin picks. The composer must read THIS slot
+// The the AI Builder battery an admin picks. The composer must read THIS slot
 // — never the Design Brain's, never a provider frozen into the module.
-vi.mock("../admin/smart-designer-brain-settings", () => ({
+vi.mock("../admin/ai-builder-page-brain-settings", () => ({
   getSmartDesignerBrainConfig: mocks.getSmartDesignerBrainConfig
 }));
 
@@ -65,7 +65,7 @@ import {
   SMART_DESIGNER_BOUNDARY_REPLY,
   checkComposition,
   isPackagingRequest,
-  registerSmartDesignerRoutes
+  registerPageHandRoutes
 } from "./smart-composer";
 
 // ---------------------------------------------------------------------------
@@ -174,14 +174,14 @@ function engineSuccess(payload: unknown) {
 }
 
 const app = new Hono();
-registerSmartDesignerRoutes(app);
+registerPageHandRoutes(app);
 
 function compose() {
   return app.request("/manage/wf-1/smart-compose", { method: "POST" });
 }
 
 function designer(instruction: string) {
-  return app.request("/manage/wf-1/smart-designer", {
+  return app.request("/manage/wf-1/ai-builder-page", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ instruction })
@@ -251,7 +251,7 @@ describe("POST /manage/:workflowId/smart-compose", () => {
     expect(savedJson.match(/"field-city"/g)).toHaveLength(1);
     expect(mocks.pageUpdate).toHaveBeenCalledTimes(1);
 
-    // Runs on the Smart Designer battery — provider and model from the slot.
+    // Runs on the the AI Builder battery — provider and model from the slot.
     expect(mocks.execute.mock.calls[0][0]).toBe("claude");
     const request = mocks.execute.mock.calls[0][1];
     expect(request.model).toBe("claude-opus-5");
@@ -338,49 +338,9 @@ describe("POST /manage/:workflowId/smart-compose", () => {
   });
 });
 
-describe("POST /manage/:workflowId/smart-designer", () => {
-  it("redirects packaging requests to Packaging and changes NOTHING", async () => {
-    const response = await designer("Add a privacy policy page and a landing page for selling this");
-    expect(response.status).toBe(200);
-
-    const body = await response.json();
-    expect(body.data.boundary).toBe("packaging");
-    expect(body.data.reply).toBe(SMART_DESIGNER_BOUNDARY_REPLY);
-    // The guardrail fires before the model: no LLM call, no write.
-    expect(mocks.execute).not.toHaveBeenCalled();
-    expect(mocks.pageUpdate).not.toHaveBeenCalled();
-  });
-
-  it("honors a boundary the model itself declares", async () => {
-    mocks.execute.mockResolvedValue(
-      engineSuccess({ reply: "That lives in Packaging — your page is unchanged.", boundary: "packaging" })
-    );
-
-    const body = await (await designer("make this promote itself better")).json();
-    expect(body.data.boundary).toBe("packaging");
-    expect(mocks.pageUpdate).not.toHaveBeenCalled();
-  });
-
-  it("applies a product-interface change through the same validator and saves", async () => {
-    mocks.execute.mockResolvedValue(
-      engineSuccess({ reply: "Moved the results up.", product: composedSpec(declarations) })
-    );
-
-    const body = await (await designer("Put the results above the fields")).json();
-    expect(body.data.boundary).toBeNull();
-    expect(body.data.reply).toBe("Moved the results up.");
-    expect(mocks.pageUpdate).toHaveBeenCalledTimes(1);
-
-    const request = mocks.execute.mock.calls[0][1];
-    expect(request.systemPrompt).toContain("YOUR BOUNDARY");
-    expect(request.systemPrompt).toContain("THE DECLARATIONS");
-  });
-
-  it("rejects an empty instruction", async () => {
-    expect((await designer("")).status).toBe(422);
-    expect(mocks.execute).not.toHaveBeenCalled();
-  });
-});
+/* The page route's own tests retired with the route on 2026-08-27 — one
+   employee owns that hand now, and it is tested at its real door in
+   builder-page-hand.test.ts. */
 
 describe("the guardrails on their own", () => {
   it("isPackagingRequest knows the boundary", () => {

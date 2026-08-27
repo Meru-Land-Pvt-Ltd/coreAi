@@ -3,7 +3,7 @@
 /**
  * THE BUSINESS'S OWN SCREENS.
  *
- * Two surfaces, both designed by Smart Designer from the architect's nodes:
+ * Two surfaces, both designed by the AI Builder from the architect's nodes:
  * the setup form that asks for what the agent needs, and the daily screen that
  * shows what it did. Nothing about their content is decided here.
  *

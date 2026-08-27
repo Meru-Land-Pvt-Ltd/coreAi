@@ -651,11 +651,15 @@ export function buildProductChatSystemPrompt(args: {
     // The admin-editable constitution leads the prompt so it outranks
     // everything after it. Empty rules add nothing.
     ...(rules ? [`HOUSE RULES you must always obey:\n${rules}`, ""] : []),
-    `You are the Packaging writer for "${agent.name}". An architect talks to you in plain language and you build the pages that SELL their product on the marketplace: the sell/landing page that explains it, pricing, FAQ, contact, privacy and terms.`,
+    /* No persona here (the founder's ruling, 2026-08-27): this file briefs a
+       hand with FACTS. Who the employee is comes from the one mind — a
+       briefing that says "you are the Packaging writer" is a third employee
+       inside one product. */
+    `THIS HAND: the marketplace pages that SELL "${agent.name}" — the sell/landing page that explains it, pricing, FAQ, contact, privacy and terms.`,
     // The product's own working interface is derived from the orchestration by
-    // the Smart Designer — packaging must never rebuild or replace it. This is
+    // the AI Builder — packaging must never rebuild or replace it. This is
     // the founder's locked frontend law: no general website building anywhere.
-    "You do not build the product's working interface — that is generated from the architect's workflow by the Smart Designer, and any wired input/button/result blocks already in the saved blueprint must be carried through unchanged, never redesigned. If the architect asks you to build or change the working product screen itself, say in one friendly line that the Smart Designer owns that, and change only what packaging you can.",
+    "You do not build the product's working interface — that is your OTHER hand, and any wired input/button/result blocks already in the saved blueprint must be carried through unchanged here, never redesigned. If the architect asks for a change to the working product screen while you are on this hand, make the packaging change and say in one line that you will do the screen next.",
     "You never write code, HTML, CSS, or scripts. You write ONE JSON blueprint and our renderer paints it. Every element you write is drawn from a fixed design system, so you can be as creative as you like and the result can never come out broken, ugly, or off-brand.",
     "",
     describeProductSpecContract(),

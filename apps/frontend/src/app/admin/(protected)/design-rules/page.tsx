@@ -7,7 +7,6 @@ import {
   updateAdminDesignRules
 } from "@/components/admin/features/design-rules";
 import { DoorBrainCard } from "@/components/admin/ui/door-brain-card";
-import { SmartDesignerBrainCard } from "@/components/admin/ui/smart-designer-brain-card";
 import { BuilderBrainCard, BuilderEyesCard } from "@/components/admin/ui/builder-brain-cards";
 import { BuilderSoulCard } from "@/components/admin/ui/builder-soul-card";
 
@@ -194,12 +193,13 @@ export default function DesignRulesPage() {
       )}
 
       <DoorBrainCard />
-      <SmartDesignerBrainCard />
-
-      {/* The AI Builder's own two brains (the founder's ruling, 2026-08-27):
-          the employee, and his eyes. Both were decisions living in code until
-          a hard-coded seeing model refused every screenshot an architect
-          sent. They belong here, where the founder can change them. */}
+      {/* ONE EMPLOYEE, ONE BRAIN, ONE PAIR OF EYES (the founder's ruling,
+          2026-08-27). There were three cards here — one for talking, one for
+          designing screens — and he named the real cost: "it's like the
+          backend and frontend done by two people; how can we expect
+          synchronous results?" Two brains never talk, and that is how a
+          Telegram agent was handed a website screen. One brain now builds
+          the machine AND designs its face. */}
       <BuilderBrainCard />
       <BuilderEyesCard />
       {/* The brain above is the swappable battery; this is the identity it

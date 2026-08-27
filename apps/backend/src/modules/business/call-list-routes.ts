@@ -294,7 +294,7 @@ callListRoutes.post("/call-suppressions", async (c) => {
 export { CALL_LIST_STATUSES };
 
 /**
- * THE BUSINESS SIDE OF ONE AGENT — both surfaces, as Smart Designer designed them.
+ * THE BUSINESS SIDE OF ONE AGENT — both surfaces, as the AI Builder designed them.
  *
  * The setup form and the daily screen come back together with today's real
  * numbers already in them. The design is stored once; the figures are resolved
@@ -339,7 +339,7 @@ callListRoutes.get("/agents/:installedAgentId/surfaces", async (c) => {
     agentName: agent.workflow?.name ?? "Your agent",
     window,
     contract,
-    // Null means Smart Designer has not composed that surface yet.
+    // Null means the AI Builder has not composed that surface yet.
     setup,
     dashboard: dashboard ? fillDashboardSpec(dashboard, data.values) : null,
     // Masked: the form shows that a key is saved, never the key itself.

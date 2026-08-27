@@ -3,7 +3,7 @@ import { getProviderEngine } from "../ai-provider-engine/provider-engine";
 import type { AIExecuteRequest } from "../ai-provider-engine/types";
 
 /**
- * The Smart Designer's eyes — step one.
+ * The the AI Builder's eyes — step one.
  *
  * The founder caught the designer saying "done" three times while the screen
  * had not changed. The cause: one blind pass — it rewrites the plan and never

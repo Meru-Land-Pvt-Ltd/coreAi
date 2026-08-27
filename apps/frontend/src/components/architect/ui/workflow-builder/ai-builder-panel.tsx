@@ -2,10 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   aiBuilderChat,
   checkAgent,
-  productChat,
   setAgentPurpose,
   smartCompose,
-  smartDesignerChat,
+  builderPageHand,
   teachBuilderLesson
 } from "@/components/architect/features/api";
 import type { DesignChatMessage } from "@/components/architect/features/types";
@@ -16,7 +15,7 @@ import { BuilderIcon } from "./icons";
  * THE AI BUILDER — one assistant instead of three.
  *
  * The platform had grown three AI faces: the AI Composer built the canvas, the
- * Smart Designer edited the page, and the Design Brain was already a corpse
+ * the AI Builder edited the page, and the Design Brain was already a corpse
  * with its name still on things. Three boxes, three names — and none of them
  * knew what the other two did, or what the architect's last run said. Nobody's
  * friend works like that; ChatGPT is one box that hears everything.
@@ -348,9 +347,17 @@ export function AiBuilderPanel({
 
   /* ----------------------------------------------------------- the hands */
 
+  /**
+   * ONE CALL, NOT THREE (the founder's ruling, 2026-08-27).
+   *
+   * This used to be a three-hop dance: ask the page designer, and if the ask
+   * turned out to be about packaging, ask a third employee. Three round
+   * trips, three briefings, three strangers. The Builder owns all of it
+   * behind his own door now — he decides which hand and answers once.
+   */
   async function handlePage(instruction: string, history: DesignChatMessage[]) {
     if (!workflowId) return;
-    const result = await smartDesignerChat(workflowId, {
+    const result = await builderPageHand(workflowId, {
       instruction,
       ...(history.length ? { history } : {})
     });
@@ -359,32 +366,11 @@ export function AiBuilderPanel({
       say({ role: "assistant", content: CHAT_FALLBACK_REPLY, local: true });
       return;
     }
-
-    if (data.boundary === "packaging") {
-      // Packaging work is not refused, it is ROUTED — the same instruction
-      // goes to the packaging brain, and its reply lands here like any other.
-      const packaged = await productChat(workflowId, {
-        instruction,
-        ...(history.length ? { history } : {})
-      });
-      const pages = packaged.success ? packaged.data : undefined;
-      if (!pages) {
-        say({ role: "assistant", content: CHAT_FALLBACK_REPLY, local: true });
-        return;
-      }
-      const built = pages.pagesCreated.length;
-      say({
-        role: "assistant",
-        content: built
-          ? `${pages.reply} (${built} new ${built === 1 ? "page" : "pages"})`
-          : pages.reply,
-        boundary: true
-      });
-      onApplied?.({});
-      return;
-    }
-
-    say({ role: "assistant", content: data.reply });
+    say({
+      role: "assistant",
+      content: data.reply,
+      ...(data.boundary === "packaging" ? { boundary: true } : {})
+    });
     onApplied?.({});
   }
 

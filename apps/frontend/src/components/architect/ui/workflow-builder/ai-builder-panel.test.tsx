@@ -15,10 +15,9 @@ import { AiBuilderPanel as SmartDesignerPanel } from "./ai-builder-panel";
  * - A not-yet-autosaved workflow (null id) disables everything.
  */
 
-const { smartComposeMock, smartDesignerChatMock, productChatMock } = vi.hoisted(() => ({
+const { smartComposeMock, builderPageHandMock } = vi.hoisted(() => ({
   smartComposeMock: vi.fn(),
-  smartDesignerChatMock: vi.fn(),
-  productChatMock: vi.fn()
+  builderPageHandMock: vi.fn()
 }));
 
 /* Every chat message goes to the router first; these tests exercise the page
@@ -63,8 +62,7 @@ beforeEach(() => {
 
 vi.mock("@/components/architect/features/api", () => ({
   smartCompose: smartComposeMock,
-  smartDesignerChat: smartDesignerChatMock,
-  productChat: productChatMock,
+  builderPageHand: builderPageHandMock,
   aiBuilderChat: (...args: unknown[]) => aiBuilderChatMock(...(args as []))
 }));
 
@@ -101,8 +99,8 @@ function designerResult(overrides: Partial<{ reply: string; boundary: "packaging
 
 beforeEach(() => {
   smartComposeMock.mockReset();
-  smartDesignerChatMock.mockReset();
-  productChatMock.mockReset();
+  builderPageHandMock.mockReset();
+  builderPageHandMock.mockReset();
 });
 afterEach(() => cleanup());
 
@@ -245,14 +243,14 @@ describe("SmartDesignerPanel feedback chat", () => {
   }
 
   it("an applied fix renders as a reply and fires onApplied", async () => {
-    smartDesignerChatMock.mockResolvedValue(designerResult());
+    builderPageHandMock.mockResolvedValue(designerResult());
     const onApplied = vi.fn();
     render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" hasComposedSpec onApplied={onApplied} />);
 
     await sendFeedback("this box isn't capturing email separately");
 
-    await waitFor(() => expect(smartDesignerChatMock).toHaveBeenCalledTimes(1));
-    expect(smartDesignerChatMock).toHaveBeenCalledWith("wf-1", {
+    await waitFor(() => expect(builderPageHandMock).toHaveBeenCalledTimes(1));
+    expect(builderPageHandMock).toHaveBeenCalledWith("wf-1", {
       instruction: "this box isn't capturing email separately"
     });
     await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
@@ -262,41 +260,33 @@ describe("SmartDesignerPanel feedback chat", () => {
     );
   });
 
-  it("a packaging ask is ROUTED to the packaging brain — one door for the architect", async () => {
-    smartDesignerChatMock.mockResolvedValue(
-      designerResult({
-        reply: "Sell pages live in Packaging — I only shape your product's interface.",
-        boundary: "packaging"
-      })
+  it("a packaging ask is handled by the SAME employee — one door, one call", async () => {
+    /* One employee, one call (the founder's ruling, 2026-08-27): a packaging
+       ask used to cost a second round trip to a third employee. The Builder
+       does it himself and answers once, labelled as packaging work. */
+    builderPageHandMock.mockResolvedValue(
+      designerResult({ reply: "Privacy page added.", boundary: "packaging" })
     );
-    productChatMock.mockResolvedValue({
-      success: true,
-      data: { reply: "Privacy page added.", pagesCreated: ["privacy"] }
-    });
     const onApplied = vi.fn();
     render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" hasComposedSpec onApplied={onApplied} />);
 
     await sendFeedback("add a privacy policy page");
 
-    // The packaging brain got the SAME instruction, and its answer landed in
-    // the conversation labeled as packaging work — never a refusal.
     await waitFor(() =>
-      expect(screen.getByTestId("smart-designer-boundary").textContent).toContain(
-        "Privacy page added. (1 new page)"
-      )
+      expect(screen.getByTestId("smart-designer-boundary").textContent).toContain("Privacy page added.")
     );
-    expect(productChatMock).toHaveBeenCalledWith("wf-1", {
+    expect(builderPageHandMock).toHaveBeenCalledTimes(1);
+    expect(builderPageHandMock).toHaveBeenCalledWith("wf-1", {
       instruction: "add a privacy policy page"
     });
     // Packaging rewrote the saved product, so the preview refetches.
     expect(onApplied).toHaveBeenCalledTimes(1);
   });
 
-  it("a packaging ask whose build fails shows the kind fallback and no refetch", async () => {
-    smartDesignerChatMock.mockResolvedValue(
-      designerResult({ reply: "Sell pages live in Packaging.", boundary: "packaging" })
-    );
-    productChatMock.mockResolvedValue({ success: false });
+  it("a page ask that fails shows the kind fallback and never refetches", async () => {
+    /* One door means one failure path: when the employee cannot answer, the
+       architect gets a plain line and nothing on their canvas moves. */
+    builderPageHandMock.mockResolvedValue({ success: false });
     const onApplied = vi.fn();
     render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" hasComposedSpec onApplied={onApplied} />);
 
@@ -309,18 +299,18 @@ describe("SmartDesignerPanel feedback chat", () => {
   });
 
   it("caps the history it sends at the last 10 turns", async () => {
-    smartDesignerChatMock.mockResolvedValue(designerResult());
+    builderPageHandMock.mockResolvedValue(designerResult());
     render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" hasComposedSpec />);
 
     // 6 completed turns put 12 bubbles on screen; the 7th send must trim.
     for (let turn = 1; turn <= 6; turn += 1) {
       await sendFeedback(`change number ${turn}`);
-      await waitFor(() => expect(smartDesignerChatMock).toHaveBeenCalledTimes(turn));
+      await waitFor(() => expect(builderPageHandMock).toHaveBeenCalledTimes(turn));
     }
     await sendFeedback("one more change");
-    await waitFor(() => expect(smartDesignerChatMock).toHaveBeenCalledTimes(7));
+    await waitFor(() => expect(builderPageHandMock).toHaveBeenCalledTimes(7));
 
-    const lastBody = smartDesignerChatMock.mock.calls[6]?.[1] as {
+    const lastBody = builderPageHandMock.mock.calls[6]?.[1] as {
       instruction: string;
       history?: Array<{ role: string; content: string }>;
     };
@@ -334,16 +324,16 @@ describe("SmartDesignerPanel feedback chat", () => {
   });
 
   it("keeps local failure lines out of the history", async () => {
-    smartDesignerChatMock.mockResolvedValueOnce({ success: false });
-    smartDesignerChatMock.mockResolvedValueOnce(designerResult());
+    builderPageHandMock.mockResolvedValueOnce({ success: false });
+    builderPageHandMock.mockResolvedValueOnce(designerResult());
     render(<SmartDesignerPanel workflowId="wf-1" purpose="answers yes/no questions" hasComposedSpec />);
 
     await sendFeedback("first ask");
-    await waitFor(() => expect(smartDesignerChatMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(builderPageHandMock).toHaveBeenCalledTimes(1));
     await sendFeedback("second ask");
-    await waitFor(() => expect(smartDesignerChatMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(builderPageHandMock).toHaveBeenCalledTimes(2));
 
-    const secondBody = smartDesignerChatMock.mock.calls[1]?.[1] as {
+    const secondBody = builderPageHandMock.mock.calls[1]?.[1] as {
       history?: Array<{ role: string; content: string }>;
     };
     expect(secondBody.history).toEqual([{ role: "user", content: "first ask" }]);

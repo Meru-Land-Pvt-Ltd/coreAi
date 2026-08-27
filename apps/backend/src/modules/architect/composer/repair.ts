@@ -21,7 +21,7 @@
 
 import { checkWiring, type WiringProblem } from "@coreai/shared";
 import { resolveBrainSlot } from "../../admin/brain-slot-settings";
-import { getSmartDesignerBrainConfig } from "../../admin/smart-designer-brain-settings";
+import { getBuilderBrainConfig } from "../../admin/builder-brain-settings";
 import { getProviderEngine } from "../../ai-provider-engine/provider-engine";
 import type { AIExecuteRequest, AIMessage } from "../../ai-provider-engine/types";
 import { composerMenu, menuAsText } from "./node-menu";
@@ -205,7 +205,7 @@ export async function repairCanvas(input: {
     return { ok: false, message: "Nothing is wrong with this one — there is nothing to fix." };
   }
 
-  const brain = resolveBrainSlot(await getSmartDesignerBrainConfig());
+  const brain = resolveBrainSlot(await getBuilderBrainConfig());
   if (!brain) {
     return {
       ok: false,

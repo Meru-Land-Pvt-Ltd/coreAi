@@ -7,11 +7,9 @@ import { prisma } from "../../lib/prisma";
 import { requireAuth, requireRole } from "../../middleware/auth";
 import { deriveFaceBlueprint } from "./blueprint";
 import { agentPageLayoutSchema, contentWidthSchema, resolveDesign } from "./design";
-import { registerAgentPageDesignChatRoute } from "./design-chat";
-import { registerAgentPageProductChatRoute } from "./product-chat";
 import { registerAgentPageProductRoutes } from "./product-routes";
 import { getProductSpec } from "./product-spec-service";
-import { registerSmartDesignerRoutes } from "./smart-composer";
+import { registerPageHandRoutes } from "./smart-composer";
 import { ensureDraftAgentListingAndPage, inferAgentPageTemplate, type AgentPageTemplate } from "./slug";
 
 /**
@@ -198,13 +196,14 @@ export function registerAgentPageManageRoutes(routes: Hono) {
   });
 
   /** Design Brain chat: natural language in, validated DesignPatch applied. */
-  registerAgentPageDesignChatRoute(routes);
 
   registerAgentPageProductRoutes(routes);
 
-  registerAgentPageProductChatRoute(routes);
+  /* The rival employees' own chat routes died on 2026-08-27 — one employee
+     owns every hand now (see builder-page-hand.ts). Their TOOLS survive in
+     product-chat.ts and smart-composer.ts and are called by the Builder. */
 
-  // Smart Designer: the AI Composer + its feedback chat. A separate, parallel
+  // the AI Builder: the AI Composer + its feedback chat. A separate, parallel
   // feature — the Design Brain routes above stay exactly as they are.
-  registerSmartDesignerRoutes(routes);
+  registerPageHandRoutes(routes);
 }

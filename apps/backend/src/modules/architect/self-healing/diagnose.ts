@@ -27,7 +27,7 @@ import { failureSignature, fixScopeFor, isSafeToApplyAutomatically, type Failure
 import { getNodeDefinition } from "@coreai/shared";
 import { prisma } from "../../../lib/prisma";
 import { resolveBrainSlot } from "../../admin/brain-slot-settings";
-import { getSmartDesignerBrainConfig } from "../../admin/smart-designer-brain-settings";
+import { getBuilderBrainConfig } from "../../admin/builder-brain-settings";
 import { getProviderEngine } from "../../ai-provider-engine/provider-engine";
 import type { AIExecuteRequest } from "../../ai-provider-engine/types";
 
@@ -143,7 +143,7 @@ export async function diagnoseOne(signature: string): Promise<boolean> {
   const row = await prisma.failureDiagnosis.findUnique({ where: { signature } });
   if (!row || row.diagnosedAt) return false;
 
-  const brain = resolveBrainSlot(await getSmartDesignerBrainConfig());
+  const brain = resolveBrainSlot(await getBuilderBrainConfig());
   if (!brain) return false;
 
   const request: AIExecuteRequest = {

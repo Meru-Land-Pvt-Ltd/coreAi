@@ -57,8 +57,8 @@ import {
  * The storage keys stay the ones already in the database, so nothing an
  * admin already saved is lost to a rename.
  */
-export const BUILDER_BRAIN_PROVIDER_KEY = "smartDesignerProvider";
-export const BUILDER_BRAIN_MODEL_KEY = "smartDesignerModel";
+export const BUILDER_BRAIN_PROVIDER_KEY = "pageHandProvider";
+export const BUILDER_BRAIN_MODEL_KEY = "pageHandModel";
 
 export const DEFAULT_BUILDER_BRAIN_PROVIDER = "claude";
 export const DEFAULT_BUILDER_BRAIN_MODEL = "claude-opus-5";

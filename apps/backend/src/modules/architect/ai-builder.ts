@@ -2,7 +2,7 @@
  * THE AI BUILDER — one assistant instead of three.
  *
  * The platform had grown three faces: the AI Composer built the canvas, the
- * Smart Designer edited the page, and a third — the Design Brain — was already
+ * the AI Builder edited the page, and a third — the Design Brain — was already
  * a corpse still registered in the palette. Three boxes, three names, and none
  * of them knew what the other two did or what the last run said. Nobody's
  * friend works like that; ChatGPT is one box that hears everything.
@@ -27,8 +27,7 @@
 
 import { prisma } from "../../lib/prisma";
 import { askPlatformBrain, streamPlatformBrain } from "./platform-brain";
-import { builderSoulText } from "./builder-soul";
-import { lessonsForPrompt } from "./builder-lessons";
+import { builderMind } from "./builder-mind";
 
 export type AiBuilderHand = "build" | "page" | "explain";
 
@@ -232,17 +231,16 @@ export async function aiBuilderAnswerStreaming(input: {
   if (hand !== "explain") return { hand, reply: null };
 
   input.onStage((input.images?.length ?? 0) > 0 ? "Looking at what you sent" : "Looking at your agent and its last runs");
-  const [agent, runs, personalLessons] = await Promise.all([
+  const [agent, runs] = await Promise.all([
     describeAgent(input.workflowId),
-    describeRecentRuns(input.workflowId),
-    input.architectUserId ? lessonsForPrompt(input.architectUserId) : Promise.resolve("")
+    describeRecentRuns(input.workflowId)
   ]);
 
   input.onStage("Writing");
   const reply = await streamPlatformBrain({
-    instruction: `${EXPLAIN_INSTRUCTION}
+    instruction: `${await builderMind({ hand: "explain", architectUserId: input.architectUserId, focus: message })}
 
-${builderSoulText("", message)}${personalLessons ? `\n\n${personalLessons}` : ""}`,
+${EXPLAIN_INSTRUCTION}`,
     message: `${agent}
 
 ${runs}
@@ -278,18 +276,17 @@ export async function aiBuilderAnswer(input: {
 
   if (hand !== "explain") return { hand, reply: null };
 
-  const [agent, runs, personalLessons] = await Promise.all([
+  const [agent, runs] = await Promise.all([
     describeAgent(input.workflowId),
-    describeRecentRuns(input.workflowId),
-    input.architectUserId ? lessonsForPrompt(input.architectUserId) : Promise.resolve("")
+    describeRecentRuns(input.workflowId)
   ]);
 
   const reply = await askPlatformBrain({
-    /* The Builder Soul rides with every explanation — the same map the
-       composer builds from, so both hands speak as one employee. */
-    instruction: `${EXPLAIN_INSTRUCTION}
+    /* One mind, every hand (2026-08-27) — the same employee who built the
+       machine is the one explaining what it did. */
+    instruction: `${await builderMind({ hand: "explain", architectUserId: input.architectUserId, focus: message })}
 
-${builderSoulText("", message)}${personalLessons ? `\n\n${personalLessons}` : ""}`,
+${EXPLAIN_INSTRUCTION}`,
     message: `${agent}
 
 ${runs}

@@ -9,7 +9,7 @@
  * customer will see, not an approximation of it.
  *
  * Nothing here decides what appears. The arrangement — which questions, which
- * numbers, what wording, what order — is whatever Smart Designer composed from
+ * numbers, what wording, what order — is whatever the AI Builder composed from
  * the architect's nodes. This file only knows how to paint the block types the
  * spec can contain, and how to wire the real controls to the ids it used.
  */
