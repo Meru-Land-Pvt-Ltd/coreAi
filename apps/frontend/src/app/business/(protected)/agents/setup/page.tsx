@@ -1810,7 +1810,11 @@ function SetupWizard() {
   const needsGmail = setupVisibility.calendar;
   const needsPhone = setupVisibility.phone;
   const needsSms = setupVisibility.smsNote;
-  const needsMail = setupVisibility.mail;
+  /* A PERMANENT RED "Required — Mail Setup" WITH NO SCREEN BEHIND IT. The
+     mail card is switched off (showMail is false), so the checklist demanded
+     a step the business could never reach, and the Edit link sent them to a
+     page with no mail card on it. The row follows the card. */
+  const needsMail = showMail;
   const needsTelegram = setupVisibility.telegram;
   const needsVoice = setupVisibility.voiceIdentity;
 

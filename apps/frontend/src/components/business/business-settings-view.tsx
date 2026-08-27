@@ -1342,6 +1342,27 @@ export function BusinessSettingsView() {
     }
     setCookiePrefs(cookies);
 
+    /* SAVED, THEN SHOWN AS THE DEFAULT AGAIN. Nothing ever read these back:
+       the screen reseeded every switch from its defaults on each visit, so a
+       business's own choice looked like it had been forgotten. The defaults
+       above are the starting point; whatever they actually chose wins. */
+    void apiGet<{
+      notifications: Record<string, boolean>;
+      privacy: Record<string, boolean>;
+      cookies: Record<string, boolean>;
+    }>("/business/preferences").then((saved) => {
+      if (!saved.success || !saved.data) return;
+      setNotificationPrefs((current) => {
+        const merged = { ...current };
+        for (const [key, email] of Object.entries(saved.data!.notifications ?? {})) {
+          if (merged[key]) merged[key] = { ...merged[key], email };
+        }
+        return merged;
+      });
+      if (saved.data.privacy) setPrivacyPrefs((current) => ({ ...current, ...saved.data!.privacy }));
+      if (saved.data.cookies) setCookiePrefs((current) => ({ ...current, ...saved.data!.cookies }));
+    });
+
     loadData().finally(() => setLoading(false));
   }, [loadData]);
 
@@ -1606,7 +1627,14 @@ export function BusinessSettingsView() {
      "Preferences saved ✓" and made no network call at all — the platform
      lying to a paying business about something they had just decided. */
   async function handleSaveNotifications() {
-    const response = await apiPatch("/business/preferences/notifications", notificationPrefs);
+    /* AND IT REALLY SAVES NOW. It was sending {email, locked} objects to a
+       route that accepts true/false, so every single save came back 422 and
+       the business was told their choice could not be read. "locked" is how
+       this screen draws a row, not something the server stores. */
+    const response = await apiPatch(
+      "/business/preferences/notifications",
+      Object.fromEntries(Object.entries(notificationPrefs).map(([key, value]) => [key, value.email]))
+    );
     showToast(response.success ? "Preferences saved ✓" : response.error ?? "That could not be saved — try again.");
   }
 
@@ -1680,8 +1708,14 @@ export function BusinessSettingsView() {
 
   /* IT SAVES NOW (the platform audit, 2026-08-27) — same lie, same cure. */
   async function handleSavePrivacy() {
-    const response = await apiPatch("/business/preferences/privacy", privacyPrefs);
-    showToast(response.success ? "Preferences saved ✓" : response.error ?? "That could not be saved — try again.");
+    /* The cookie switches sit above this same button and were never sent
+       anywhere at all — the business toggled them and nothing happened. */
+    const [privacy, cookies] = await Promise.all([
+      apiPatch("/business/preferences/privacy", privacyPrefs),
+      apiPatch("/business/preferences/cookies", cookiePrefs)
+    ]);
+    const failed = !privacy.success ? privacy : !cookies.success ? cookies : null;
+    showToast(failed ? failed.error ?? "That could not be saved — try again." : "Preferences saved ✓");
   }
 
   async function handleRequestSignedDpa() {
@@ -2342,7 +2376,7 @@ export function BusinessSettingsView() {
                   name="Google Calendar"
                   description="Sync appointments and scheduling from your AI agents"
                   connected={calendarConnected}
-                  connectedDetail={calendarEmail ? `Connected · since recently` : undefined}
+                  connectedDetail={calendarEmail ? `Connected · ${calendarEmail}` : undefined}
                   testId="google-calendar"
                   icon="google-calendar"
                   onConnect={handleConnectCalendar}
@@ -2483,7 +2517,7 @@ export function BusinessSettingsView() {
                   <button type="button" onClick={() => setCardModalMode("primary")} className="mt-3 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600" data-testid="business-settings-add-card">Add payment method</button>
                 </div>
               )}
-              <p className="mt-2 text-xs text-slate-400">Your card will be charged on the 1st of each month.</p>
+              <p className="mt-2 text-xs text-slate-400">Your card is charged on your own billing date each month — the date is on each invoice.</p>
 
               <hr className="my-7 border-gray-100" />
 

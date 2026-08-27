@@ -2330,18 +2330,21 @@ businessRoutes.get("/preferences", async (c) => {
   const authUser = c.get("authUser");
   const business = await prisma.business.findFirst({
     where: { ownerId: authUser.id },
-    select: { notificationPrefs: true, privacyPrefs: true }
+    select: { notificationPrefs: true, privacyPrefs: true, cookiePrefs: true }
   });
   return successResponse(c, {
     notifications: (business?.notificationPrefs as Record<string, boolean> | null) ?? {},
-    privacy: (business?.privacyPrefs as Record<string, boolean> | null) ?? {}
+    privacy: (business?.privacyPrefs as Record<string, boolean> | null) ?? {},
+    cookies: (business?.cookiePrefs as Record<string, boolean> | null) ?? {}
   });
 });
 
 businessRoutes.patch("/preferences/:kind", async (c) => {
   const authUser = c.get("authUser");
   const kind = c.req.param("kind");
-  if (kind !== "notifications" && kind !== "privacy") {
+  /* The cookie switches had no group here at all, so the choices a business
+     made about tracking went nowhere. */
+  if (kind !== "notifications" && kind !== "privacy" && kind !== "cookies") {
     return errorResponse(c, "There is no such preference group.", 422, "VALIDATION_ERROR");
   }
 
@@ -2361,7 +2364,9 @@ businessRoutes.patch("/preferences/:kind", async (c) => {
     data:
       kind === "notifications"
         ? { notificationPrefs: parsed.data as never }
-        : { privacyPrefs: parsed.data as never }
+        : kind === "cookies"
+          ? { cookiePrefs: parsed.data as never }
+          : { privacyPrefs: parsed.data as never }
   });
 
   return successResponse(c, { saved: true }, "Saved.");

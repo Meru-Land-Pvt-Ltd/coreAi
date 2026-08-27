@@ -315,6 +315,8 @@ model Business {
   /// and stored nothing — a lie a paying business would meet on day one.
   notificationPrefs Json?
   privacyPrefs      Json?
+  /// Their cookie choices. The switches existed and were sent nowhere at all.
+  cookiePrefs       Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

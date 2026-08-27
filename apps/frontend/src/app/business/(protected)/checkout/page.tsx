@@ -1993,7 +1993,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                     {!isPurchaseMode ? (
                                         <p className="mt-3 text-center text-xs text-slate-400">
                                             You&apos;ll be charged{" "}
-                                            <span className="font-medium text-slate-500" data-testid="business-protected-checkout-future-amount-text">${futureAmount}</span> on{" "}
+                                            <span className="font-medium text-slate-500" data-testid="business-protected-checkout-future-amount-text">${futureAmount.toFixed(2)}</span> on{" "}
                                             <span className="font-medium text-slate-500" data-testid="business-protected-checkout-trial-date-text">{trialDate}</span> unless you cancel.
                                         </p>
                                     ) : (

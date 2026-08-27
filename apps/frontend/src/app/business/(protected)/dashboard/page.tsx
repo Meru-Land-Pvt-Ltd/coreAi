@@ -609,13 +609,13 @@ export default function BusinessDashboardPage() {
                 )}
                 actions={(
                     <>
-                    <span className="hidden items-center gap-2 rounded-full border border-green-100 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 sm:inline-flex">
-                        <span className="relative flex h-2 w-2">
-                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                            <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-                        </span>
-                        All systems operational
-                    </span>
+                    {/* A GREEN "All systems operational" PILL, WITH A PULSING
+                        DOT, THAT CHECKED NOTHING. It said the same words while
+                        an agent was paused, while a key was rejected, while
+                        every call was failing. A health light that is always
+                        green is worse than no light: it is the one thing a
+                        worried owner looks at first. Removed 2026-08-27 — it
+                        goes back the day something measures it. */}
 
                     {fullDate ? (
                         <span className="hidden text-sm font-medium text-slate-600 md:inline" data-testid="business-protected-dashboard-full-date-text">
@@ -882,7 +882,7 @@ export default function BusinessDashboardPage() {
                                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
                                     <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
                                 </span>
-                                Real-time
+                                Latest activity
                             </span>
                         </div>
 
@@ -929,8 +929,12 @@ export default function BusinessDashboardPage() {
                                 View billing details
                             </Link>
 
-                            <Link data-testid="dashboard-pause-all-agents" href={BUSINESS_AGENTS_PATH} className="block w-full rounded-xl border border-gray-200 py-3 text-center text-slate-600 transition-all duration-300 hover:border-red-300 hover:text-red-600">
-                                Pause all agents
+                            {/* Said "Pause all agents" and turned red on hover,
+                                and was a link to the agents list. In an
+                                emergency an owner presses that expecting
+                                everything to stop. It says where it goes. */}
+                            <Link data-testid="dashboard-pause-all-agents" href={BUSINESS_AGENTS_PATH} className="block w-full rounded-xl border border-gray-200 py-3 text-center text-slate-600 transition-all duration-300 hover:border-amber-300 hover:text-amber-700">
+                                Manage agents
                             </Link>
                         </div>
                     </section>
@@ -957,10 +961,27 @@ function MetricCard({ metric }: { metric: MetricCard }) {
                 </span>
 
                 {metric.trend ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-600" data-testid="business-protected-dashboard-metric-trend-text">
-                        <TrendIcon />
-                        {metric.trend}
-                    </span>
+                    /* GREEN AND POINTING UP, ALWAYS. A month that fell showed
+                       its own drop inside a green rising badge. */
+                    (() => {
+                        const falling = metric.trend.trim().startsWith("-");
+                        const flat = /^[+-]?0(\.0+)?%?$/.test(metric.trend.trim());
+                        return (
+                            <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                    flat
+                                        ? "bg-slate-100 text-slate-500"
+                                        : falling
+                                          ? "bg-red-50 text-red-600"
+                                          : "bg-green-50 text-green-600"
+                                }`}
+                                data-testid="business-protected-dashboard-metric-trend-text"
+                            >
+                                {flat ? null : <TrendIcon falling={falling} />}
+                                {metric.trend}
+                            </span>
+                        );
+                    })()
                 ) : null}
 
                 {metric.badge ? (
@@ -977,7 +998,7 @@ function MetricCard({ metric }: { metric: MetricCard }) {
             <p className="mt-1 text-sm text-slate-400" data-testid="business-protected-dashboard-metric-subtitle-includes-vs-last-month-this-text">
                 {metric.subtitle.includes("vs last month") ? (
                     <>
-                        this month · <span className="text-green-600" data-testid="business-protected-dashboard-vs-last-month-text">vs last month</span>
+                        this month · <span data-testid="business-protected-dashboard-vs-last-month-text">vs last month</span>
                     </>
                 ) : (
                     metric.subtitle
@@ -1528,11 +1549,11 @@ function formatChartValue(value: number, metric: ChartMetric) {
     return `${Math.round(value)} executions`;
 }
 
-function TrendIcon() {
+function TrendIcon({ falling = false }: { falling?: boolean }) {
     return (
         <svg
             viewBox="0 0 24 24"
-            className="h-3 w-3"
+            className={`h-3 w-3 ${falling ? "-scale-y-100" : ""}`}
             fill="none"
             stroke="currentColor"
             strokeWidth="2.5"
