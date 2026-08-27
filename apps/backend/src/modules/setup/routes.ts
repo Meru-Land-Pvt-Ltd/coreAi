@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { isProduction } from "../../config/env";
 import { errorResponse, successResponse } from "../../lib/api-response";
+import { consumeAll, MINUTE } from "../../lib/rate-limit";
 import { prisma } from "../../lib/prisma";
 import { resolvePrimaryBusinessId } from "../business/primary-business";
 import { requireAuth, requireRole } from "../../middleware/auth";
@@ -439,6 +440,38 @@ setupRoutes.post("/send-otp", async (c) => {
   }
 
   const phone = normalizePhone(parsed.data.phone);
+
+  /* A TEXT MESSAGE COSTS US MONEY, EVERY TIME.
+     This sent a real SMS to any number in the world, on our Twilio bill, with
+     no counter of any kind — and the BUSINESS role is self-granted by anyone
+     who signs up, on any free listing. One signed-up account could have run
+     our balance to nothing, or used us to text a stranger over and over.
+     Three buckets: the account, the number being texted, and the platform's
+     own day — because the first two do not stop a hundred fresh accounts. */
+  const gate = await consumeAll([
+    {
+      key: `setup-otp:user:${authUser.id}`,
+      limit: 10,
+      windowMs: 60 * MINUTE,
+      message: "Too many codes requested. Wait a few minutes and try again."
+    },
+    {
+      key: `setup-otp:phone:${phone}`,
+      limit: 5,
+      windowMs: 60 * MINUTE,
+      message: "Too many codes sent to that number. Wait a few minutes and try again."
+    },
+    {
+      key: "setup-otp:platform",
+      limit: 500,
+      windowMs: 24 * 60 * MINUTE,
+      message: "Verification codes are busy right now. Please try again shortly."
+    }
+  ]);
+  if (!gate.allowed) {
+    return errorResponse(c, gate.message, 429, "TOO_MANY_ATTEMPTS");
+  }
+
   const code = generateOtp();
 
   otpStore.set(otpKey(authUser.id, parsed.data.listingId), {

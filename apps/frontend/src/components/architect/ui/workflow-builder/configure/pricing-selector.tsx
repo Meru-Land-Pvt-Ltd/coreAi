@@ -172,10 +172,9 @@ export function PricingSelector({
                 className="fld w-full rounded-xl border border-gray-100 bg-gray-50/40 py-3 pl-8 pr-4 text-[16px] font-bold text-slate-900 disabled:opacity-60"
               />
             </div>
-            <p className="mt-1.5 text-[12.5px] text-slate-400">
-              Similar agents:{" "}
-              <span className="font-semibold text-slate-500">$75–$150</span>
-            </p>
+            {/* "Similar agents: $75–$150" was hardcoded. This component is
+                given only the pricing object — it has never seen another
+                listing, let alone a similar one. */}
           </div>
         </div>
       ) : null}
@@ -188,7 +187,7 @@ export function PricingSelector({
                 Offer a free trial
               </p>
               <p className="mt-0.5 text-[12.5px] text-slate-400">
-                Trials lift conversion by roughly 40% on paid agents.
+                A trial lets a business try the agent before they pay for it.
               </p>
             </div>
             <button

@@ -1325,8 +1325,12 @@ export function ConfigurePanel({
                       </svg>
                     </div>
                     <div>
-                      <p className="text-[13.5px] font-bold text-amber-900">Agents with custom icons get 3× more installs</p>
-                      <p className="mt-0.5 text-[12.5px] text-amber-700/80">A crisp, recognizable mark is the single biggest driver of listing taps.</p>
+                      {/* "3× more installs" and "the single biggest driver of
+                          listing taps" were literal strings. Nothing on this
+                          platform measures installs against icons — there is no
+                          such metric anywhere. */}
+                      <p className="text-[13.5px] font-bold text-amber-900">Give your agent a face</p>
+                      <p className="mt-0.5 text-[12.5px] text-amber-700/80">This is how a business picks yours out of the marketplace grid.</p>
                     </div>
                   </div>
                 </div>

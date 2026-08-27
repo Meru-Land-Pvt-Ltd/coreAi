@@ -1038,12 +1038,6 @@ function LiveAgentDeleteModal({
   const [showNameError, setShowNameError] = useState(false);
 
   const installs = Math.max(0, agent.installCount ?? 0);
-  const priceCents = Math.max(0, agent.priceCents ?? 0);
-  const isSubscription = (agent.pricingModel ?? "SUBSCRIPTION") === "SUBSCRIPTION";
-  const monthlyRevenueCents =
-    isSubscription && priceCents > 0 ? installs * priceCents : Math.max(0, agent.revenueCents ?? 0);
-  const refundCents = installs * priceCents;
-  const pendingPayoutCents = Math.round(monthlyRevenueCents * 0.3);
   const nameMatches = nameInput.trim() === agent.name.trim();
   const busy = deleting || deactivating;
   const iconUrl = agent.iconUrl?.trim() || null;
@@ -1081,11 +1075,14 @@ function LiveAgentDeleteModal({
             </h2>
             <p className="mt-1 mb-4 text-sm text-slate-500">{agent.name} has been permanently deleted.</p>
             <ul className="mb-4 space-y-1.5 rounded-xl bg-slate-50 p-4 text-left text-sm text-slate-600">
+              {/* This used to say the subscriptions were cancelled, the
+                  refunds were coming and the buyers had been emailed. None of
+                  the three happens. */}
+              <li>Removed from the marketplace — nobody new can install it</li>
               <li>
-                {installs.toLocaleString("en-US")} buyer subscription{installs === 1 ? "" : "s"} cancelled
+                The {installs.toLocaleString("en-US")} business{installs === 1 ? "" : "es"} already using it keep
+                running, and keep billing
               </li>
-              <li>Refunds will be processed within 3–5 business days</li>
-              <li>Buyers have been notified via email</li>
             </ul>
             <button
               type="button"
@@ -1165,63 +1162,48 @@ function LiveAgentDeleteModal({
                 />
                 {statusLabel}
               </p>
+              {/* installCount is lifetime installs, so "currently using" was
+                  wrong, and the per-month figure beside it was installs times
+                  list price — a number nobody earns. */}
               <p className="mt-1 text-xs text-slate-400">
-                {installs.toLocaleString("en-US")} business{installs === 1 ? "" : "es"} currently using this agent
-                {monthlyRevenueCents > 0 ? ` · ${formatUsdMoney(monthlyRevenueCents)}/month from this agent` : ""}
+                {installs.toLocaleString("en-US")} install{installs === 1 ? "" : "s"} to date
               </p>
             </div>
           </div>
 
           <div className="rounded-r-lg border-l-4 border-red-500 bg-red-50 p-4">
+            {/* WHAT IT REALLY DOES. This listed six things, and the server
+                does exactly one of them: the listing is unpublished. Installs
+                are deliberately preserved — they keep running and keep
+                billing. No subscription is terminated, no refund is started,
+                no workflow is deleted, no payout is cancelled. */}
             <p className="mb-2 text-sm font-medium text-slate-900">
-              This action is permanent and cannot be undone. Deleting this agent will:
+              Deleting this agent will:
             </p>
             <ul className="space-y-1.5 text-sm text-slate-600">
               <li className="flex gap-2">
                 <span className="font-bold text-red-500">✕</span>
-                Remove it from the marketplace immediately
+                Remove it from the marketplace immediately, so nobody new can install it
               </li>
               <li className="flex gap-2">
-                <span className="font-bold text-red-500">✕</span>
-                Terminate all {installs.toLocaleString("en-US")} active subscription{installs === 1 ? "" : "s"}
+                <span className="font-bold text-slate-400">•</span>
+                Leave the {installs.toLocaleString("en-US")} business{installs === 1 ? "" : "es"} already using it
+                running, and still billing — nothing is cancelled or refunded here
               </li>
               <li className="flex gap-2">
-                <span className="font-bold text-red-500">✕</span>
-                Trigger refund processing for current billing period
-              </li>
-              <li className="flex gap-2">
-                <span className="font-bold text-red-500">✕</span>
-                Delete all agent configurations, workflows, and versions
-              </li>
-              <li className="flex gap-2">
-                <span className="font-bold text-red-500">✕</span>
-                Remove all reviews and ratings
-              </li>
-              <li className="flex gap-2">
-                <span className="font-bold text-red-500">✕</span>
-                Cancel pending payouts related to this agent
+                <span className="font-bold text-slate-400">•</span>
+                Keep your workflow and your earnings exactly as they are
               </li>
             </ul>
           </div>
 
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <p className="mb-2 text-sm font-medium text-slate-900">Financial impact:</p>
-            <dl className="space-y-1 text-sm">
-              <div className="flex justify-between gap-3">
-                <dt className="text-slate-600">Lost recurring revenue</dt>
-                <dd className="font-medium text-slate-900">{formatUsdMoney(monthlyRevenueCents)}/month</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-slate-600">Refunds to process</dt>
-                <dd className="font-medium text-slate-900">~{formatUsdMoney(refundCents)}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-slate-600">Pending payouts cancelled</dt>
-                <dd className="font-medium text-slate-900">{formatUsdMoney(pendingPayoutCents)}</dd>
-              </div>
-            </dl>
-          </div>
-
+          {/* A "Financial impact" panel stood here: lost recurring revenue,
+              refunds to process, pending payouts cancelled. Every figure was
+              invented — installs are LIFETIME installs, not live subscribers;
+              the refund total assumed all of them get refunded, which nothing
+              does; and the payout figure was thirty per cent of a guess, which
+              is the platform's cut, not the architect's balance. Their real
+              pending balance is on the payouts screen, which knows it. */}
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
             <p className="text-sm font-medium text-slate-900">Consider deactivating instead?</p>
             <p className="mb-3 mt-1 text-xs text-slate-600">

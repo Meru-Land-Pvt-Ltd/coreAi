@@ -482,7 +482,9 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
      description: that is a marketing tagline many old agents already carry,
      and tallying against one produced confident nonsense. */
   const [agentPurpose, setAgentPurpose] = useState("");
-  const [price, setPrice] = useState("149");
+  /* Seeded "149" and never set anywhere — the publish screen printed it as a
+     real price. Empty means "we do not know yet", which is the truth. */
+  const [price, setPrice] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState("");
   const [calendarId, setCalendarId] = useState("");
@@ -3515,7 +3517,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       <BuilderStatusBar
         nodesCount={nodes.length}
         edgesCount={edges.length}
-        editedLabel={message === "Unsaved changes" ? "unsaved changes" : "last edited just now"}
+        /* A failed save fell into "last edited just now" here too. */
+        editedLabel={
+          message.startsWith("Save failed")
+            ? message
+            : message === "Unsaved changes"
+              ? "unsaved changes"
+              : "last edited just now"
+        }
       />
 
       {typeof document !== "undefined" && publishSuccessName

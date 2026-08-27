@@ -118,6 +118,7 @@ import {
   serviceCanSee
 } from "./builder-brain-settings";
 import { liveModelsFor } from "./live-models";
+import { notifyArchitectOfReviewDecision } from "./review-decision-email";
 import {
   listArchitectNodeGroups,
   listArchitectNodeVisibility,
@@ -1626,6 +1627,18 @@ adminRoutes.patch("/agents/:listingId/status", async (c) => {
 
       return updated;
     });
+
+    /* THE EMAIL WE PROMISED. Four screens tell an architect "we'll email you
+       within 24–48 hours" when they submit, and nothing ever did — the
+       decision landed silently and they had to go and look. Sent after the
+       transaction, never inside it: a mail that fails must not undo a
+       decision an admin has made. */
+    void notifyArchitectOfReviewDecision(listing).catch((error) =>
+      console.error("[admin] review decision email failed (non-fatal)", {
+        listingId: listing.id,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    );
 
     return successResponse(c, { listing }, "Listing status updated");
   } catch (error) {

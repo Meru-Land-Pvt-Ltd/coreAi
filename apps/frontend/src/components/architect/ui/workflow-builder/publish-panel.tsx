@@ -30,8 +30,13 @@ import {
 import { BuilderIcon } from "./icons";
 
 function formatPricingText(pricing: AgentConfigurePricing | null, fallbackPrice: string): string {
+  /* A PRICE WE DO NOT KNOW IS NOT $149. When the pricing load failed or had
+     not finished, this printed the fallback as though it were the real price —
+     and the fallback was seeded "149" and never once changed, so an architect
+     with no price set was shown "$149/month" on the screen where they decide
+     to publish, with a green tick beside it. */
   if (!pricing) {
-    return `$${fallbackPrice}/month`;
+    return fallbackPrice.trim() ? `$${fallbackPrice}/month` : "Price not set yet";
   }
 
   if (pricing.pricingModel === "free") {
@@ -111,9 +116,8 @@ export function PublishPanel({
   const nodeCount = workflowFlow?.nodes.length ?? 0;
   const edgeCount = workflowFlow?.edges.length ?? 0;
   const workflowConfigured = nodeCount > 0;
-  const pricingDone = pricing
-    ? pricing.pricingModel === "free" || pricing.price > 0
-    : Number(price) > 0 || price.trim() === "0";
+  /* And it must not tick green on a price nobody has set. */
+  const pricingDone = pricing ? pricing.pricingModel === "free" || pricing.price > 0 : false;
   const hasCoverImage = Boolean(coverUrl);
 
   const industryLabel = resolveBrowseIndustries(tags)[0] ?? tags[0] ?? "";
@@ -249,7 +253,7 @@ export function PublishPanel({
                 text={
                   hasCoverImage
                     ? "Screenshot ready for the marketplace listing"
-                    : "Optional, but boosts installs by about 40%"
+                    : "Optional — this is your listing's cover image"
                 }
               />
             </div>

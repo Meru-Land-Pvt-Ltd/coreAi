@@ -131,8 +131,16 @@ export function BuilderHeader({
   onRunTest: () => void;
   onSave: () => void;
 }) {
-  void message;
   void hasGmailFlow;
+
+  /* IT SAID "saved" WHATEVER HAPPENED. The status message was thrown away with
+     `void message`, and the dot beside it was hardcoded green, so a failed
+     save and an unsaved change both read exactly like a successful one. An
+     architect closed the tab believing their work was safe. */
+  const saveFailed = message.startsWith("Save failed");
+  const unsaved = message === "Unsaved changes";
+  const dotColour = saveFailed ? "bg-red-500" : unsaved ? "bg-amber-500" : "bg-green-500";
+  const saveLabel = saving ? "Saving..." : saveFailed ? message : unsaved ? "unsaved changes" : "saved";
 
   const activeStepIndex = BUILDER_STEPS.findIndex((step) => step.id === activeTab);
 
@@ -183,8 +191,13 @@ export function BuilderHeader({
             aria-label={locked ? "In Review" : isLive ? "Live" : saving ? "Saving" : "Draft"}
           />
           <span className="ml-1 hidden items-center gap-1.5 text-xs text-slate-400 lg:flex" data-testid="architect-ui-workflow-builder-builder-header-saving-message-text">
-            <span className={cn("h-1.5 w-1.5 rounded-full bg-green-500", saving && "save-pop")} />
-            <span data-testid="architect-ui-workflow-builder-builder-header-saving-message-text-3">{saving ? "Saving..." : "saved"}</span>
+            <span className={cn("h-1.5 w-1.5 rounded-full", dotColour, saving && "save-pop")} />
+            <span
+              className={cn(saveFailed && "font-semibold text-red-600", unsaved && "text-amber-600")}
+              data-testid="architect-ui-workflow-builder-builder-header-saving-message-text-3"
+            >
+              {saveLabel}
+            </span>
           </span>
         </div>
 
