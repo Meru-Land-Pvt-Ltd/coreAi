@@ -273,8 +273,20 @@ export async function setPhoneRoutingMode(architectUserId: string, mode: unknown
   };
 }
 
-/** Simulate the Twilio routing lookup (no real call). Resolves by the called number. */
-export async function testPhoneRouting(input: { called?: unknown; from?: unknown }) {
+/**
+ * Simulate the Twilio routing lookup (no real call). Resolves by the called
+ * number, WITHIN THE CALLER'S OWN BUSINESSES.
+ *
+ * The owner check is the whole point of the second argument. Without it this
+ * answered for any number on the platform, and anybody can sign up as an
+ * architect: type a number, learn the business behind it — its name, its type,
+ * its assistant, its calendar, its timezone and whether it would answer right
+ * now. It read like a debugging tool and worked like a directory.
+ */
+export async function testPhoneRouting(
+  input: { called?: unknown; from?: unknown },
+  architectUserId: string
+) {
   const called = normalizePhone(typeof input.called === "string" ? input.called : "");
   const callerNumber = normalizePhone(typeof input.from === "string" ? input.from : "");
 
@@ -282,8 +294,8 @@ export async function testPhoneRouting(input: { called?: unknown; from?: unknown
     return { resolved: false, matchedNumber: null, callerNumber, message: "Provide a 'called' number (the assigned Triven AI number)." };
   }
 
-  const phone = await prisma.businessPhoneNumber.findUnique({
-    where: { phoneNumber: called },
+  const phone = await prisma.businessPhoneNumber.findFirst({
+    where: { phoneNumber: called, business: { ownerId: architectUserId } },
     include: { business: { include: { profile: true } }, installedAgent: { include: { workflow: true } } }
   });
 

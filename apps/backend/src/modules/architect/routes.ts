@@ -2332,8 +2332,10 @@ architectRoutes.patch("/phone-routing/mode", async (c) => {
 });
 
 architectRoutes.post("/phone-routing/test", async (c) => {
+  const authUser = c.get("authUser");
   const body = (await c.req.json().catch(() => ({}))) as { called?: unknown; from?: unknown };
-  return successResponse(c, await testPhoneRouting(body));
+  /* Their own numbers only — this used to answer for anyone's. */
+  return successResponse(c, await testPhoneRouting(body, authUser.id));
 });
 
 /* ---- Template gallery (static seed + architect-saved workflows) ---- */

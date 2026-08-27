@@ -1929,7 +1929,36 @@ async function handleSharedSenderInboundSms(
 
   // "Reply C to cancel" — the confirmation SMS promises this exact shortcut.
   if (isSmsCancelRequest(incomingBody)) {
-    const reply = await cancelAppointmentFromSms(customerPhone);
+    /* WHOSE APPOINTMENT? On the shared sender we do not know which business
+       this text is about, and the search used to run across every business on
+       the platform: one "C" could cancel a stranger's appointment at a
+       business that never texted them, delete that owner's calendar event and
+       email their team about it.
+
+       The business is whoever last sent this number an appointment message
+       from here — the one whose own words said "Reply C to cancel". If nobody
+       did, nothing is cancelled. */
+    const lastConfirmation = await prisma.smsExecution.findFirst({
+      where: {
+        toPhone: customerPhone,
+        businessId: { not: null },
+        messageType: "APPOINTMENT_CONFIRMATION"
+      },
+      orderBy: { createdAt: "desc" },
+      select: { businessId: true }
+    });
+
+    if (!lastConfirmation?.businessId) {
+      return c.text(
+        `<Response><Message>${escapeXml(
+          "We couldn't find an upcoming appointment for this number, so nothing was cancelled. Please call the business if you need help."
+        )}</Message></Response>`,
+        200,
+        { "Content-Type": "text/xml" }
+      );
+    }
+
+    const reply = await cancelAppointmentFromSms(customerPhone, lastConfirmation.businessId);
     return c.text(
       `<Response><Message>${escapeXml(reply)}</Message></Response>`,
       200,
@@ -3266,6 +3295,35 @@ export async function runCheckAvailabilityTool(args: Record<string, unknown>, ct
   };
 }
 
+
+/**
+ * DOES THE CALLER ACTUALLY KNOW WHOSE BOOKING THIS IS?
+ *
+ * This guards a caller reading back somebody's appointments: their name, what
+ * they booked, the day and the time. It used to be a substring test in either
+ * direction, so saying the single letter "s" matched almost every name on
+ * file — anyone who knew a phone number could hear that person's bookings.
+ *
+ * The caller must now say the whole name that is on the booking. Word for
+ * word, in any order, punctuation and case ignored, and extra words they add
+ * (a middle name we do not hold) are fine. What is NOT fine is saying less
+ * than the name.
+ */
+function namesAgree(said: string, onFile: string): boolean {
+  const words = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .split(" ")
+      .filter((word) => word.length > 0);
+
+  const heard = new Set(words(said));
+  const stored = words(onFile);
+  if (heard.size === 0 || stored.length === 0) return false;
+
+  return stored.every((word) => heard.has(word));
+}
+
 async function resolveBookingDurationMinutes(
   ctx: VapiToolContext,
   args: Record<string, unknown>,
@@ -4599,6 +4657,8 @@ export async function runVerifyAndLookupAppointmentTool(args: Record<string, unk
     };
   }
 
+
+
   const validatedPhone = validateSmsRecipientE164(phoneRaw);
   if (!validatedPhone.ok) {
     return {
@@ -4630,8 +4690,7 @@ export async function runVerifyAndLookupAppointmentTool(args: Record<string, unk
     const matches = eligible.filter((appt) => {
       const apptName = (appt.customerName || "").trim().toLowerCase();
       if (!apptName) return false;
-      const nameMatch = apptName.includes(fullNameNorm) || fullNameNorm.includes(apptName);
-      if (!nameMatch) return false;
+      if (!namesAgree(fullNameNorm, apptName)) return false;
       if (bookingEmail) {
         const apptEmail = (appt.customerEmail || "").trim().toLowerCase();
         if (apptEmail && apptEmail !== bookingEmail) return false;

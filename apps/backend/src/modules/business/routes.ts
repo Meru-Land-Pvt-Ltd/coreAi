@@ -3026,9 +3026,15 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
       ? requestBody.selectedPlatformPhoneNumberId.trim()
       : "";
 
-  const requestedPlatform = requestedId
-    ? await prisma.platformPhoneNumber.findUnique({ where: { id: requestedId } })
-    : null;
+  /* THEIR OWN NUMBER, OR NOTHING. The number to check came straight from the
+     request body and was looked up with no owner filter, so a business could
+     type any number on the platform and be told whether it exists, which
+     business is behind it, whether that agent is switched on, which assistant
+     answers it and whether it would pick up right now. */
+  const requestedPlatform =
+    requestedId && business
+      ? await prisma.platformPhoneNumber.findFirst({ where: { id: requestedId, businessId: business.id } })
+      : null;
 
   const activePhone = business?.phoneNumbers?.[0] ?? null;
 
@@ -3039,8 +3045,20 @@ businessRoutes.post("/setup/test-call-routing", async (c) => {
     })
     : null;
 
+  /* A typed number is honoured only when it is one of this business's own.
+     Anything else falls through to their real number, so the check answers
+     about them and never about a stranger. */
+  const typed = normalizePhoneNumber(requested);
+  const ownNumbers = new Set(
+    [
+      ...(business?.phoneNumbers ?? []).map((row) => normalizePhoneNumber(row.phoneNumber)),
+      normalizePhoneNumber(assignedPlatform?.phoneNumber ?? ""),
+      normalizePhoneNumber(requestedPlatform?.phoneNumber ?? "")
+    ].filter(Boolean)
+  );
+
   const number =
-    normalizePhoneNumber(requested) ||
+    (typed && ownNumbers.has(typed) ? typed : "") ||
     requestedPlatform?.phoneNumber ||
     activePhone?.phoneNumber ||
     assignedPlatform?.phoneNumber ||
