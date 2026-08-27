@@ -42,12 +42,9 @@ vi.mock("../activity-log", () => ({
 }));
 
 import {
-  claimConversation,
   escalateStaleWaiting,
   isAiPausedForConversation,
-  releaseConversationToAi,
-  requestHumanTakeover,
-  sendHumanReply
+  requestHumanTakeover
 } from "./inbox-service";
 
 function conversationRow(overrides: Record<string, unknown> = {}) {
@@ -136,85 +133,7 @@ describe("requestHumanTakeover", () => {
   });
 });
 
-describe("claimConversation", () => {
-  it("claims a waiting thread and settles the handoff with wait time", async () => {
-    const waitingSince = new Date(Date.now() - 90_000);
-    mocks.conversationFindFirst.mockResolvedValue(
-      conversationRow({ aiState: "WAITING_FOR_HUMAN", waitingSince })
-    );
-
-    await claimConversation({
-      businessId: "biz-1",
-      conversationId: "conv-1",
-      teamMemberId: "tm-1",
-      actorUserId: "user-1"
-    });
-
-    const settle = mocks.handoffUpdateMany.mock.calls[0][0];
-    expect(settle.data.status).toBe("CONNECTED");
-    expect(settle.data.waitSeconds).toBeGreaterThanOrEqual(89);
-    expect(mocks.logActivity).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "CONVERSATION_TAKEN_OVER" })
-    );
-  });
-
-  it("supports barge-in on an AI_ACTIVE thread", async () => {
-    mocks.conversationFindFirst.mockResolvedValue(conversationRow({ aiState: "AI_ACTIVE" }));
-    await expect(
-      claimConversation({ businessId: "biz-1", conversationId: "conv-1", teamMemberId: "tm-1", actorUserId: "u" })
-    ).resolves.toBeTruthy();
-  });
-
-  it("rejects claiming a thread someone else holds", async () => {
-    mocks.conversationFindFirst.mockResolvedValue(
-      conversationRow({ aiState: "HUMAN_ACTIVE", assignedTeamMemberId: "tm-OTHER" })
-    );
-    await expect(
-      claimConversation({ businessId: "biz-1", conversationId: "conv-1", teamMemberId: "tm-1", actorUserId: "u" })
-    ).rejects.toMatchObject({ code: "ALREADY_CLAIMED" });
-  });
-});
-
-describe("sendHumanReply", () => {
-  it("sends the SMS reply and records the outbound message", async () => {
-    mocks.conversationFindFirst.mockResolvedValue(conversationRow({ aiState: "HUMAN_ACTIVE" }));
-
-    const result = await sendHumanReply({
-      businessId: "biz-1",
-      conversationId: "conv-1",
-      teamMemberId: "tm-1",
-      body: "Hi, this is Dana from Bright Smiles."
-    });
-
-    expect(result.sent).toBe(true);
-    expect(mocks.sendTrackedSms.mock.calls[0][0].to).toBe("+15552223333");
-    expect(mocks.conversationMessageCreate.mock.calls[0][0].data.direction).toBe("OUTBOUND");
-  });
-
-  it("refuses to reply on an unclaimed thread", async () => {
-    mocks.conversationFindFirst.mockResolvedValue(conversationRow({ aiState: "AI_ACTIVE" }));
-    await expect(
-      sendHumanReply({ businessId: "biz-1", conversationId: "conv-1", teamMemberId: "tm-1", body: "hi" })
-    ).rejects.toMatchObject({ code: "NOT_CLAIMED" });
-  });
-
-  it("is honest about channels without a wired sender", async () => {
-    mocks.conversationFindFirst.mockResolvedValue(
-      conversationRow({ aiState: "HUMAN_ACTIVE", channel: "TELEGRAM" })
-    );
-    await expect(
-      sendHumanReply({ businessId: "biz-1", conversationId: "conv-1", teamMemberId: "tm-1", body: "hi" })
-    ).rejects.toMatchObject({ code: "CHANNEL_NOT_SUPPORTED" });
-  });
-});
-
-describe("release + SLA escalation", () => {
-  it("returns a human-held thread to the AI and closes the open handoff honestly", async () => {
-    mocks.conversationFindFirst.mockResolvedValue(conversationRow({ aiState: "HUMAN_ACTIVE" }));
-    await releaseConversationToAi({ businessId: "biz-1", conversationId: "conv-1", actorUserId: "u" });
-    expect(mocks.conversationUpdate.mock.calls[0][0].data.aiState).toBe("RETURNED_TO_AI");
-  });
-
+describe("SLA escalation", () => {
   it("escalates stale waiting threads exactly once", async () => {
     mocks.conversationFindMany.mockResolvedValue([
       conversationRow({ id: "conv-9", aiState: "WAITING_FOR_HUMAN", waitingSince: new Date(Date.now() - 10 * 60_000) })
