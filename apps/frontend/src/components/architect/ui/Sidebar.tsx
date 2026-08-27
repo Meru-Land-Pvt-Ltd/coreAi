@@ -19,7 +19,7 @@ import { ARCHITECT_SETTINGS_PATH } from "@/lib/routes";
 
 const TRIVEN_LOGO_SRC = "/triven.ai word logo transparent bg.PNG";
 
-type IconName = "dashboard" | "agents" | "builder" | "templates" | "payouts" | "settings";
+type IconName = "dashboard" | "agents" | "builder" | "templates" | "payouts" | "settings" | "docs";
 
 type NavItem = {
   label: string;
@@ -60,6 +60,14 @@ const navItems: NavItem[] = [
     matchPrefix: "/architect/payouts"
   },
   {
+    /* THE DOCUMENTATION (the founder's ruling, 2026-08-27): most architects
+       build by hand, and until today the platform had no reference at all. */
+    label: "Docs",
+    href: "/architect/docs" as Route,
+    icon: "docs",
+    matchPrefix: "/architect/docs"
+  },
+  {
     label: "Settings",
     href: ARCHITECT_SETTINGS_PATH,
     icon: "settings",
@@ -84,6 +92,15 @@ function getInitials(user: AuthUser | null) {
 
 function Icon({ name, className = "" }: { name: IconName; className?: string }) {
   const common = cn("h-5 w-5 shrink-0", className);
+
+  if (name === "docs") {
+    return (
+      <svg viewBox="0 0 24 24" className={common} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      </svg>
+    );
+  }
 
   if (name === "dashboard") {
     return (

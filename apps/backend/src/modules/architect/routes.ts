@@ -122,6 +122,7 @@ import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoiceP
 import { getConditionRoadLimit, DEFAULT_CONDITION_ROADS } from "../admin/node-limits";
 import { aiBuilderAnswer, aiBuilderAnswerStreaming } from "./ai-builder";
 import { builderPageHand } from "../agent-pages/builder-page-hand";
+import { allNodeDocs, docsSummary, nodeDocFor } from "../docs/node-docs";
 import { checkAgent } from "./agent-check";
 import { deleteBuilderLesson, listBuilderLessons, saveBuilderLesson } from "./builder-lessons";
 import { refuseUploadIfBeyondLimits } from "./upload-limits";
@@ -686,6 +687,24 @@ architectRoutes.post("/wiring-check", async (c) => {
     edges?: Array<{ source: string; target: string }>;
   };
   return successResponse(c, checkWiring({ nodes: body.nodes ?? [], edges: body.edges ?? [] }));
+});
+
+/**
+ * THE DOCUMENTATION (the founder's ruling, 2026-08-27).
+ *
+ * Every big platform has one — AWS, Google Cloud — and most architects want
+ * to drag, drop and wire by hand rather than describe it to the Builder.
+ * Generated from the same rows the panels read, so a page can never drift
+ * from the software, and a node added next year documents itself.
+ */
+architectRoutes.get("/docs/nodes", async (c) => {
+  return successResponse(c, { nodes: allNodeDocs(), summary: docsSummary() });
+});
+
+architectRoutes.get("/docs/nodes/:nodeType", async (c) => {
+  const doc = nodeDocFor(decodeURIComponent(c.req.param("nodeType")));
+  if (!doc) return errorResponse(c, "There is no step by that name.", 404, "NOT_FOUND");
+  return successResponse(c, { node: doc });
 });
 
 architectRoutes.get("/builder-nodes", async (c) => {

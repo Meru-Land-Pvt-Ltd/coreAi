@@ -702,6 +702,16 @@ export function connectionWisdom(
 }
 
 /**
+ * One node's written wisdom — what it is FOR, where it starts and stops, and
+ * the traps. Exported so the Documentation shows a person the SAME words the
+ * Builder reads (the founder's ruling, 2026-08-27): one source, never two,
+ * so a docs page can never drift from what the employee actually knows.
+ */
+export function soulPageFor(nodeType: string): SoulPage | null {
+  return WISDOM.find((page) => page.nodeType === nodeType) ?? null;
+}
+
+/**
  * The Soul as one text — what rides with every Builder request.
  *
  * A weight problem found in its own build (2026-08-26): every page added made
