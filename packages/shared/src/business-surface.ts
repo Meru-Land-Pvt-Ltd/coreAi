@@ -91,10 +91,25 @@ export function deriveBusinessSurface(workflowJson: unknown): BusinessSurface {
 
   const hasVoice = types.has("ai.voice_conversation") || types.has("action.start_vapi_call");
   const hasCallList = types.has(CALL_LIST_NODE_TYPE);
-  const hasBooking = types.has("calendar.book_appointment");
+  /* THE CARD THAT BOOKS IS NOT CALLED "book_appointment" ANY MORE. There is
+     one Google Calendar card now, and what it does is a dial on it — so an
+     agent built today that books visits produced no booked count, no booking
+     rate and no bookings board. The old slug stays for canvases people
+     already have. This is the same test the engine uses. */
+  const booksOnTheCalendar = nodes.some(
+    (node) =>
+      typeOf(node) === "calendar.availability" &&
+      String((node.data as Record<string, unknown>)?.connectorAction ?? "")
+        .toLowerCase()
+        .replace(/[^a-z]/g, "")
+        .includes("book")
+  );
+  const hasBooking = types.has("calendar.book_appointment") || booksOnTheCalendar;
   const hasLead = types.has("action.save_lead");
-  const hasSms = types.has("action.send_sms") || types.has("channel.sms");
-  const hasEmail = types.has("action.send_email");
+  /* "channel.sms" and "action.send_email" are not node types this platform
+     has ever had; the real ones are these. */
+  const hasSms = types.has("action.send_sms") || types.has("communication.send_sms");
+  const hasEmail = types.has("communication.send_email");
 
   if (hasVoice) {
     does.push("answers and makes phone calls");

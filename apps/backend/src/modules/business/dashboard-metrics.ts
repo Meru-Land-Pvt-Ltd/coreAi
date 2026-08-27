@@ -79,12 +79,19 @@ export async function loadDashboardData(
 
   // ---- Calls -------------------------------------------------------------
   if (wanted.has("callsMade") || wanted.has("callsAnswered")) {
+    /* THEIR BUSINESS, NOT THEIR TESTING. None of these queries excluded the
+       owner's own test calls, so pressing "test" on their setup screen moved
+       the numbers on their dashboard. Every sibling surface already pins
+       executionMode LIVE; this one did not. */
+    const liveCalls = {
+      businessId,
+      installedAgentId,
+      executionMode: "LIVE" as const,
+      ...(from ? { createdAt: { gte: from } } : {})
+    };
+
     const calls = await prisma.vapiCall.findMany({
-      where: {
-        businessId,
-        installedAgentId,
-        ...(from ? { createdAt: { gte: from } } : {})
-      },
+      where: liveCalls,
       orderBy: { createdAt: "desc" },
       take: 200,
       select: {
@@ -101,17 +108,17 @@ export async function loadDashboardData(
        page: a business with 500 calls was shown "200", and every rate built
        on it was wrong too. The totals are counted in the database; the rows
        stay a page, because a table only shows 25 anyway. */
-    const [callsMade, callsAnswered] = await Promise.all([
+    const [callsMade, callsAnswered, totals] = await Promise.all([
+      prisma.vapiCall.count({ where: liveCalls }),
       prisma.vapiCall.count({
-        where: { businessId, installedAgentId, ...(from ? { createdAt: { gte: from } } : {}) }
+        where: { ...liveCalls, outcome: { in: ["ANSWERED", "BOOKED"] } }
       }),
-      prisma.vapiCall.count({
-        where: {
-          businessId,
-          installedAgentId,
-          outcome: { in: ["ANSWERED", "BOOKED"] },
-          ...(from ? { createdAt: { gte: from } } : {})
-        }
+      /* Minutes and spend were added up over the same truncated page as the
+         counts above once were: a business with 500 calls was shown the cost
+         of 200 of them, on the tile that says what they are spending. */
+      prisma.vapiCall.aggregate({
+        where: liveCalls,
+        _sum: { durationSeconds: true, billedCostMicroUsd: true }
       })
     ]);
 
@@ -120,11 +127,8 @@ export async function loadDashboardData(
     // counting it as one would flatter the number that matters most.
     raw.callsAnswered = callsAnswered;
     raw.connectRate = callsMade ? (callsAnswered / callsMade) * 100 : 0;
-    raw.callMinutes = Math.round(
-      calls.reduce((total, call) => total + (call.durationSeconds ?? 0), 0) / 60
-    );
-    raw.spend =
-      calls.reduce((total, call) => total + Number(call.billedCostMicroUsd ?? 0), 0) / 1_000_000;
+    raw.callMinutes = Math.round((totals._sum.durationSeconds ?? 0) / 60);
+    raw.spend = Number(totals._sum.billedCostMicroUsd ?? 0) / 1_000_000;
 
     tables.recentCalls = calls.slice(0, 25).map((call) => ({
       When: call.createdAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
@@ -141,8 +145,16 @@ export async function loadDashboardData(
        to ONE business" — and this query was scoped to the business only, so
        a business running two agents saw both their bookings on each one's
        dashboard. */
+    /* Live bookings only — a rehearsal is not a customer. */
+    const liveAppointments = {
+      businessId,
+      installedAgentId,
+      executionMode: "LIVE" as const,
+      ...(from ? { createdAt: { gte: from } } : {})
+    };
+
     const appointments = await prisma.appointment.findMany({
-      where: { businessId, installedAgentId, ...(from ? { createdAt: { gte: from } } : {}) },
+      where: liveAppointments,
       orderBy: { createdAt: "desc" },
       take: 100,
       select: {
@@ -154,9 +166,7 @@ export async function loadDashboardData(
       }
     });
 
-    const booked = await prisma.appointment.count({
-      where: { businessId, installedAgentId, ...(from ? { createdAt: { gte: from } } : {}) }
-    });
+    const booked = await prisma.appointment.count({ where: liveAppointments });
     raw.booked = booked;
     raw.bookRate = raw.callsAnswered ? (booked / raw.callsAnswered) * 100 : 0;
 
@@ -228,6 +238,53 @@ export async function loadDashboardData(
         ? person.nextAttemptAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric" })
         : "—"
     }));
+  }
+
+  // ---- Every agent: how often it ran, and how often it went wrong --------
+  //
+  // TILES THAT COULD ONLY EVER SHOW A DASH. Every agent's contract declares
+  // "Times it ran" and "Problems", and nothing counted them — so the only two
+  // tiles a non-voice business gets, on the only dashboard they have, were
+  // blank from the day the agent went live.
+  if (wanted.has("runs") || wanted.has("runsFailed")) {
+    const runWhere = {
+      installedAgentId,
+      businessId,
+      mode: "LIVE" as const,
+      ...(from ? { startedAt: { gte: from } } : {})
+    };
+    const [runs, runsFailed] = await Promise.all([
+      prisma.workflowRun.count({ where: runWhere }),
+      prisma.workflowRun.count({ where: { ...runWhere, status: "FAILED" } })
+    ]);
+    raw.runs = runs;
+    raw.runsFailed = runsFailed;
+  }
+
+  // ---- Messages the agent sent on their behalf ---------------------------
+  if (wanted.has("messagesSent")) {
+    /* Declared by every texting or emailing agent and counted by nobody, so
+       the tile read zero however many messages went out. */
+    const [texts, emails] = await Promise.all([
+      prisma.smsExecution.count({
+        where: {
+          businessId,
+          installedAgentId,
+          status: { in: ["SENT", "DELIVERED", "ACCEPTED"] },
+          ...(from ? { createdAt: { gte: from } } : {})
+        }
+      }),
+      prisma.emailMessage
+        .count({
+          where: {
+            businessId,
+            direction: "OUTBOUND",
+            ...(from ? { createdAt: { gte: from } } : {})
+          }
+        })
+        .catch(() => 0)
+    ]);
+    raw.messagesSent = texts + emails;
   }
 
   // ---- Connectors --------------------------------------------------------

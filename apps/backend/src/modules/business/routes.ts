@@ -42,6 +42,7 @@ import {
   searchNumbersForBusiness
 } from "./phone-provisioning-flow";
 import { prisma } from "../../lib/prisma";
+import { vapiCallBusinessNumber, vapiCallDirection } from "./vapi-call-envelope";
 import { inboundAddressesForBusiness } from "../webhooks/inbound-webhook";
 import { ensureEmbedKey, rotateEmbedKey } from "../agent-pages/embed-live";
 import { requireAuth, requireRole } from "../../middleware/auth";
@@ -325,58 +326,7 @@ function parsePreviousBookingWindow(params: {
   };
 }
 
-/** "inbound" | "outbound" from the stored Vapi webhook body; inbound when unknown. */
-function vapiCallDirection(metadataJson: unknown): "inbound" | "outbound" {
-  if (!metadataJson || typeof metadataJson !== "object" || Array.isArray(metadataJson)) return "inbound";
-  const body = metadataJson as Record<string, unknown>;
 
-  const candidates: unknown[] = [];
-  const message = body.message;
-  if (message && typeof message === "object" && !Array.isArray(message)) {
-    candidates.push((message as Record<string, unknown>).call);
-  }
-  candidates.push(body.call, body);
-
-  for (const candidate of candidates) {
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
-    const type = (candidate as Record<string, unknown>).type;
-    if (typeof type === "string" && /outbound/i.test(type)) return "outbound";
-  }
-  return "inbound";
-}
-
-/**
- * The Triven number that actually received/placed this call, frozen into the
- * webhook envelope at call time. After a number reassignment the dashboard's
- * "current number" tile changes, but each history row keeps naming the number
- * that really handled it.
- */
-function vapiCallBusinessNumber(metadataJson: unknown): string | null {
-  if (!metadataJson || typeof metadataJson !== "object" || Array.isArray(metadataJson)) return null;
-  const body = metadataJson as Record<string, unknown>;
-
-  const candidates: unknown[] = [];
-  const message = body.message;
-  if (message && typeof message === "object" && !Array.isArray(message)) {
-    const messageRecord = message as Record<string, unknown>;
-    const call = messageRecord.call;
-    if (call && typeof call === "object" && !Array.isArray(call)) {
-      candidates.push((call as Record<string, unknown>).metadata);
-    }
-  }
-  const topCall = body.call;
-  if (topCall && typeof topCall === "object" && !Array.isArray(topCall)) {
-    candidates.push((topCall as Record<string, unknown>).metadata);
-  }
-  candidates.push(body.metadata, body);
-
-  for (const candidate of candidates) {
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
-    const value = (candidate as Record<string, unknown>).assignedPhoneNumber;
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
 
 function includeActivePhoneNumbers(options?: { take?: number }) {
   return {
@@ -1125,7 +1075,8 @@ businessRoutes.get("/dashboard", async (c) => {
     chartLedgerExecutions,
     monthExecutionCount,
     prevMonthExecutionCount,
-    prevMonthBookingCount
+    prevMonthBookingCount,
+    monthBookingCount
   ] = await Promise.all([
     prisma.lead.count({ where: { businessId: business.id } }),
     prisma.conversation.count({ where: { businessId: business.id } }),
@@ -1226,6 +1177,13 @@ businessRoutes.get("/dashboard", async (c) => {
     }),
     prisma.appointment.count({
       where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: prevMonthStart, lt: monthStart } }
+    }),
+    /* THIS MONTH'S BOOKINGS, COUNTED. The tile reported the length of a
+       deliberately truncated page of 50 and compared it against the real
+       count for last month beside it — so a busy month showed "50" and an
+       invented decline. The rows stay a page; the number is a number. */
+    prisma.appointment.count({
+      where: { businessId: business.id, executionMode: "LIVE", createdAt: { gte: monthStart } }
     })
   ]);
 
@@ -1372,7 +1330,7 @@ businessRoutes.get("/dashboard", async (c) => {
     monthlyMetrics: {
       callsHandled: monthExecutionCount,
       callsHandledPrevMonth: prevMonthExecutionCount,
-      bookings: monthBookings.length,
+      bookings: monthBookingCount,
       bookingsPrevMonth: prevMonthBookingCount
     },
     recentLeads,
@@ -1380,7 +1338,7 @@ businessRoutes.get("/dashboard", async (c) => {
     recentMissedCalls,
     bookings: {
       month: monthStart.toISOString().slice(0, 7),
-      total: monthBookings.length,
+      total: monthBookingCount,
       upcoming: monthBookings.filter((booking) => booking.startAt > now).length,
       agentName: installedAgent?.name ?? null,
       calendarConnected: calendar.connected,

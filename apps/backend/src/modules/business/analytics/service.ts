@@ -1,4 +1,5 @@
 import { prisma } from "../../../lib/prisma";
+import { vapiCallBusinessNumber, vapiCallDirection } from "../vapi-call-envelope";
 
 /**
  * Buyer-facing agent analytics.
@@ -798,8 +799,13 @@ export async function listAnalyticsCalls(query: CallsQuery): Promise<{
         agentId: row.installedAgentId,
         agentName: row.installedAgentId ? agentNames.get(row.installedAgentId) ?? null : null,
         customerPhone: row.customerPhone,
-        direction: jsonString(row.metadataJson, "direction"),
-        businessNumber: jsonString(row.metadataJson, "businessNumber"),
+        /* A DASH FOR EVERY CALL. These read root keys named "direction" and
+           "businessNumber" — the stored envelope is Vapi's own body and has
+           neither, so the analytics call list showed "—" in both columns for
+           every call ever made. The dashboard reads the same rows correctly;
+           it just used different code. Now they share it. */
+        direction: vapiCallDirection(row.metadataJson),
+        businessNumber: vapiCallBusinessNumber(row.metadataJson),
         status: row.status,
         outcome,
         outcomeLabel: outcomeLabel(outcome),
