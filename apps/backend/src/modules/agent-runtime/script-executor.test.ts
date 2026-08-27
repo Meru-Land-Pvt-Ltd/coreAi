@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
+import { env } from "../../config/env";
 import { executeScript } from "./script-executor";
 
 /** Python is optional on a dev machine; its cases skip rather than fail there. */
@@ -12,7 +13,38 @@ const pythonAvailable = (() => {
   }
 })();
 
-describe("Code node — JavaScript", () => {
+/**
+ * THE SANDBOX IS A CONTAINER, NOT A LIBRARY.
+ *
+ * Code runs in a room of its own — no network, no credentials, no database,
+ * a read-only disk — reachable only at a name that exists inside the compose
+ * network. A shell outside that network cannot reach it, so every case below
+ * failed there, every run, forever.
+ *
+ * Fifteen permanently red tests is not a warning, it is training: everyone
+ * learns which red to scroll past, and the day a real one joins them nobody
+ * looks. They skip honestly now, exactly as the Python cases already did, and
+ * the refusal that a developer DOES see without a sandbox is checked here
+ * instead of being left untested.
+ */
+const sandboxAvailable = Boolean(env.SANDBOX_URL && env.SANDBOX_TOKEN);
+
+describe.skipIf(sandboxAvailable)("Code node — with no sandbox to run in", () => {
+  test("refuses honestly instead of running the code somewhere less safe", async () => {
+    const result = await executeScript({
+      language: "javascript",
+      code: "return 1;",
+      input: {}
+    });
+
+    expect(result.status).toBe("error");
+    /* Two promises in one sentence: it did not run, and nothing else broke. */
+    expect(result.error).toContain("not switched on");
+    expect(result.error).toContain("Nothing else was affected");
+  });
+});
+
+describe.skipIf(!sandboxAvailable)("Code node — JavaScript", () => {
   test("returns the script's value and captures console output", async () => {
     const result = await executeScript({
       language: "javascript",
@@ -127,7 +159,7 @@ describe("Code node — JavaScript", () => {
   });
 });
 
-describe.skipIf(!pythonAvailable)("Code node — Python", () => {
+describe.skipIf(!pythonAvailable || !sandboxAvailable)("Code node — Python", () => {
   test("publishes the `output` variable and captures print()", async () => {
     const result = await executeScript({
       language: "python",

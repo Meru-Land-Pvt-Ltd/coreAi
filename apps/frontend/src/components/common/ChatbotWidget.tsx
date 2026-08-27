@@ -3,9 +3,9 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { marked } from "marked";
 import { CircleUser } from "lucide-react";
 import { apiPost } from "@/lib/api";
+import { safeMarkdownHtml } from "@/lib/safe-markdown";
 import { submitContactSubmission } from "@/lib/contact-api";
 import { PRIVACY_PATH } from "@/lib/routes";
 
@@ -163,11 +163,18 @@ function nameFromEmail(email: string) {
 }
 
 function renderMarkdown(text: string) {
+  /* This one is on the public site, so it is the widest open door of the
+     three: whatever the assistant repeats back — including anything a visitor
+     typed at it — is written into the page as HTML. The safe renderer keeps
+     the formatting and drops anything that could run.
+
+     The old fallback here was the worst part: when the parser threw, it put
+     the RAW text into the page, so the failure path was less safe than the
+     success path. It returns nothing at all now. */
   try {
-    const html = marked.parse(text, { breaks: true, gfm: true }) as string;
-    return { __html: html };
+    return { __html: safeMarkdownHtml(text) };
   } catch {
-    return { __html: text };
+    return { __html: "" };
   }
 }
 

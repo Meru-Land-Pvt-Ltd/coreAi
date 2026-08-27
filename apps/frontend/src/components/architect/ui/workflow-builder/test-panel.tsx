@@ -2,6 +2,7 @@ import { COMMON_TIMEZONES, calendlyActionPaidPlanNote, describeZonedTime, isVali
 import { DeepgramSttTestCard } from "@/components/common/deepgram-stt-test-card";
 import { DeepgramTtsTestCard } from "@/components/common/deepgram-tts-test-card";
 import { speakArchitectDeepgram } from "@/components/architect/features/api";
+import { safeMarkdownHtml } from "@/lib/safe-markdown";
 import type {
   ArchitectConversationMessage,
   ArchitectConversationToolCall,
@@ -32,7 +33,6 @@ import {
   CalendlyTeamsRangePicker,
   CalendlyTimezoneSelect
 } from "./calendly-time-controls";
-import { marked } from "marked";
 import type { CalendlyPickerOption } from "@/components/architect/features/types";
 import type { ArchitectTelegramTestConnection } from "@/components/architect/features/api";
 import { useMemo, useState } from "react";
@@ -185,7 +185,12 @@ const CALENDLY_LOCATION_OPTIONS = [
 ] as const;
 
 function Markdown({ content, className = "" }: { content: string; className?: string }) {
-  const html = typeof content === "string" ? (marked.parse(content, { breaks: true, gfm: true }) as string) : "";
+  /* WHAT THIS SHOWS CAME FROM A STRANGER. The bodies rendered here include the
+     text of an email the agent just read, and anyone in the world can send an
+     email. This used to go through the markdown parser and straight onto the
+     page as HTML, so a script tag in an email would run as the architect, on
+     our domain, with their sign-in sitting in browser storage. */
+  const html = safeMarkdownHtml(content);
   return (
     <div
       className={`markdown-content min-w-0 max-w-full break-words [overflow-wrap:anywhere] ${className}`}

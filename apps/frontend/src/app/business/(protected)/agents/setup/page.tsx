@@ -43,6 +43,7 @@ import {
   type AnsweringDayRow
 } from "@/components/business/setup/ai-call-coverage-editor";
 import { businessSetupPath } from "@/lib/routes";
+import { safeMarkdownHtml } from "@/lib/safe-markdown";
 import { ExecutionPricingSummary, useBuyerExecutionPricing } from "@/components/business/execution-pricing-summary";
 import { GoogleDisclosureModal } from "@/components/common/google-disclosure-modal";
 import { InfoTooltip } from "@/components/business/setup/InfoTooltip";
@@ -94,7 +95,6 @@ import {
 } from "@/components/business/features/api";
 import { runArchitectWorkflowTest } from "@/components/architect/features/api";
 import type { WorkflowRunLog } from "@/components/architect/features/types";
-import { marked } from "marked";
 import { isDeploymentReadyForWorkflowRequirements } from "./deployment-readiness";
 
 const DASHBOARD_ROUTE = "/business/dashboard" as Route;
@@ -5876,7 +5876,10 @@ function WorkflowInputStepPanel({
 
 // Helper Markdown renderer using marked library with local CSS styles
 function Markdown({ content, className = "" }: { content: string; className?: string }) {
-  const html = typeof content === "string" ? (marked.parse(content, { breaks: true, gfm: true }) as string) : "";
+  /* This shows what the agent said back during a test — the agent's own words
+     and, on a mail agent, the body of a message a stranger sent. It is written
+     into the page as HTML, so it goes through the safe renderer first. */
+  const html = safeMarkdownHtml(content);
   return (
     <div className={`markdown-content-preview min-w-0 max-w-full break-words [overflow-wrap:anywhere] ${className}`}>
       <style>{`
