@@ -215,7 +215,16 @@ export function checkWiring(input: { nodes: WiringNode[]; edges: WiringEdge[] })
     const wanted = tokensUsedBy(node);
     if (wanted.length === 0) continue;
 
+    /* "text" IS THE ONE THING THAT MUST BE WIRED.
+       It sits in the always-available list because a prompt may mention it,
+       and that made this check unable to ever report the commonest mistake
+       on the canvas: a Result Viewer, an AI Brain, a Memory or a Loop with
+       nothing feeding it. All four declare they need "text", so all four were
+       satisfied by the list itself and painted green with no wire at all.
+       Everything else in that list is genuinely filled in by the platform;
+       "text" is what an earlier step hands over. */
     const available = new Set<string>(ALWAYS_AVAILABLE);
+    available.delete("text");
     for (const id of upstreamOf(node.id, edges)) {
       const upstream = byId.get(id);
       if (upstream) for (const name of producedBy(upstream)) available.add(name);
@@ -244,7 +253,16 @@ export function checkWiring(input: { nodes: WiringNode[]; edges: WiringEdge[] })
     const requires = definition?.requiredVariables ?? [];
     if (requires.length === 0) continue;
 
+    /* "text" IS THE ONE THING THAT MUST BE WIRED.
+       It sits in the always-available list because a prompt may mention it,
+       and that made this check unable to ever report the commonest mistake
+       on the canvas: a Result Viewer, an AI Brain, a Memory or a Loop with
+       nothing feeding it. All four declare they need "text", so all four were
+       satisfied by the list itself and painted green with no wire at all.
+       Everything else in that list is genuinely filled in by the platform;
+       "text" is what an earlier step hands over. */
     const available = new Set<string>(ALWAYS_AVAILABLE);
+    available.delete("text");
     for (const id of upstreamOf(node.id, edges)) {
       const upstream = byId.get(id);
       if (upstream) for (const name of producedBy(upstream)) available.add(name);

@@ -270,7 +270,13 @@ export const SCRIPT_MAX_SOURCE_LENGTH = 100_000;
 /** Wall-clock ceiling per execution, and the range the architect may choose from. */
 export const SCRIPT_DEFAULT_TIMEOUT_MS = 10_000;
 export const SCRIPT_MIN_TIMEOUT_MS = 1_000;
-export const SCRIPT_MAX_TIMEOUT_MS = 60_000;
+/* ONE CEILING, NOT TWO. The inspector offered up to sixty seconds under the
+   sentence "the run stops the script at this limit" — and the room the code
+   actually runs in caps every request at fifteen. So an architect could set
+   thirty, be told that was the limit, and watch their step stopped at fifteen
+   with no explanation on any screen. This is the number the sandbox enforces;
+   raising it means raising it there first. */
+export const SCRIPT_MAX_TIMEOUT_MS = 15_000;
 
 export function resolveScriptTimeoutMs(value: unknown): number {
   const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
@@ -413,7 +419,14 @@ function elementOf(definition: NodeDefinition): NodeCatalogueRow["element"] {
 }
 
 export function nodeCatalogue(): NodeCatalogueRow[] {
-  return NODE_DEFINITIONS.map((definition) => ({
+  /* THE DOCUMENTATION LISTED OUTPUTS THE ENGINE NEVER PRODUCES.
+     The raw definitions carry what a node was DECLARED to give; a correction
+     table further down this file records what it was later proven to actually
+     give, and getNodeDefinition applies it. This mapped the raw ones — so the
+     canvas checker and the documentation, which both describe the same node,
+     disagreed. The phone trigger's page still promised "caller.name",
+     "call.time" and three more the engine has never written. One answer. */
+  return NODE_DEFINITIONS.map((raw) => getNodeDefinition(raw.type) ?? raw).map((definition) => ({
     type: definition.type,
     label: definition.label,
     element: elementOf(definition),
@@ -4105,7 +4118,7 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
         name: "Time limit",
         whatItsFor: "Longer than fifteen seconds is a loop, not a calculation — the engine stops it there whatever is asked for.",
         type: "number",
-        limits: { min: 1000, max: 60000 },
+        limits: { min: 1000, max: SCRIPT_MAX_TIMEOUT_MS },
         default: "10000",
         whoFills: "architect"
       }
