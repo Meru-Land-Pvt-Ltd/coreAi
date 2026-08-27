@@ -1986,6 +1986,17 @@ async function handleSharedSenderInboundSms(
     );
   }
 
+  /* IT IS DROPPED ON PURPOSE, AND THAT IS THE SAFER MISTAKE.
+     Our texts invite a reply, and anything that is not STOP, START, HELP or
+     the single letter C ends here with no record. It looks like a bug and it
+     is not: on the shared sender we do not know WHICH business this reply is
+     about, and two businesses can have texted the same person. Guessing would
+     hand one business's customer conversation to another — a far worse
+     failure than losing a message, and one nobody could ever undo. Two tests
+     hold this line deliberately.
+
+     The real fix is not here: it is giving each business their own number, so
+     a reply carries its own address. Until then, silence beats a wrong guess. */
   console.log("[twilio.sms] unmatched shared-sender inbound message (not routed to any business)", {
     from: maskPhone(customerPhone),
     bodyLength: incomingBody.length
@@ -2270,13 +2281,39 @@ export async function handleTwilioInboundSms(c: Context) {
         : null
   });
 
-  await upsertConversation({
-    businessId: agent.business?.businessId,
-    customerPhone,
-    direction: "OUTBOUND",
-    body: replyBody,
-    providerId: bookedEventId ?? sent.messageSid
-  });
+  /* A REPLY THAT WAS NEVER SENT WAS WRITTEN DOWN AS SENT.
+     This ran whatever came back. A text can be refused — no consent on file
+     is the common one, and a first-time customer texting in always has none —
+     and the refusal is returned, not thrown. So the history recorded an
+     answer the customer never received, and the next time they texted, the AI
+     read that history and carried on from a reply they had never seen.
+
+     Only a real send is recorded as one. A refusal is recorded as what it is,
+     so whoever reads the thread can see the gap. */
+  if (sent.sent || sent.alreadySent) {
+    await upsertConversation({
+      businessId: agent.business?.businessId,
+      customerPhone,
+      direction: "OUTBOUND",
+      body: replyBody,
+      providerId: bookedEventId ?? sent.messageSid
+    });
+  } else {
+    console.warn("[twilio.sms] reply not delivered — not recording it as sent", {
+      to: maskPhone(customerPhone),
+      suppressed: sent.suppressed,
+      errorCode: sent.errorCode ?? null
+    });
+    await upsertConversation({
+      businessId: agent.business?.businessId,
+      customerPhone,
+      direction: "SYSTEM",
+      body: sent.suppressed
+        ? "The reply could not be sent: this number has not agreed to receive texts."
+        : `The reply could not be sent${sent.errorCode ? ` (${sent.errorCode})` : ""}.`,
+      providerId: null
+    }).catch(() => null);
+  }
 
   await upsertLead({
     businessId: agent.business?.businessId,
