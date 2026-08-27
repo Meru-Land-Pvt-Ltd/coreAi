@@ -299,6 +299,7 @@ export async function runArchitectConversationTest({
       try {
         const structuredFacts = await lookupStructuredFacts({
           businessId: businessIdentity.businessId,
+          installedAgentId: businessIdentity.installedAgentId,
           query: cleanMessage
         });
         const documents = await retrieveRelevantKnowledge({

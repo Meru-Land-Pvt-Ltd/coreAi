@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { addressFromProfile, formatAddressOneLine } from "./business-facts";
 import {
   buildBillingInvoices,
   buildDashboardActivities,
@@ -245,7 +246,23 @@ export async function buildBusinessDataExportZip(
             businessSize: true,
             teamPhone: true,
             bookingUrl: true,
-            timeZone: true
+            timeZone: true,
+            /* The address the AGENT reads out to callers — the one the
+               settings screen calls "Business address". The export was
+               printing the INVOICE address under that label and omitting this
+               one entirely, so a business checking what their agent tells
+               people was shown the wrong thing. */
+            addressLine1: true,
+            addressLine2: true,
+            addressCity: true,
+            addressState: true,
+            addressPostalCode: true,
+            addressCountry: true,
+            addressLandmark: true,
+            addressDirections: true,
+            addressMapsLink: true,
+            addressSource: true,
+            addressConfirmedAt: true
           }
         },
         installedAgents: {
@@ -733,8 +750,19 @@ export async function buildBusinessDataExportZip(
       { status: row.status, errorCode: row.errorCode }
     ])
   );
-  const callsHandledThisMonth = callsThisMonth + missedCallsThisMonth;
-  const callsHandledPriorMonth = callsPriorMonth + missedCallsPriorMonth;
+  /* THE EXPORT DISAGREED WITH THE DASHBOARD IT SAYS IT COPIES.
+     This page tells the business it is "a readable copy of the performance
+     information shown on your business dashboard" — and then counted
+     something else: voice calls plus missed-call leads, while the dashboard
+     counts entries in the usage ledger, which is a different population
+     entirely. A business comparing the two found two different answers to one
+     question, on the document they would take to their accountant. */
+  const callsHandledThisMonth = await prisma.agentUsageExecution.count({
+    where: { businessId: business.id, billingMonth: monthStart.toISOString().slice(0, 7) }
+  });
+  const callsHandledPriorMonth = await prisma.agentUsageExecution.count({
+    where: { businessId: business.id, billingMonth: priorMonthStart.toISOString().slice(0, 7) }
+  });
   const totalSpendCents = sumInvoiceTotalCents(payments);
   const agentNameById = new Map(business.installedAgents.map((agent) => [agent.id, agent.name]));
   const lifecycleActivities = buildDashboardActivities(
@@ -790,7 +818,11 @@ export async function buildBusinessDataExportZip(
     { label: "Team phone", value: displayOptional(business.profile?.teamPhone) },
     { label: "Booking URL", value: displayOptional(business.profile?.bookingUrl) },
     { label: "Business timezone", value: displayOptional(business.profile?.timeZone) },
-    { label: "Business address", value: displayOptional(business.billingAddress) },
+    {
+      label: "Business address",
+      value: displayOptional(formatAddressOneLine(addressFromProfile(business.profile)))
+    },
+    { label: "Invoice address", value: displayOptional(business.billingAddress) },
     { label: "Business created", value: formatExportDate(business.createdAt) }
   ];
 

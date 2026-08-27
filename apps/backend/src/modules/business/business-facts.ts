@@ -154,11 +154,18 @@ export function detectFactIntents(query: string): FactIntent[] {
 export async function lookupStructuredFacts(input: {
   businessId: string;
   query: string;
+  /** WHICH agent is answering. Without it, a business running two agents can
+      have one of them read out the OTHER one's phone number to a caller —
+      the exact case loadBusinessFacts warns about in its own options. Every
+      other caller passes it; this one did not, and it had the id in hand. */
+  installedAgentId?: string | null;
 }): Promise<RetrievedKnowledgeSection[]> {
   const intents = detectFactIntents(input.query);
   if (intents.length === 0) return [];
 
-  const facts = await loadBusinessFacts(input.businessId);
+  const facts = await loadBusinessFacts(input.businessId, {
+    installedAgentId: input.installedAgentId ?? null
+  });
   if (!facts) return [];
 
   const sections: RetrievedKnowledgeSection[] = [];

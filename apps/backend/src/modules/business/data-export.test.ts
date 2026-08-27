@@ -7,7 +7,11 @@ const mocks = vi.hoisted(() => ({
     business: { findFirst: vi.fn(), count: vi.fn() },
     payment: { findMany: vi.fn() },
     businessUsageInvoice: { findMany: vi.fn() },
-    agentUsageExecution: { groupBy: vi.fn() },
+    /* The export now counts the same ledger the dashboard counts, instead of
+       adding up voice calls and missed-call leads — two different populations
+       for one number, on a document a business would take to their
+       accountant. */
+    agentUsageExecution: { groupBy: vi.fn(), count: vi.fn() },
     vapiCall: { count: vi.fn(), findMany: vi.fn() },
     lead: { count: vi.fn(), findMany: vi.fn() },
     appointment: { count: vi.fn(), findMany: vi.fn() },
@@ -189,6 +193,10 @@ describe("business data export ZIP", () => {
     mocks.prisma.vapiCall.count
       .mockResolvedValueOnce(8)
       .mockResolvedValueOnce(5);
+    /* This month, then last month — the same ledger the dashboard reads. */
+    mocks.prisma.agentUsageExecution.count
+      .mockResolvedValueOnce(12)
+      .mockResolvedValueOnce(9);
     mocks.prisma.lead.count
       .mockResolvedValueOnce(2)
       .mockResolvedValueOnce(1);

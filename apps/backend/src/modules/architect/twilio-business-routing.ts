@@ -4834,7 +4834,7 @@ export async function runLookupKnowledgeTool(args: Record<string, unknown>, ctx:
     };
   }
 
-  const structured = await lookupStructuredFacts({ businessId, query });
+  const structured = await lookupStructuredFacts({ businessId, query, installedAgentId: ctx.installedAgentId });
   const documents = await retrieveRelevantKnowledge({
     businessId,
     installedAgentId: ctx.installedAgentId,
