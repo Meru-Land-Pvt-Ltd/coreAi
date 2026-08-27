@@ -42,6 +42,8 @@ export type NodeMemoryPayload = {
   provider?: string;
   model?: string;
   costCents?: number;
+  /** The same cost in millionths of a dollar — see NodeRun.costMicroUsd. */
+  costMicroUsd?: number;
   tokenInput?: number;
   tokenOutput?: number;
   startedAt?: string;

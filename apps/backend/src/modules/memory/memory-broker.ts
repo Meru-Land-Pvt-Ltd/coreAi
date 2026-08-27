@@ -92,6 +92,7 @@ export class MemoryBroker {
           provider: payload.provider,
           model: payload.model,
           costCents: payload.costCents,
+          costMicroUsd: payload.costMicroUsd,
           tokenInput: payload.tokenInput,
           tokenOutput: payload.tokenOutput,
           startedAt: payload.startedAt ? new Date(payload.startedAt) : undefined,
@@ -212,6 +213,7 @@ export class MemoryBroker {
         tokenInput: true,
         tokenOutput: true,
         costCents: true,
+        costMicroUsd: true,
         startedAt: true,
         finishedAt: true,
       },
@@ -219,11 +221,27 @@ export class MemoryBroker {
     const totalTokenInput = rows.reduce((sum, r) => sum + (r.tokenInput ?? 0), 0);
     const totalTokenOutput = rows.reduce((sum, r) => sum + (r.tokenOutput ?? 0), 0);
     const totalCostCents = rows.reduce((sum, r) => sum + (r.costCents ?? 0), 0);
-    const startedAt = rows.map((r) => r.startedAt).filter(Boolean).sort()[0];
-    const finishedAt = rows.map((r) => r.finishedAt).filter(Boolean).sort().at(-1);
+    const totalCostMicroUsd = rows.reduce((sum, r) => sum + (r.costMicroUsd ?? 0), 0);
+    /* SORTED AS TEXT, NOT AS TIME. `Date[].sort()` with no comparator turns
+       each date into "Thu Aug 27 2026 23:58:00 …" and orders by weekday name,
+       then month name — so a run that crosses midnight into Friday put "Fri"
+       first and "Thu" last, and the subtraction below came out NEGATIVE. That
+       number is shown to the architect as how long their agent took, and to
+       the business on their own dashboard. */
+    const times = (values: Array<Date | string | null | undefined>) =>
+      values
+        .filter((value): value is Date | string => Boolean(value))
+        .map((value) => new Date(value).getTime())
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+
+    const startedAtTimes = times(rows.map((r) => r.startedAt));
+    const finishedAtTimes = times(rows.map((r) => r.finishedAt));
+    const startedAt = startedAtTimes[0];
+    const finishedAt = finishedAtTimes.at(-1);
     const durationMs =
-      startedAt && finishedAt
-        ? new Date(finishedAt).getTime() - new Date(startedAt).getTime()
+      startedAt !== undefined && finishedAt !== undefined
+        ? Math.max(0, finishedAt - startedAt)
         : undefined;
     await prisma.workflowRun.update({
       where: { id: workflowRunId },
@@ -231,6 +249,7 @@ export class MemoryBroker {
         totalTokenInput,
         totalTokenOutput,
         totalCostCents,
+        totalCostMicroUsd,
         durationMs,
       },
     });

@@ -685,6 +685,7 @@ export async function recordWorkflowRunUsage(workflowRunId: string) {
       createdAt: true,
       finishedAt: true,
       totalCostCents: true,
+      totalCostMicroUsd: true,
       callProvider: true,
       externalCallId: true
     }
@@ -712,7 +713,10 @@ export async function recordWorkflowRunUsage(workflowRunId: string) {
     callProvider: run.callProvider,
     externalCallId: run.externalCallId,
     occurredAt: run.finishedAt ?? run.createdAt,
-    actualCostMicroUsd: Math.max(0, run.totalCostCents ?? 0) * MICRO_USD_PER_CENT
+    actualCostMicroUsd:
+      run.totalCostMicroUsd != null
+        ? Math.max(0, run.totalCostMicroUsd)
+        : Math.max(0, run.totalCostCents ?? 0) * MICRO_USD_PER_CENT
   });
 }
 
@@ -768,7 +772,8 @@ export async function reconcileBusinessExecutionUsage(
         externalCallId: true,
         createdAt: true,
         finishedAt: true,
-        totalCostCents: true
+        totalCostCents: true,
+        totalCostMicroUsd: true
       }
     }),
     prisma.vapiCall.findMany({
@@ -967,10 +972,21 @@ export async function reconcileBusinessExecutionUsage(
       callProvider: run.callProvider,
       externalCallId: run.externalCallId,
       occurredAt: run.finishedAt ?? run.createdAt,
+      /* THE LEDGER'S "what it actually cost" WAS ALWAYS ZERO. It took the
+         run's whole-cent total and multiplied it back up to millionths — but
+         almost every AI call costs a fraction of a cent, so the cents were
+         zero and this recorded zero for every run, permanently, in the ledger
+         the platform reconciles against. The precise figure is stored
+         alongside now; the cents are the fallback for rows written before it
+         existed. */
       actualCostMicroUsd:
-        Math.max(0, run.totalCostCents ?? 0) * MICRO_USD_PER_CENT,
+        run.totalCostMicroUsd != null
+          ? Math.max(0, run.totalCostMicroUsd)
+          : Math.max(0, run.totalCostCents ?? 0) * MICRO_USD_PER_CENT,
       legacyBilledCostMicroUsd:
-        Math.max(0, run.totalCostCents ?? 0) * MICRO_USD_PER_CENT,
+        run.totalCostMicroUsd != null
+          ? Math.max(0, run.totalCostMicroUsd)
+          : Math.max(0, run.totalCostCents ?? 0) * MICRO_USD_PER_CENT,
       historicalReconciliation: true
     };
     const key = canonicalExecutionKey(candidate);

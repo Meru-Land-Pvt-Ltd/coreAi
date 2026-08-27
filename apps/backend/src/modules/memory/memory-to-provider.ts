@@ -215,9 +215,14 @@ export function providerResponseToNodeMemory(params: {
 }): NodeMemoryPayload {
   const { bundle, node, response, executionOrder, startedAt, finishedAt } = params;
   const durationMs = Math.max(0, new Date(finishedAt).getTime() - new Date(startedAt).getTime());
-  const costCents = response.cost?.totalCostUsd
-    ? Math.round(response.cost.totalCostUsd * 100)
-    : undefined;
+  /* A CALL THAT COSTS LESS THAN A CENT COSTS ZERO. Almost every AI call does
+     — a tenth of a cent is normal — and this rounded to whole cents, so the
+     stored cost of a run was zero however much it really cost, permanently,
+     in the ledger the platform reconciles against. Kept in millionths now;
+     the cents field stays for whatever already reads it. */
+  const totalCostUsd = response.cost?.totalCostUsd;
+  const costMicroUsd = totalCostUsd ? Math.round(totalCostUsd * 1_000_000) : undefined;
+  const costCents = totalCostUsd ? Math.round(totalCostUsd * 100) : undefined;
 
   return {
     workflowRunId: bundle.workflowRunId,
@@ -245,6 +250,7 @@ export function providerResponseToNodeMemory(params: {
     tokenInput: response.usage.promptTokens,
     tokenOutput: response.usage.completionTokens,
     costCents,
+    costMicroUsd,
     startedAt,
     finishedAt,
     durationMs,

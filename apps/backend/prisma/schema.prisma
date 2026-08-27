@@ -1717,6 +1717,8 @@ model WorkflowRun {
   totalTokenInput   Int?                 @default(0)
   totalTokenOutput  Int?                 @default(0)
   totalCostCents    Int?                 @default(0)
+  /// The run's cost in millionths of a dollar — see NodeRun.costMicroUsd.
+  totalCostMicroUsd Int?                 @default(0)
   currentNodeId     String? /// Last node that executed in this run
   metadataJson      Json? /// Extra workflow-level metadata
   callProvider      String?
@@ -1752,6 +1754,11 @@ model NodeRun {
   provider    String?
   model       String?
   costCents   Int?
+  /// The same cost in MILLIONTHS of a dollar. A single AI call routinely costs
+  /// a fraction of a cent, and costCents above is whole cents — so every one
+  /// of them was recorded as zero, and a run's stored cost was zero however
+  /// much it really cost. Cents are kept for what already reads them.
+  costMicroUsd Int?
   tokenInput  Int?
   tokenOutput Int?
 
