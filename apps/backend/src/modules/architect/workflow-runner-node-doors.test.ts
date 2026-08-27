@@ -33,7 +33,7 @@ vi.mock("../calendly/calendly-connector", async (importActual) => {
   return { ...actual, calendlyGetUser: vi.fn() };
 });
 vi.mock("../../lib/prisma", () => ({
-  prisma: { workflowDefinition: { findUnique: vi.fn() } }
+  prisma: { workflowDefinition: { findUnique: vi.fn(), findFirst: vi.fn() } }
 }));
 vi.mock("../memory", () => ({
   createWorkflowRun: vi.fn(async () => ({ workflowRunId: "run-doors", threadId: "thread-doors" })),
@@ -56,10 +56,12 @@ import { prisma } from "../../lib/prisma";
 import { safeFetch, type SafeFetchResult } from "../../lib/safe-fetch";
 import { calendlyGetUser } from "../calendly/calendly-connector";
 import { runEntryDoor, runExitDoor, type DoorBudget } from "../agent-runtime/node-doors";
-import { runWorkflowTest } from "./workflow-runner";
+import { refuseUnsafeDoorOverrides, runWorkflowTest } from "./workflow-runner";
 
 const mockSafeFetch = vi.mocked(safeFetch);
-const mockFindWorkflow = vi.mocked(prisma.workflowDefinition.findUnique);
+/* Owner-scoped since the platform audit (2026-08-27): a chained step may
+   only hand over to an agent the SAME architect owns. */
+const mockFindWorkflow = vi.mocked(prisma.workflowDefinition.findFirst);
 const mockEntryDoor = vi.mocked(runEntryDoor);
 const mockExitDoor = vi.mocked(runExitDoor);
 
@@ -630,5 +632,42 @@ describe("an entry door can never send the architect's key somewhere new", () =>
 
     expect(mockSafeFetch).toHaveBeenCalledTimes(1);
     expect(mockSafeFetch.mock.calls[0][0]).toBe("https://api.example.com/open");
+  });
+});
+
+/**
+ * TWO HOLES THE PLATFORM AUDIT FOUND (2026-08-27), locked shut.
+ *
+ * Both were the same species of failure: a value arriving from the world
+ * deciding something only the architect should decide.
+ */
+describe("what a door may never decide", () => {
+  it("a door may FILL an empty destination but never REPLACE the architect's own", () => {
+    /* The door is fed a stranger's raw words. Some node types whitelisted
+       their destination field, so a customer texting a business could steer
+       which number that business's account texts — on the business's bill. */
+    const pinned = refuseUnsafeDoorOverrides(
+      { id: "n1", data: { type: "communication.send_sms", smsTo: "+15550001111" } } as never,
+      "communication.send_sms",
+      { smsTo: "+15559999999", smsBody: "hello" }
+    );
+    expect(pinned.smsTo).toBeUndefined();
+    expect(pinned.smsBody).toBe("hello");
+
+    const filled = refuseUnsafeDoorOverrides(
+      { id: "n2", data: { type: "communication.send_sms", smsTo: "" } } as never,
+      "communication.send_sms",
+      { smsTo: "+15559999999" }
+    );
+    expect(filled.smsTo).toBe("+15559999999");
+
+    /* A saved {{template}} is a placeholder the door is meant to fill, not a
+       decision the architect wrote down. */
+    const templated = refuseUnsafeDoorOverrides(
+      { id: "n3", data: { type: "communication.send_sms", smsTo: "{{customer.phone}}" } } as never,
+      "communication.send_sms",
+      { smsTo: "+15551234567" }
+    );
+    expect(templated.smsTo).toBe("+15551234567");
   });
 });

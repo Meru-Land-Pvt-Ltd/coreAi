@@ -2705,7 +2705,13 @@ async function runLoopNode(params: SingleNodeParams): Promise<{ logs: WorkflowRu
   const adminCap = await getLoopRoundLimit().catch(() => DEFAULT_LOOP_ROUNDS);
   const maxRounds = Math.min(askedRounds, adminCap);
 
-  const items = (await splitIntoItems(arrived, how)).slice(0, maxRounds);
+  /* SAY WHAT WAS LEFT BEHIND (found by the platform audit, 2026-08-27). The
+     Loop silently discarded every item past the ceiling and then reported it
+     had "handed on all the answers" — a business would never learn that 37
+     of their 47 rows were dropped. */
+  const allItems = await splitIntoItems(arrived, how);
+  const items = allItems.slice(0, maxRounds);
+  const leftBehind = allItems.length - items.length;
   if (items.length === 0) {
     logs.push(createLog(node, "skipped", "There was nothing to work through — no items arrived."));
     return { logs, runFailed: false };
@@ -2770,9 +2776,11 @@ async function runLoopNode(params: SingleNodeParams): Promise<{ logs: WorkflowRu
   logs.push(
     createLog(
       node,
-      "success",
-      `Worked through ${items.length} ${items.length === 1 ? "item" : "items"} and handed on all the answers.`,
-      { results }
+      leftBehind > 0 ? "waiting" : "success",
+      leftBehind > 0
+        ? `Worked through ${items.length} of ${allItems.length} items — ${maxRounds} in one run is the platform's ceiling. ${leftBehind} ${leftBehind === 1 ? "item was" : "items were"} not touched.`
+        : `Worked through ${items.length} ${items.length === 1 ? "item" : "items"} and handed on all the answers.`,
+      { results, ...(leftBehind > 0 ? { itemsSeen: allItems.length, itemsDone: items.length, itemsLeft: leftBehind } : {}) }
     )
   );
   return { logs, runFailed: anyFailed };
@@ -4467,12 +4475,25 @@ async function runTriggerNextWorkflowNode({
     return;
   }
 
-  const target = await prisma.workflowDefinition.findUnique({
-    where: { id: targetWorkflowId }
+  /* ONE ARCHITECT'S AGENTS, AND NO OTHER'S (found by the platform audit,
+     2026-08-27). This looked up ANY workflow on the platform by id, with no
+     owner check — and the id is resolved from run context, not pinned to a
+     literal. A value arriving from the world could name another architect's
+     agent, and it would run here with THIS business's context, credentials
+     and spend budget. The error text already claimed a check that did not
+     exist. */
+  const target = await prisma.workflowDefinition.findFirst({
+    where: { id: targetWorkflowId, architectUserId: userId }
   });
 
   if (!target) {
-    logs.push(createLog(node, "error", `Next Workflow failed: workflow ${targetWorkflowId} not found or inactive.`));
+    logs.push(
+      createLog(
+        node,
+        "error",
+        `Next Workflow stopped: "${targetWorkflowId}" is not one of your agents. A step may only hand over to an agent the same architect owns.`
+      )
+    );
     return;
   }
 
@@ -5512,6 +5533,24 @@ async function runTimerHoldNode({
      silence report is handed on so the nudge path is testable right now. */
   context.timer = { wokeWith: "silence", heldFor: `${days} days`, sample: true };
   context.text = asString(context.text);
+
+  /* A LIVE RUN THAT CANNOT WAIT MUST SAY SO (found by the platform audit,
+     2026-08-27). This branch is the BUILDER's honest sample. Live, it was
+     reached whenever there was no address to wait on — and it then claimed
+     "live, the wait is real" while running straight on. A follow-up that
+     never waited is not a follow-up. */
+  if (mode !== "test") {
+    logs.push(
+      createLog(
+        node,
+        "error",
+        "This step waits for a reply, and this run has no conversation to wait on — nothing was held, and the steps after it did not run as a follow-up.",
+        { wokeWith: "nothing-to-wait-on", heldFor: `${days} days`, sample: false }
+      )
+    );
+    return;
+  }
+
   logs.push(
     createLog(
       node,
@@ -7084,11 +7123,51 @@ function doorMayCallThisAddress(node: RunnerNode, candidate: string): boolean {
  * Field NAMES are already filtered by the registry whitelist inside the door
  * engine; this is about a VALUE that would change the meaning of the step.
  */
-function refuseUnsafeDoorOverrides(
+/** The fields that decide WHO a message reaches, per node type. */
+const DESTINATION_FIELDS: Record<string, readonly string[]> = {
+  "communication.send_sms": ["smsTo", "recipient"],
+  "action.send_sms": ["smsTo", "recipient"],
+  "action.telegram_send_message": ["telegramChatIdExpression"],
+  "action.send_whatsapp": ["whatsappTo", "recipient"],
+  "communication.send_email": ["recipient", "emailTo"]
+};
+
+/** Exported so the destination rule can be pinned by test (2026-08-27). */
+export function refuseUnsafeDoorOverrides(
   node: RunnerNode,
   nodeType: string,
   applied: Record<string, string>
 ): Record<string, string> {
+  /* A DOOR MAY NEVER RE-AIM A MESSAGE (found by the platform audit,
+     2026-08-27). The door is fed the customer's raw words, and some node
+     types whitelisted their destination field — so a stranger texting a
+     business could steer which number that business's own account texts,
+     on the business's bill. The rule now matches the one already kept for
+     the API address: a door may FILL a destination the architect left
+     empty; it may never REPLACE one the architect wrote down. */
+  const destinations = DESTINATION_FIELDS[nodeType];
+  if (destinations) {
+    let safe = applied;
+    for (const field of destinations) {
+      if (!safe[field]) continue;
+      const saved = asString((node.data as Record<string, unknown> | undefined)?.[field]).trim();
+      /* A saved value that is itself a template is not a decision — it is a
+         placeholder the door is meant to fill. A literal is a decision. */
+      const savedIsLiteral = saved.length > 0 && !/\{\{/.test(saved);
+      if (savedIsLiteral && safe[field] !== saved) {
+        const { [field]: _refused, ...rest } = safe;
+        safe = rest;
+        console.warn("[node-doors] entry no-change:destination-is-the-architects", {
+          nodeId: node.id,
+          nodeType,
+          field
+        });
+      }
+    }
+    if (nodeType !== API_CALL_NODE_TYPE) return safe;
+    applied = safe;
+  }
+
   if (nodeType !== API_CALL_NODE_TYPE) return applied;
   if (!applied.apiUrl || doorMayCallThisAddress(node, applied.apiUrl)) return applied;
 
@@ -7661,11 +7740,34 @@ async function executeNodeOnConfig(params: {
       const mime = asString(upload.mimeType).toLowerCase();
       const isImage = mime.startsWith("image/");
 
+      /* A FILE THAT COULD NOT BE READ IS NOT A FILE THAT WAS READ (found by
+         the platform audit, 2026-08-27). The failure was caught into a
+         sentinel string and then reported as "Read the customer's file and
+         handed its words on" — so a Brain silently received the words
+         "[unreadable file: invoice.pdf]" and answered about nothing. */
       let text = "";
+      let unreadable = false;
       if (!isImage) {
-        text = await extractAttachmentText({ name, mimeType: mime, data: upload.data }).catch(
-          () => `[unreadable file: ${name}]`
+        try {
+          text = await extractAttachmentText({ name, mimeType: mime, data: upload.data });
+        } catch {
+          unreadable = true;
+        }
+        if (!unreadable && !text.trim()) unreadable = true;
+      }
+
+      if (unreadable) {
+        context.file = { name, text: "" };
+        (context as Record<string, unknown>)["file"] = context.file;
+        nodeLogs.push(
+          createLog(
+            node,
+            "error",
+            `"${name}" could not be read — nothing from it was handed on. A scanned or password-protected file cannot be turned into words.`,
+            { file: { name, text: "" } }
+          )
         );
+        return { logs: nodeLogs, runFailed: true };
       }
 
       context.file = { name, text };

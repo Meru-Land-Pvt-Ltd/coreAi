@@ -2792,13 +2792,14 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
         name: "Kind of request",
         whatItsFor: "Reading asks (GET); sending tells (POST). The service's docs say which.",
         type: "choice",
+        /* THE ROW MAY NOT OFFER WHAT THE ENGINE CANNOT DO (found by the
+           platform audit, 2026-08-27). It offered five kinds; the engine
+           builds two (API_CALL_METHODS). An architect choosing PUT was
+           quietly given a GET. Offer only what runs. */
         limits: {
           choices: [
             { value: "GET", label: "Read (GET)" },
-            { value: "POST", label: "Send (POST)" },
-            { value: "PUT", label: "Replace (PUT)" },
-            { value: "PATCH", label: "Update (PATCH)" },
-            { value: "DELETE", label: "Delete (DELETE)" }
+            { value: "POST", label: "Send (POST)" }
           ]
         },
         default: "GET",
@@ -3219,6 +3220,51 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
         default: 8,
         whoFills: "admin",
         storedAs: "conditionMaxRoads"
+      },
+      {
+        /* THE FIELD THAT ACTUALLY DECIDES THE BRANCH (found by the platform
+           audit, 2026-08-27). The row declared the rule text and the roads
+           but not the operator — yet the engine reads conditionOperator to
+           choose the road, and the panel offers ten of them. A row that
+           hides the deciding field is the drift this law exists to stop. */
+        key: "conditionOperator",
+        name: "How to decide",
+        whatItsFor: "Ask the AI what the message means, or compare a value the plain way.",
+        type: "choice",
+        limits: {
+          choices: [
+            { value: "meaning", label: "Ask the AI what it means" },
+            { value: "business_hours", label: "Are we open right now?" },
+            { value: "contains", label: "Contains" },
+            { value: "not_contains", label: "Does not contain" },
+            { value: "equals", label: "Is exactly" },
+            { value: "not_equals", label: "Is not" },
+            { value: "is_empty", label: "Is empty" },
+            { value: "is_not_empty", label: "Is not empty" },
+            { value: "greater_than", label: "Is more than" },
+            { value: "less_than", label: "Is less than" }
+          ]
+        },
+        default: "business_hours",
+        whoFills: "architect"
+      },
+      {
+        key: "conditionField",
+        name: "Which value to look at",
+        whatItsFor: "The value being compared — left empty, the message itself is used.",
+        type: "text",
+        limits: { maxLength: 120 },
+        default: "",
+        whoFills: "architect"
+      },
+      {
+        key: "conditionValue",
+        name: "Compared to",
+        whatItsFor: "What it is compared against. Not used when asking the AI what a message means.",
+        type: "text",
+        limits: { maxLength: 200 },
+        default: "",
+        whoFills: "architect"
       },
       {
         key: "conditionQuestion",
