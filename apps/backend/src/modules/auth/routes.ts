@@ -95,6 +95,31 @@ authRoutes.post("/send-verification-code", async (c) => {
   try {
     const input = sendVerificationCodeSchema.parse(await c.req.json());
 
+    /* AN OPEN DOOR THAT SENDS OUR EMAIL TO ANYONE (found by the platform
+       audit, 2026-08-27). This route needs no sign-in and had no counter of
+       any kind, so a stranger rotating addresses could make Triven send an
+       unlimited number of branded emails to anybody in the world — our
+       address, our reputation, our sending bill. The sign-in door beside it
+       was given the same two buckets today. */
+    const ip = getClientIp(c);
+    const gate = await consumeAll([
+      {
+        key: `otp:ip:${ip}`,
+        limit: 20,
+        windowMs: 15 * MINUTE,
+        message: "Too many codes requested from here. Wait a few minutes and try again."
+      },
+      {
+        key: `otp:email:${input.email.toLowerCase()}`,
+        limit: 5,
+        windowMs: 15 * MINUTE,
+        message: "Too many codes requested for this address. Wait a few minutes and try again."
+      }
+    ]);
+    if (!gate.allowed) {
+      return errorResponse(c, gate.message, 429, "TOO_MANY_ATTEMPTS");
+    }
+
     // Email-first: the code may log the caller into an existing account of a
     // different legacy role, so the suspension precheck mirrors the account
     // resolution order used at verification time (exact role → membership →
@@ -133,18 +158,20 @@ authRoutes.post("/send-verification-code", async (c) => {
     // Across ALL rows for this address, not just the resolved one: user rows
     // are unique per (email, role), so an owner who is both an architect and
     // an admin has two — and the architect row must not hide the admin one.
-    if (input.role === "ADMIN" && !candidates.some((candidate) => holdsAdminRole(candidate))) {
-      return errorResponse(
-        c,
-        "This email is not an admin account.",
-        403,
-        "ADMIN_ACCOUNT_REQUIRED"
-      );
-    }
+    /* AND IT ANSWERED A QUESTION IT SHOULD NOT. Refusing a non-admin address
+       here while accepting an admin one made this a free lookup: type any
+       address, learn whether it is an admin account. Both answers are the
+       same now — the real refusal still stands one step later, at the point
+       the code is checked, where it costs an attacker the code they do not
+       have. */
+    const isAdminRequestWithoutAdminAccount =
+      input.role === "ADMIN" && !candidates.some((candidate) => holdsAdminRole(candidate));
 
-    await issueEmailVerificationCode(input.email, input.role, "sign_in", {
-      deviceId: input.deviceId
-    });
+    if (!isAdminRequestWithoutAdminAccount) {
+      await issueEmailVerificationCode(input.email, input.role, "sign_in", {
+        deviceId: input.deviceId
+      });
+    }
 
     return successResponse(
       c,

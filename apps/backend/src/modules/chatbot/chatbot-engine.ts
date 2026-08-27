@@ -418,57 +418,6 @@ export function classifyIntent(query: string): IntentType {
 // ----------------------------------------------------
 // 5. Pricing Calculator Logic
 // ----------------------------------------------------
-export interface CostBreakdown {
-  agentName: string;
-  pricingModel: string;
-  executions: number;
-  baseFee: number;
-  rawUsageCost: number;
-  discountRate: number;
-  discountAmount: number;
-  totalCost: number;
-  revenueRecovered: number;
-  roi: number;
-}
-
-export function calculateCost(agent: AgentListingSummary, executions: number): CostBreakdown {
-  const baseFee = agent.pricingModel === "SUBSCRIPTION" ? agent.priceCents / 100 : 0;
-  
-  // Standard execution rate ($0.20 per execution average)
-  const averageRate = 0.20;
-  const rawUsageCost = executions * averageRate;
-
-  // Volume discounts
-  let discountRate = 0;
-  if (executions >= 5000) {
-    discountRate = 0.30; // Enterprise tier baseline simulation
-  } else if (executions >= 1000) {
-    discountRate = 0.20; // Scale tier
-  } else if (executions >= 500) {
-    discountRate = 0.10; // Growth tier
-  }
-
-  const discountAmount = rawUsageCost * discountRate;
-  const totalCost = baseFee + (rawUsageCost - discountAmount);
-  
-  // Dynamic ROI calculation (Triven recoveries are valued at $12.00 average recovered revenue per execution)
-  const revenueRecovered = executions * 12.00;
-  const roi = totalCost > 0 ? ((revenueRecovered - totalCost) / totalCost) * 100 : 0;
-
-  return {
-    agentName: agent.name,
-    pricingModel: agent.pricingModel,
-    executions,
-    baseFee,
-    rawUsageCost,
-    discountRate,
-    discountAmount,
-    totalCost,
-    revenueRecovered,
-    roi
-  };
-}
-
 // ----------------------------------------------------
 // 6. Main Process Message Core
 // ----------------------------------------------------
@@ -480,20 +429,32 @@ export function processMessageInner(
   const query = message.trim();
   let nextContext: ChatbotContext = { ...context };
 
-  // A. Handling State Machine / Awaiting Context Inputs first
+  /* THE VISITOR'S NEXT QUESTION IS NOT FEEDBACK.
+     Every fourth message, the widget asked "how can we improve?" — and then
+     the very next thing the visitor typed was answered with "Thank you so much
+     for your feedback!" whatever it said. A real question, asked at the wrong
+     moment, was thanked and thrown away. It is only taken as feedback when it
+     is not a question we can answer; otherwise the question wins. */
   if (context.awaitingInput === "general_feedback") {
     nextContext.awaitingInput = null;
-    return {
-      reply: "Thank you so much for your feedback! I've shared it with our team to help improve Triven. What else would you like to know?",
-      context: nextContext,
-      suggestions: ["Show all agents", "How does pricing work?", "Estimate my monthly cost"],
-      saveFeedback: {
-        email: "feedback@triven.ai",
-        phone: "N/A",
-        query: "Proactive Feedback Request",
-        feedback: query
-      }
-    };
+
+    const looksLikeAQuestion =
+      query.trim().endsWith("?") || classifyIntent(query) !== "unknown";
+
+    if (!looksLikeAQuestion) {
+      return {
+        reply: "Thank you so much for your feedback! I've shared it with our team to help improve Triven. What else would you like to know?",
+        context: nextContext,
+        suggestions: ["Show all agents", "How does pricing work?", "What can these agents do?"],
+        saveFeedback: {
+          email: "feedback@triven.ai",
+          phone: "N/A",
+          query: "Proactive Feedback Request",
+          feedback: query
+        }
+      };
+    }
+    /* Falls through and is answered as the question it is. */
   }
 
   if (context.awaitingInput === "fallback_email") {
@@ -564,25 +525,18 @@ export function processMessageInner(
       : null;
 
     if (executions !== null && matchedAgent) {
-      const cost = calculateCost(matchedAgent, executions);
       nextContext.awaitingInput = null;
       nextContext.lastIntent = "pricing_calculator";
 
-      const discountText = cost.discountRate > 0 
-        ? `(-${(cost.discountRate * 100).toFixed(0)}% volume discount: -$${cost.discountAmount.toFixed(2)})` 
-        : "";
-
+      /* NUMBERS NOBODY SET. This quoted "$0.20/run", invented three volume
+         discount tiers that do not exist anywhere in billing, and told the
+         visitor their runs would "recover" twelve dollars each — then printed
+         a percentage ROI from those two made-up figures. A business decides
+         whether to buy on exactly this. The real rate board is set by an
+         admin and shown at checkout; until this reads that board, it says so.
+         Removed 2026-08-27. */
       return {
-        reply: `Here is the estimated monthly cost projection for **${cost.agentName}** at **${cost.executions.toLocaleString()} executions/month**:
-
-| Cost Item | Detail | Cost |
-| :--- | :--- | :--- |
-| **Base Agent Fee** | ${cost.pricingModel} | $${cost.baseFee.toFixed(2)}/mo |
-| **Execution Usage Fee** | ${cost.executions} runs @ $0.20/run | $${cost.rawUsageCost.toFixed(2)} |
-| **Volume Discount** | ${cost.discountRate * 100}% off | -$${cost.discountAmount.toFixed(2)} |
-| **Estimated Total Bill** | **Base + Usage** | **$${cost.totalCost.toFixed(2)}/mo** |
-
-📈 **Estimated Value Recovered:** This usage is projected to recover approximately **$${cost.revenueRecovered.toLocaleString()}** in lost lead revenue, resulting in a **${Math.round(cost.roi).toLocaleString()}% ROI**!`,
+        reply: `I can't quote a running cost here — the per-run rate is set by Triven and I should not guess at it. What I can tell you is **${matchedAgent.name}**'s own price. The exact per-run charges are shown on the checkout screen, before you pay for anything.`,
         context: nextContext,
         suggestions: ["How do I get started?", "Compare other agents", "What are the execution fees?"]
       };
@@ -739,19 +693,10 @@ ${list}`,
       const executions = extractExecutionCount(query);
       if (executions !== null) {
         if (activeAgent) {
-          const cost = calculateCost(activeAgent, executions);
+          /* Same invented rate table as above — removed 2026-08-27. */
           nextContext.awaitingInput = null;
           return {
-            reply: `Here is the estimated monthly cost projection for **${cost.agentName}** at **${cost.executions.toLocaleString()} executions/month**:
-
-| Cost Item | Detail | Cost |
-| :--- | :--- | :--- |
-| **Base Agent Fee** | ${cost.pricingModel} | $${cost.baseFee.toFixed(2)}/mo |
-| **Execution Usage Fee** | ${cost.executions} runs @ $0.20/run | $${cost.rawUsageCost.toFixed(2)} |
-| **Volume Discount** | ${cost.discountRate * 100}% off | -$${cost.discountAmount.toFixed(2)} |
-| **Estimated Total Bill** | **Base + Usage** | **$${cost.totalCost.toFixed(2)}/mo** |
-
-📈 **Estimated Value Recovered:** This usage recovers ~**$${cost.revenueRecovered.toLocaleString()}** in lost lead revenue, resulting in a **${Math.round(cost.roi).toLocaleString()}% ROI**!`,
+            reply: `I can't quote a running cost here — the per-run rate is set by Triven and I should not guess at it. What I can tell you is **${activeAgent.name}**'s own price. The exact per-run charges are shown on the checkout screen, before you pay for anything.`,
             context: nextContext,
             suggestions: ["How do I get started?", "What are the execution fees?", "Show all agents"]
           };

@@ -9,7 +9,6 @@ import {
   extractConnectorEntity,
   extractIndustryEntity,
   classifyIntent,
-  calculateCost,
   processMessage,
   type AgentListingSummary,
   type ChatbotContext
@@ -115,27 +114,6 @@ describe("Chatbot Engine Unit Tests", () => {
     });
   });
 
-  describe("Pricing Calculator Engine", () => {
-    it("should compute cost breakdown correctly", () => {
-      const agent = mockListings[0]; // Subscription at $99.00
-      
-      // Standard runs (e.g. 200 runs) -> No discount
-      const cost1 = calculateCost(agent, 200);
-      expect(cost1.baseFee).toBe(99);
-      expect(cost1.rawUsageCost).toBe(40); // 200 * $0.20
-      expect(cost1.discountAmount).toBe(0);
-      expect(cost1.totalCost).toBe(139);
-
-      // Scale runs (e.g. 2,000 runs) -> 20% discount on usage
-      const cost2 = calculateCost(agent, 2000);
-      expect(cost2.baseFee).toBe(99);
-      expect(cost2.rawUsageCost).toBe(400); // 2000 * $0.20
-      expect(cost2.discountRate).toBe(0.20);
-      expect(cost2.discountAmount).toBe(80); // 400 * 20%
-      expect(cost2.totalCost).toBe(419); // 99 + (400 - 80)
-    });
-  });
-
   describe("Conversational Flow & Message Processing", () => {
     it("should process standard static questions", () => {
       const response = processMessage("what is Triven AI?", {}, mockListings);
@@ -159,20 +137,24 @@ describe("Chatbot Engine Unit Tests", () => {
       expect(res.context.lastMentionedAgentId).toBe("agent-1");
       ctx = res.context;
 
-      // Step 2: User provides executions count
+      // Step 2: User provides executions count. It must NOT quote a rate:
+      // the per-run price is set by an admin and this never read it, so the
+      // "$0.20/run", the volume discounts and the ROI were all invented.
       res = processMessage("500 calls", ctx, mockListings);
-      expect(res.reply).toContain("estimated monthly cost projection");
       expect(res.reply).toContain("AI Receptionist");
-      expect(res.reply).toContain("500 executions");
+      expect(res.reply).not.toMatch(/\$\d/);
+      expect(res.reply.toLowerCase()).not.toContain("roi");
       expect(res.context.awaitingInput).toBeNull();
     });
 
-    it("should evaluate cost calculation in single query", () => {
+    it("names the agent but never quotes a rate it does not know", () => {
       const response = processMessage("How much is AI Receptionist with 10k requests?", {}, mockListings);
-      expect(response.reply).toContain("estimated monthly cost projection");
       expect(response.reply).toContain("AI Receptionist");
-      expect(response.reply).toContain("10,000 executions");
-      expect(response.reply).toContain("30% off"); // Volume discount for 10k runs (>= 5000 runs is 30% off)
+      /* No made-up rate, no invented volume discount, no ROI. A business
+         decides whether to buy on exactly these numbers. */
+      expect(response.reply).not.toMatch(/\$\d/);
+      expect(response.reply).not.toContain("% off");
+      expect(response.reply.toLowerCase()).not.toContain("roi");
     });
 
     it("should walk through fallback collection flow", () => {
