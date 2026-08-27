@@ -1,4 +1,5 @@
 import { env } from "../../config/env";
+import { providerIsPaused } from "./paused-providers";
 import { llmProviderBlockReason } from "./llm-health";
 
 const LLM_PROVIDER_ENV_KEYS = {
@@ -54,6 +55,8 @@ export type ResolvedLlmProvider = {
 
 export function resolveConfiguredLlmProvider(preferred: string): ResolvedLlmProvider | null {
   const isUsable = (candidate: string) => {
+    /* An admin's Running switch is a decision, not a preference. */
+    if (providerIsPaused(candidate)) return false;
     const status = llmCredentialStatus(candidate);
     if (status === "missing") return false;
     if (status === "unknown") return true;

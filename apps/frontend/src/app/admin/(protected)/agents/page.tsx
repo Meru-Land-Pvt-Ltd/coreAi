@@ -24,13 +24,6 @@ import {
 } from "@/components/admin/features/api";
 import { AdminReferenceHeader } from "@/components/admin/ui/admin-reference-header";
 
-type PriorityFilter = "ALL" | "High" | "Standard";
-
-const PRIORITY_FILTERS: Array<{ label: string; value: PriorityFilter }> = [
-  { label: "All", value: "ALL" },
-  { label: "High Priority", value: "High" },
-  { label: "Standard", value: "Standard" }
-];
 
 const REVIEW_CHECKS = [
   "Description quality",
@@ -80,24 +73,6 @@ function agentDescription(agent: AdminAgent) {
   return display(agent.description ?? agent.shortDescription);
 }
 
-function PriorityBadge({ priority }: { priority: AdminAgent["priority"] }) {
-  if (!priority) {
-    return (
-      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-bold text-slate-500">N/A</span>
-    );
-  }
-
-  return (
-    <span
-      className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
-        priority === "High" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-slate-600"
-      }`}
-    >
-      {priority === "High" ? "High Priority" : "Standard"}
-    </span>
-  );
-}
-
 const AGENT_STATUS_STYLES: Record<AdminAgent["status"], string> = {
   DRAFT: "bg-slate-100 text-slate-600",
   PENDING_REVIEW: "bg-amber-100 text-amber-700",
@@ -116,7 +91,24 @@ const AGENT_STATUS_LABELS: Record<AdminAgent["status"], string> = {
   PAUSED: "Paused"
 };
 
-function AgentStatusBadge({ status }: { status: AdminAgent["status"] }) {
+/* "REQUEST CHANGES" LOOKED LIKE A REJECTION. An admin asking for one small
+   change stored REJECTED with a review status of CHANGES_REQUESTED, and only
+   the first was shown — so this screen said "Rejected" and the rejected
+   counter went up, for a decision that was neither. */
+function AgentStatusBadge({
+  status,
+  reviewStatus
+}: {
+  status: AdminAgent["status"];
+  reviewStatus?: string | null;
+}) {
+  if (reviewStatus === "CHANGES_REQUESTED") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+        Changes requested
+      </span>
+    );
+  }
   return (
     <span
       data-testid={`admin-agent-status-${status.toLowerCase()}`}
@@ -197,11 +189,13 @@ function ReviewModal({ agent, isUpdating, onClose, onDecision }: ReviewModalProp
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-xl font-extrabold tracking-tight text-slate-900">{display(agent.name)}</h3>
-                <PriorityBadge priority={agent.priority} />
+                {/* Priority and architect tier were sent as null by the
+                    server, always — a badge that never appears, a detail line
+                    that always read "—", and a filter whose buttons could
+                    never become available. */}
               </div>
               <p className="mt-0.5 text-sm text-slate-500">
                 by <span className="font-semibold text-slate-700">{architectName(agent)}</span>
-                <span aria-hidden="true"> · </span>{display(agent.architectTier)}
               </p>
             </div>
           </div>
@@ -211,7 +205,6 @@ function ReviewModal({ agent, isUpdating, onClose, onDecision }: ReviewModalProp
               ["Category", display(agent.category)],
               ["Price", formatMoney(agent.priceCents)],
               ["Submitted", formatDate(agent.submittedAt)],
-              ["Priority", display(agent.priority)]
             ].map(([label, value]) => (
               <div key={label} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
@@ -293,7 +286,6 @@ function ReviewModal({ agent, isUpdating, onClose, onDecision }: ReviewModalProp
 export default function AdminAgentsPage() {
   const [rows, setRows] = useState<AdminAgent[]>([]);
   const [search, setSearch] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("ALL");
   const [sort, setSort] = useState<"newest" | "oldest">("newest");
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState("");
@@ -344,7 +336,7 @@ export default function AdminAgentsPage() {
   }, []);
 
   const visibleRows = useMemo(() => {
-    const filtered = rows.filter((agent) => priorityFilter === "ALL" || agent.priority === priorityFilter);
+    const filtered = [...rows];
 
     return [...filtered].sort((left, right) => {
       const leftDate = sortableDate(left.submittedAt);
@@ -354,9 +346,8 @@ export default function AdminAgentsPage() {
       if (rightDate === null) return -1;
       return sort === "newest" ? rightDate - leftDate : leftDate - rightDate;
     });
-  }, [priorityFilter, rows, sort]);
+  }, [rows, sort]);
 
-  const hasPriorityData = rows.some((agent) => agent.priority === "High" || agent.priority === "Standard");
   const pendingCount = state === "ready"
     ? rows.filter((agent) => agent.status === "PENDING_REVIEW").length
     : null;
@@ -487,27 +478,9 @@ export default function AdminAgentsPage() {
             })}
           </div>
 
-          <div className="inline-flex w-fit rounded-xl bg-gray-100 p-1" role="group" aria-label="Filter moderation queue by priority">
-            {PRIORITY_FILTERS.map((filter) => {
-              const selected = priorityFilter === filter.value;
-              const unavailable = filter.value !== "ALL" && !hasPriorityData;
-              return (
-                <button
-                  key={filter.value}
-                  type="button"
-                  aria-pressed={selected}
-                  disabled={unavailable}
-                  title={unavailable ? "Priority is not available for these listings" : undefined}
-                  onClick={() => setPriorityFilter(filter.value)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                    selected ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
-                  } disabled:cursor-not-allowed disabled:text-slate-300`}
-                >
-                  {filter.label}
-                </button>
-              );
-            })}
-          </div>
+          {/* A priority filter stood here whose buttons could never become
+              available: the server sends priority as null for every listing,
+              so the data behind it has never existed. */}
         </div>
       </header>
 
@@ -556,11 +529,13 @@ export default function AdminAgentsPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-base font-bold text-slate-900">{display(agent.name)}</h2>
-                      <PriorityBadge priority={agent.priority} />
+                      {/* Priority and architect tier were sent as null by the
+                    server, always — a badge that never appears, a detail line
+                    that always read "—", and a filter whose buttons could
+                    never become available. */}
                     </div>
                     <p className="mt-1 text-sm text-slate-500">
                       by <span className="font-semibold text-slate-700">{architectName(agent)}</span>
-                      <span aria-hidden="true"> · </span>{display(agent.architectTier)}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 tabular-nums">
                       <span className="inline-flex items-center gap-1.5">
@@ -615,7 +590,7 @@ export default function AdminAgentsPage() {
                         </button>
                       </>
                     ) : (
-                      <AgentStatusBadge status={agent.status} />
+                      <AgentStatusBadge status={agent.status} reviewStatus={agent.reviewStatus} />
                     )}
                     {agent.status === "APPROVED" ? (
                       <button

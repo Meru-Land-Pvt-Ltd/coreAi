@@ -12,6 +12,7 @@
  */
 
 import { LLM_MODELS, LLM_PROVIDERS } from "@coreai/shared";
+import { forgetPausedProviders } from "../ai-provider-engine/paused-providers";
 import { prisma } from "../../lib/prisma";
 import { llmProviderApiKey } from "../ai-provider-engine/llm-credentials";
 import { probeLlmProvider } from "../ai-provider-engine/llm-probe";
@@ -150,6 +151,8 @@ export async function setProviderSwitches(
     }
   });
   invalidateLlmModelCache();
+  /* So the engine stops using it now, not in a minute. */
+  forgetPausedProviders();
 }
 
 export type ModelPatch = {

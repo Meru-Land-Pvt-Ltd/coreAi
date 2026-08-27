@@ -1,4 +1,5 @@
 import { startMemoryRetentionWorker, stopMemoryRetentionWorker } from "./modules/memory/retention-worker";
+import { refreshPausedProviders } from "./modules/ai-provider-engine/paused-providers";
 import { startHeldConversationsWorker, stopHeldConversationsWorker } from "./modules/architect/held-conversations-worker";
 import { serve } from "@hono/node-server";
 import { env } from "./config/env";
@@ -43,6 +44,13 @@ const server = serve(
     // Asks every connector, once a day, whether it still works — before a
     // customer's agent finds out on their behalf.
     startConnectorHealthWorker();
+
+    /* Which providers an admin has switched off. Read at boot so the very
+       first call obeys it, then kept fresh in the background — the admin's
+       own save clears it immediately, so a switch never waits. */
+    void refreshPausedProviders();
+    const pausedProviderRefresh = setInterval(() => void refreshPausedProviders(), 60 * 1000);
+    pausedProviderRefresh.unref();
     // Nodes architects built themselves, kept to hand so the runner never has
     // to query the database in the middle of a step.
     frameRefresh = startArchitectFrameRefresh();

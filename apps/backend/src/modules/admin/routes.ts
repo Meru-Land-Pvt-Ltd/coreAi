@@ -165,8 +165,13 @@ adminRoutes.get("/nodes", async (c) => {
 
       return {
         type: item.type,
-        label: control?.nodeType ? definition?.label ?? item.label : definition?.label ?? item.label,
-        group: item.group,
+        /* BOTH BRANCHES OF THAT TERNARY WERE IDENTICAL, and neither read the
+           name the admin had saved — so renaming a card on Builder nodes
+           changed the architect's palette and left this screen, the one that
+           carries the pause switch, calling it something else. Two admin
+           screens, one card, two names. */
+        label: control?.label ?? definition?.label ?? item.label,
+        group: control?.group ?? item.group,
         description: definition?.description ?? "",
         visible: control ? control.visible : item.defaultVisible,
         executionEnabled: control ? control.executionEnabled : true,
@@ -1470,6 +1475,7 @@ adminRoutes.get("/agents", async (c) => {
         category: true,
         priceCents: true,
         status: true,
+        reviewStatus: true,
         featuredAt: true,
         tags: true,
         requiredConnectors: true,
@@ -1523,8 +1529,12 @@ adminRoutes.get("/agents", async (c) => {
     architect: l.architect,
     installedAgentsCount: l._count.installedAgents,
     architectTotalInstalls: architectTotalInstalls.get(l.architect.id) ?? 0,
-    architectTier: null,
-    priority: null
+    /* "REQUEST CHANGES" WAS SHOWN AND COUNTED AS A REJECTION. An admin asking
+       for one small change stored status REJECTED with reviewStatus
+       CHANGES_REQUESTED — and only status was sent, so the screen showed
+       "Rejected", the summary counted it as rejected, and the architect on
+       the other side read a refusal instead of a request. */
+    reviewStatus: l.reviewStatus
   }));
 
   return successResponse(c, { items, total, page, limit });

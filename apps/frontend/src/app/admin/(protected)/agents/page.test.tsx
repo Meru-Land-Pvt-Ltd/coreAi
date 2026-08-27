@@ -64,13 +64,20 @@ beforeEach(() => {
 });
 
 describe("Admin moderation queue", () => {
-  it("loads every status and shows unavailable moderation metadata as N/A", async () => {
+  it("loads every status, and shows no priority or tier at all", async () => {
     render(<AdminAgentsPage />);
 
     expect(await screen.findByText("Reception Agent")).toBeTruthy();
     expect(getAdminAgentsMock).toHaveBeenCalledWith({ search: "", limit: 100 });
-    expect(screen.getAllByText("N/A").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "High Priority" }).hasAttribute("disabled")).toBe(true);
+
+    /* This used to assert the screen showed "N/A" and a permanently disabled
+       "High Priority" button. Both came from fields the server sends as null
+       for every listing and always has — so the screen carried a badge that
+       never appeared, a detail that always read "N/A", and a filter whose
+       buttons could never become available. Showing a blank forever is not
+       neutral: it tells an admin the data exists and is missing. */
+    expect(screen.queryByText("N/A")).toBeNull();
+    expect(screen.queryByRole("button", { name: "High Priority" })).toBeNull();
   });
 
   it("submits review notes and updates a changes-requested listing in place", async () => {

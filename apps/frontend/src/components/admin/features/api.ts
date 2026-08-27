@@ -116,6 +116,8 @@ export type AdminAgent = {
   category: string | null;
   priceCents: number;
   status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "SUSPENDED" | "PAUSED";
+  /** CHANGES_REQUESTED is stored as REJECTED but is not one. */
+  reviewStatus?: string | null;
   tags: string[];
   createdAt: string;
   submittedAt: string | null;
@@ -124,8 +126,6 @@ export type AdminAgent = {
   architect: { id: string; email: string; fullName: string | null } | null;
   installedAgentsCount: number;
   architectTotalInstalls: number | null;
-  architectTier: string | null;
-  priority: "High" | "Standard" | null;
   /** Set only by the admin Featured toggle; null = not featured. */
   featuredAt: string | null;
 };

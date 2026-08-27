@@ -23,6 +23,7 @@
  */
 
 import { isArchitectNodeType } from "@coreai/shared";
+import { invalidateArchitectNodeVisibilityCache } from "./node-visibility";
 import { prisma } from "../../lib/prisma";
 
 /** Node types paused right now, cached briefly — the runner asks per step. */
@@ -141,6 +142,9 @@ export type NodeControl = {
   executionEnabled: boolean;
   pausedReason: string | null;
   pausedAt: string | null;
+  /** The name and grouping an admin gave this card on Builder nodes. */
+  label: string | null;
+  group: string | null;
 };
 
 export async function nodeControls(): Promise<Map<string, NodeControl>> {
@@ -153,7 +157,11 @@ export async function nodeControls(): Promise<Map<string, NodeControl>> {
         visible: row.visible,
         executionEnabled: row.executionEnabled,
         pausedReason: row.pausedReason,
-        pausedAt: row.pausedAt?.toISOString() ?? null
+        pausedAt: row.pausedAt?.toISOString() ?? null,
+        /* The name and grouping an admin chose. Not selected before, so the
+           Nodes screen could not show them — see the note at its row builder. */
+        label: row.label,
+        group: row.group
       }
     ])
   );
@@ -167,6 +175,13 @@ export async function setNodeVisibility(nodeType: string, visible: boolean): Pro
     create: { nodeType, visible },
     update: { visible }
   });
+
+  /* HIDING A NODE NEVER REACHED THE PALETTE. The visibility list is cached for
+     the life of the process and only that cache's own writer cleared it — so
+     an admin hiding a card watched it stay on every architect's shelf until
+     the next deploy, while the composer, which queries directly, had already
+     stopped offering it. Two answers to one question. */
+  invalidateArchitectNodeVisibilityCache();
 }
 
 /**
@@ -206,6 +221,7 @@ export async function setNodeExecution(input: {
   // Immediately, not in fifteen seconds. Whoever pressed this is watching
   // something go wrong.
   invalidatePausedCache();
+  invalidateArchitectNodeVisibilityCache();
 }
 
 /**
