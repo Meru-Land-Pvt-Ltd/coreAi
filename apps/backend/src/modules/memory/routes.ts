@@ -15,7 +15,6 @@ import { memoryBroker } from "./memory-broker";
 import { buildContextBundleSchema, saveNodeMemorySchema } from "./schemas";
 import { prisma } from "../../lib/prisma";
 import { mapNodeRunToRecord } from "./mappers";
-import { runMemorySelfTest } from "./test-memory";
 
 export const memoryRoutes = new Hono();
 
@@ -75,21 +74,12 @@ async function nodeRunVisibleTo(
   return runVisibleTo(node.workflowRunId, user);
 }
 
-/**
- * GET /memory/test
- * One-click smoke test — creates a temp workflow run, saves nodes, links them,
- * and returns every broker result. Use this in Postman before testing individual routes.
- */
-memoryRoutes.get("/test", async (c) => {
-  try {
-    const authUser = c.get("authUser");
-    const result = await runMemorySelfTest({ architectUserId: authUser.id });
-    return successResponse(c, result, "Memory self-test completed");
-  } catch (error) {
-    return handleMemoryRouteError(c, error, "Memory self-test failed", "MEMORY_TEST_FAILED");
-  }
-});
-
+/* A DEBUG ROUTE THAT LITTERED THE ARCHITECT'S REAL DASHBOARD. Calling it
+   created a genuine workflow named "[Memory Test] …" owned by whoever asked,
+   plus a run and three node runs — with no cleanup anywhere. The architect's
+   dashboard lists their five most recent workflows and counts them, so each
+   call pushed rubbish to the top of the screen they actually use. Removed
+   2026-08-27 with the file behind it. */
 /** Maps Zod / AppError / unknown errors into our standard API error shape. */
 function handleMemoryRouteError(
   c: Context,

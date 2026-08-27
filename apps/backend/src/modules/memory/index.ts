@@ -20,7 +20,6 @@ export {
   type StoredMemoryChunk,
   type TimelineRecord,
 } from "./smart-memory";
-export { runMemorySelfTest } from "./test-memory";
 
 export {
     createWorkflowRun,

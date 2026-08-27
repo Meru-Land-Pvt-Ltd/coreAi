@@ -141,49 +141,11 @@ export async function retryOnTransient<T>(
   });
 }
 
-export function normalizedProviderError(
-  providerId: string,
-  rawError: unknown
-): { message: string; errorCode: string; retryable: boolean } {
-  const errorText = errorMessage(rawError, "AI provider request failed.");
-  const lower = errorText.toLowerCase();
-  let message = "The AI service is temporarily unavailable. Please try again shortly.";
-  let errorCode = "AI_PROVIDER_ERROR";
-  let retryable = false;
-
-  if (lower.includes("rate limit") || lower.includes("quota") || lower.includes("429") || lower.includes("over quota")) {
-    message = "The AI service is currently rate limited. Please retry after a moment.";
-    errorCode = "AI_RATE_LIMITED";
-    retryable = true;
-  } else if (lower.includes("timeout") || lower.includes("econnreset") || lower.includes("socket hang up") || lower.includes("service unavailable") || lower.includes("502") || lower.includes("503") || lower.includes("504")) {
-    message = "The AI service is temporarily unavailable. Please retry in a few seconds.";
-    errorCode = "AI_SERVICE_UNAVAILABLE";
-    retryable = true;
-  } else if (lower.includes("access denied") || lower.includes("invalid api key") || lower.includes("not authorized") || lower.includes("invalid credentials") || lower.includes("permission denied")) {
-    message = "The AI service credentials are invalid or not authorized. Please check your provider configuration.";
-    errorCode = "AI_CREDENTIALS_ERROR";
-    retryable = false;
-  } else if (lower.includes("insufficient balance") || lower.includes("insufficient funds") || lower.includes("payment required") || lower.includes("account.*(suspend|deactivat)")) {
-    message = "The AI service account is out of quota or billing quota has been exceeded.";
-    errorCode = "AI_BILLING_ERROR";
-    retryable = false;
-  } else if (lower.includes("model not found") || lower.includes("invalid model") || lower.includes("unsupported model")) {
-    message = "The selected AI model is not supported. Please select a different model.";
-    errorCode = "AI_MODEL_ERROR";
-    retryable = false;
-  } else if (lower.includes("access denied") && lower.includes("usage limit")) {
-    message = "The AI service usage limit has been exceeded. Please try again later.";
-    errorCode = "AI_USAGE_LIMIT_EXCEEDED";
-    retryable = false;
-  } else {
-    message = "The AI service returned an unexpected error. Please try again or contact support.";
-    errorCode = "AI_PROVIDER_ERROR";
-    retryable = isTransientError(rawError);
-  }
-
-  return { message, errorCode, retryable };
-}
-
+/* An error translator stood here with no caller anywhere in the platform, and
+   two of its branches could never run: one compared a regular expression's
+   SOURCE TEXT using String.includes, and the branch below it was shadowed by
+   an earlier return. Removed 2026-08-27 rather than left looking like
+   something that protects somebody. */
 export function errorResponse(
   providerId: string,
   modelName: string,
