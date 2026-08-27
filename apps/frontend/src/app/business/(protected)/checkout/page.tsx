@@ -210,12 +210,6 @@ const FALLBACK_COUNTRIES: CheckoutCountry[] = [
     }
 ];
 
-function testPaymentMethodForBrand(brand: CardBrand) {
-    if (brand === "mastercard") return "pm_card_mastercard";
-    if (brand === "amex") return "pm_card_amex";
-    return "pm_card_visa";
-}
-
 type PaymentTab = "credit" | "google" | "apple";
 type CardBrand = "visa" | "mastercard" | "amex" | "discover" | "diners" | "jcb" | "unionpay" | null;
 
@@ -1313,19 +1307,6 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                 return;
             }
 
-            if (!invoiceMode && !listingId) {
-                router.push(
-                    businessPaymentSuccessPath({
-                        agent: listingName,
-                        amount: isPurchaseMode ? payTotal : basePrice,
-                        email,
-                        mode: isPurchaseMode ? "purchase" : "trial",
-                        trialDays: trialDays ?? undefined
-                    })
-                );
-                return;
-            }
-
             if (checkoutBlocked) {
                 router.push(businessSetupPath(listingId ?? undefined));
                 return;
@@ -1377,7 +1358,19 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
 
                 paymentMethodId = created.paymentMethod.id;
             } else {
-                paymentMethodId = testPaymentMethodForBrand(brand);
+                /* NEVER A TEST CARD FOR A REAL PERSON. Without a Stripe key in
+                   the browser this page used to render its own card inputs,
+                   collect a real card number, throw it away, and charge a
+                   Stripe TEST card instead. The buyer sees a normal form, types
+                   their real card, and either nothing is charged or the wrong
+                   thing is — with their card number typed into a page that had
+                   no way to protect it. If card payments are not switched on,
+                   say so and stop. */
+                failCheckout(
+                    "Card payments are not switched on right now, so nothing was charged. Please try again shortly.",
+                    { notify: true }
+                );
+                return;
             }
 
             if (invoiceMode && invoiceId && invoiceType) {
@@ -1660,7 +1653,23 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                                 </div>
                                             ) : null}
 
-                                            {!usePrimaryCard ? (
+                                            {/* NOBODY TYPES A CARD INTO A PAGE THAT CANNOT PROTECT IT.
+                                                Without a Stripe key in the browser these fields were plain
+                                                inputs: a real card number went in, was thrown away, and a
+                                                Stripe test card was charged instead. The fields are not
+                                                shown at all now — the buyer is told, rather than left
+                                                filling in a form that goes nowhere. */}
+                                            {!stripeMode ? (
+                                                <div
+                                                    data-testid="checkout-card-unavailable"
+                                                    className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+                                                >
+                                                    Card payments are not switched on right now, so we cannot take a card
+                                                    on this page. Nothing has been charged. Please try again shortly.
+                                                </div>
+                                            ) : null}
+
+                                            {!usePrimaryCard && stripeMode ? (
                                             <>
                                             <div>
                                                 <label className="mb-1.5 block text-sm font-medium text-slate-700" data-testid="business-protected-checkout-card-number-label">

@@ -391,7 +391,7 @@ export function PhoneNumberSelectionSection({
             {assignment.assignedAt ? ` · Assigned ${new Date(assignment.assignedAt).toLocaleDateString()}` : ""}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Included with your Triven AI setup. To replace this number, contact Triven support.
+            Billed monthly while it is assigned to you. To replace this number, contact Triven support.
           </p>
         </div>
       </div>
@@ -649,8 +649,12 @@ export function PhoneNumberSelectionSection({
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
+                {/* IT IS NOT INCLUDED. This sat directly above "Confirm and
+                    assign" and said the number came free with setup, while a
+                    "Dedicated Business Phone Number" line is added to their
+                    invoice every month for as long as they keep it. */}
                 <span className="mt-0.5 block text-xs text-slate-500" data-testid="business-setup-phone-included-note">
-                  Triven AI business number · Included with your Triven AI setup
+                  Triven AI business number · Billed monthly while it is assigned to you
                 </span>
                 {selectedNumber.regulatoryNote ? (
                   <span className="mt-0.5 block text-xs font-semibold text-amber-700">{selectedNumber.regulatoryNote}</span>

@@ -123,7 +123,7 @@ describe("checkout usage charges", () => {
     expect(screen.getByText("$1.00 / unit")).toBeTruthy();
   });
 
-  it("shows the dedicated phone number range only for listings that include one", () => {
+  it("shows the dedicated phone number line only for listings that include one", () => {
     const { rerender } = render(
       <CheckoutUsageCharges
         services={adminConfiguredServices}
@@ -133,7 +133,14 @@ describe("checkout usage charges", () => {
 
     fireEvent.click(screen.getByTestId("checkout-usage-charges-toggle"));
     expect(screen.getByText("Dedicated phone number")).toBeTruthy();
-    expect(screen.getByText("$1–$4 / month")).toBeTruthy();
+    /* Never an invented range. The real monthly fee comes from the assigned
+       number's own cost and is above the old "$1–$4" in many countries this
+       page lets a business search. */
+    const phoneRow = screen.getByTestId("checkout-dedicated-phone-number");
+    expect(phoneRow.textContent).toMatch(/Monthly, from the number/);
+    /* Real per-use prices elsewhere on this panel are genuine and stay. It is
+       this one row that must not carry a figure nobody calculated. */
+    expect(phoneRow.textContent).not.toMatch(/\$\d/);
 
     rerender(<CheckoutUsageCharges services={adminConfiguredServices} />);
     expect(screen.queryByText("Dedicated phone number")).toBeNull();

@@ -307,7 +307,10 @@ describe("PhoneNumberSelectionSection", () => {
     const review = screen.getByTestId("business-setup-phone-review");
     expect(review.textContent).not.toContain("$");
     expect(review.textContent?.toLowerCase()).not.toContain("twilio");
-    expect(review.textContent).toContain("Included with your Triven AI setup");
+    /* No amount, and no supplier named — but it must not say the number is
+       free either. It is billed every month for as long as they keep it. */
+    expect(review.textContent).toContain("Billed monthly while it is assigned to you");
+    expect(review.textContent).not.toContain("Included");
   });
 
   it("shows a clean informative error banner when no countries are available", async () => {

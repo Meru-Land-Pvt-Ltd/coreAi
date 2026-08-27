@@ -175,8 +175,12 @@ export function CheckoutUsageCharges({
               <span className="min-w-0 text-sm text-slate-600">
                 Dedicated phone number
               </span>
-              <span className="tnum shrink-0 text-sm font-semibold text-slate-800">
-                $1–$4 / month
+              {/* A RANGE NOBODY CALCULATED. This was a literal "$1–$4", and the
+                  real monthly fee is worked out from the assigned number's own
+                  cost — above $4 in plenty of the countries this page lets a
+                  business search. It says what is true instead of a figure. */}
+              <span className="tnum shrink-0 text-right text-sm font-semibold text-slate-800">
+                Monthly, from the number&rsquo;s own cost
               </span>
             </div>
           ) : null}
