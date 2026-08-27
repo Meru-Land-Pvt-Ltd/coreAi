@@ -1,6 +1,7 @@
 "use client";
 
 import type { Route } from "next";
+import { MONEY_BACK_SHORT } from "@/lib/guarantee";
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1683,7 +1684,7 @@ export default function MarketplacePage() {
                 nothing on the platform measures uptime. Claiming a
                 certification we do not hold, to businesses choosing us for
                 regulated work, is the most expensive kind of lie. */}
-            <TrustItem text="30-day money back" />
+            <TrustItem text={MONEY_BACK_SHORT} />
             <TrustItem text="24/7 support" />
           </div>
         </div>

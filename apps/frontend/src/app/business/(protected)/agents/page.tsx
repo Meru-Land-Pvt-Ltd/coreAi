@@ -113,6 +113,20 @@ type OwnedAgent = {
 };
 
 /** Setup is complete once the agent was deployed (ACTIVE) — PAUSED still counts. */
+
+/**
+ * A PRICE, EXACTLY AS IT WILL BE CHARGED.
+ *
+ * These screens divided cents by 100 and ROUNDED, so an agent priced at $49.49
+ * was advertised as "$49" here and charged $49.49 at checkout. Architects can
+ * set any price; nothing forces whole dollars. Whole dollars print without
+ * decimals, because "$49.00" reads like a mistake — anything else prints in
+ * full, because it is what the buyer pays.
+ */
+function priceLabel(dollars: number): string {
+  return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
+}
+
 function isSetupCompleted(agent: OwnedAgent) {
     const status = (agent.installedAgentStatus ?? "").toUpperCase();
     return Boolean(agent.installedAgentId) && (status === "ACTIVE" || status === "PAUSED");
@@ -228,7 +242,7 @@ function mapPurchasedAgent(entry: ApiPurchasedAgent): OwnedAgent {
             listing.shortDescription ||
             listing.description ||
             "This AI agent is ready to set up for your business.",
-        price: Math.round((listing.priceCents ?? 0) / 100),
+        price: (listing.priceCents ?? 0) / 100,
         author:
             listing.architect?.fullName ||
             profile?.title ||
@@ -597,7 +611,7 @@ function OwnedAgentCard({
                                     {badge.label}
                                 </span>
                                 <span className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-bold text-white" data-testid="business-my-agent-price-text">
-                                    {agent.pricingModel === "FREE" || agent.price === 0 ? "Free" : `$${agent.price}${agent.pricingModel === "SUBSCRIPTION" ? "/mo" : ""}`}
+                                    {agent.pricingModel === "FREE" || agent.price === 0 ? "Free" : `$${priceLabel(agent.price)}${agent.pricingModel === "SUBSCRIPTION" ? "/mo" : ""}`}
                                 </span>
                             </div>
                             <span className="block text-[10px] font-semibold text-slate-600 mt-1">

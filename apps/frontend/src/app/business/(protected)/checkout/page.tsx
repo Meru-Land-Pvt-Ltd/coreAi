@@ -1,6 +1,7 @@
 "use client";
 
 import type { Route } from "next";
+import { MONEY_BACK_FULL, MONEY_BACK_SHORT } from "@/lib/guarantee";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -1931,7 +1932,7 @@ function CheckoutContent({ stripeMode }: { stripeMode: boolean }) {
                                             <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-gray-100 pt-6">
                                                 <TrustInline text="256-bit SSL encryption" />
                                                 <TrustInline text="PCI DSS compliant" />
-                                                <TrustInline text="30-day money back" />
+                                                <TrustInline text={MONEY_BACK_SHORT} />
                                             </div>
                                         </div>
                                     ) : (
@@ -2536,7 +2537,7 @@ function OrderSummary({
                     </span>
 
                     <div>
-                        <p className="text-sm font-semibold text-green-800" data-testid="business-protected-checkout-30-day-money-back-guarantee-text">30-day money-back guarantee</p>
+                        <p className="text-sm font-semibold text-green-800" data-testid="business-protected-checkout-30-day-money-back-guarantee-text">{MONEY_BACK_FULL}</p>
                         <p className="mt-0.5 text-xs text-green-600" data-testid="business-protected-checkout-not-satisfied-full-refund-no-questions-text">Not satisfied? Full refund, no questions.</p>
                     </div>
                 </div>

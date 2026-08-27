@@ -1,6 +1,7 @@
 "use client";
 
 import type { Route } from "next";
+import { MONEY_BACK_SHORT } from "@/lib/guarantee";
 import { apiGet } from "@/lib/api";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -173,6 +174,20 @@ const MAX_AUTO_LOAD_PAGES_BY_INDUSTRY = 3;
 const MAX_AUTO_LOAD_PAGES_FOR_HERO_TILES = 16;
 const MAX_AUTO_LOAD_PAGES_FOR_SEARCH = 16;
 const PRICE_MAX_DEFAULT = 10000;
+
+
+/**
+ * A PRICE, EXACTLY AS IT WILL BE CHARGED.
+ *
+ * These screens divided cents by 100 and ROUNDED, so an agent priced at $49.49
+ * was advertised as "$49" here and charged $49.49 at checkout. Architects can
+ * set any price; nothing forces whole dollars. Whole dollars print without
+ * decimals, because "$49.00" reads like a mistake — anything else prints in
+ * full, because it is what the buyer pays.
+ */
+function priceLabel(dollars: number): string {
+  return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
+}
 
 function listingsPagePath(cursor?: string | null) {
   const params = new URLSearchParams({ limit: String(LISTINGS_PAGE_SIZE) });
@@ -637,7 +652,7 @@ function mapListingToAgent(listing: ApiListing): Agent {
       listing.description ||
       listing.workflow?.description ||
       "This AI agent is ready to help automate business workflows.",
-    price: Math.round((listing.priceCents ?? 0) / 100),
+    price: (listing.priceCents ?? 0) / 100,
     installs: listing.installCount ?? 0,
     rating: profile?.rating ?? 0,
     author:
@@ -1893,7 +1908,7 @@ export default function MarketplacePage() {
             <TrustItem text="256-bit encryption" />
             {/* Removed 2026-08-27: our own security page states we hold no
                 such certification, and nothing measures uptime. */}
-            <TrustItem text="30-day money back" />
+            <TrustItem text={MONEY_BACK_SHORT} />
             <TrustItem text="24/7 support" />
           </div>
         </div>
@@ -2101,7 +2116,7 @@ function AgentDetailsModal({
                     className="text-3xl font-black tracking-tight text-slate-900"
                     data-testid="business-marketplace-agent-details-modal-price"
                   >
-                    ${agent.price}
+                    ${priceLabel(agent.price)}
                   </span>
                   {agent.pricingModel !== "ONE_TIME" && (
                     <span className="pb-1 text-sm font-medium text-slate-400">
@@ -2194,8 +2209,8 @@ function AgentGridCard({
               {agent.pricingModel === "FREE"
                 ? "Free"
                 : agent.pricingModel === "ONE_TIME"
-                  ? `$${agent.price}`
-                  : `$${agent.price}/mo`}
+                  ? `$${priceLabel(agent.price)}`
+                  : `$${priceLabel(agent.price)}/mo`}
             </span>
             <span className="block text-[10px] font-semibold text-slate-600 mt-1">
               {agent.pricingModel === "FREE"
@@ -2378,8 +2393,8 @@ function AgentListCard({
             {agent.pricingModel === "FREE"
               ? "Free"
               : agent.pricingModel === "ONE_TIME"
-                ? `$${agent.price}`
-                : `$${agent.price}/mo`}
+                ? `$${priceLabel(agent.price)}`
+                : `$${priceLabel(agent.price)}/mo`}
           </span>
           <span className="block text-[10px] font-semibold text-slate-600 mt-1">
             {agent.pricingModel === "FREE"

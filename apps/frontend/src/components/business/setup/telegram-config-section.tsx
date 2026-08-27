@@ -61,26 +61,33 @@ const FIVE_PRESETS = [
     action: "book" as const,
     response: "Ask customer for request details and contact phone number, then alert business owner."
   },
+  /* THESE USED TO ARRIVE PRE-FILLED, AND PUBLISH. Picking one of these three
+     appended a ready-made answer — "packages start at $50", "Address: 123
+     Business Way", "support@example.com or call (555) 019-2831" — and the
+     screen saves on its own after a moment, so a business's own customers
+     were told a price nobody set and an address that does not exist. They
+     arrive empty now, and the save refuses an empty answer, so the business
+     must write their own words before it can go out. */
   {
     command: "pricing",
     label: "Pricing",
     description: "View pricing & service packages",
     action: "reply" as const,
-    response: "Our standard consultation packages start at $50. Contact us for custom quotes!"
+    response: ""
   },
   {
     command: "hours",
     label: "Hours",
     description: "View opening hours & store location",
     action: "reply" as const,
-    response: "We are open Monday to Friday, 9:00 AM to 5:00 PM. Address: 123 Business Way."
+    response: ""
   },
   {
     command: "contact",
     label: "Contact",
     description: "Get direct business contact & phone",
     action: "reply" as const,
-    response: "Contact our team directly at support@example.com or call us at (555) 019-2831."
+    response: ""
   }
 ];
 

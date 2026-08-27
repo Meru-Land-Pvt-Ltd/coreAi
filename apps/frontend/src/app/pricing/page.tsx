@@ -1,6 +1,7 @@
 "use client";
 
 import type { Route } from "next";
+import { MONEY_BACK_FULL } from "@/lib/guarantee";
 import Link from "next/link";
 import { useEffect, useState, type CSSProperties } from "react";
 import { CoreHeader as TrivenHeader } from "@/components/common/header";
@@ -76,7 +77,7 @@ const faqItems = [
   {
     question: "What’s your refund policy?",
     answer:
-      "30-day money-back guarantee on all agent purchases, no questions asked."
+      `${MONEY_BACK_FULL} on all agent purchases, no questions asked.`
   }
 ];
 

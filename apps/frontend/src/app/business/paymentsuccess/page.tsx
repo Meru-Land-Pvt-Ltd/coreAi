@@ -1,6 +1,7 @@
 "use client";
 
 import type { Route } from "next";
+import { MONEY_BACK_FULL } from "@/lib/guarantee";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, type CSSProperties } from "react";
@@ -531,7 +532,7 @@ function BusinessPaymentSuccessContent() {
                                 <circle cx="12" cy="12" r="9" />
                                 <path d="M8.5 12.5l2.5 2.5 5-5" />
                             </svg>
-                            14-day money-back guarantee
+                            {MONEY_BACK_FULL}
                         </span>
                     </div>
                 </div>
