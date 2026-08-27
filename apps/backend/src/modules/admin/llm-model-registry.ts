@@ -1,15 +1,17 @@
 /**
- * THE MODEL LIST, WITH A DOOR AN ADMIN CAN OPEN.
+ * THE ONE LIST OF MODELS AN ARCHITECT MAY PICK.
  *
- * `LLM_MODELS` in packages/shared ships with the code, so adding a model meant
- * an edit, a review and a deploy. Providers publish new models constantly, and
- * an architect who cannot pick this week's model is building on last month's
- * platform. So admins add models here and every AI Brain sees them at once.
+ * `LLM_MODELS` in packages/shared ships with the code. Providers publish new
+ * models constantly, and an architect who cannot pick this week's model is
+ * building on last month's platform — so this joins the shipped list to what
+ * an admin has added or switched off, and every AI Brain sees the result at
+ * once.
  *
- * MODELS ONLY, and deliberately. A new provider needs an adapter that speaks
- * its API, which is code somebody has to write and test. A new model on a
- * provider the engine already speaks to is data. Pretending otherwise would
- * hand an admin a form that produces a model nothing can call.
+ * READING ONLY. The admin's own screen is Admin → LLM control, and the code
+ * behind it is llm-control.ts. This file used to carry a second, older way to
+ * add and remove models — a complete set of functions with no route in front
+ * of them, so nothing could ever call it. It was removed on 2026-08-27 rather
+ * than left to be found by whoever next went looking for how models are added.
  */
 
 import { LLM_MODELS, LLM_PROVIDERS, type LlmModelMeta, type LlmTaskCategory } from "@coreai/shared";
@@ -130,76 +132,4 @@ export async function allLlmModels(force = false): Promise<LlmModelMeta[]> {
 
 export function invalidateLlmModelCache(): void {
   cache = null;
-}
-
-export type AdminLlmModelInput = {
-  modelId: string;
-  providerId: string;
-  displayName: string;
-  category: string;
-  inputPricePer1M?: number | null;
-  outputPricePer1M?: number | null;
-  multimodal?: boolean;
-  enabled?: boolean;
-};
-
-/**
- * What is wrong with this model, in words an admin can act on.
- *
- * Returns null when it is fine. Checked here rather than in the route so the
- * same answer is given wherever a model is added from.
- */
-export function whatIsWrongWith(input: AdminLlmModelInput): string | null {
-  const modelId = input.modelId?.trim() ?? "";
-  if (!modelId) return "The model id is what gets sent to the provider — it cannot be blank.";
-  if (modelId.length > 120) return "That model id is longer than any provider uses. Check it for a stray paste.";
-
-  if (!offerableProviderIds().includes(input.providerId)) {
-    return `Triven has no adapter for "${input.providerId}", so nothing could call this model. Adding a new provider needs a release, not this form.`;
-  }
-
-  if (!input.displayName?.trim()) return "Give it a name an architect will recognise in the dropdown.";
-  if (!isKnownLlmCategory(input.category)) {
-    return `"${input.category}" is not one of: ${CATEGORIES.join(", ")}.`;
-  }
-
-  for (const [label, price] of [
-    ["Input price", input.inputPricePer1M],
-    ["Output price", input.outputPricePer1M]
-  ] as const) {
-    if (price === null || price === undefined) continue;
-    if (!Number.isFinite(price) || price < 0) return `${label} has to be a number, or left empty if you do not know it.`;
-  }
-
-  return null;
-}
-
-export async function listAdminLlmModels() {
-  return prisma.adminLlmModel.findMany({ orderBy: [{ providerId: "asc" }, { displayName: "asc" }] });
-}
-
-export async function saveAdminLlmModel(input: AdminLlmModelInput, addedByUserId: string) {
-  const data = {
-    providerId: input.providerId,
-    displayName: input.displayName.trim(),
-    category: input.category,
-    inputPricePer1M: input.inputPricePer1M ?? null,
-    outputPricePer1M: input.outputPricePer1M ?? null,
-    multimodal: input.multimodal ?? false,
-    enabled: input.enabled ?? true
-  };
-
-  const saved = await prisma.adminLlmModel.upsert({
-    where: { modelId: input.modelId.trim() },
-    update: data,
-    create: { ...data, modelId: input.modelId.trim(), addedByUserId }
-  });
-
-  invalidateLlmModelCache();
-  return saved;
-}
-
-export async function removeAdminLlmModel(modelId: string) {
-  await prisma.adminLlmModel.delete({ where: { modelId } }).catch(() => null);
-  invalidateLlmModelCache();
 }
