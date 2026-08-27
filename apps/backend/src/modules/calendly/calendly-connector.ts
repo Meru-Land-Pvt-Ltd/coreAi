@@ -396,7 +396,9 @@ export async function getCalendlyConnectionStatus(userId: string): Promise<Calen
     timezone: meta.timezone ?? null,
     userUri: meta.userUri ?? null,
     organizationUri: meta.organizationUri ?? null,
-    webhookReady: Boolean(meta.webhookSubscriptionUri),
+    /* Ready means it can actually verify a delivery — see the note in
+       ensureWebhookSubscription. */
+    webhookReady: Boolean(meta.webhookSubscriptionUri && meta.webhookSigningKeyEnc),
     webhookError: meta.webhookSubscriptionError ?? null
   };
 }
@@ -1169,7 +1171,15 @@ export async function ensureCalendlyWebhookSubscription(userId: string) {
     where: { userId_provider: { userId, provider: "CALENDLY" } }
   });
   const meta = asMetadata(credential?.metadata);
-  if (meta.webhookSubscriptionUri) return meta.webhookSubscriptionUri;
+  /* A SUBSCRIPTION WITHOUT ITS SIGNING KEY IS NOT A WORKING SUBSCRIPTION.
+     This returned early on the subscription's address alone, so a first
+     connect that got the address but not the key was recorded as a clean
+     success — and every real booking afterwards was refused with "signing key
+     missing, reconnect Calendly". Reconnecting could not fix it: the address
+     survived the reconnect, this line short-circuited again, and the business
+     was told to do the one thing that could never work. Both, or it is set up
+     again. */
+  if (meta.webhookSubscriptionUri && meta.webhookSigningKeyEnc) return meta.webhookSubscriptionUri;
 
   const token = await getValidAccessToken(userId);
   const created = await calendlyApiRequest<{
@@ -1209,7 +1219,39 @@ export async function ensureCalendlyWebhookSubscription(userId: string) {
 const orgCredentialCache = new Map<string, { userId: string; credentialId: string; expiresAt: number }>();
 const ORG_CREDENTIAL_CACHE_TTL_MS = 60_000;
 
-export async function findCalendlyCredentialByOrganizationUri(organizationUri: string) {
+/**
+ * Whose Calendly connection is this booking for?
+ *
+ * TWO TRIVEN ACCOUNTS IN ONE CALENDLY TEAM GOT EACH OTHER'S BOOKINGS. The
+ * subscription is organisation-scoped, so it receives every member's events —
+ * and this resolved by organisation alone, taking whichever row it found
+ * first. Two people at one company who both connect Calendly share an
+ * organisation, so bookings routed to whichever of them the query happened to
+ * return, and that account's run history received the other's customer name
+ * and email.
+ *
+ * The host of the event is the answer when the payload names one; the
+ * organisation is only used when exactly one connection could possibly mean
+ * it. Guessing between two tenants is never right.
+ */
+export async function findCalendlyCredentialByOrganizationUri(
+  organizationUri: string,
+  hostUserUri?: string | null
+) {
+  const host = (hostUserUri ?? "").trim();
+  if (host) {
+    const byHost = await prisma.connectorCredential
+      .findFirst({
+        where: { provider: "CALENDLY", metadata: { path: ["userUri"], equals: host } }
+      })
+      .catch(() => null);
+    if (byHost) return byHost;
+  }
+
+  return findCalendlyCredentialByOrganizationUriOnly(organizationUri);
+}
+
+async function findCalendlyCredentialByOrganizationUriOnly(organizationUri: string) {
   const org = organizationUri.trim();
   if (!org) return null;
 

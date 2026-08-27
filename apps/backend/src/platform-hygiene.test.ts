@@ -87,6 +87,30 @@ describe("delete, never comment", () => {
     expect(offenders).toEqual([]);
   });
 
+
+  it("hides no character a reviewer cannot see", () => {
+    /* A regex once written through a shell heredoc landed in the source with
+       an actual 0x08 byte where "\\b" was meant, and the law it guarded went
+       silently blind — nobody can see a control character, and no search finds
+       one. It happened again in a filename cleaner, where git had started
+       treating the file as BINARY. Tabs and newlines are ordinary; nothing
+       else below space belongs in source. */
+    const offenders: string[] = [];
+    for (const path of FILES) {
+      const source = readFileSync(path, "utf8");
+      source.split("\n").forEach((line, index) => {
+        for (const character of line) {
+          const code = character.codePointAt(0) ?? 32;
+          if (code < 32 && character !== "\t") {
+            offenders.push(`${short(path)}:${index + 1}  contains a raw 0x${code.toString(16).padStart(2, "0")} byte`);
+            return;
+          }
+        }
+      });
+    }
+    expect(offenders, "write the escape (\\u0000), never the byte").toEqual([]);
+  });
+
   it("has no file that is a copy of another file", () => {
     /* "architect-workspace copy.tsx" shipped for weeks, exporting the same
        name as the real one. A copy in the tree is an ambiguity, not a backup. */

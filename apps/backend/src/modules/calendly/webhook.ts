@@ -254,7 +254,10 @@ export async function handleCalendlyWebhookPost(c: Context) {
     return c.json({ ok: true, ignored: true, reason: "missing_organization" });
   }
 
-  const credential = await findCalendlyCredentialByOrganizationUri(lookupOrg);
+  /* The host of the event, when the payload names one. Two Triven accounts in
+     one Calendly team share an organisation; they do not share a host. */
+  const hostUserUri = String(asRecord(eventMemberships[0])?.user ?? "").trim() || null;
+  const credential = await findCalendlyCredentialByOrganizationUri(lookupOrg, hostUserUri);
   if (!credential) {
     console.warn("[calendly] webhook: no connector for organization", { organizationUri: lookupOrg });
     return c.json({ ok: true, ignored: true, reason: "unknown_organization" });
