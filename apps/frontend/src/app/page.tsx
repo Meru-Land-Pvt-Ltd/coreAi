@@ -295,7 +295,7 @@ export default function HomePage() {
       <style dangerouslySetInnerHTML={{ __html: STYLES }} />
 
       <div ref={bannerRef} className="relative z-40 bg-amber-500 py-2 text-center text-xs font-semibold text-slate-950">
-        Early Architect Program. First 100 architects get lifetime free access. <span className="font-bold" data-testid="home-37-spots-remaining-text">37 spots remaining.</span>
+        Early Architect Program. The first 100 architects get lifetime free access.
       </div>
 
       <CoreHeader
@@ -334,7 +334,7 @@ export default function HomePage() {
                 <rect x="11.5" y="11" width="3" height="7" rx="1" fill="currentColor" />
                 <rect x="16.5" y="8" width="3" height="10" rx="1" fill="currentColor" />
               </svg>
-              Businesses using Triven recover an average of $4,200/month in lost revenue.
+              Every call your team cannot pick up is a customer who called somebody else.
             </div>
 
             <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -357,7 +357,7 @@ export default function HomePage() {
             </div>
 
             <p className="mt-6 text-sm text-slate-500" data-testid="home-free-forever-for-architects-3-200-agents-text">
-              Free forever for Architects&nbsp;&nbsp;•&nbsp;&nbsp;3,200+ agents built&nbsp;&nbsp;•&nbsp;&nbsp;Trusted by 500+ businesses
+              Free forever for Architects&nbsp;&nbsp;•&nbsp;&nbsp;No credit card to start
             </p>
 
             <div className="mx-auto mt-8 max-w-md rounded-xl border border-amber-200 bg-white p-2 shadow-sm">
@@ -704,7 +704,10 @@ export default function HomePage() {
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-0">
                 {[
                   ["1", "Drag & Drop Nodes", "No code required"],
-                  ["2", "Connect AI + Connectors", "180+ integrations"],
+                  /* Said "180+ integrations". The real number is about ten
+                     built-in services — and the honest, better claim is that
+                     an architect can add any service themselves. */
+                  ["2", "Connect AI + any service", "Add one yourself in minutes"],
                   ["3", "Publish & Earn", "70% recurring revenue"]
                 ].map(([n, title, sub], i) => (
                   <div key={n} className="contents">
@@ -738,9 +741,12 @@ export default function HomePage() {
 
             <div className="mx-auto mt-14 grid max-w-5xl grid-cols-2 gap-y-10 gap-x-6 border-y border-gray-200 py-12 md:grid-cols-4">
               {[
-                ["180+", "Connectors"],
+                /* "180+ Connectors" and "10M+ Addressable Businesses" were
+                   both invented. What is true: any service can be added, and
+                   starting costs nothing. */
+                ["Any", "Service you can add"],
                 ["6", "Universal Agent Types"],
-                ["10M+", "Addressable Businesses"],
+                ["70%", "Of every sale, to you"],
                 ["$0", "To Start"]
               ].map(([v, l]) => (
                 <div key={l} className="text-center">
@@ -765,77 +771,18 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="scroll-mt-24 bg-gray-50 px-6 py-16 sm:py-20">
-          <div ref={counterSectionRef} className="mx-auto grid max-w-5xl grid-cols-1 gap-10 text-center sm:grid-cols-3">
-            <div>
-              <Counter target={500} suffix="+" active={countersActive} />
-              <div className="mt-1 text-sm text-slate-500">Businesses Served</div>
-            </div>
+        {/* THREE COUNTERS THAT COUNTED NOTHING stood here — "500+ Businesses
+            Served", "$2.1M+ Revenue Recovered", "3,200+ Agents Built" — animating
+            up from zero to numbers nobody had ever measured. Removed
+            2026-08-27, with the invented testimonials below them. */}
 
-            <div>
-              <Counter target={2.1} prefix="$" suffix="M+" decimals={1} active={countersActive} />
-              <div className="mt-1 text-sm text-slate-500">Revenue Recovered</div>
-            </div>
-
-            <div>
-              <Counter target={3200} suffix="+" active={countersActive} />
-              <div className="mt-1 text-sm text-slate-500">Agents Built</div>
-            </div>
-          </div>
-        </section>
-
-        <section id="testimonials" className="scroll-mt-24 px-6 py-20 sm:py-28">
-          <div className="mx-auto max-w-7xl">
-            <div className="mx-auto max-w-2xl text-center">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-amber-600" data-testid="home-social-proof-text">Social proof</p>
-              <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl lg:text-5xl" data-testid="home-what-people-are-saying-heading">What People Are Saying</h2>
-            </div>
-
-            <div className="mt-14 grid gap-6 md:grid-cols-3">
-              {[
-                {
-                  quote: "“I built a missed-call agent in 20 minutes. It's already earning me $400/month.”",
-                  testimonialImage: "/image3.png",
-                  name: "Alex Rao",
-                  role: "AI Architect",
-                  alt: "Alex Rao testimonial photo"
-                },
-                {
-                  quote: "“We were losing 30% of leads to missed calls. Triven's agent recovered $12,000 in the first month.”",
-                  testimonialImage: "/image1.png",
-                  name: "Dr. Sarah Mehta",
-                  role: "Dentist",
-                  alt: "Dr. Sarah Mehta testimonial photo"
-                },
-                {
-                  quote: "“The simplest platform I've ever used. Drag, drop, publish. That's it.”",
-                  testimonialImage: "/image2.png",
-                  name: "James Kapoor",
-                  role: "Freelancer",
-                  alt: "James Kapoor testimonial photo"
-                }
-              ].map((t) => (
-                <figure data-testid="app-page-figure-1" key={t.name} className="flex flex-col rounded-xl border border-gray-200 bg-white p-8 shadow-sm backdrop-blur-sm transition duration-300 hover:-translate-y-1 hover:border-amber-400 hover:shadow-glow">
-                  <Stars />
-                  <blockquote data-testid="app-page-blockquote-1" className="flex-1 text-lg leading-relaxed text-slate-700">{t.quote}</blockquote>
-                  <figcaption data-testid="app-page-figcaption-1" className="mt-6 flex items-center gap-3 border-t border-gray-200 pt-6">
-                    <Image
-                      src={t.testimonialImage}
-                      alt={t.alt}
-                      width={40}
-                      height={40}
-                      className="h-10 w-10 rounded-full object-cover ring-1 ring-amber-300"
-                    />
-                    <span data-testid="app-page-span-25">
-                      <span data-testid="app-page-span-26" className="block text-sm font-semibold text-slate-900">{t.name}</span>
-                      <span data-testid="app-page-span-27" className="block text-xs text-slate-500">{t.role}</span>
-                    </span>
-                  </figcaption>
-                </figure>
-              ))}
-            </div>
-          </div>
-        </section>
+        {/* THREE CUSTOMERS WHO DO NOT EXIST stood here — names, job titles,
+            photographs, five stars each, and quotes with figures in them: "$400
+            a month", "recovered $12,000 in the first month". There are no
+            customers yet. Inventing testimonials is not marketing that has gone
+            a bit far; it is telling a real business a made-up person vouched
+            for us, on the page where they decide to trust us. Removed
+            2026-08-27. It goes back the day a real customer says something. */}
 
         <section id="assessment" className="scroll-mt-24 px-6 py-20 sm:py-28">
           <div className="relative mx-auto max-w-4xl overflow-hidden rounded-3xl border border-amber-200 bg-white px-6 py-16 text-center shadow-sm backdrop-blur-sm sm:px-12 sm:py-20">

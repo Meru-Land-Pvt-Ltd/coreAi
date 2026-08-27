@@ -11,7 +11,7 @@ const howItWorks = [
     step: "1",
     title: "AI Architects Build",
     description:
-      "AI Architects create specialized agents using our drag-and-drop workflow builder with 180+ connectors."
+      "AI Architects create specialized agents using our drag-and-drop workflow builder with a growing set of services, and any other you add yourself."
   },
   {
     step: "2",
@@ -28,7 +28,7 @@ const howItWorks = [
 ];
 
 const stats = [
-  { value: "180+", label: "Connectors" },
+  { value: "Any", label: "Service you can add" },
   { value: "6", label: "Agent Types" },
   { value: "24/7", label: "Automation" },
   { value: "2-Minute", label: "Setup" }

@@ -730,7 +730,7 @@ ${list}`,
 
     case "pricing_general":
       return {
-        reply: "Triven pricing is fully transparent and pay-for-results. There are no expensive bundles. You pay: \n1. **Agent Fee:** Determined by the architect (can be Free, a one-time purchase, or a monthly subscription).\n2. **Execution Fees:** Billed per action (e.g., $0.15/SMS, $0.50/Call). You get 50 free executions to start, and volume discounts kick in at 500+ runs.",
+        reply: "Triven pricing is fully transparent and pay-for-results. There are no expensive bundles. You pay: \n1. **Agent Fee:** Determined by the architect (can be Free, a one-time purchase, or a monthly subscription).\n2. **Execution Fees:** Billed per action, at rates Triven sets and shows you at checkout. You get 50 free executions to start.",
         context: nextContext,
         suggestions: ["Estimate my monthly cost", "What counts as an execution?", "Do you offer a free trial?"]
       };

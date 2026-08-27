@@ -104,8 +104,10 @@ export default function PricingPage() {
 
   const fee = feeCents / 100;
   const monthlyCost = executions * fee;
-  const revenueRecovered = executions * 12;
-  const roi = monthlyCost > 0 ? ((revenueRecovered - monthlyCost) / monthlyCost) * 100 : 0;
+  /* "revenueRecovered = executions * 12" said every run a business's agent
+     makes is worth twelve dollars to them, and the ROI beneath it was that
+     figure divided by our own fee. Nobody measured either number. The
+     calculator now shows what it can actually work out: the cost. */
 
   const execPercent = getRangePercent(executions, 50, 1000);
   const feePercent = getRangePercent(feeCents, 10, 50);
@@ -174,28 +176,8 @@ export default function PricingPage() {
             </div>
           </div>
 
-          <div className="mx-auto mt-14 grid max-w-2xl gap-5 sm:grid-cols-2">
-            <div className="rounded-2xl border border-gray-100 bg-white p-7 text-center shadow-xl transition duration-200 hover:-translate-y-1">
-              <p className="text-sm font-medium text-slate-500" data-testid="pricing-average-roi-text">
-                Average ROI
-              </p>
-              <div className="mt-2 text-5xl font-black tracking-tight text-amber-600">
-                2,150%
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-gray-100 bg-white p-7 text-center shadow-xl transition duration-200 hover:-translate-y-1">
-              <p className="text-sm font-medium text-slate-500" data-testid="pricing-average-monthly-cost-text">
-                Average monthly cost
-              </p>
-              <div className="mt-2 text-5xl font-black tracking-tight text-slate-900">
-                $40
-              </div>
-              <p className="mt-1 text-sm text-slate-500" data-testid="pricing-vs-3-200-for-a-receptionist-text">
-                vs <s className="text-slate-400">$3,200</s> for a receptionist
-              </p>
-            </div>
-          </div>
+          {/* "Average ROI 2,150%", "Average monthly cost $40", "vs $3,200 for
+              a receptionist" — three literals, none of them measured. */}
         </section>
 
         <section className="px-6 py-20 sm:py-24">
@@ -336,8 +318,7 @@ export default function PricingPage() {
               className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-500"
               data-testid="pricing-fees-cover-ai-processing-api-calls-and-text"
             >
-              Fees cover AI processing, API calls, and infrastructure. Volume discounts at
-              1,000+ executions/month.
+              Fees cover AI processing, API calls, and infrastructure.
             </p>
           </div>
         </section>
@@ -488,36 +469,6 @@ export default function PricingPage() {
                   </p>
                 </div>
 
-                <div className="mt-5 flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-                    <ArrowUpIcon />
-                  </span>
-
-                  <div>
-                    <p className="text-sm font-medium text-slate-500" data-testid="pricing-est-revenue-recovered-text">
-                      Est. revenue recovered
-                    </p>
-                    <p className="text-2xl font-bold text-emerald-600" data-testid="pricing-money-revenue-recovered-mo-text">
-                      {money(revenueRecovered)}
-                      <span className="text-base font-medium" data-testid="pricing-mo-text">
-                        /mo
-                      </span>
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-6 rounded-xl border border-amber-200 bg-white p-5 text-center">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500" data-testid="pricing-your-roi-text">
-                    Your ROI
-                  </p>
-                  <p
-                    className="mt-1 text-5xl font-black tracking-tight text-amber-600"
-                    data-testid="pricing-math-round-roi-to-locale-string-en-text"
-                  >
-                    {Math.round(roi).toLocaleString("en-US")}%
-                  </p>
-                </div>
-
                 <Link
                   data-testid="pricing-start-free-first-50-executions-on-us-link"
                   href={"#free-trial" as Route}
@@ -630,31 +581,12 @@ export default function PricingPage() {
           </div>
         </section>
 
-        <section className="px-6 py-20 sm:py-24">
-          <div className="mx-auto max-w-6xl">
-            <div className="mx-auto max-w-2xl text-center">
-              <h2
-                className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl"
-                data-testid="pricing-volume-discounts-heading"
-              >
-                Volume discounts
-              </h2>
-              <p
-                className="mt-3 text-lg text-slate-600"
-                data-testid="pricing-the-more-your-agents-work-the-less-text"
-              >
-                The more your agents work, the less each execution costs.
-              </p>
-            </div>
-
-            <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              <DiscountCard title="Standard" range="1–500 / mo" value="Base rates" />
-              <DiscountCard title="Growth" range="500–1K / mo" value="10% off" popular />
-              <DiscountCard title="Scale" range="1K–5K / mo" value="20% off" />
-              <DiscountCard title="Enterprise" range="5K+ / mo" value="Custom" enterprise />
-            </div>
-          </div>
-        </section>
+        {/* A "Volume discounts" section stood here — Standard, Growth 10% off,
+            Scale 20% off, Enterprise custom — under the promise "the more your
+            agents work, the less each execution costs". There is no discount
+            anywhere in the billing code: not a tier, not a column, not a line.
+            Every execution is charged at the admin's rate. Removed
+            2026-08-27, with the same claim in the chatbot. */}
 
         <section id="free-trial" className="scroll-mt-24 px-6 py-20 sm:py-24">
           <div className="mx-auto max-w-2xl rounded-3xl bg-gradient-to-br from-amber-300 to-amber-100 p-[2px] shadow-[0_0_48px_-8px_rgba(245,158,11,0.25)]">
@@ -844,62 +776,6 @@ function CompareRow({
   );
 }
 
-function DiscountCard({
-  title,
-  range,
-  value,
-  popular,
-  enterprise
-}: {
-  title: string;
-  range: string;
-  value: string;
-  popular?: boolean;
-  enterprise?: boolean;
-}) {
-  return (
-    <div
-      className={`relative rounded-2xl bg-white p-6 transition duration-200 hover:-translate-y-1 ${
-        popular
-          ? "border-2 border-amber-400 shadow-[0_0_48px_-8px_rgba(245,158,11,0.25)]"
-          : "border border-gray-100 shadow-sm hover:shadow-md"
-      }`}
-    >
-      {popular ? (
-        <span className="absolute -top-3 left-6 rounded-full bg-amber-500 px-3 py-0.5 text-xs font-bold text-slate-950" data-testid="pricing-popular-text">
-          Popular
-        </span>
-      ) : null}
-
-      <p className="text-sm font-semibold text-slate-900" data-testid="pricing-title-text">
-        {title}
-      </p>
-      <p className="mt-1 text-xs text-slate-500" data-testid="pricing-range-text">
-        {range}
-      </p>
-      <p
-        className={`mt-4 text-2xl font-extrabold tracking-tight ${
-          value.includes("off") ? "text-amber-600" : "text-slate-900"
-        }`}
-        data-testid="pricing-4-2xl-extrabold-tracking-text"
-      >
-        {value}
-      </p>
-
-      {enterprise ? (
-        <Link
-          data-testid="pricing-contact-sales-link"
-          href={"/#footer" as Route}
-          className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-amber-600 transition hover:gap-2.5 hover:text-amber-700"
-        >
-          Contact Sales
-          <ArrowIcon />
-        </Link>
-      ) : null}
-    </div>
-  );
-}
-
 function CheckCircle() {
   return (
     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
@@ -932,23 +808,6 @@ function ArrowIcon({ className = "h-4 w-4" }: { className?: string }) {
       aria-hidden="true"
     >
       <path d="M5 12h14m-6-6 6 6-6 6" />
-    </svg>
-  );
-}
-
-function ArrowUpIcon() {
-  return (
-    <svg
-      className="h-5 w-5"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 19V5m0 0l-6 6m6-6l6 6" />
     </svg>
   );
 }
