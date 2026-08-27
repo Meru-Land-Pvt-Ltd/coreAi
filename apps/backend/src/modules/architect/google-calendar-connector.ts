@@ -175,7 +175,15 @@ export async function listAvailableSlots({
     maxResults: 250
   });
 
+  /* AN EVENT MARKED "FREE" IS NOT BUSY.
+     The same day, read from the same calendar, was filtered two different
+     ways: the business's own booking page skips events marked Free or
+     cancelled, and this — the one the voice agent uses — took everything.
+     So a birthday, a holiday or an all-day reminder blocked a slot for the
+     agent while the booking page happily offered it, and the AI told a caller
+     a time was taken that the business's own page was selling. One rule. */
   const busy = (events.data.items ?? [])
+    .filter((event) => event.transparency !== "transparent" && event.status !== "cancelled")
     .map((event) => ({
       start: new Date(event.start?.dateTime ?? event.start?.date ?? 0).getTime(),
       end: new Date(event.end?.dateTime ?? event.end?.date ?? 0).getTime()

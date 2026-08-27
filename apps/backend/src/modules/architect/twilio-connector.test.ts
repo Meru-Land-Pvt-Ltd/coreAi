@@ -253,11 +253,22 @@ describe("validateSmsRecipientE164 (strict outbound-SMS validation)", () => {
   });
 });
 
-describe("normalizePhoneE164 (voice-path only, unchanged behavior)", () => {
-  it("keeps the lenient spoken-number bias for the Vapi booking tools", () => {
+describe("normalizePhoneE164 — a bare ten-digit number is a US number", () => {
+  it("no longer guesses the country from the first digit", () => {
+    /* This used to read 6 through 9 as India. Most US area codes start 6
+       through 9 — 650, 718, 916 — so a Sacramento practice typing their own
+       team phone had every transfer and every text dialled to India. The
+       calls simply never arrived, and nobody would have reported it as a
+       country-code problem. */
     expect(normalizePhoneE164("+1 (555) 123-0000")).toBe("+15551230000");
     expect(normalizePhoneE164("5551230000")).toBe("+15551230000");
-    expect(normalizePhoneE164("9876543210")).toBe("+919876543210");
+    expect(normalizePhoneE164("9165551234")).toBe("+19165551234");
+    expect(normalizePhoneE164("7185551234")).toBe("+17185551234");
     expect(normalizePhoneE164("bad")).toBe("");
+  });
+
+  it("still honours a country code somebody typed themselves", () => {
+    expect(normalizePhoneE164("+919876543210")).toBe("+919876543210");
+    expect(normalizePhoneE164("+44 20 7946 0958")).toBe("+442079460958");
   });
 });

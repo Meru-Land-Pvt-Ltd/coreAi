@@ -86,11 +86,20 @@ export function normalizePhoneE164(raw?: string | null): string {
   }
   const digits = trimmed.replace(/\D/g, "");
   if (digits.length < 10) return "";
-  if (digits.length === 10) return /^[6-9]/.test(digits) ? `+91${digits}` : `+1${digits}`;
+  /* A TEN-DIGIT NUMBER IS A US NUMBER.
+     This guessed the country from the first digit: 6 through 9 meant India.
+     Most US area codes start 6 through 9 — 650, 718, 916 — so a Sacramento
+     practice typing 9165551234 as their team phone had every transfer and
+     every text dialled to +91 916 555 1234 in India. Nobody would ever have
+     reported it as "the country code is wrong"; the calls simply never
+     arrived. The United States is the market this platform serves, so a bare
+     ten-digit number is a US number. Anyone outside it types their own
+     country code, which the branch above already honours. */
+  if (digits.length === 10) return `+1${digits}`;
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
   if (digits.length === 11 && digits.startsWith("0")) {
     const national = digits.slice(1);
-    return national.length === 10 ? (/^[6-9]/.test(national) ? `+91${national}` : `+1${national}`) : "";
+    return national.length === 10 ? `+1${national}` : "";
   }
   if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
   return `+${digits}`;

@@ -44,6 +44,7 @@ import {
   classifyCallOutcome,
   classifySentiment
 } from "../business/conversation-understanding/classify";
+import { mayCallNumber } from "./call-consent";
 import { detectHumanRequest } from "../business/sms-ai/sms-ai";
 import { isAiPausedForConversation, requestHumanTakeover } from "../business/inbox/inbox-service";
 import {
@@ -1081,6 +1082,26 @@ async function maybeStartVapiAfterMissedCall({
     }
   } catch (error) {
     console.error("[after-hours] outbound hours decision failed (non-fatal)", error);
+  }
+
+  /* A PERSON MUST ASK TO BE CALLED BEFORE AN AI PHONES THEM.
+     The platform enforces that everywhere an architect can place a call —
+     the runner refuses without consent and says so, with a comment noting an
+     architect cannot switch it off. This path is our OWN automatic callback
+     after a missed call, and it walked straight past the gate: the AI phoned
+     somebody who had never agreed to be phoned by one, on the business's bill
+     and in the business's name. Calling somebody is not a small thing to get
+     wrong, and in several places it is not ours to decide. */
+  const callConsent = await mayCallNumber({
+    businessId: agent.business.businessId,
+    phoneNumber: callerNumber
+  });
+  if (!callConsent.allowed) {
+    console.log("[missed-call] no AI callback placed — the caller has not agreed to be called", {
+      to: maskPhone(callerNumber),
+      reason: callConsent.reason
+    });
+    return null;
   }
 
   const call = await startVapiOutboundCall({
