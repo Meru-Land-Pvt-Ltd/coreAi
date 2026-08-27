@@ -93,8 +93,12 @@ describe("Admin moderation queue", () => {
       "PENDING_REVIEW",
       "Please clarify the data policy."
     ));
+    /* "Request changes" is stored as a rejected status with a review status of
+       CHANGES_REQUESTED. Showing it as "Rejected" told the admin — and the
+       architect reading it from the other side — that the agent was refused. */
     const card = await screen.findByTestId("admin-agent-card-listing-1");
-    expect(within(card).getByText("Rejected")).toBeTruthy();
+    expect(within(card).getByText("Changes requested")).toBeTruthy();
+    expect(within(card).queryByText("Rejected")).toBeNull();
     expect(within(card).queryByRole("button", { name: "Review" })).toBeNull();
   });
 
@@ -138,14 +142,38 @@ describe("Admin moderation queue", () => {
     expect(within(card).queryByRole("button", { name: "Reject" })).toBeNull();
   });
 
-  it("deletes an agent immediately and removes it from the admin list", async () => {
+  it("never deletes an agent on one click — the admin must type DELETE", async () => {
+    /* This test used to be called "deletes an agent immediately", which was
+       exactly the defect. That one button removes a live listing, releases its
+       phone numbers, deactivates the business numbers behind them, and unhooks
+       every payment, invoice and appointment pointing at it — for every
+       business already using it. The less destructive delete on the architects
+       screen has always asked for a typed confirmation. */
     render(<AdminAgentsPage />);
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole("button", { name: "Delete Reception Agent" }));
 
+    expect(deleteAdminAgentMock).not.toHaveBeenCalled();
+    const confirm = await screen.findByTestId("admin-agent-confirm-delete");
+    expect(confirm.hasAttribute("disabled")).toBe(true);
+
+    await user.type(screen.getByTestId("admin-agent-delete-confirmation"), "DELETE");
+    await user.click(screen.getByTestId("admin-agent-confirm-delete"));
+
     await waitFor(() => expect(deleteAdminAgentMock).toHaveBeenCalledWith("listing-1"));
     await waitFor(() => expect(screen.queryByTestId("admin-agent-card-listing-1")).toBeNull());
     expect(screen.getByText("Reception Agent was deleted permanently.")).toBeTruthy();
+  });
+
+  it("tells the admin how many businesses it will cut loose", async () => {
+    render(<AdminAgentsPage />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Delete Reception Agent" }));
+
+    /* Not "are you sure" — what it actually does, and to how many people. */
+    expect(screen.getByText(/installed it/)).toBeTruthy();
+    expect(screen.getByText(/cannot be undone/)).toBeTruthy();
   });
 });

@@ -291,6 +291,9 @@ export default function AdminAgentsPage() {
   const [message, setMessage] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  /* Nothing is deleted until an admin has read what it does and typed DELETE. */
+  const [deleteTarget, setDeleteTarget] = useState<AdminAgent | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [reviewingAgent, setReviewingAgent] = useState<AdminAgent | null>(null);
 
   async function load(searchValue: string) {
@@ -399,13 +402,23 @@ export default function AdminAgentsPage() {
     );
     const updatedStatus = result.data?.listing.status
       ?? (status === "PENDING_REVIEW" ? "REJECTED" : status);
+    /* Carry the review status back too, or the row would say "Rejected" for a
+       decision that was a request for changes. */
+    const updatedReviewStatus =
+      result.data?.listing.reviewStatus ?? (status === "PENDING_REVIEW" ? "CHANGES_REQUESTED" : null);
     setRows((current) => current.map((row) => (
-      row.id === listingId ? { ...row, status: updatedStatus } : row
+      row.id === listingId ? { ...row, status: updatedStatus, reviewStatus: updatedReviewStatus } : row
     )));
     setUpdatingId(null);
     return true;
   }
 
+  /* THE MOST DESTRUCTIVE BUTTON ON THE PLATFORM HAD NO GUARD.
+     One click deleted a live listing, released its phone numbers, deactivated
+     the business numbers behind them, and unhooked every payment, invoice and
+     appointment that pointed at it — for every business already using it. The
+     sibling delete on the architects screen, which is less destructive, makes
+     an admin type DELETE. This one asks for nothing at all. */
   async function deleteAgent(agent: AdminAgent) {
     setMessage(`Deleting ${display(agent.name)}…`);
     setDeletingId(agent.id);
@@ -620,7 +633,10 @@ export default function AdminAgentsPage() {
                     <button
                       type="button"
                       disabled={isBusy}
-                      onClick={() => void deleteAgent(agent)}
+                      onClick={() => {
+                        setDeleteTarget(agent);
+                        setDeleteConfirmation("");
+                      }}
                       data-testid={`admin-agent-delete-${agent.id}`}
                       aria-label={`Delete ${display(agent.name)}`}
                       className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-wait disabled:opacity-50"
@@ -644,6 +660,65 @@ export default function AdminAgentsPage() {
           onDecision={(status, reason) => changeStatus(reviewingAgent.id, status, reason)}
         />
       ) : null}
-    </div>
+    
+      {deleteTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-agent-title"
+            className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-xl"
+          >
+            <h2 id="delete-agent-title" className="text-lg font-extrabold text-slate-900">
+              Permanently delete this agent?
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              This removes <span className="font-semibold text-slate-900">{display(deleteTarget.name)}</span> from the
+              marketplace and unhooks it from every business already using it — their phone numbers are released, their
+              installs are cut loose, and the payments, invoices and appointments that point at it lose their link.{" "}
+              <span className="font-semibold text-slate-900">
+                {deleteTarget.installedAgentsCount} business
+                {deleteTarget.installedAgentsCount === 1 ? "" : "es"} installed it.
+              </span>{" "}
+              This cannot be undone.
+            </p>
+            <label className="mt-5 block text-sm font-semibold text-slate-700">
+              Type <span className="font-mono text-red-600">DELETE</span> to confirm
+              <input
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                autoFocus
+                disabled={deletingId === deleteTarget.id}
+                data-testid="admin-agent-delete-confirmation"
+                className="mt-2 h-11 w-full rounded-xl border border-gray-200 px-3 font-mono text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100 disabled:bg-gray-50"
+              />
+            </label>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deletingId === deleteTarget.id}
+                className="h-10 rounded-xl border border-gray-200 px-4 text-sm font-semibold text-slate-600 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const target = deleteTarget;
+                  setDeleteTarget(null);
+                  void deleteAgent(target);
+                }}
+                disabled={deleteConfirmation !== "DELETE" || deletingId === deleteTarget.id}
+                data-testid="admin-agent-confirm-delete"
+                className="h-10 rounded-xl bg-red-600 px-4 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {deletingId === deleteTarget.id ? "Deleting…" : "Permanently delete"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+</div>
   );
 }

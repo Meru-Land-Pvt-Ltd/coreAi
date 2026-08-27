@@ -209,7 +209,8 @@ export async function getAdminLiveSummaryData(now = new Date()) {
     submittedListings,
     recentPayments,
     recentExecutions,
-    usageRevenueByCurrency
+    usageRevenueByCurrency,
+    recentUsageInvoices
   ] = await Promise.all([
     prisma.user.findMany({
       where: {
@@ -244,9 +245,18 @@ export async function getAdminLiveSummaryData(now = new Date()) {
     // are NOT counted — a booking happens during a call that is already one
     // run, so adding it would double-count. WorkflowRun alone misses missed
     // calls, hence the LIVE VapiCall + missed-lead pair.
+    /* TOTAL EXECUTIONS COULD NOT COUNT A WORKFLOW RUN.
+       This counted missed-call leads and live voice calls only — the two
+       things the closed missed-call product produced. Everything the platform
+       actually sells now is a workflow run: a chat agent, an email agent, a
+       Loop, a File Upload. None of them appeared in the headline number on the
+       admin's own dashboard, while the activity list beneath it listed them
+       by name. A voice call already has its own WorkflowRun, so those are
+       excluded here to avoid counting one event twice. */
     Promise.all([
       prisma.lead.count({ where: { source: { contains: "MISSED_CALL" } } }),
-      prisma.vapiCall.count({ where: { executionMode: "LIVE" } })
+      prisma.vapiCall.count({ where: { executionMode: "LIVE" } }),
+      prisma.workflowRun.count({ where: { mode: "LIVE", callProvider: null } })
     ]),
     Promise.all([
       prisma.lead.findMany({
@@ -255,6 +265,10 @@ export async function getAdminLiveSummaryData(now = new Date()) {
       }),
       prisma.vapiCall.findMany({
         where: { executionMode: "LIVE", createdAt: { gte: performanceStart } },
+        select: { createdAt: true }
+      }),
+      prisma.workflowRun.findMany({
+        where: { mode: "LIVE", callProvider: null, createdAt: { gte: performanceStart } },
         select: { createdAt: true }
       })
     ]),
@@ -304,6 +318,15 @@ export async function getAdminLiveSummaryData(now = new Date()) {
       by: ["currency"],
       where: { status: "PAID" },
       _sum: { totalMicroUsd: true }
+    }),
+    /* THE TOTAL AND THE BADGE BESIDE IT COUNTED DIFFERENT MONEY.
+       Lifetime revenue folds in paid usage invoices — real money that never
+       creates a payment row. The "% vs last month" badge and the revenue
+       chart sitting next to it were built from payments alone, so the two
+       numbers on one card disagreed by however much usage billing had taken. */
+    prisma.businessUsageInvoice.findMany({
+      where: { status: "PAID", createdAt: { gte: previousPeriodStart } },
+      select: { createdAt: true, totalMicroUsd: true, currency: true }
     })
   ]);
 
@@ -329,18 +352,28 @@ export async function getAdminLiveSummaryData(now = new Date()) {
       amountCents: Math.round((row._sum.totalMicroUsd ?? 0) / 10_000)
     }))
   ]);
-  const recentRevenue = summarizeAdminRevenue(recentRevenuePayments);
+  /* One set of money for the total, the trend and the chart. */
+  const recentRevenueAll = [
+    ...recentRevenuePayments,
+    ...recentUsageInvoices.map((invoice) => ({
+      createdAt: invoice.createdAt,
+      amountCents: Math.round((invoice.totalMicroUsd ?? 0) / 10_000),
+      currency: invoice.currency
+    }))
+  ];
+  const recentRevenue = summarizeAdminRevenue(recentRevenueAll);
 
-  const currentPeriodRevenueCents = recentRevenuePayments
+  const currentPeriodRevenueCents = recentRevenueAll
     .filter((payment) => payment.createdAt >= performanceStart)
     .reduce((sum, payment) => sum + payment.amountCents, 0);
-  const previousPeriodRevenueCents = recentRevenuePayments
+  const previousPeriodRevenueCents = recentRevenueAll
     .filter((payment) => payment.createdAt >= previousPeriodStart && payment.createdAt < performanceStart)
     .reduce((sum, payment) => sum + payment.amountCents, 0);
 
   const performance = buildAdminPerformance30d(
     now,
-    recentRevenuePayments,
+    /* The chart under the total draws from the same money as the total. */
+    recentRevenueAll,
     performanceExecutions,
     performanceUsers
   ).map((day) => ({

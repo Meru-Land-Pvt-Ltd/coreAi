@@ -13,6 +13,7 @@
 
 import { LLM_MODELS, LLM_PROVIDERS } from "@coreai/shared";
 import { forgetPausedProviders } from "../ai-provider-engine/paused-providers";
+import { forgetAdminModelPrices } from "../ai-provider-engine/admin-model-prices";
 import { prisma } from "../../lib/prisma";
 import { llmProviderApiKey } from "../ai-provider-engine/llm-credentials";
 import { probeLlmProvider } from "../ai-provider-engine/llm-probe";
@@ -153,6 +154,7 @@ export async function setProviderSwitches(
   invalidateLlmModelCache();
   /* So the engine stops using it now, not in a minute. */
   forgetPausedProviders();
+  forgetAdminModelPrices();
 }
 
 export type ModelPatch = {
@@ -196,6 +198,9 @@ export async function patchModel(modelId: string, providerId: string, patch: Mod
   });
 
   invalidateLlmModelCache();
+  /* A price the admin just typed must be the one the next call is costed at. */
+  forgetAdminModelPrices();
+  forgetPausedProviders();
   return saved;
 }
 

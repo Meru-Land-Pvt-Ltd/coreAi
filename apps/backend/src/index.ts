@@ -1,5 +1,6 @@
 import { startMemoryRetentionWorker, stopMemoryRetentionWorker } from "./modules/memory/retention-worker";
 import { refreshPausedProviders } from "./modules/ai-provider-engine/paused-providers";
+import { refreshAdminModelPrices } from "./modules/ai-provider-engine/admin-model-prices";
 import { startHeldConversationsWorker, stopHeldConversationsWorker } from "./modules/architect/held-conversations-worker";
 import { serve } from "@hono/node-server";
 import { env } from "./config/env";
@@ -49,8 +50,12 @@ const server = serve(
        first call obeys it, then kept fresh in the background — the admin's
        own save clears it immediately, so a switch never waits. */
     void refreshPausedProviders();
-    const pausedProviderRefresh = setInterval(() => void refreshPausedProviders(), 60 * 1000);
-    pausedProviderRefresh.unref();
+    void refreshAdminModelPrices();
+    const llmAdminRefresh = setInterval(() => {
+      void refreshPausedProviders();
+      void refreshAdminModelPrices();
+    }, 60 * 1000);
+    llmAdminRefresh.unref();
     // Nodes architects built themselves, kept to hand so the runner never has
     // to query the database in the middle of a step.
     frameRefresh = startArchitectFrameRefresh();

@@ -1,3 +1,4 @@
+import { adminPriceFor } from "./admin-model-prices";
 /**
  * Backend view of the LLM catalog. The data lives in @coreai/shared so the
  * builder's provider/model dropdowns and the adapters can never drift apart —
@@ -30,8 +31,14 @@ export function getModelsForProvider(provider: string): string[] {
 export function getPricingForProvider(provider: string): Record<string, { input: number; output: number }> {
   const pricing: Record<string, { input: number; output: number }> = {};
   for (const m of MODEL_CATALOG) {
-    if (m.provider === provider && m.input !== null && m.output !== null) {
-      pricing[m.id] = { input: m.input, output: m.output };
+    if (m.provider !== provider) continue;
+    /* An admin's own price wins over the one shipped in the code. Theirs is
+       the current one; ours is whatever was true the day we released. */
+    const override = adminPriceFor(provider, m.id);
+    const input = override?.input ?? m.input;
+    const output = override?.output ?? m.output;
+    if (input !== null && output !== null) {
+      pricing[m.id] = { input, output };
     }
   }
   return pricing;
