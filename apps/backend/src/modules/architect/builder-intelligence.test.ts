@@ -19,7 +19,8 @@ describe("Builder Intelligence", () => {
     expect(text).toContain("DECIDE EVERYTHING MECHANICAL YOURSELF");
     expect(text).toContain("ASK ONLY WHAT IS GENUINELY THE HUMAN'S");
     expect(text).toContain("NEVER ASK EMPTY-HANDED");
-    expect(text).toContain("ONE QUESTION AT A TIME");
+    expect(text).toContain("ONE QUESTION PER BREATH");
+    expect(text).toContain("BREATHS WITHOUT LIMIT");
   });
 
   it("keeps the human's words sacred and honours 'you decide'", () => {

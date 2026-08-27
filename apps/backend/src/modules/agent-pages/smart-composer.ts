@@ -1,4 +1,6 @@
 import type { Hono } from "hono";
+import { builderIntelligenceText } from "../architect/builder-intelligence";
+import { surfaceLanguageProblems } from "./surface-laws";
 import type { PublishedAgentPage } from "@prisma/client";
 import { z } from "zod";
 import {
@@ -161,6 +163,10 @@ const COMPOSER_HARD_RULES = [
   '- One run button with { "role": "action" } so the customer can start the agent (skip it only for a pure voice product with no fields).'
 ].join("\n");
 
+/* THE CHARACTER RIDES THE FRONTEND HAND TOO (the founder's ruling,
+   2026-08-27): the same manners on both sides — decide machinery yourself,
+   ask only what is the human's, bring a proposal, use their words exactly,
+   breaths without limit. */
 export function buildComposerSystemPrompt(args: {
   agent: ComposerAgentFacts;
   declarations: WorkflowDeclarations;
@@ -178,7 +184,9 @@ export function buildComposerSystemPrompt(args: {
     "OUTPUT RULES:",
     '- Output ONLY a single JSON object, exactly: { "reply": string, "product": PRODUCT }. No markdown, no code fences, no words before or after it.',
     '- "reply": one warm, short line to the architect about the interface you composed — 200 characters or fewer, everyday words, no jargon.',
-    "- Labels and helper text in plain, friendly English drawn from the ask labels. Never show a customer a variable name, a node id, or any technical word."
+    "- Labels and helper text in plain, friendly English drawn from the ask labels. Never show a customer a variable name, a node id, or any technical word.",
+    "",
+    builderIntelligenceText()
   ].join("\n");
 }
 
@@ -224,7 +232,9 @@ export function buildSmartDesignerSystemPrompt(args: {
     "OUTPUT RULES:",
     '- For an interface change: output ONLY { "reply": string, "product": PRODUCT } — the COMPLETE product with the change made (anything you leave out is deleted).',
     '- For a request outside your boundary: output ONLY { "reply": string, "boundary": "packaging" }.',
-    '- "reply": one warm, short line — 200 characters or fewer, everyday words, no jargon.'
+    '- "reply": one warm, short line — 200 characters or fewer, everyday words, no jargon.',
+    "",
+    builderIntelligenceText()
   ].join("\n");
 }
 
@@ -511,6 +521,11 @@ export function checkComposition(
       );
     }
   }
+
+  /* THE CUSTOMER'S LANGUAGE (the frontend wing, 2026-08-27): a screen that
+     legally places every ask but says "webhook" to a paying customer still
+     fails. Same retry loop as every other law. */
+  violations.push(...surfaceLanguageProblems(working));
 
   return { product: violations.length > 0 ? null : working, violations, asksPlaced };
 }

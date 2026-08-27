@@ -9,10 +9,13 @@ import type { PreviewDevice } from "./preview-panel";
 import type { BuilderTab } from "./types";
 
 const BUILDER_STEPS: Array<{ id: BuilderTab; label: string; step: number }> = [
+  /* The founder's ruling (2026-08-27): the Preview tab and the Run button
+     were two doors to one destination. The tab died; the one button beside
+     Publish is the only door, and what stands behind it is judged by the
+     agent's trigger. */
   { id: "build", label: "Build", step: 1 },
-  { id: "test", label: "Preview", step: 2 },
-  { id: "configure", label: "Configure", step: 3 },
-  { id: "publish", label: "Publish", step: 4 }
+  { id: "configure", label: "Configure", step: 2 },
+  { id: "publish", label: "Publish", step: 3 }
 ];
 
 /** The three ways to look at the customer page — shown on the Preview step. */
@@ -322,8 +325,8 @@ export function BuilderHeader({
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 sm:gap-2 sm:rounded-xl sm:px-3.5 sm:py-2 sm:text-sm"
           >
             <BuilderIcon name="play" className="h-3.5 w-3.5 shrink-0" />
-            <span className="sm:hidden">{running ? "…" : "Run"}</span>
-            <span className="hidden sm:inline">{running ? "Running..." : "Run"}</span>
+            <span className="sm:hidden">{running ? "…" : "Preview"}</span>
+            <span className="hidden sm:inline">{running ? "Running..." : "Preview"}</span>
           </button>
           <button
             type="button"

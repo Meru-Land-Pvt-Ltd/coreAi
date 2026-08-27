@@ -143,6 +143,10 @@ export async function composeOrchestration(input: {
   /** The conversation so far — the Builder's questions and the architect's
       answers, so a reply completes the build instead of restarting it. */
   conversation?: Array<{ role: "user" | "assistant"; content: string }>;
+  /** THE SEVENTH ORGAN (the founder's ruling, 2026-08-27): the canvas as it
+      stands. When present, the ask is a CHANGE to a working agent — the
+      Builder edits instead of composing fresh. */
+  existingPlan?: { nodes: Array<{ id: string; type: string; title?: string; config?: Record<string, unknown> }>; edges: Array<{ from: string; to: string; when?: string }> };
   hiddenNodeTypes?: string[];
   onProgress?: (progress: ComposerProgress) => void;
 }): Promise<ComposerResult> {
@@ -182,7 +186,7 @@ export async function composeOrchestration(input: {
   ];
   const humanAnswered = (input.conversation ?? []).some((turn) => turn.role === "user");
   const pointer = TASTE_POINTERS.map((r) => r.exec(input.want)?.[0]).find(Boolean);
-  if (pointer && !humanAnswered) {
+  if (pointer && !humanAnswered && !input.existingPlan) {
     say("One thing only you can decide");
     return {
       ok: false,
@@ -208,6 +212,14 @@ export async function composeOrchestration(input: {
   );
 
   const messages: AIMessage[] = [
+    ...(input.existingPlan
+      ? [
+          {
+            role: "user" as const,
+            content: `THE CANVAS AS IT STANDS — a working agent the architect built. Their next message asks for a CHANGE. Edit, do not rebuild: keep the ids and settings of every step they did not ask you to touch, change exactly what was asked, and return the COMPLETE revised plan.\n${JSON.stringify(input.existingPlan).slice(0, 12_000)}`
+          }
+        ]
+      : []),
     ...(input.conversation ?? []).slice(-8).map((turn) => ({
       role: turn.role,
       content: turn.content.slice(0, 2000)

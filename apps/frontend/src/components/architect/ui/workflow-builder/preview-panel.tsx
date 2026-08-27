@@ -151,16 +151,6 @@ const FACE_WELCOME: Record<AgentPageTemplate, string> = {
   form: "Tell me what you need and I'll take care of the rest."
 };
 
-const FACES: {
-  id: AgentPageTemplate;
-  label: string;
-  icon: typeof MessageCircle;
-}[] = [
-  { id: "chat", label: "Chat", icon: MessageCircle },
-  { id: "voice", label: "Voice", icon: Phone },
-  { id: "media", label: "Create", icon: Sparkles },
-  { id: "form", label: "Form", icon: ClipboardList }
-];
 
 /**
  * The three ways an architect can look at their page — like a customer
@@ -223,37 +213,14 @@ export function PreviewPanel({
   onOpenAdvanced,
   onDesignApplied
 }: PreviewPanelProps) {
-  // The Smart Designer — ONE door for everything design: it fixes the
-  // composed interface itself and quietly routes packaging asks (sell page,
-  // pricing, legal) to the packaging brain. One launcher owns the corner.
-  const [smartOpen, setSmartOpen] = useState(false);
-  const smartPanelRef = useRef<HTMLElement | null>(null);
-  const smartLauncherRef = useRef<HTMLButtonElement | null>(null);
-
-  // Closing hands focus back to the launcher — the panel goes inert the same
-  // moment, and focus must never be left stranded inside an inert subtree.
-  const closeSmart = () => {
-    setSmartOpen(false);
-    smartLauncherRef.current?.focus();
-  };
-  const openSmart = () => {
-    setSmartOpen(true);
-  };
-
-  // Opening hands focus to the composer, same as the Design Brain dock.
-  useEffect(() => {
-    if (!smartOpen) return;
-    smartPanelRef.current
-      ?.querySelector<HTMLInputElement>("[data-testid='smart-designer-input']")
-      ?.focus();
-  }, [smartOpen]);
+  /* The Smart Designer's own dock died with the founder's ruling
+     (2026-08-27): one employee, one dock, mounted at the view level. */
 
   // Face priority: a manual pill pick wins; then the architect's saved page
   // template; then the backend's inferred default; last, the local node
   // heuristic for drafts we know nothing about. (Voice outranks media.)
   const autoFace: AgentPageTemplate = hasVoiceNode ? "voice" : hasMediaNode ? "media" : "chat";
-  const [pickedFace, setPickedFace] = useState<AgentPageTemplate | null>(null);
-  const face = pickedFace ?? page?.template ?? defaultTemplate ?? autoFace;
+  const face = page?.template ?? defaultTemplate ?? autoFace;
 
   // A built product (Design Brain "Build") outranks everything: the preview's
   // promise is "what your customer will meet", and once a product exists,
@@ -611,123 +578,12 @@ export function PreviewPanel({
         </div>
       ) : null}
 
-      {/* With product blocks on the canvas (or a built product), the graph
-          decides the product — the look pills would contradict it, so they
-          step aside. Otherwise they float quietly at the bottom. */}
-      {blueprint || productSpec ? null : (
-        <div
-          role="group"
-          className="absolute bottom-[4.25rem] left-1/2 z-30 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200/70 bg-white/95 p-1 shadow-lg shadow-slate-900/10 backdrop-blur sm:bottom-4"
-          aria-label="Choose a look"
-          data-testid="preview-panel-face-switcher"
-        >
-          {FACES.map(({ id, label, icon: Icon }) => {
-            const active = face === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setPickedFace(id)}
-                data-testid={`preview-panel-face-${id}`}
-                className={
-                  (active
-                    ? "inline-flex flex-none items-center gap-1.5 rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition"
-                    : "inline-flex flex-none items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900") +
-                  PILL_FOCUS_CLASSES
-                }
-              >
-                <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {/* The costume switcher died with the founder's ruling (2026-08-27):
+          the agent's real face comes from its graph — never from a toy bar
+          a paying customer could mistake for the product. */}
 
-      {/* THE design launcher — one button owns the corner. The Smart Designer
-          fixes the interface and routes packaging asks itself, so nothing
-          else needs a door here. Fades out while its panel is up. */}
-      <button
-        type="button"
-        ref={smartLauncherRef}
-        onClick={openSmart}
-        aria-expanded={smartOpen}
-        aria-haspopup="dialog"
-        tabIndex={smartOpen ? -1 : undefined}
-        data-testid="smart-designer-toggle"
-        className={
-          "absolute bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-amber-400 to-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-amber-500/30 transition hover:from-amber-500 hover:to-amber-600 motion-reduce:transition-none" +
-          (smartOpen ? " pointer-events-none opacity-0" : " opacity-100") +
-          PILL_FOCUS_CLASSES
-        }
-      >
-        <Sparkles className="h-4 w-4" aria-hidden="true" />
-        AI Builder
-      </button>
-
-      {/* Phone-size scrim behind the Smart Designer sheet — tap to close. */}
-      {smartOpen ? (
-        <button
-          type="button"
-          aria-label="Close AI Builder"
-          onClick={closeSmart}
-          data-testid="smart-designer-backdrop"
-          className="absolute inset-0 z-40 bg-slate-900/30 sm:hidden"
-        />
-      ) : null}
-
-      {/* The floating Smart Designer panel — a sibling of the Design Brain
-          dock, never a replacement. Same mount-and-fade mechanics. */}
-      <section
-        ref={smartPanelRef}
-        role="dialog"
-        aria-label="AI Builder"
-        inert={!smartOpen}
-        data-testid="smart-designer-dock"
-        data-open={smartOpen ? "true" : "false"}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") closeSmart();
-        }}
-        className={
-          "absolute bottom-4 right-4 z-50 flex h-[min(65vh,560px)] max-h-[calc(100%-2rem)] w-[380px] max-w-[calc(100%-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/25 transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none max-sm:inset-x-3 max-sm:bottom-3 max-sm:h-[70vh] max-sm:w-auto max-sm:max-w-none " +
-          (smartOpen ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")
-        }
-      >
-        <div className="flex flex-none items-start justify-between gap-2 border-b border-gray-100 px-4 pb-3 pt-4">
-          <div className="min-w-0">
-            <h3
-              className="text-xs font-bold uppercase tracking-wider text-slate-400"
-              data-testid="smart-designer-title"
-            >
-              AI Builder
-            </h3>
-            <p className="mt-1 text-xs leading-5 text-slate-500" data-testid="smart-designer-dock-intro">
-              Generate your product&apos;s interface — then fix it by talking.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={closeSmart}
-            aria-label="Close"
-            data-testid="smart-designer-close"
-            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
-        <AiBuilderPanel
-          workflowId={workflowId}
-          purpose={purpose}
-          onPurposeSaved={onPurposeSaved}
-          // A composed interface exists when the saved ProductSpec does (the
-          // composer writes the spec, not canvas blocks) — or when the graph
-          // carries product blocks. Checking only blocks locked the chat
-          // behind a pointless re-Generate after every page reload.
-          hasComposedSpec={productSpec !== null || blueprint !== null}
-          onApplied={onDesignApplied}
-        />
-      </section>
+      {/* The AI Builder dock is mounted ONCE at the view level now (the
+          founder's ruling, 2026-08-27) — one employee, every tab, no twin. */}
     </div>
   );
 }

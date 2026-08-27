@@ -19,6 +19,8 @@ import {
 import "@xyflow/react/dist/style.css";
 import { BUILDER_NODE_DRAG_TYPE } from "./workflow-builder/component-library";
 import { AiBuilderPanel, type ComposedCanvas } from "./workflow-builder/ai-builder-panel";
+import { AgentDoor } from "./workflow-builder/agent-door";
+import { wayInFor } from "@coreai/shared";
 import { useWiringCheck } from "./workflow-builder/use-wiring-check";
 import { apiPost } from "@/lib/api";
 import Link from "next/link";
@@ -455,7 +457,27 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [tagline, setTagline] = useState(defaultAgentDescription);
   /* The AI Builder on the Build tab — the founder's call: one assistant, every
      screen, never hunt for it. */
-  const [aiBuilderOpen, setAiBuilderOpen] = useState(false);
+  const [aiBuilderOpen, setAiBuilderOpenState] = useState(false);
+  /* Remembered per browser: an employee who vanished on every visit would
+     read as a toy. Read after mount (SSR has no storage). */
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem("triven.aiBuilderOpen") === "1") setAiBuilderOpenState(true);
+    } catch {
+      /* storage blocked — the default closed state stands */
+    }
+  }, []);
+  const setAiBuilderOpen = useCallback((next: boolean | ((open: boolean) => boolean)) => {
+    setAiBuilderOpenState((open) => {
+      const value = typeof next === "function" ? next(open) : next;
+      try {
+        window.localStorage.setItem("triven.aiBuilderOpen", value ? "1" : "0");
+      } catch {
+        /* storage blocked — memory-only is fine */
+      }
+      return value;
+    });
+  }, []);
   /* DECLARED purpose only — what the architect told the AI Builder. Never the
      description: that is a marketing tagline many old agents already carry,
      and tallying against one produced confident nonsense. */
@@ -492,7 +514,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [running, setRunning] = useState(false);
   /* THE PREVIEW LAW, Rule 2: Run belongs where you are. The log opens in a
      drawer on Build instead of throwing the architect onto another tab. */
-  const [runDrawerOpen, setRunDrawerOpen] = useState(false);
   const [dryRunConfigureHints, setDryRunConfigureHints] = useState<string[]>([]);
   const [message, setMessage] = useState("Unsaved changes");
   const [publishError, setPublishError] = useState("");
@@ -669,19 +690,14 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
      types at this agent, and the person in front of the mirror is the
      BUSINESS. The generic chat face for such an agent was a face for a person
      who does not exist. */
-  const selfStarting = useMemo(() => {
-    if (nodes.length === 0) return false;
-    const hasFace = nodes.some((node) => String(node.data.type ?? "").startsWith("block."));
-    if (hasFace) return false;
-    const conversational = nodes.some((node) => {
-      const type = String(node.data.type ?? "");
-      return (
-        type.startsWith("trigger.") &&
-        !["trigger.schedule", "trigger.webhook", "trigger.manual"].includes(type)
-      );
-    });
-    return !conversational;
-  }, [nodes]);
+  /* THE DOOR'S JUDGEMENT (the founder's ruling, 2026-08-27). The old logic
+     branded Telegram "conversational" and dressed it as a website. wayInFor
+     is deterministic and exam-guarded in shared — the same judgement every
+     time, for every surface. */
+  const wayIn = useMemo(
+    () => wayInFor({ nodes: nodes.map((node) => ({ data: { type: String(node.data.type ?? "") } })) }),
+    [nodes]
+  );
 
 
   // Node ids + labels whitelist {{node.prop}}-style tokens in the unknown-
@@ -2799,9 +2815,10 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
         onAgentNameChange={setAgentName}
         onTabChange={requestTabChange}
         onRunTest={() => {
-          /* Rule 2 of the Preview Law: Run never throws you onto another tab. */
-          setRunDrawerOpen(true);
-          void runAgent({ stayHere: true });
+          /* The one door (2026-08-27): Preview opens the surface judged by
+             the trigger. Looking never runs anything — the door's own Run
+             button does that, deliberately. */
+          requestTabChange("test");
         }}
         onSave={() => void saveAgent()}
       />
@@ -2853,6 +2870,78 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
       ) : null}
 
       <main className="fixed bottom-10 left-0 right-0 top-[6.5rem] overflow-hidden md:top-14">
+        {/* ONE EMPLOYEE, EVERYWHERE (the founder's ruling, 2026-08-27).
+            The AI Builder used to live twice — once on Build, once inside
+            Preview as "Smart Designer" — and each copy forgot separately on
+            every tab switch. One dock now, mounted above every tab, its
+            open state remembered across visits. */}
+        <button
+          type="button"
+          onClick={() => setAiBuilderOpen((open) => !open)}
+          data-testid="build-ai-builder-toggle"
+          className="absolute bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-amber-600"
+        >
+          <BuilderIcon name="sparkles" className="h-4 w-4" />
+          AI Builder
+        </button>
+        {aiBuilderOpen ? (
+          <div
+            data-testid="build-ai-builder-dock"
+            className="absolute bottom-20 right-6 z-40 flex h-[min(34rem,70vh)] w-[min(24rem,90vw)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">AI Builder</p>
+              <button
+                type="button"
+                onClick={() => setAiBuilderOpen(false)}
+                aria-label="Minimize AI Builder"
+                data-testid="build-ai-builder-close"
+                className="rounded-lg p-1 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
+              >
+                &#8211;
+              </button>
+            </div>
+            <AiBuilderPanel
+              workflowId={currentWorkflowId}
+              canvasHasSteps={nodes.length > 0}
+              getGraphPlan={() => ({
+                nodes: nodes.map((node) => ({
+                  id: node.id,
+                  type: String(node.data.type ?? ""),
+                  title: String(node.data.title ?? node.data.label ?? ""),
+                  config: Object.fromEntries(
+                    Object.entries(node.data).filter(
+                      ([key, value]) =>
+                        !["type", "nodeKind", "kind", "icon", "accent"].includes(key) &&
+                        (typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+                    )
+                  )
+                })),
+                edges: edges.map((edge) => ({
+                  id: edge.id,
+                  from: edge.source,
+                  to: edge.target
+                })) as never
+              })}
+              purpose={agentPurpose}
+              onPurposeSaved={setAgentPurpose}
+              hasComposedSpec={Boolean(previewPageData?.product) || Boolean(previewPageData?.blueprint)}
+              onApplied={handleDesignApplied}
+              onBuilt={(canvas) => {
+                /* An EDIT keeps the room arranged as the architect left it:
+                   steps whose ids survive keep their positions; only new
+                   steps take fresh seats (the seventh organ, 2026-08-27). */
+                const seats = new Map(nodes.map((node) => [node.id, node.position]));
+                const nextNodes = toBuilderNodes(canvas.nodes).map((node) =>
+                  seats.has(node.id) ? { ...node, position: seats.get(node.id)! } : node
+                );
+                setNodes(nextNodes);
+                setEdges(toBuilderEdges(canvas.edges));
+              }}
+            />
+          </div>
+        ) : null}
+
         {activeTab === "build" ? (
           <section className="builder-view fade-enter flex min-w-0">
             <aside
@@ -3028,115 +3117,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
                 </Controls>
               </ReactFlow>
 
-              {/* THE AI BUILDER, ON THE BUILD TAB TOO. It lived only behind
-                  Preview, which meant the one screen where mistakes are MADE
-                  had no way to ask about them. Same one assistant, same box. */}
-              <button
-                type="button"
-                onClick={() => setAiBuilderOpen((open) => !open)}
-                data-testid="build-ai-builder-toggle"
-                className="absolute bottom-6 right-6 z-30 flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-amber-600"
-              >
-                <BuilderIcon name="sparkles" className="h-4 w-4" />
-                AI Builder
-              </button>
-              {/* THE RUN DRAWER — Rule 2 of the Preview Law. The log arrives
-                  where the architect already is, in the words the engine wrote,
-                  with the Test Email box beside the mail it would send. */}
-              {runDrawerOpen ? (
-                <div
-                  data-testid="build-run-drawer"
-                  className="absolute right-6 top-6 z-30 flex max-h-[70vh] w-[min(26rem,90vw)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
-                >
-                  <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                      {running ? "Running…" : "Run log"}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setRunDrawerOpen(false)}
-                      aria-label="Close run log"
-                      data-testid="build-run-drawer-close"
-                      className="rounded-lg p-1 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
-                    {runLogs.length === 0 && !running ? (
-                      <p className="text-xs leading-5 text-slate-500">
-                        Press Run and every step reports here — in order, in plain words.
-                      </p>
-                    ) : null}
-                    {runLogs.map((log, index) => (
-                      <div key={`${log.nodeId}-${index}`} className="flex items-start gap-2">
-                        <span
-                          className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
-                            log.status === "error"
-                              ? "bg-red-500"
-                              : log.status === "skipped"
-                                ? "bg-slate-300"
-                                : log.status === "waiting"
-                                  ? "bg-amber-400"
-                                  : "bg-emerald-500"
-                          }`}
-                        />
-                        <p className="min-w-0 text-xs leading-5 text-slate-700">
-                          <span className="font-semibold text-slate-900">{log.label}</span> — {log.message}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                  {hasEmailNode ? (
-                    <div className="border-t border-gray-100 px-4 py-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                        Test Email
-                      </p>
-                      <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
-                        Put your address here and Run — the real mail lands in your inbox.
-                      </p>
-                      <input
-                        value={testEmail}
-                        onChange={(event) => setTestEmail(event.target.value)}
-                        placeholder="you@yourmail.com"
-                        data-testid="build-run-test-email"
-                        className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-amber-400"
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {aiBuilderOpen ? (
-                <div
-                  data-testid="build-ai-builder-dock"
-                  className="absolute bottom-20 right-6 z-30 flex h-[min(34rem,70vh)] w-[min(24rem,90vw)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
-                >
-                  <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">AI Builder</p>
-                    <button
-                      type="button"
-                      onClick={() => setAiBuilderOpen(false)}
-                      aria-label="Close AI Builder"
-                      data-testid="build-ai-builder-close"
-                      className="rounded-lg p-1 text-slate-400 transition hover:bg-gray-100 hover:text-slate-600"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <AiBuilderPanel
-                    workflowId={currentWorkflowId}
-                    canvasHasSteps={nodes.length > 0}
-                    purpose={agentPurpose}
-                    onPurposeSaved={setAgentPurpose}
-                    onApplied={() => undefined}
-                    onBuilt={(canvas) => {
-                      setNodes(toBuilderNodes(canvas.nodes));
-                      setEdges(toBuilderEdges(canvas.edges));
-                    }}
-                  />
-                </div>
-              ) : null}
 
               {wiring.known && wiring.problems.length > 0 ? (
                 <div
@@ -3252,7 +3232,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           </section>
         ) : null}
 
-        {activeTab === "test" && testView === "preview" && selfStarting ? (
+        {activeTab === "test" && testView === "preview" && (wayIn.kind === "clock" || wayIn.kind === "webhook") ? (
           <BusinessMirror
             agentName={agentName}
             logs={runLogs}
@@ -3261,7 +3241,25 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           />
         ) : null}
 
-        {activeTab === "test" && testView === "preview" && !selfStarting ? (
+        {activeTab === "test" &&
+        testView === "preview" &&
+        ["telegram", "email", "whatsapp", "calendly", "empty"].includes(wayIn.kind) ? (
+          <AgentDoor
+            way={wayIn}
+            agentName={agentName}
+            telegram={telegramTestConnection}
+            onConnectTelegram={(botToken) => void connectTelegramTest(botToken)}
+            onDisconnectTelegram={() => void disconnectTelegramTest()}
+            telegramBusy={connectingTelegramTest}
+            logs={runLogs}
+            running={running}
+            onRun={() => void runAgent({ stayHere: true })}
+            testEmail={testEmail}
+            onTestEmailChange={setTestEmail}
+          />
+        ) : null}
+
+        {activeTab === "test" && testView === "preview" && wayIn.kind === "page" ? (
           <PreviewPanel
             workflowId={currentWorkflowId}
             workflowName={agentName}

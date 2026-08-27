@@ -80,10 +80,16 @@ function nextMessageId(): string {
  * stream (ported verbatim from the old composer panel, 401 lesson included:
  * the token goes in the header, never a cookie).
  */
+type GraphPlan = {
+  nodes: Array<{ id: string; type: string; title?: string; config?: Record<string, unknown> }>;
+  edges: Array<{ from: string; to: string; when?: string }>;
+};
+
 async function composeCanvas(
   want: string,
   onStage: (line: string) => void,
-  conversation?: Array<{ role: "user" | "assistant"; content: string }>
+  conversation?: Array<{ role: "user" | "assistant"; content: string }>,
+  existingPlan?: GraphPlan
 ): Promise<{ canvas?: ComposedCanvas; failed?: string; ask?: { question: string; suggestion: string } }> {
   const base = process.env.NEXT_PUBLIC_API_URL ?? "/api";
   const token = getAuthToken();
@@ -94,7 +100,11 @@ async function composeCanvas(
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ want, ...(conversation?.length ? { conversation } : {}) })
+    body: JSON.stringify({
+      want,
+      ...(conversation?.length ? { conversation } : {}),
+      ...(existingPlan ? { existingPlan } : {})
+    })
   });
 
   if (!response.ok || !response.body) {
@@ -202,6 +212,7 @@ export function AiBuilderPanel({
   workflowId,
   hasComposedSpec = false,
   canvasHasSteps = true,
+  getGraphPlan,
   purpose = "",
   onApplied,
   onBuilt,
@@ -213,6 +224,8 @@ export function AiBuilderPanel({
   hasComposedSpec?: boolean;
   /** False only on a blank canvas, where "build me…" may compose from scratch. */
   canvasHasSteps?: boolean;
+  /** The canvas as it stands — for edit asks (the seventh organ). */
+  getGraphPlan?: () => GraphPlan;
   /** What the architect said they are building — the yardstick every check
    *  tallies against. Empty until they answer the one question. */
   purpose?: string;
@@ -365,23 +378,16 @@ export function AiBuilderPanel({
   }
 
   async function handleBuild(want: string, threadOverride?: Array<{ role: "user" | "assistant"; content: string }>) {
-    if (canvasHasSteps) {
-      /* Composing REPLACES the canvas. On an agent that already has steps,
-         obeying "add a step" by rebuilding everything would destroy an
-         afternoon's work — saying so honestly beats doing that. */
-      say({
-        role: "assistant",
-        content:
-          "This canvas already has steps, and I don't rebuild working agents from chat yet — that lands next. Drag the step in from the left, or ask me to explain or change the page."
-      });
-      return;
-    }
+    /* THE SEVENTH ORGAN (the founder's ruling, 2026-08-27): a canvas with
+       steps means the ask is a CHANGE — the Builder edits, keeping every
+       step the architect did not name. The old refusal is gone. */
+    const existingPlan = canvasHasSteps ? getGraphPlan?.() : undefined;
 
     setGenerating(true);
     setProgressStage(0);
     try {
       const thread = threadOverride ?? (buildThread?.want === want ? buildThread.turns : []);
-      const { canvas, failed, ask } = await composeCanvas(want, () => setProgressStage(1), thread);
+      const { canvas, failed, ask } = await composeCanvas(want, () => setProgressStage(1), thread, existingPlan);
       if (canvas) {
         setBuildThread(null);
         say({

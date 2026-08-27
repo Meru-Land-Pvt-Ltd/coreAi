@@ -28,3 +28,4 @@ export * from "./visual-results";
 export * from "./product-spec";
 export * from "./workflow-graph";
 export * from "./model-dials";
+export * from "./the-door.js";

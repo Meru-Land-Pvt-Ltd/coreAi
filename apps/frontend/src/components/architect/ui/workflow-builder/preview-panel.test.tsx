@@ -107,31 +107,12 @@ describe("PreviewPanel", () => {
     expect(faceSlot("media").hasAttribute("hidden")).toBe(true);
   });
 
-  it("switches Faces locally through the pills", async () => {
-    const user = userEvent.setup();
+  it("the costume switcher is dead — the agent's real face comes from its graph", () => {
+    /* The founder's ruling (2026-08-27): a toy bar of Chat/Voice/Create/Form
+       pills is what a paying customer mistakes for the product — and leaves. */
     render(<PreviewPanel {...makeProps()} />);
-
-    await user.click(screen.getByTestId("preview-panel-face-form"));
-    expect(faceSlot("form").hasAttribute("hidden")).toBe(false);
-    expect(faceSlot("chat").hasAttribute("hidden")).toBe(true);
-
-    await user.click(screen.getByTestId("preview-panel-face-chat"));
-    expect(faceSlot("chat").hasAttribute("hidden")).toBe(false);
-  });
-
-  it("keeps the chat transcript when switching Faces and back", async () => {
-    const user = userEvent.setup();
-    render(<PreviewPanel {...makeProps()} />);
-
-    await user.type(screen.getByTestId("agent-page-composer"), "Hello there{Enter}");
-    await screen.findByTestId("agent-page-assistant-message");
-
-    await user.click(screen.getByTestId("preview-panel-face-form"));
-    await user.click(screen.getByTestId("preview-panel-face-chat"));
-
-    expect(screen.getByTestId("agent-page-assistant-message").textContent).toBe(
-      "Happy to help!"
-    );
+    expect(screen.queryByTestId("preview-panel-face-switcher")).toBeNull();
+    expect(screen.queryByTestId("preview-panel-face-form")).toBeNull();
   });
 
   it("renders the saved page design verbatim — template, headline, welcome, prompts", () => {
@@ -303,25 +284,15 @@ describe("PreviewPanel device frames", () => {
 });
 
 describe("PreviewPanel design corner", () => {
-  it("one launcher owns the corner: Smart Designer only, no second pill, no old dock", () => {
+  it("carries NO dock of its own — one employee, one dock, at the view level", () => {
+    /* The founder's ruling (2026-08-27): the preview's own Smart Designer
+       dock was a twin that forgot separately on every tab switch. The one
+       AI Builder dock is mounted above every tab; the preview has none. */
     render(<PreviewPanel {...makeProps()} />);
-
-    expect(screen.getByTestId("smart-designer-toggle")).toBeTruthy();
-    // The old Design Brain / Packaging launcher and dock are gone for good.
+    expect(screen.queryByTestId("smart-designer-toggle")).toBeNull();
+    expect(screen.queryByTestId("smart-designer-dock")).toBeNull();
     expect(screen.queryByTestId("design-float-toggle")).toBeNull();
     expect(screen.queryByTestId("design-dock")).toBeNull();
-  });
-
-  it("the launcher opens the Smart Designer panel and close hands the corner back", async () => {
-    const user = userEvent.setup();
-    render(<PreviewPanel {...makeProps()} />);
-
-    await user.click(screen.getByTestId("smart-designer-toggle"));
-    const panel = screen.getByTestId("smart-designer-dock");
-    expect(panel.getAttribute("data-open")).toBe("true");
-
-    await user.click(screen.getByTestId("smart-designer-close"));
-    expect(panel.getAttribute("data-open")).toBe("false");
   });
 });
 

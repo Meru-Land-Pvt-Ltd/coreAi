@@ -35,22 +35,21 @@ beforeEach(() => cleanup());
 afterEach(() => cleanup());
 
 describe("BuilderHeader", () => {
-  it("has no Preview button — only Run and Publish Agent actions", () => {
+  it("carries ONE door: the Preview button — never a Preview tab beside it", () => {
+    /* The founder's ruling (2026-08-27): the Preview tab and the Run button
+       were two doors to one destination. The tab died; the button is the
+       door, and what stands behind it is judged by the agent's trigger. */
     renderHeader();
 
-    expect(screen.queryByTestId("builder-preview")).toBeNull();
-    // The step tab is now labeled "Preview"; only the old standalone Preview
-    // action button must stay gone.
-
-    expect(screen.getByTestId("builder-run-test").textContent).toContain("Run");
-    expect(screen.getByTestId("builder-run-test").textContent).not.toContain("Test Workflow");
+    expect(screen.queryByTestId("builder-tab-test")).toBeNull();
+    expect(screen.getByTestId("builder-run-test").textContent).toContain("Preview");
     expect(screen.getByTestId("builder-publish-marketplace").textContent).toBe("Publish Agent");
   });
 
-  it("keeps the four step tabs untouched", () => {
+  it("keeps the three remaining step tabs", () => {
     renderHeader();
 
-    for (const tab of ["build", "test", "configure", "publish"]) {
+    for (const tab of ["build", "configure", "publish"]) {
       expect(screen.getByTestId(`builder-tab-${tab}`)).toBeTruthy();
     }
   });

@@ -31,6 +31,13 @@ const askSchema = z.object({
   conversation: z
     .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(2000) }))
     .max(10)
+    .optional(),
+  /* The seventh organ: the canvas as it stands, for edit asks. */
+  existingPlan: z
+    .object({
+      nodes: z.array(z.object({ id: z.string(), type: z.string(), title: z.string().optional(), config: z.record(z.string(), z.unknown()).optional() })).max(60),
+      edges: z.array(z.object({ from: z.string(), to: z.string(), when: z.string().optional() })).max(120)
+    })
     .optional()
 });
 
@@ -86,6 +93,7 @@ composerRoutes.post("/", async (c) => {
         architectUserId: authUser.id,
         want: parsed.data.want,
         ...(parsed.data.conversation ? { conversation: parsed.data.conversation } : {}),
+        ...(parsed.data.existingPlan ? { existingPlan: parsed.data.existingPlan } : {}),
         hiddenNodeTypes: hidden,
         onProgress: (progress) => {
           void send("progress", progress);

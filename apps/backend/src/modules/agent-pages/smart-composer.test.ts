@@ -76,7 +76,15 @@ const workflowJson = {
   nodes: [
     {
       id: "brain-1",
-      data: { type: "ai.llm_call", label: "Forecast brain", prompt: "Weather for {{city}} by {{deadline}}" }
+      data: {
+        type: "ai.llm_call",
+        label: "Forecast brain",
+        prompt: "Weather for {{city}} by {{deadline}}",
+        /* Filled the modern way — an unfilled Brain box would derive a
+           business ask labeled with the machine key, and the surface law
+           (rightly) refuses a customer ever reading one. */
+        llmAnswerShouldBe: "Write a short, friendly forecast."
+      }
     },
     {
       id: "sms-1",
