@@ -1,5 +1,5 @@
 /**
- * SMART DESIGNER DESIGNS THE WHOLE BUSINESS SIDE.
+ * THE AI BUILDER DESIGNS THE WHOLE BUSINESS SIDE.
  *
  * Two surfaces, one contract, no hand-written pages:
  *

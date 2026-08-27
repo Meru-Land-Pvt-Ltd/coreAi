@@ -61,7 +61,7 @@ export function buildCostEstimate(
  * `outputFormat: "json"` used to be a parse-time hint only: we asked for JSON
  * in words and hoped. Roughly one reply in five came back with a misplaced
  * bracket, which every JSON gate on the platform correctly rejected — the
- * the AI Builder, its Eyes, packaging, design chat, the AI doors and quality
+ * the AI Builder, its Eyes, packaging, the AI doors and quality
  * scoring all paid that tax. Sending `response_format` makes the API itself
  * guarantee syntactically valid JSON.
  *

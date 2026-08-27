@@ -42,10 +42,9 @@ import { resolveDesign } from "./design";
 import { ensureDraftAgentListingAndPage, type AgentPageTemplate } from "./slug";
 
 /**
- * SMART DESIGNER — the orchestration generates the interface.
+ * THE AI BUILDER — the orchestration generates the interface.
  *
  *   POST /agent-pages/manage/:workflowId/smart-compose   (the AI Composer)
- *   POST /agent-pages/manage/:workflowId/smart-designer  (the feedback loop)
  *
  * The frontend law this implements: nodes DECLARE (what they must ask a human
  * for, what they show back), and an AI COMPOSER — an LLM, never code rules —
