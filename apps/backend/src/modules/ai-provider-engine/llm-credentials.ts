@@ -1,4 +1,6 @@
 import { env } from "../../config/env";
+/* THE KEY AN ADMIN SAVES IS THE KEY WE USE. See llmProviderApiKey below. */
+import { platformApiSetting } from "../admin/platform-api-settings";
 import { providerIsPaused } from "./paused-providers";
 import { llmProviderBlockReason } from "./llm-health";
 
@@ -28,7 +30,31 @@ export const MISSING_LLM_CREDENTIALS_MESSAGE =
 export type LlmCredentialStatus = "configured" | "missing" | "unknown";
 
 function keyIsSet(key: LlmEnvKey): boolean {
-  return Boolean((env[key] ?? process.env[key])?.trim());
+  return Boolean(readKey(key));
+}
+
+/**
+ * THE KEY AN ADMIN SAVES IS THE KEY WE USE.
+ *
+ * The admin screen has a box for every provider's key and says under it:
+ * "Stored encrypted. It is used the moment you save it — no restart." That
+ * sentence was false. This read the server's environment variable and nothing
+ * else, so a key pasted on the screen was encrypted, stored, shown back — and
+ * never once used.
+ *
+ * The founder hit it head-on on 2026-08-28: OpenAI's key was rejected, he
+ * created a fresh one, pasted it, saved it, and the platform went on using
+ * the dead key from the .env file. Proved by reading both: the screen held
+ * one key, the code used another. There is no way to recover from that from
+ * inside the product — the only fix was to edit a file on the server.
+ *
+ * The saved key wins now. The environment is the fallback, for a fresh
+ * install where nobody has opened the admin screen yet.
+ */
+function readKey(key: LlmEnvKey): string {
+  const saved = platformApiSetting(key);
+  if (saved) return saved;
+  return (env[key] ?? process.env[key])?.trim() ?? "";
 }
 
 export function llmProviderApiKey(providerId: string): string {
@@ -36,7 +62,7 @@ export function llmProviderApiKey(providerId: string): string {
   if (!keys) return "";
 
   for (const key of keys) {
-    const value = (env[key] ?? process.env[key])?.trim();
+    const value = readKey(key);
     if (value) return value;
   }
   return "";
