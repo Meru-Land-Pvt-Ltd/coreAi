@@ -459,13 +459,16 @@ export default function AdminDashboardPage() {
                 <th className="px-6 py-3 font-semibold">Time</th>
                 <th className="px-6 py-3 font-semibold">Event</th>
                 <th className="px-6 py-3 font-semibold">User</th>
+                {/* AN "ACTION" COLUMN THAT WAS ALWAYS "N/A". Every row in
+                    this table carried a permanent N/A under a heading that
+                    promised something to do. A blank forever is not neutral:
+                    it tells an admin the thing exists and is missing. */}
                 <th className="px-6 py-3 font-semibold">Details</th>
-                <th className="px-6 py-3 text-right font-semibold">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {(summary.recentActivity ?? []).length === 0 ? (
-                <tr><td colSpan={5} className="px-6 py-10 text-center font-semibold text-slate-400">N/A</td></tr>
+                <tr><td colSpan={4} className="px-6 py-10 text-center font-semibold text-slate-400">Nothing has happened yet.</td></tr>
               ) : (summary.recentActivity ?? []).map((item) => {
                 const style = activityStyle(item.type);
                 const Icon = style.icon;
@@ -478,9 +481,8 @@ export default function AdminDashboardPage() {
                         {item.event || "N/A"}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-slate-600">{item.user || "N/A"}</td>
-                    <td className="max-w-md px-6 py-4 text-slate-500">{item.details || "N/A"}</td>
-                    <td className="px-6 py-4 text-right text-slate-400">N/A</td>
+                    <td className="px-6 py-4 text-slate-600">{item.user || "—"}</td>
+                    <td className="max-w-md px-6 py-4 text-slate-500">{item.details || "—"}</td>
                   </tr>
                 );
               })}

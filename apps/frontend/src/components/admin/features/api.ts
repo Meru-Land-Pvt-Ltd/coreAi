@@ -887,15 +887,9 @@ export function removeAdminBuilderLesson(lessonId: string) {
 
 
 
-/* ------------------------- Send email: the cannon guard -------------------- */
-
-export function getEmailLimits() {
-  return apiGet<{ maxPerRun: number; default: number; bounds: { min: number; max: number } }>("/admin/email-limits");
-}
-
-export function saveEmailLimits(maxPerRun: number) {
-  return apiPatch<{ maxPerRun: number }>("/admin/email-limits", { maxPerRun });
-}
+/* The email per-run ceiling is saved through the generic platform-dials
+   route, like every other admin ceiling. Its own pair of helpers here fed a
+   second control on the same screen that disagreed with the first. */
 
 /* ---------------------------- Send email: domains -------------------------- */
 

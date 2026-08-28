@@ -3,6 +3,7 @@ import { ProviderExecutionError, CapabilityNotSupportedError } from "./errors";
 import { ProviderSelector } from "./provider-selector";
 import type { AIProviderAdapter, AIExecuteRequest, AIContinueRequest, AIExecuteResponse, CostEstimate, ValidationResult, SelectionExplanation, ProviderCapability } from "./types";
 import { DATA_CLASSIFICATION, workspaceAiBlockReason } from "../compliance/workspace-ai-guard";
+import { modelIsPaused } from "./paused-providers";
 
 function assertClassificationAllowed(providerId: string, request: AIExecuteRequest): void {
   const classification = request.classification ?? DATA_CLASSIFICATION.GENERAL;
@@ -13,6 +14,29 @@ function assertClassificationAllowed(providerId: string, request: AIExecuteReque
       `Blocked by Google Workspace Limited Use guard (${blockReason}): ${classification} data may not be sent to ${providerId}.`
     );
   }
+}
+
+
+/**
+ * THE ADMIN'S MODEL SWITCH, ACTUALLY CONNECTED.
+ *
+ * Every model on the admin screen has a Running switch beside its provider's.
+ * It was saved, shown back, and read by nothing — so an admin stopping one
+ * model (too expensive, or one that had started refusing our requests)
+ * watched it keep running on the platform's bill, believing they had stopped
+ * it.
+ *
+ * A stopped model falls back to the provider's own default, which is the
+ * thing the admin left switched on. Refusing the run outright would take down
+ * every agent that happens to name that model, which is not what turning off
+ * one model means.
+ */
+function withoutPausedModel(request: AIExecuteRequest, providerId: string): AIExecuteRequest {
+  if (!request.model || !modelIsPaused(request.model)) return request;
+
+  console.warn(`[llm] ${request.model} is switched off by an admin — using ${providerId}'s default`);
+  const { model: _stopped, ...rest } = request;
+  return rest;
 }
 
 export class AIProviderEngine {
@@ -42,7 +66,7 @@ export class AIProviderEngine {
   async executeAI(request: AIExecuteRequest): Promise<AIExecuteResponse> {
     const adapter = ProviderSelector.select(request, this.registry.all(), this.validProviderIds);
     assertClassificationAllowed(adapter.providerId, request);
-    return this.callAdapter(adapter, (a) => a.execute(request));
+    return this.callAdapter(adapter, (a) => a.execute(withoutPausedModel(request, adapter.providerId)));
   }
 
   async executeWithProvider(providerId: string, request: AIExecuteRequest): Promise<AIExecuteResponse> {
@@ -52,7 +76,7 @@ export class AIProviderEngine {
       throw new CapabilityNotSupportedError(capability, providerId);
     }
     assertClassificationAllowed(adapter.providerId, request);
-    return this.callAdapter(adapter, (a) => a.execute(request));
+    return this.callAdapter(adapter, (a) => a.execute(withoutPausedModel(request, providerId)));
   }
 
   async estimateCost(providerId: string, request: AIExecuteRequest): Promise<CostEstimate> {

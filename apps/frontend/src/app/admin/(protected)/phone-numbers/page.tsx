@@ -168,16 +168,36 @@ export default function AdminPhoneNumbersPage() {
   const [assignAgentId, setAssignAgentId] = useState("");
   const [assignSubmitting, setAssignSubmitting] = useState(false);
 
+  /* THE HUNDRED-AND-FIRST BUSINESS COULD NOT BE GIVEN A NUMBER.
+     This asked for one page of a hundred and dropped the rest with no sign
+     that there were any — so past a hundred businesses, an admin opening this
+     box simply could not find the one they wanted, and nothing on the screen
+     said why. The list is searched on the server now, the way the rest of the
+     admin screens search, and it says when there are more than it is
+     showing. */
+  const [businessSearch, setBusinessSearch] = useState("");
+  const [businessTotal, setBusinessTotal] = useState(0);
+  const [loadingBusinesses, setLoadingBusinesses] = useState(false);
+
+  const loadBusinesses = useCallback(async (search: string) => {
+    setLoadingBusinesses(true);
+    const result = await getAdminBusinesses({ limit: 100, ...(search ? { search } : {}) });
+    setLoadingBusinesses(false);
+    if (result.success && result.data) {
+      setBusinesses(result.data.items);
+      setBusinessTotal(result.data.total);
+      return;
+    }
+    pushToast("error", "Could not load businesses for assignment.");
+  }, []);
+
   async function openAssign(row: AdminPhoneNumber) {
     setAssignTarget(row);
     setAssignBusinessId("");
     setAssignAgentId("");
     setAgents([]);
-    if (businesses.length === 0) {
-      const result = await getAdminBusinesses({ limit: 100 });
-      if (result.success && result.data) setBusinesses(result.data.items);
-      else pushToast("error", "Could not load businesses for assignment.");
-    }
+    setBusinessSearch("");
+    await loadBusinesses("");
   }
 
   async function onAssignBusinessChange(businessId: string) {
@@ -658,6 +678,17 @@ export default function AdminPhoneNumbersPage() {
 
           <label className="mt-4 block text-xs font-semibold text-slate-500">
             Business
+            <input
+              type="search"
+              data-testid="admin-phone-assign-business-search"
+              value={businessSearch}
+              onChange={(event) => {
+                setBusinessSearch(event.target.value);
+                void loadBusinesses(event.target.value.trim());
+              }}
+              placeholder="Search by name or owner email…"
+              className="mt-1 block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-400"
+            />
             <select
               data-testid="admin-phone-assign-business"
               value={assignBusinessId}
@@ -671,6 +702,17 @@ export default function AdminPhoneNumbersPage() {
                 </option>
               ))}
             </select>
+            {businessTotal > businesses.length ? (
+              <span
+                data-testid="admin-phone-assign-business-more"
+                className="mt-1 block text-[11px] font-medium text-slate-400"
+              >
+                Showing {businesses.length} of {businessTotal.toLocaleString("en-US")} — search to narrow it down.
+              </span>
+            ) : null}
+            {loadingBusinesses ? (
+              <span className="mt-1 block text-[11px] font-medium text-slate-400">Searching…</span>
+            ) : null}
           </label>
 
           <label className="mt-3 block text-xs font-semibold text-slate-500">

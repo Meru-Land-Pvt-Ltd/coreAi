@@ -17,6 +17,11 @@ import { prisma } from "../../lib/prisma";
  */
 
 let paused = new Set<string>();
+/* THE SAME SWITCH EXISTS ON EVERY MODEL, AND IT WAS READ BY NOTHING EITHER.
+   An admin can stop one model — a provider's expensive flagship, a model that
+   has started refusing our requests — without stopping the provider. That
+   switch was saved, shown back, and never once consulted while an agent ran. */
+let pausedModels = new Set<string>();
 let loadedAt = 0;
 const FRESH_FOR_MS = 60_000;
 
@@ -38,11 +43,18 @@ export async function refreshPausedProviders(): Promise<void> {
   if (Date.now() - loadedAt < FRESH_FOR_MS) return;
 
   try {
-    const rows = await prisma.adminLlmProvider.findMany({
-      where: { runningEnabled: false },
-      select: { providerId: true }
-    });
+    const [rows, modelRows] = await Promise.all([
+      prisma.adminLlmProvider.findMany({
+        where: { runningEnabled: false },
+        select: { providerId: true }
+      }),
+      prisma.adminLlmModel.findMany({
+        where: { runningEnabled: false },
+        select: { modelId: true }
+      })
+    ]);
     paused = new Set(rows.map((row) => row.providerId));
+    pausedModels = new Set(modelRows.map((row) => row.modelId));
     loadedAt = Date.now();
   } catch (error) {
     console.error("[llm] could not read which providers are paused — keeping the last answer", error);
@@ -52,4 +64,9 @@ export async function refreshPausedProviders(): Promise<void> {
 /** True when an admin has switched this provider off for live running. */
 export function providerIsPaused(providerId: string): boolean {
   return paused.has(providerId);
+}
+
+/** True when an admin has switched this one model off for live running. */
+export function modelIsPaused(modelId: string | undefined | null): boolean {
+  return Boolean(modelId && pausedModels.has(modelId));
 }

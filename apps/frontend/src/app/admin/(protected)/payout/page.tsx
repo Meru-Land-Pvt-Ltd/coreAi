@@ -80,7 +80,11 @@ export default function AdminPayoutPage() {
       return;
     }
 
-    setMessage(status === "APPROVED" ? "Architect earnings approved." : "Architect earnings rejected.");
+    setMessage(
+      status === "APPROVED"
+        ? "Architect earnings approved and released for payout."
+        : "Architect earnings rejected."
+    );
     setSelectedSale(null);
     setActingId(null);
     await Promise.all([loadSummary(), loadSales()]);
@@ -360,7 +364,16 @@ function PayoutDetailsModal({
         </div>
 
         {sale.architectEarningStatus === "PENDING" ? (
-          <div className="mt-6 flex justify-end gap-3">
+          <>
+            {/* THIS BUTTON SAID "APPROVE & MARK PAID" AND MOVED NO MONEY.
+                Approving releases the earning from held to available — the
+                transfer is a separate step. An admin pressing it believed the
+                architect had been paid, and could tell them so. */}
+            <p className="mt-6 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-xs leading-5 text-slate-600">
+              Approving releases this earning for payout. It does not move
+              money — the transfer happens when the payout is sent.
+            </p>
+            <div className="mt-3 flex justify-end gap-3">
             <button type="button" onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700">
               Close
             </button>
@@ -380,9 +393,10 @@ function PayoutDetailsModal({
               onClick={onApprove}
               className="rounded-lg bg-green-600 px-4 py-2 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-50"
             >
-              {acting ? "Saving…" : "Approve & mark paid"}
+              {acting ? "Saving…" : "Approve for payout"}
             </button>
-          </div>
+            </div>
+          </>
         ) : (
           <div className="mt-6 flex justify-end">
             <button type="button" onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-slate-700">

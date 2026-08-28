@@ -516,34 +516,11 @@ adminRoutes.delete("/mail-domains/:domain", async (c) => {
   return successResponse(c, { ok: true });
 });
 
-/* ------------------------- Send email: the cannon guard -------------------- */
-
-adminRoutes.get("/email-limits", async (c) => {
-  return successResponse(c, {
-    maxPerRun: await getEmailPerRunLimit(),
-    default: DEFAULT_EMAIL_PER_RUN,
-    bounds: EMAIL_PER_RUN_BOUNDS
-  });
-});
-
-adminRoutes.patch("/email-limits", async (c) => {
-  const authUser = c.get("authUser");
-  const parsed = z
-    .object({ maxPerRun: z.coerce.number().int().min(EMAIL_PER_RUN_BOUNDS.min).max(EMAIL_PER_RUN_BOUNDS.max) })
-    .safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) {
-    return errorResponse(c, `Pick between ${EMAIL_PER_RUN_BOUNDS.min} and ${EMAIL_PER_RUN_BOUNDS.max}.`, 422, "VALIDATION_ERROR");
-  }
-  const saved = await saveEmailPerRunLimit(parsed.data.maxPerRun, authUser.id);
-  await logAdminAction({
-    adminUserId: authUser.id,
-    action: "EMAIL_PER_RUN_LIMIT_UPDATED",
-    targetType: "NODE",
-    targetId: "communication.send_email",
-    meta: { maxPerRun: saved }
-  });
-  return successResponse(c, { maxPerRun: saved });
-});
+/* The email per-run ceiling had its own pair of routes AND its own control on
+   the admin screen, beside the generic dials panel that already draws every
+   node's admin ceilings from the node's own row. Both wrote emailMaxPerRun
+   with different option lists, so the screen disagreed with itself about the
+   platform's own limit. One door now: the platform-dials route. */
 
 /* ------------------------------ Timer: the floor --------------------------- */
 
