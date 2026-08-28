@@ -22,6 +22,7 @@ import {
   firstAgentExecutionAtByAgent
 } from "./agent-payment-scope";
 import { restoreBusinessAfterBillingPayment } from "./billing-cycle";
+import { buildUsageInvoicePdf } from "./usage-invoice-pdf";
 import { resolvePrimaryBusinessId } from "./primary-business";
 import { countStandaloneBillableSms } from "./usage-billing";
 import type { UsageLineItem } from "../../lib/usage-pricing";
@@ -1463,4 +1464,27 @@ export async function payBusinessExecutionInvoice(c: Context) {
       "USAGE_INVOICE_PAYMENT_FAILED"
     );
   }
+}
+
+/**
+ * GET /business/billing/usage-invoices/:id/pdf
+ *
+ * The same PDF the data export writes into the ZIP. Without this route, half
+ * the money a business owes us had no downloadable document at all, and
+ * "Download all invoices" quietly skipped it.
+ */
+export async function getBusinessExecutionInvoicePdf(c: Context) {
+  const authUser = c.get("authUser");
+  const business = await loadOwnedBusiness(authUser.id);
+  if (!business) return errorResponse(c, "Invoice not found", 404, "INVOICE_NOT_FOUND");
+
+  const invoiceId = c.req.param("id");
+  if (!invoiceId) return errorResponse(c, "Invoice not found", 404, "INVOICE_NOT_FOUND");
+
+  const built = await buildUsageInvoicePdf(business.id, invoiceId);
+  if (!built) return errorResponse(c, "Invoice not found", 404, "INVOICE_NOT_FOUND");
+
+  c.header("Content-Type", "application/pdf");
+  c.header("Content-Disposition", `attachment; filename="invoice-${built.invoiceNumber}.pdf"`);
+  return c.body(new Uint8Array(built.pdf));
 }

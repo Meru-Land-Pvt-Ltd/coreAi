@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { apiGet, apiPost, apiPut } from "@/lib/api";
 import { BusinessPageHeader } from "@/components/business/business-page-header";
 import { BusinessPaymentMethodModal } from "@/components/business/business-payment-method-modal";
-import { downloadInvoicePdf } from "@/lib/invoice-print";
+import { downloadInvoicePdf, downloadUsageInvoicePdf } from "@/lib/invoice-print";
 import { businessCheckoutPath, businessInvoiceCheckoutPath } from "@/lib/routes";
 import {
     billingPeriodForAnchor,
@@ -663,17 +663,47 @@ export default function BusinessBillingUsagePage() {
         }
     }
 
+    async function downloadUsageInvoice(invoice: UsageInvoice) {
+        /* An accruing month has no invoice on file yet — there is nothing to
+           render, and asking for it would only 404. */
+        if (invoice.isAccruing) return false;
+
+        try {
+            await downloadUsageInvoicePdf(invoice.id, `invoice-${invoice.invoiceNumber}.pdf`);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /* THIS BUTTON USED TO DOWNLOAD HALF THE BILL AND SAY NOTHING.
+       It walked the agent purchases only. Every monthly usage invoice — which
+       is most of what a business pays us — was skipped in silence, and the
+       toast still said the download was ready. A business gathering a year for
+       their accountant took away the small half with no sign of the rest. */
     async function downloadAllInvoices() {
-        if (invoices.length === 0) {
+        const usageToDownload = usageInvoices.filter((invoice) => !invoice.isAccruing);
+
+        if (invoices.length === 0 && usageToDownload.length === 0) {
             showToast("No invoices to download");
             return;
         }
 
         showToast("Preparing invoices…");
 
+        let failed = 0;
         for (const invoice of invoices) {
             await downloadInvoice(invoice);
         }
+        for (const invoice of usageToDownload) {
+            if (!(await downloadUsageInvoice(invoice))) failed += 1;
+        }
+
+        showToast(
+            failed > 0
+                ? `Downloaded what we could — ${failed} invoice${failed === 1 ? "" : "s"} could not be prepared`
+                : `Downloaded ${invoices.length + usageToDownload.length} invoices`
+        );
     }
 
     function payUsageInvoice(invoice: UsageInvoice) {

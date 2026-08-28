@@ -71,6 +71,7 @@ import {
 } from "./billing";
 import {
   getBusinessExecutionInvoices,
+  getBusinessExecutionInvoicePdf,
   getBusinessExecutionUsage,
   payBusinessExecutionInvoice
 } from "./execution-usage-routes";
@@ -750,6 +751,7 @@ businessRoutes.delete("/agents/:installedAgentId/telegram", async (c) => {
 });
 businessRoutes.get("/billing/usage", getBusinessExecutionUsage);
 businessRoutes.get("/billing/usage-invoices", getBusinessExecutionInvoices);
+businessRoutes.get("/billing/usage-invoices/:id/pdf", getBusinessExecutionInvoicePdf);
 businessRoutes.post("/billing/usage-invoices/:id/pay", payBusinessExecutionInvoice);
 businessRoutes.put("/billing/spending-alert", updateBusinessSpendingAlert);
 businessRoutes.post("/billing/spending-alert", updateBusinessSpendingAlert);

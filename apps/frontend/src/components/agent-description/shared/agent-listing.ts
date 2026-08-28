@@ -201,12 +201,52 @@ export function getIncludedItems(listing: ApiListing) {
     items.push(improveIncludedWording(getLlmIncludedItem(llm)));
   }
 
-  items.push("Runs on autopilot to handle customer replies, call routing, and follow-ups");
+  /* THIS LINE USED TO PROMISE CALL ROUTING TO EVERY BUYER.
+     It was pushed onto every listing, whatever the agent did — a Slack agent,
+     an email agent, a spreadsheet agent, all sold with "call routing" on the
+     buy page. The line now names only the channels this agent actually has,
+     and if it has none of them it is not shown at all. */
+  const autopilot = autopilotLine(listing.requiredConnectors ?? []);
+  if (autopilot) items.push(autopilot);
+
   items.push("Setup tuned to your business name, hours, services, and FAQs");
   items.push("Your own private agent instance (not shared with other businesses)");
   items.push("Free product updates as Triven ships new capabilities");
 
   return Array.from(new Set(items));
+}
+
+
+/**
+ * What this agent runs on its own, in the buyer's words — built from the
+ * connectors the listing actually declares, never from a fixed sentence.
+ */
+function autopilotLine(connectors: string[]): string | null {
+  const keys = new Set(connectors.map((connector) => connector.toLowerCase().trim()));
+  const has = (...names: string[]) => names.some((name) => keys.has(name));
+
+  const abilities: string[] = [];
+  if (has("twilio", "twillow", "phone", "phone_provider", "phone-provider", "vapi", "elevenlabs", "deepgram")) {
+    abilities.push("call routing");
+  }
+  if (has("sms", "twilio_sms", "whatsapp")) {
+    abilities.push("customer replies");
+  }
+  if (has("gmail", "email", "triven_mail", "outlook")) {
+    abilities.push("follow-up emails");
+  }
+  if (has("google_calendar", "calendar", "google calendar", "calendly")) {
+    abilities.push("appointment reminders");
+  }
+
+  if (abilities.length === 0) return null;
+
+  const listed =
+    abilities.length === 1
+      ? abilities[0]
+      : `${abilities.slice(0, -1).join(", ")} and ${abilities[abilities.length - 1]}`;
+
+  return `Runs on autopilot to handle ${listed}`;
 }
 
 /** Soften technical connector/LLM labels into clearer buyer copy. */

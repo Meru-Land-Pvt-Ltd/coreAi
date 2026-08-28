@@ -6,6 +6,9 @@ import {
   sumInvoiceTotalCents
 } from "../../lib/billing-invoices";
 import { buildInvoicePdfBuffer, type InvoiceData } from "../../lib/mailer";
+/* One implementation, shared with the download button on the billing screen —
+   the export and the download must never render two different bills. */
+import { usageLineItemsInCents } from "./usage-invoice-pdf";
 import { prisma } from "../../lib/prisma";
 import { buildInstalledAgentRunStats } from "./installed-agent-run-stats";
 import { resolveActivePayment } from "./purchase-access";
@@ -147,51 +150,6 @@ function toInvoiceData(invoice: ExportInvoice): InvoiceData {
     transactionId: invoice.transactionId ?? undefined,
     lineItems: invoice.lineItems
   };
-}
-
-function usageLineItemsInCents(
-  items: Array<{
-    serviceName: string;
-    amountMicroUsd: number;
-    quantity: number;
-    unitPriceMicroUsd: number;
-  }>,
-  totalMicroUsd: number,
-  currency: string
-): NonNullable<InvoiceData["lineItems"]> {
-  let cumulativeMicroUsd = 0;
-  let allocatedCents = 0;
-  const lineItems: NonNullable<InvoiceData["lineItems"]> = items.map((item) => {
-    cumulativeMicroUsd += item.amountMicroUsd;
-    const nextAllocatedCents = Math.round(cumulativeMicroUsd / 10_000);
-    const amountCents = nextAllocatedCents - allocatedCents;
-    allocatedCents = nextAllocatedCents;
-    let unitPriceDisplay: string;
-    try {
-      unitPriceDisplay = new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: currency.toUpperCase(),
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 6
-      }).format(item.unitPriceMicroUsd / 1_000_000);
-    } catch {
-      unitPriceDisplay = `$${(item.unitPriceMicroUsd / 1_000_000).toFixed(6)}`;
-    }
-    return {
-      label: item.serviceName,
-      amountCents,
-      quantity: item.quantity,
-      unitPriceDisplay
-    };
-  });
-
-  const invoiceTotalCents = Math.round(totalMicroUsd / 10_000);
-  const adjustmentCents = invoiceTotalCents - allocatedCents;
-  if (adjustmentCents !== 0) {
-    lineItems.push({ label: "Invoice total adjustment", amountCents: adjustmentCents });
-  }
-
-  return lineItems;
 }
 
 async function addInvoicePdfs(zip: JSZip, invoices: ArchiveInvoice[]): Promise<void> {

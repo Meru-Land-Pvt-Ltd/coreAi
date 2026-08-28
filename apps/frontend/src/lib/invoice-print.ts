@@ -6,9 +6,9 @@ function authHeaders(): HeadersInit | undefined {
   return token ? { Authorization: `Bearer ${token}` } : undefined;
 }
 
-async function fetchInvoicePdfBlob(invoiceId: string): Promise<Blob> {
+async function fetchPdfBlob(path: string): Promise<Blob> {
   const base = apiClient.defaults.baseURL ?? "";
-  const response = await fetch(`${base}/payments/invoice/${invoiceId}/pdf`, {
+  const response = await fetch(`${base}${path}`, {
     headers: authHeaders()
   });
 
@@ -32,6 +32,19 @@ function triggerBlobDownload(blob: Blob, filename: string) {
 
 /** Download invoice PDF — fetches from backend, no DOM/style changes on the page. */
 export async function downloadInvoicePdf(invoiceId: string, filename: string): Promise<void> {
-  const blob = await fetchInvoicePdfBlob(invoiceId);
+  const blob = await fetchPdfBlob(`/payments/invoice/${invoiceId}/pdf`);
+  triggerBlobDownload(blob, filename);
+}
+
+/**
+ * A monthly usage bill. These are a different record from an agent purchase
+ * and live behind a different address — "Download all invoices" used to walk
+ * the purchases only and skip every one of these without saying so.
+ */
+export async function downloadUsageInvoicePdf(
+  invoiceId: string,
+  filename: string
+): Promise<void> {
+  const blob = await fetchPdfBlob(`/business/billing/usage-invoices/${invoiceId}/pdf`);
   triggerBlobDownload(blob, filename);
 }

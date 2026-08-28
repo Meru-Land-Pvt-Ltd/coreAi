@@ -45,6 +45,10 @@ type BillingPaymentMethod = {
 type BillingInvoice = {
     id: string;
     createdAt: string;
+    /* When the money actually moved. The screen used to print `createdAt`
+       under the label "Payment date" — that is the day the invoice was
+       raised, which for anything paid late is a different day entirely. */
+    paidAt?: string | null;
     description: string;
     amountCents: number;
     displayAmountCents?: number;
@@ -757,10 +761,20 @@ function UsageInvoiceCard({
             usageInvoiceRowOrder(right.serviceCode)
     );
     const isPaid = invoice.status === "PAID";
-    const displayedInvoiceTotalCents = usageInvoicePayableCents(
+    /* THE TOTAL ON SCREEN MUST BE THE AMOUNT WE CHARGE.
+       Each row here shows a rate and a quantity rounded for reading, and the
+       total used to be those rounded rows added up. The Pay button charges
+       the server's figure. On an invoice with many small metered rows the two
+       drifted apart, so a business could be shown one price and billed
+       another. The total is the charged figure now, and where the readable
+       rows do not reach it the difference is stated as its own line rather
+       than quietly absorbed. */
+    const linesTotalCents = usageInvoicePayableCents(
         services.map((service) => calculateUsageInvoiceLineAmountUsd(service))
     );
-    const displayedInvoiceTotal = formatCurrencyCents(displayedInvoiceTotalCents);
+    const chargedTotalCents = amountCents;
+    const roundingAdjustmentCents = chargedTotalCents - linesTotalCents;
+    const displayedInvoiceTotal = formatCurrencyCents(chargedTotalCents);
     const isSyntheticAccrual = invoice.id.startsWith("accrued-");
     const isPending = invoice.status === "PENDING" || invoice.status === "OPEN";
     const statusLabel = isPaid ? "PAID" : isPending ? "PENDING" : invoice.status;
@@ -915,8 +929,14 @@ function UsageInvoiceCard({
 
                 <div className="mt-6 flex justify-end">
                     <div className="w-full space-y-2 text-sm sm:w-72">
-                        <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{displayedInvoiceTotal}</span></div>
-                        <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold"><span>Total</span><span>{displayedInvoiceTotal}</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{formatCurrencyCents(linesTotalCents)}</span></div>
+                        {roundingAdjustmentCents !== 0 ? (
+                            <div className="flex justify-between text-slate-500" data-testid="usage-invoice-rounding">
+                                <span>Rounding adjustment</span>
+                                <span>{formatCurrencyCents(roundingAdjustmentCents)}</span>
+                            </div>
+                        ) : null}
+                        <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold"><span>Total</span><span data-testid="usage-invoice-total">{displayedInvoiceTotal}</span></div>
                         <div className="flex justify-between text-slate-500"><span>Amount Paid</span><span>{isPaid ? displayedInvoiceTotal : "$0.00"}</span></div>
                         <div className="flex justify-between font-bold"><span>Balance Due</span><span className={isPaid ? "text-green-600" : "text-red-600"}>{isPaid ? "$0.00" : displayedInvoiceTotal}</span></div>
                     </div>
@@ -1187,8 +1207,10 @@ function InvoiceCard({
                                 </span>
                             </p>
                             <p className="text-slate-500">
-                                Payment date
-                                <span className="block font-medium text-slate-800">{formatFullDate(invoice.createdAt)}</span>
+                                {invoice.paidAt ? "Payment date" : "Invoice date"}
+                                <span className="block font-medium text-slate-800" data-testid="invoice-payment-date">
+                                    {formatFullDate(invoice.paidAt ?? invoice.createdAt)}
+                                </span>
                             </p>
                             <p className="text-slate-500">
                                 Status
