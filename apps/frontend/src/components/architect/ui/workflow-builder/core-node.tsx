@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { getNodeDefinition, isBlockNodeType } from "@coreai/shared";
+import { getNodeDefinition, isBlockNodeType , whatAStepGives } from "@coreai/shared";
 import type { CSSProperties } from "react";
 import { cn } from "@/components/architect/ui/architect-ui";
 import { BuilderIcon } from "./icons";
@@ -73,6 +73,7 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
     return list.some((road) => road.toLowerCase() === "anything else") ? list : [...list, "Anything else"];
   })();
   const gives = definition?.producedVariables ?? [];
+  const givenInWords = whatAStepGives(gives);
 
   return (
     <div
@@ -149,17 +150,46 @@ export function CoreNode({ data, selected }: NodeProps<BuilderNode>) {
             </p>
           ) : null}
 
-          {gives.length > 0 ? (
-            <p className="mt-1.5 flex flex-wrap items-center gap-1" data-testid="core-node-gives">
+          {/* WHAT IT GIVES, IN THE ARCHITECT'S WORDS (the founder's ruling,
+              2026-08-28). This printed every raw name the step declares. On
+              the Telegram trigger that is TWENTY-FOUR of them —
+              `trigger.telegram.callback.data`, `trigger.telegram.sender.lastName`
+              — and a three-step agent read as a control panel. His question
+              was the right one: what does a paying architect DO with that?
+              Almost nothing. They never type those names; the doors wire the
+              steps. The one real use is dropping a single field into a prompt,
+              and a wall of twenty-four is a terrible way to find one.
+
+              Measured first: across 53 nodes the average card lists 3 names.
+              Telegram lists 24. The pattern was never wrong — one node was,
+              and it is the first node most architects ever touch.
+
+              Three plain ideas here. The exact names are one hover away, and
+              the full list is in the panel and the docs for the rare moment
+              somebody needs `sender.firstName` by name. */}
+          {givenInWords.words.length > 0 ? (
+            <p
+              className="mt-1.5 flex flex-wrap items-center gap-1"
+              data-testid="core-node-gives"
+              title={`Gives: ${gives.join(", ")}`}
+            >
               <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Gives</span>
-              {gives.map((key) => (
+              {givenInWords.words.map((word) => (
                 <span
-                  key={key}
-                  className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-600"
+                  key={word}
+                  className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
                 >
-                  {key}
+                  {word}
                 </span>
               ))}
+              {givenInWords.more > 0 ? (
+                <span
+                  className="text-[10px] font-medium text-slate-400"
+                  data-testid="core-node-gives-more"
+                >
+                  +{givenInWords.more} more
+                </span>
+              ) : null}
             </p>
           ) : null}
         </div>
