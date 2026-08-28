@@ -171,7 +171,8 @@ function SidebarContent({
   onNavigate,
   showMobileClose,
   onMobileClose,
-  rail = false
+  rail = false,
+  onToggleRail
 }: {
   user: AuthUser | null;
   pathname: string;
@@ -180,6 +181,7 @@ function SidebarContent({
   onMobileClose?: () => void;
   /** Collapsed to the icon rail: same menu, 64px wide, names on hover. */
   rail?: boolean;
+  onToggleRail?: () => void;
 }) {
   return (
     <>
@@ -197,6 +199,32 @@ function SidebarContent({
             Triven.ai
           </span>
         )}
+
+        {/* BESIDE THE LOGO, WHERE IT IS ALWAYS VISIBLE (the founder, 2026-08-28).
+            The first attempt floated it over the content and it landed under
+            the builder's fixed top strip. The second was a round chevron on
+            the sidebar edge, which was not the control he asked for. This is
+            the panel icon from the product he pointed at, sitting where he
+            said it looks professional. */}
+        {onToggleRail ? (
+          <button
+            type="button"
+            onClick={onToggleRail}
+            data-testid="architect-sidebar-toggle"
+            aria-label={rail ? "Show the menu" : "Hide the menu"}
+            aria-pressed={rail}
+            title={rail ? "Show the menu" : "Hide the menu"}
+            className={cn(
+              "hidden h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 lg:grid",
+              rail ? "" : "ml-auto"
+            )}
+          >
+            <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <line x1="9" y1="4" x2="9" y2="20" />
+            </svg>
+          </button>
+        ) : null}
 
         {showMobileClose ? (
           <button
@@ -382,24 +410,8 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
           collapsed ? "w-16" : "w-64"
         )}
       >
-        <SidebarContent user={user} pathname={pathname} rail={collapsed} />
+        <SidebarContent user={user} pathname={pathname} rail={collapsed} onToggleRail={toggle} />
 
-        {/* On the sidebar's own edge, half on and half off — so it is never
-            buried under a page's top strip, which is exactly where the first
-            attempt put it on the builder. */}
-        <button
-          type="button"
-          onClick={toggle}
-          data-testid="architect-sidebar-toggle"
-          aria-label={collapsed ? "Show the menu" : "Hide the menu"}
-          aria-pressed={collapsed}
-          title={collapsed ? "Show the menu" : "Hide the menu"}
-          className="absolute -right-3 top-20 z-50 hidden h-6 w-6 place-items-center rounded-full border border-gray-200 bg-white text-slate-400 shadow-sm transition hover:text-slate-700 lg:grid"
-        >
-          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-            <polyline points={collapsed ? "9,6 15,12 9,18" : "15,6 9,12 15,18"} strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
       </aside>
 
       {mobileNavOpen ? (

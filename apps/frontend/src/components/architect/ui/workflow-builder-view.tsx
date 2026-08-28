@@ -2920,7 +2920,7 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           type="button"
           onClick={() => setAiBuilderOpen((open) => !open)}
           data-testid="build-ai-builder-toggle"
-          className="absolute bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-amber-600"
+          className="absolute bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-amber-600"
         >
           <BuilderIcon name="sparkles" className="h-4 w-4" />
           AI Builder
@@ -2938,7 +2938,12 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           hidden={!aiBuilderOpen}
           className={
             aiBuilderOpen
-              ? "absolute bottom-20 right-6 z-40 flex w-[min(26rem,92vw)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
+              /* THE BUILDER SITS IN THE CENTRE (the founder, 2026-08-28,
+                 pointing at Higgsfield). A conversation that composes a whole
+                 agent was squeezed into a corner dock the width of a phone.
+                 It is centred and wide now — the canvas still reads above it,
+                 and it never covers the node panel on the right. */
+              ? "absolute bottom-20 left-1/2 z-40 flex w-[min(46rem,88vw)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
               : "hidden"
           }
           style={aiBuilderOpen ? { height: `${builderHeight}px` } : undefined}

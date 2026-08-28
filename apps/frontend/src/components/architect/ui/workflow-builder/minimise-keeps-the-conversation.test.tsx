@@ -55,3 +55,16 @@ describe("the architect sees the Builder's real words", () => {
     expect(panel).toContain('setStage(PROGRESS_STAGES[0]);');
   });
 });
+
+describe("the Builder sits in the centre", () => {
+  it("is centred and wide, not squeezed into a corner", () => {
+    const view = readFileSync(join(__dirname, "..", "workflow-builder-view.tsx"), "utf8");
+    const dock = view.slice(view.indexOf('data-testid="build-ai-builder-dock"'));
+
+    /* The founder pointed at Higgsfield: a conversation that composes a whole
+       agent does not belong in a phone-width box in the corner. */
+    expect(dock.slice(0, 700)).toContain("left-1/2");
+    expect(dock.slice(0, 700)).toContain("-translate-x-1/2");
+    expect(dock.slice(0, 700)).not.toContain("right-6");
+  });
+});

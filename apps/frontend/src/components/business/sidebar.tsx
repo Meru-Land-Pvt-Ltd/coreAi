@@ -162,10 +162,29 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                             priority
                             className="h-9 w-9 shrink-0 object-contain"
                         />
-                        <span className="truncate text-xl font-extrabold tracking-tight text-amber-500">
-                            Triven.ai
-                        </span>
+                        {collapsed ? null : (
+                            <span className="truncate text-xl font-extrabold tracking-tight text-amber-500">
+                                Triven.ai
+                            </span>
+                        )}
                     </a>
+
+                    {/* BESIDE THE LOGO, WHERE IT IS ALWAYS VISIBLE. The panel
+                        icon from the product the founder pointed at. */}
+                    <button
+                        type="button"
+                        onClick={toggle}
+                        data-testid="business-sidebar-toggle"
+                        aria-label={collapsed ? "Show the menu" : "Hide the menu"}
+                        aria-pressed={collapsed}
+                        title={collapsed ? "Show the menu" : "Hide the menu"}
+                        className={`hidden h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-gray-50 hover:text-slate-700 lg:grid ${collapsed ? "" : "ml-auto"}`}
+                    >
+                        <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                            <rect x="3" y="4" width="18" height="16" rx="2" />
+                            <line x1="9" y1="4" x2="9" y2="20" />
+                        </svg>
+                    </button>
 
                     {sidebarOpen ? (
                         <button
@@ -252,22 +271,6 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                         </button>
                     </div>
                 </div>
-                {/* On the sidebar's own edge, so it is never buried under a
-                    page's top strip. Collapsed is a RAIL, not a
-                    disappearance. */}
-                <button
-                    type="button"
-                    onClick={toggle}
-                    data-testid="business-sidebar-toggle"
-                    aria-label={collapsed ? "Show the menu" : "Hide the menu"}
-                    aria-pressed={collapsed}
-                    title={collapsed ? "Show the menu" : "Hide the menu"}
-                    className="absolute -right-3 top-24 z-50 hidden h-6 w-6 place-items-center rounded-full border border-gray-200 bg-white text-slate-400 shadow-sm transition hover:text-slate-700 lg:grid"
-                >
-                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-                        <polyline points={collapsed ? "9,6 15,12 9,18" : "15,6 9,12 15,18"} strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                </button>
             </aside>
 
             
