@@ -2090,6 +2090,32 @@ architectRoutes.put("/workflows/:workflowId", async (c) => {
       }
     });
 
+    /* THE AGENT'S NAME IS ONE FACT AND IT WAS KEPT IN TWO PLACES.
+       The builder's header saves the WORKFLOW's name. My Agents, the
+       marketplace card and the Telegram bot's own introduction all read the
+       LISTING's name — a second copy, written once when the draft was
+       created and never touched again. So an architect renamed their agent,
+       watched the header say "saved", and every other screen went on calling
+       it "Untitled Agent". The founder renamed one to "Telegram GPT" and his
+       own bot still introduced itself as "a virtual assistant for Untitled
+       Agent" to a customer.
+
+       A rename now carries to the listing that has not been published yet.
+       An APPROVED listing is deliberately left alone: its name is on a card
+       businesses have already bought from, and changing that quietly is the
+       rug-pull the freeze below exists to prevent — that rename goes through
+       review like any other change. */
+    if (input.name !== undefined && input.name.trim()) {
+      await prisma.agentListing
+        .updateMany({
+          where: { workflowId, status: { in: ["DRAFT", "PENDING_REVIEW", "REJECTED"] } },
+          data: { name: input.name.trim() }
+        })
+        .catch((error) =>
+          console.error("[architect] the rename did not reach the listing", { workflowId, error })
+        );
+    }
+
     /* THE FREEZE, HONEST VERSION (2026-08-26). An approved agent is a
        promise the platform made to every business that installed it, so a
        graph edit after approval must not pass unnoticed — the App Store
