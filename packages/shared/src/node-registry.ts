@@ -1973,6 +1973,12 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     capability: "trigger.whatsapp",
     requiredVariables: [],
     producedVariables: [
+      /* THE PERSON'S MESSAGE, DECLARED. The webhook passes it on every
+         run (whatsapp/webhook.ts:357) and the AI Brain reads it — the
+         engine makes `latestMessage` and `text` one fact. This row never
+         said so, so a correctly wired WhatsApp agent was told "this step
+         needs text and nothing before it provides one". It provides one. */
+      "text",
       "contact.name",
       "contact.phone",
       "message.id",
@@ -4773,8 +4779,22 @@ const PRODUCES_BY_TYPE: Record<string, string[] | null> = {
    * a success thirty-one times.
    */
   [VOICE_NODE_TYPES.phoneCallTrigger]: ["callerNumber"],
-  "trigger.twilio_inbound_sms": ["inboundSms"],
-  "trigger.email_received": ["email"],
+  "trigger.twilio_inbound_sms": [
+    /* THE PERSON'S MESSAGE, DECLARED. The doors deliver it on every run and the
+     AI Brain reads it — workflow-runner.ts makes `latestMessage` and `text`
+     one fact. This list never said so, so a correctly wired agent was told
+     "this step needs text and nothing before it provides one". It does. */
+  "text",
+    "inboundSms"
+  ],
+  "trigger.email_received": [
+    /* THE PERSON'S MESSAGE, DECLARED. The doors deliver it on every run and the
+     AI Brain reads it — workflow-runner.ts makes `latestMessage` and `text`
+     one fact. This list never said so, so a correctly wired agent was told
+     "this step needs text and nothing before it provides one". It does. */
+  "text",
+    "email"
+  ],
   "trigger.twilio_missed_call": ["missedCall"],
   "trigger.call_list": ["callerNumber"],
   [WEBHOOK_NODE_TYPE]: ["webhook"],

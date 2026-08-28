@@ -1829,6 +1829,20 @@ function seedMissedCallContext(
    * going to be touched.
    */
   if (optionalString(input?.text)) context.text = optionalString(input?.text);
+  /* ONE MESSAGE, ONE NAME.
+     The doors call the person's message `latestMessage` — WhatsApp's webhook,
+     the Telegram runtime, the agent page all set that. The AI Brain reads
+     `latestMessage` too. But every row on the canvas asks for `text`, and the
+     checker can only match names, so a correctly wired WhatsApp or SMS agent
+     was told "this step needs text and nothing before it provides one" while
+     the message was sitting right there under another name.
+     The two are the same fact and are made the same fact here, at the one
+     place every run passes through. `text` stays whatever a caller set
+     explicitly — this only fills a silence. */
+  const arrivedMessage = optionalString(
+    typeof input?.latestMessage === "string" ? input.latestMessage : undefined
+  );
+  if (!asString(context.text) && arrivedMessage) context.text = arrivedMessage;
   /* The inbound door's delivery: the mail that woke a live run. */
   if (input?.email && typeof input.email === "object") {
     const mail = input.email as { from?: unknown; subject?: unknown; body?: unknown; receivedAt?: unknown };
