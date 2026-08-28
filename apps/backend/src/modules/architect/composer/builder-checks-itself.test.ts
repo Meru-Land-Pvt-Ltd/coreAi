@@ -124,3 +124,32 @@ describe("the Builder runs what it built", () => {
     expect(body).toContain('"nodes"');
   });
 });
+
+/**
+ * IT MUST NEVER SAY IT RAN SOMETHING IT DID NOT RUN (2026-08-28).
+ *
+ * Running the agent spends the founder's own credit, so the automatic check
+ * reads the wires and stops. The backend wrote the honest line — "I checked
+ * the wiring only — I did not run it" — and the panel replaced it with "I ran
+ * it and 2 things are not right yet". The platform's first law, broken in the
+ * sentence written to uphold it.
+ */
+describe("the Builder never claims a run it did not make", () => {
+  it("says plainly that it did not run the agent", async () => {
+    checkMock.mockResolvedValue({
+      lines: [{ kind: "note", text: "I checked the wiring only — I did not run it." }],
+      passed: 0,
+      failed: 0
+    });
+
+    const body = await streamText(
+      await post({ want: "answer questions from my price list", workflowId: "wf-1" })
+    );
+
+    /* The automatic check must not spend his money. */
+    expect(checkMock.mock.calls[0][0].runTheAgent).toBe(false);
+
+    /* And the answer must carry that fact, so the words on screen can be true. */
+    expect(body).toContain('"ran":false');
+  });
+});

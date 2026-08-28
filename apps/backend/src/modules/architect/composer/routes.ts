@@ -133,7 +133,7 @@ composerRoutes.post("/", async (c) => {
          through the real engine and judged against the purpose. What it finds
          rides back with the plan, and what it could NOT check it says out
          loud rather than passing in silence. */
-      let checked: { lines: unknown[]; passed: number; failed: number } | null = null;
+      let checked: { lines: unknown[]; passed: number; failed: number; ran: boolean } | null = null;
       let couldNotCheck: string | null = null;
 
       if (parsed.data.workflowId) {
@@ -151,7 +151,13 @@ composerRoutes.post("/", async (c) => {
                presses "Check my agent" — never automatically. */
             runTheAgent: false
           });
-          checked = { lines: report.lines, passed: report.passed, failed: report.failed };
+          /* IT MUST NEVER SAY IT RAN SOMETHING IT DID NOT RUN. Running the
+             agent spends the founder's own credit, so an automatic check
+             reads the wires only — and the panel was still printing "I ran
+             it and 2 things are not right yet". The platform's first law,
+             broken in the sentence I wrote for it. Whether it actually ran
+             travels with the result now, so the words can be true. */
+          checked = { lines: report.lines, passed: report.passed, failed: report.failed, ran: false };
         } catch (error) {
           console.error("[composer] could not run what it built", error);
           couldNotCheck = "I built it, but I could not run it to check my own work.";

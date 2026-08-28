@@ -55,7 +55,14 @@ export type ComposedCanvas = {
   /* THE BUILDER RAN WHAT IT BUILT. What the check found, in the Builder's
      own lines — or, when it could not run it at all, the honest sentence
      saying so. Never silence. */
-  checked?: { lines: Array<{ kind: string; text: string }>; passed: number; failed: number } | null;
+  checked?: {
+    lines: Array<{ kind: string; text: string }>;
+    passed: number;
+    failed: number;
+    /* False when it read the wires and did not run the agent — running costs
+       the founder's credit, so it happens on a deliberate press only. */
+    ran?: boolean;
+  } | null;
   couldNotCheck?: string | null;
   nodes: unknown[];
   edges: unknown[];
@@ -107,12 +114,24 @@ function builtAndChecked(canvas: ComposedCanvas): string {
   if (canvas.couldNotCheck) return `\n\n${canvas.couldNotCheck}`;
   if (!canvas.checked) return "";
 
-  const { passed, failed, lines } = canvas.checked;
+  const { passed, failed, lines, ran } = canvas.checked;
+  const first = lines.find((line) => line.kind === "problem")?.text;
+
+  /* NEVER SAY IT RAN SOMETHING IT DID NOT RUN. Running the agent spends the
+     founder's own credit, so an automatic check reads the WIRES and stops —
+     and this said "I ran it" anyway. The backend was writing the honest
+     sentence and the screen was replacing it with a claim. */
+  if (ran === false) {
+    if (failed > 0) {
+      return `\n\nI checked the wiring and ${failed === 1 ? "one thing is" : `${failed} things are`} not right${first ? `: ${first}` : "."} I have not run it — press Check my agent and I will.`;
+    }
+    return "\n\nThe wiring is sound. I have not run it — press Check my agent and I will.";
+  }
+
   if (failed === 0 && passed > 0) {
     return `\n\nI ran it ${passed === 1 ? "once" : `${passed} times`} and it did the job.`;
   }
   if (failed > 0) {
-    const first = lines.find((line) => line.kind === "problem")?.text;
     return `\n\nI ran it and ${failed === 1 ? "one thing is" : `${failed} things are`} not right yet${first ? `: ${first}` : "."}`;
   }
   return "";
