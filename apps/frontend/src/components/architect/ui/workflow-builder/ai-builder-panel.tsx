@@ -637,61 +637,60 @@ export function AiBuilderPanel({
         </p>
       )}
 
-      {/* THE YARDSTICK, NEVER INVISIBLE. The Check once tallied an agent
-          against a stale description nobody could see, and the report read as
-          pure nonsense. Whatever is being measured against is on screen, with
-          the way to change it one click away. */}
-      {savedPurpose && workflowId ? (
-        <div
-          className="mb-2 flex items-start justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2"
-          data-testid="ai-builder-purpose"
-        >
-          <p className="text-[11px] leading-4 text-slate-500">
-            Testing against: <span className="font-semibold text-slate-700">{savedPurpose}</span>
-          </p>
+      {/* THE CHAT IS THE PRODUCT, SO THE CHAT GETS THE ROOM.
+          Four things used to stand above the conversation, each on its own
+          line: the yardstick, a full-width Check my agent, a paragraph
+          explaining what the Generate button does, and the Generate button.
+          With the input and the Teach link below, six blocks left the
+          conversation a thin strip in the middle of a 540-pixel panel — the
+          one thing the architect opened the Builder for was the smallest
+          thing on the screen.
+
+          They are one quiet row now. Nothing was removed: the yardstick is
+          still visible and still one click from changing, both actions are
+          still one click away. The paragraph went, because the button beside
+          it already says what it does and a screen must never say one thing
+          twice. */}
+      <div className="mb-2 flex items-center gap-1.5 text-[11px]" data-testid="ai-builder-actions">
+        {workflowId && canvasHasSteps ? (
           <button
             type="button"
-            data-testid="ai-builder-purpose-change"
-            onClick={() => {
-              setAskingPurpose(true);
-              say({ role: "assistant", content: "Tell me the new purpose — one sentence." });
-            }}
-            className="shrink-0 text-[11px] font-semibold text-amber-700 hover:underline"
+            onClick={() => void runCheck()}
+            disabled={checking || sending || generating}
+            data-testid="ai-builder-check"
+            className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
           >
-            change
+            {checking ? "Checking…" : "Check my agent"}
           </button>
-        </div>
-      ) : null}
+        ) : null}
 
-      {workflowId && canvasHasSteps ? (
-        <button
-          type="button"
-          onClick={() => void runCheck()}
-          disabled={checking || sending || generating}
-          data-testid="ai-builder-check"
-          className="mb-3 w-full rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
-        >
-          {checking ? "Checking your agent…" : "Check my agent"}
-        </button>
-      ) : null}
-
-      {composed ? null : (
-        <div className="mb-3" data-testid="smart-designer-intro">
-          <p className="mb-3 text-xs leading-5 text-slate-500">
-            I read your whole workflow — every question your steps need answered — and design the
-            smallest page that does the job.
-          </p>
+        {composed ? null : (
           <button
             type="button"
             onClick={() => void generate()}
             disabled={!workflowId || generating}
             data-testid="smart-designer-generate"
-            className="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
+            className="shrink-0 rounded-full bg-amber-500 px-2.5 py-1 font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
           >
-            Generate my product&apos;s interface
+            {generating ? "Designing…" : "Design the page"}
           </button>
-        </div>
-      )}
+        )}
+
+        {savedPurpose && workflowId ? (
+          <button
+            type="button"
+            data-testid="ai-builder-purpose"
+            title={`Testing against: ${savedPurpose}`}
+            onClick={() => {
+              setAskingPurpose(true);
+              say({ role: "assistant", content: "Tell me the new purpose — one sentence." });
+            }}
+            className="min-w-0 flex-1 truncate rounded-full px-2 py-1 text-left text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
+          >
+            vs. <span className="font-semibold text-slate-600">{savedPurpose}</span>
+          </button>
+        ) : null}
+      </div>
 
       {messages.length === 0 && !generating ? (
         <p className="min-h-0 flex-1 text-xs leading-5 text-slate-500" data-testid="smart-designer-empty">

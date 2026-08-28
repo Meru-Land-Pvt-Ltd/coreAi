@@ -2125,7 +2125,16 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       "telegram.user_id",
       "telegram.username",
       "telegram.message_id",
-      "telegram.text"
+      "telegram.text",
+      /* THE ENGINE PUTS THE MESSAGE IN "text" AND THIS ROW NEVER SAID SO.
+         workflow-runner.ts:2190 sets context.text from the Telegram message
+         on every single run. This row listed only telegram.text, so the
+         wiring checker could not know it. The moment "text" stopped being
+         assumed always-available — so that a step wired to nothing would
+         finally be caught — every correctly wired Telegram agent on the
+         platform turned red: "This step needs text and nothing before it
+         provides one." It provides one. It always did. The row was silent. */
+      "text"
     ]
   }),
   def({
