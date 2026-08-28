@@ -241,6 +241,21 @@ export async function handleGmailOAuthCallback({
 }
 
 export const GOOGLE_CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+/**
+ * THE PERMISSION WE NEVER ASKED FOR.
+ *
+ * The consent screen asks Google for the calendar and the email address, and
+ * nothing else. Sending mail needs this scope, and it was never requested —
+ * so the "send from your Gmail" path tried a send that Google refuses every
+ * time, on every account, and quietly fell back to the platform sender. It
+ * looked like a working feature and could not work once.
+ *
+ * Until we are approved by Google for it, no account carries it, and the
+ * send path checks for it instead of finding out from a 403. An account that
+ * has granted it — through another consent flow, or once we are approved —
+ * sends from their own Gmail with no further change.
+ */
+export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
 export async function getGmailConnectionStatus(userId: string) {
   const credential = await prisma.connectorCredential.findUnique({
@@ -261,7 +276,9 @@ export async function getGmailConnectionStatus(userId: string) {
     provider: "GMAIL",
     expiresAt: credential?.expiresAt?.toISOString() ?? null,
     scopes,
-    calendarConnected: connected && scopes.includes(GOOGLE_CALENDAR_EVENTS_SCOPE)
+    calendarConnected: connected && scopes.includes(GOOGLE_CALENDAR_EVENTS_SCOPE),
+    /* Whether this account can actually send. See GMAIL_SEND_SCOPE. */
+    canSendEmail: connected && scopes.includes(GMAIL_SEND_SCOPE)
   };
 }
 

@@ -69,6 +69,33 @@ const RETRY_AFTER_MS = 2_500;
  * — the model choice, the temperature, the retry — stays identical, so a
  * streamed answer and a waited-for answer are the same answer.
  */
+
+/**
+ * THE FALLBACK ANSWER NEVER REACHED THE CALLER'S EARS.
+ *
+ * This function promises words through `onWord`. Three of its four exits do
+ * not stream at all — a non-Mistral brain, eyes on a different service, a
+ * refused stream — and each of those simply RETURNED the answer. A caller
+ * that listens only to `onWord`, which is exactly what the Builder's own
+ * judge does, heard nothing: it then tried to parse an empty string and
+ * reported that it could not read its own verdict. The Builder's eyes could
+ * only ever work on one provider, and on every other one they failed with a
+ * message that blamed the verdict.
+ *
+ * One contract: whatever this returns, the caller also hears.
+ */
+async function waitedForAnswer(
+  input: Parameters<typeof streamPlatformBrain>[0],
+  /* Words that already went out. When a stream dies half way through, the
+     caller has heard the beginning already — sending the whole fallback
+     answer on top of it would say the first half twice. */
+  alreadyHeard = ""
+): Promise<string | null> {
+  const answer = await askPlatformBrain({ ...input, timeoutMs: 60_000 });
+  if (answer && !alreadyHeard) input.onWord(answer);
+  return answer;
+}
+
 export async function streamPlatformBrain(input: {
   instruction: string;
   message: string;
@@ -85,7 +112,7 @@ export async function streamPlatformBrain(input: {
   if (!apiKey || resolved.providerId !== "mistral") {
     /* Only Mistral speaks this shape today. Anything else falls back to the
        waited-for answer rather than pretending to stream. */
-    return askPlatformBrain({ ...input, timeoutMs: 60_000 });
+    return waitedForAnswer(input);
   }
 
   const images = (input.images ?? []).slice(0, 5);
@@ -106,7 +133,7 @@ export async function streamPlatformBrain(input: {
       /* The eyes live on a different service than the voice. Falling back to
          the waited-for path keeps this honest rather than sending a picture
          to the wrong provider. */
-      return askPlatformBrain({ ...input, timeoutMs: 60_000 });
+      return waitedForAnswer(input);
     }
     seeingModel = eyes.modelId || null;
   }
@@ -127,6 +154,9 @@ export async function streamPlatformBrain(input: {
       : { role: "user", content: input.message.slice(0, 24_000) }
   ];
 
+  /* What the caller has already heard, readable from the catch below. */
+  let heard = "";
+
   try {
     const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
@@ -142,7 +172,7 @@ export async function streamPlatformBrain(input: {
     });
     if (!response.ok || !response.body) {
       console.warn(`[${input.task}] stream refused (${response.status}) — falling back`);
-      return askPlatformBrain({ ...input, timeoutMs: 60_000 });
+      return waitedForAnswer(input);
     }
 
     const reader = response.body.getReader();
@@ -170,6 +200,7 @@ export async function streamPlatformBrain(input: {
           const piece = parsed.choices?.[0]?.delta?.content ?? "";
           if (piece) {
             whole += piece;
+            heard += piece;
             input.onWord(piece);
           }
         } catch {
@@ -180,7 +211,7 @@ export async function streamPlatformBrain(input: {
     return whole.trim() || null;
   } catch (error) {
     console.warn(`[${input.task}] stream failed — falling back`, (error as Error).message);
-    return askPlatformBrain({ ...input, timeoutMs: 60_000 });
+    return waitedForAnswer(input, heard);
   }
 }
 

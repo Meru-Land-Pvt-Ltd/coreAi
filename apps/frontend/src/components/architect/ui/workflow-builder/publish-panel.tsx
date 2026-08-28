@@ -310,35 +310,49 @@ export function PublishPanel({
   );
 }
 
+/* TWO OF THESE FOUR CANNOT DO REAL WORK ON A BUSINESS'S OWN SITE.
+   Media and Form run the agent for real. Chat and Voice run a rehearsal —
+   the chat engine books into a test calendar and marks every lead a test,
+   and the voice button starts a demonstration call. Pasted onto a paying
+   business's website that was invisible: their customer was told an
+   appointment was booked and nothing existed the next morning. The backend
+   refuses those two on a business's own site now, and an architect choosing
+   one should know before they choose it, not after. */
 const AGENT_PAGE_TEMPLATE_OPTIONS: Array<{
   value: AgentPageTemplate;
   label: string;
   description: string;
   icon: LucideIcon;
+  /** False when this page can only demonstrate, never do the work. */
+  worksOnABusinessSite: boolean;
 }> = [
   {
     value: "chat",
     label: "Chat",
     description: "Visitors message your agent, like texting.",
-    icon: MessageCircle
+    icon: MessageCircle,
+    worksOnABusinessSite: false
   },
   {
     value: "voice",
     label: "Voice",
     description: "Visitors talk with your agent out loud.",
-    icon: Mic
+    icon: Mic,
+    worksOnABusinessSite: false
   },
   {
     value: "media",
     label: "Media",
     description: "Visitors describe it, your agent creates it.",
-    icon: Image
+    icon: Image,
+    worksOnABusinessSite: true
   },
   {
     value: "form",
     label: "Form",
     description: "Visitors send one request, get one result.",
-    icon: FileText
+    icon: FileText,
+    worksOnABusinessSite: true
   }
 ];
 
@@ -624,6 +638,15 @@ function AgentPageSection({ workflowId }: { workflowId: string }) {
                   <Icon className={selected ? "h-5 w-5 text-amber-600" : "h-5 w-5 text-slate-400"} />
                   <p className="mt-2 text-sm font-semibold text-slate-900">{option.label}</p>
                   <p className="mt-0.5 text-xs text-slate-500">{option.description}</p>
+                  {!option.worksOnABusinessSite ? (
+                    <p
+                      data-testid={`agent-page-template-${option.value}-demo-only`}
+                      className="mt-2 text-[11px] font-medium leading-4 text-slate-400"
+                    >
+                      Shows what the agent does. It cannot take real work on a
+                      business&apos;s own website yet.
+                    </p>
+                  ) : null}
                 </button>
               );
             })}

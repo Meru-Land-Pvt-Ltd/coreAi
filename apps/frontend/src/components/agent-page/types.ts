@@ -234,6 +234,18 @@ function publicRuntimeError(
   };
 }
 
+/** A fresh id for one submit, with a fallback for browsers without crypto. */
+function newSubmitId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  /* Shape matters — the backend validates it as a uuid. */
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (character) => {
+    const digit = Number(character);
+    return (digit ^ (Math.floor(Math.random() * 16) & (15 >> (digit / 4)))).toString(16);
+  });
+}
+
 /**
  * The live runtime used by /a/<slug> — the exact fetch behavior the templates
  * had before the runtime existed, byte-for-byte on the wire.
@@ -250,7 +262,11 @@ export function createPublicAgentPageRuntime(slug: string, installKey?: string |
       }>(`/agent-pages/${slug}/chat`, {
         message,
         ...(history.length > 0 ? { history } : {}),
-        ...(sessionId ? { sessionId } : {})
+        ...(sessionId ? { sessionId } : {}),
+        /* Sent so the backend can tell whose site this is. A chat page cannot
+           do real work, so a business's own widget is refused rather than
+           answered with a rehearsal — see the chat route. */
+        ...(installKey ? { installKey } : {})
       });
 
       const payload = response.success ? response.data : undefined;
@@ -261,7 +277,7 @@ export function createPublicAgentPageRuntime(slug: string, installKey?: string |
     async startVoiceSession() {
       const response = await apiPost<{ session: PublicVoiceSession }>(
         `/agent-pages/${slug}/voice-session`,
-        {}
+        installKey ? { installKey } : {}
       );
 
       const session = response.success ? response.data?.session : undefined;
@@ -295,6 +311,11 @@ export function createPublicAgentPageRuntime(slug: string, installKey?: string |
         remainingToday: number;
       }>(`/agent-pages/${slug}/run`, {
         prompt,
+        /* One id per submit. A browser or proxy that replays this exact
+           request sends the same id, and the backend refuses the second
+           rather than charging the business twice. A second click builds a
+           new body with a new id, which is a genuinely new submit. */
+        runId: newSubmitId(),
         // The Prompt Box's door out, sent under the name it declares.
         ...(text ? { text } : {}),
         ...(attachments?.length ? { attachments } : {}),

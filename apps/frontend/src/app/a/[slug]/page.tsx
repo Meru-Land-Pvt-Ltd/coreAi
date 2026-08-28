@@ -48,13 +48,13 @@ export default async function PublishedProductHomePage({ params, searchParams }:
 
   const resolved = await loadPublicProduct(slug);
   if (!resolved || resolved.source !== "spec") {
-    return <LegacyAgentPage slug={slug} />;
+    return <LegacyAgentPage slug={slug} installKey={installKey} />;
   }
 
   const page = findPage(resolved.product, "");
   // A sanitized spec always has a home page; if one ever does not, the agent
   // still deserves to render.
-  if (!page) return <LegacyAgentPage slug={slug} />;
+  if (!page) return <LegacyAgentPage slug={slug} installKey={installKey} />;
 
   return (
     <LiveProductSite

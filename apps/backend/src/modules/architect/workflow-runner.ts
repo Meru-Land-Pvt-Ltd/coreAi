@@ -129,6 +129,7 @@ import { cachedArchitectSecrets } from "../connectors/architect-frames";
 import { pausedNodeTypes, pausedMessageFor } from "../admin/node-controls";
 import { inputForCode, normalizeLanguage } from "./code-node";
 import { connectorBudgetCentsFor } from "../connectors/budget";
+import { buildBusinessContext } from "./business-runtime-context";
 
 /** Threaded through the runner to bound workflow-to-workflow chaining. */
 type WorkflowChain = {
@@ -4849,7 +4850,11 @@ async function runEmailConnectorNode({
   const gmailOwnerId = business.ownerId ?? null;
   if (gmailOwnerId && asString((node.data as Record<string, unknown>)?.sendFrom, "auto") !== "platform") {
     const gmail = await getGmailConnectionStatus(gmailOwnerId).catch(() => null);
-    if (gmail?.connected) {
+    /* Connected is not the same as allowed to send. Our consent screen has
+       never asked Google for the send permission, so this attempt used to
+       fail on every account and fall through — a feature that looked live
+       and could not work once. It is checked, not discovered from a 403. */
+    if (gmail?.connected && gmail.canSendEmail) {
       try {
         const sentViaGmail = await sendGmailEmail({
           userId: gmailOwnerId,
@@ -5616,11 +5621,59 @@ export async function resumeHeldConversation(holdId: string): Promise<void> {
   };
   const heldDays = Math.max(1, Math.round((Date.now() - hold.createdAt.getTime()) / 86_400_000));
 
+  /* THE FOLLOW-UP COULD NEVER SEND. This rebuilt the business as a bare name
+     and nothing else — no id, no owner, no hours, no tone, no knowledge. The
+     send needs the business it is sending on behalf of, so the Timer's whole
+     purpose, the message days later, failed every time and the failure was
+     thrown away. The business is loaded properly now, from the same builder
+     the phone path uses, so a woken run knows exactly what the first run
+     knew. */
+  const heldBusiness = hold.businessId
+    ? await prisma.business.findUnique({
+        where: { id: hold.businessId },
+        include: { profile: true, knowledgeBases: true }
+      })
+    : null;
+  const heldAgent = hold.installedAgentId
+    ? await prisma.installedAgent.findUnique({
+        where: { id: hold.installedAgentId },
+        select: { id: true, listingId: true, configJson: true }
+      })
+    : null;
+  const heldContext = heldBusiness
+    ? buildBusinessContext(heldBusiness, null, heldAgent)
+    : null;
+
+  if (hold.businessId && !heldBusiness) {
+    console.error(`[timer-hold] business ${hold.businessId} is gone — not waking hold ${hold.id}`);
+    return;
+  }
+
   const context: RunnerContext = {
     text: snapshot.text ?? "",
     ...(snapshot.email ? { email: snapshot.email } : {}),
     ...(snapshot.aiOutput ? { ai: { output: snapshot.aiOutput } } : {}),
-    business: { name: snapshot.businessName || "your business" },
+    business: heldContext
+      ? {
+          id: heldContext.businessId,
+          ...(heldContext.ownerId ? { ownerId: heldContext.ownerId } : {}),
+          name: heldContext.businessName || snapshot.businessName || "your business",
+          ...(heldContext.businessType ? { type: heldContext.businessType } : {}),
+          ...(heldContext.bookingUrl ? { bookingUrl: heldContext.bookingUrl } : {}),
+          ...(heldContext.teamPhone ? { teamPhone: heldContext.teamPhone } : {}),
+          ...(heldContext.services.length > 0 ? { services: heldContext.services } : {}),
+          ...(heldContext.faqs.length > 0 ? { faqs: heldContext.faqs } : {}),
+          ...(heldContext.tone ? { tone: heldContext.tone } : {}),
+          ...(heldContext.escalationRules ? { escalationRules: heldContext.escalationRules } : {}),
+          ...(heldContext.knowledge.length > 0 ? { knowledge: heldContext.knowledge } : {}),
+          ...(heldContext.calendarId ? { calendarId: heldContext.calendarId } : {}),
+          ...(heldContext.timeZone ? { timeZone: heldContext.timeZone } : {}),
+          ...(heldContext.hours ? { hours: heldContext.hours } : {})
+        }
+      : { name: snapshot.businessName || "your business" },
+    ...(heldContext?.businessName || snapshot.businessName
+      ? { businessName: heldContext?.businessName || snapshot.businessName }
+      : {}),
     customerEmail: hold.threadKey,
     timer: { wokeWith: "silence", heldFor: `${heldDays} day${heldDays === 1 ? "" : "s"}` },
     conditionResults: {}
@@ -5646,6 +5699,24 @@ export async function resumeHeldConversation(holdId: string): Promise<void> {
 
   const waves = groupNodesIntoExecutionWaves(ownedNodes, parsed.edges);
   const doorBudget = createDoorBudget();
+
+  /* A WOKEN RUN USED TO LEAVE NO TRACE. The run id was invented on the spot
+     (`held-<id>`) and no run was ever recorded, so when a node failed the
+     only sign was a line in a server log nobody reads — the business saw
+     nothing, and the hold was already marked fired so it never came back.
+     It is a real run now, and it succeeds or fails on the record like any
+     other. */
+  const { workflowRunId } = await createWorkflowRun({
+    workflowId: hold.workflowId,
+    triggeredByUserId: workflow.architectUserId ?? undefined,
+    businessId: hold.businessId ?? undefined,
+    installedAgentId: hold.installedAgentId ?? undefined,
+    mode: "live",
+    executionMode: "LIVE",
+    inputJson: { wokeFrom: "timer-hold", holdId: hold.id, heldForDays: heldDays }
+  });
+  context.workflowRunId = workflowRunId;
+
   const baseParams = {
     userId: workflow.architectUserId ?? "",
     input: {
@@ -5654,7 +5725,7 @@ export async function resumeHeldConversation(holdId: string): Promise<void> {
     } as WorkflowRunInput,
     mode: "live" as WorkflowRunMode,
     chain: { depth: 0, visited: [hold.workflowId], workflowId: hold.workflowId, doorBudget },
-    workflowRunId: `held-${hold.id}`,
+    workflowRunId,
     workflowId: hold.workflowId,
     executionOrder: 0,
     doorBudget
@@ -5669,10 +5740,16 @@ export async function resumeHeldConversation(holdId: string): Promise<void> {
         await executeSingleNodeInRunner({ ...baseParams, node: inner, context });
       } catch (error) {
         console.error(`[timer-hold] node ${inner.id} failed on wake`, error);
+        await failWorkflowRun(
+          workflowRunId,
+          `Follow-up after ${heldDays} day${heldDays === 1 ? "" : "s"} of silence failed at ${inner.data?.label || inner.id}`
+        ).catch(() => undefined);
         return;
       }
     }
   }
+
+  await completeWorkflowRun(workflowRunId).catch(() => undefined);
 }
 
 /** The sweeper the worker calls: fire every hold whose silence is complete. */

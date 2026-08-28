@@ -215,7 +215,10 @@ const chatBodySchema = z.object({
     )
     .max(20, "History is limited to the last 20 messages")
     .optional(),
-  sessionId: z.string().uuid("Session id must be a UUID").optional()
+  sessionId: z.string().uuid("Session id must be a UUID").optional(),
+  /* Present only when this page is the widget on a business's own website.
+     See the refusal below for why it is read but never obeyed here. */
+  installKey: z.string().trim().max(120).optional()
 });
 
 /** One sandboxed chat turn (rate-limited). */
@@ -241,6 +244,32 @@ agentPagesRoutes.post("/:slug/chat", publicBodyLimit, async (c) => {
   const workflowJson = await loadWorkflowJson(page.workflowId);
   if (workflowJson === null) {
     return errorResponse(c, PAGE_NOT_FOUND_MESSAGE, 404, "AGENT_PAGE_NOT_FOUND");
+  }
+
+  /* A CHAT PAGE ON A BUSINESS'S OWN SITE WAS ANSWERING WITH A REHEARSAL.
+     This engine cannot run live — it books into a test calendar and marks
+     every lead as a test. The widget still carried the buyer's key, and a
+     real customer on the business's own website was told their appointment
+     was booked by a run that writes nothing: no calendar entry, no lead, no
+     record anybody could find the next morning.
+
+     Only the product page can go live today. Rather than serve a rehearsal
+     to a paying business's customer, this says no — the same line the run
+     route holds. When a live chat engine exists, this becomes a branch
+     instead of a refusal. */
+  const chatEmbed = await resolveEmbedLive({
+    installKey: parsed.data.installKey,
+    workflowId: page.workflowId,
+    listingId: page.listing.id
+  });
+  if (chatEmbed.live) {
+    console.warn("[agent-pages] live chat embed refused — this page cannot do real work", { slug });
+    return errorResponse(
+      c,
+      "This agent's chat cannot run live on your site yet. Publish it as a product page to take real work.",
+      503,
+      "EMBED_CHAT_NOT_LIVE"
+    );
   }
 
   const clientIp = getClientIp(c);
@@ -300,6 +329,27 @@ agentPagesRoutes.post("/:slug/voice-session", async (c) => {
     return errorResponse(c, PAGE_NOT_FOUND_MESSAGE, 404, "AGENT_PAGE_NOT_FOUND");
   }
 
+  /* THE SAME LINE AS THE CHAT ABOVE. What this starts is a marketplace demo
+     call — it always was, whoever asked. On a business's own website that
+     means their customer spoke to a demonstration and believed they had
+     spoken to the business. A demo is honest on the marketplace and a lie on
+     their site. */
+  const voiceBody = (await c.req.json().catch(() => ({}))) as { installKey?: unknown };
+  const voiceEmbed = await resolveEmbedLive({
+    installKey: typeof voiceBody?.installKey === "string" ? voiceBody.installKey : null,
+    workflowId: page.workflowId,
+    listingId: page.listing.id
+  });
+  if (voiceEmbed.live) {
+    console.warn("[agent-pages] live voice embed refused — this page only starts a demo call", { slug });
+    return errorResponse(
+      c,
+      "This agent's voice call cannot run live on your site yet.",
+      503,
+      "EMBED_VOICE_NOT_LIVE"
+    );
+  }
+
   try {
     const session = await startPublicMarketplaceDemoCall(getClientIp(c), page.listing.id);
     return successResponse(c, { session }, "Voice session ready");
@@ -341,6 +391,13 @@ const runBodySchema = z.object({
    * marketplace page, which stays a demo exactly as before.
    */
   installKey: z.string().trim().max(120).optional(),
+  /* One submit, one id, made by the browser. A network or proxy replay of
+     the same request carries the same id and is refused by WorkflowRun's
+     unique index; a second click is a genuinely new submit and gets a new
+     one. This was a `randomUUID()` invented on the server, which is a fresh
+     id every time — so the double-charge guard the comment below describes
+     could never once match, and a replayed submit was billed twice. */
+  runId: z.string().uuid().optional(),
   /** File Upload's door out — the customer's one file, as a data URL. */
   attachments: z
     .array(
@@ -444,7 +501,7 @@ agentPagesRoutes.post("/:slug/run", publicRunBodyLimit, async (c) => {
           callProvider: "EMBED",
           // One run per submit: a retry of the same submit is refused by
           // WorkflowRun's unique index rather than charged twice.
-          externalCallId: `${embed.install.id}:${parsed.data.sessionId ?? randomUUID()}`,
+          externalCallId: `${embed.install.id}:${parsed.data.runId ?? parsed.data.sessionId ?? randomUUID()}`,
           input: {
             businessId: embed.install.businessId,
             businessOwnerId: embed.install.businessOwnerId,

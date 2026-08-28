@@ -38,6 +38,11 @@ import {
   workflowCapabilities
 } from "../agent-runtime/graph-runner";
 import { formatKnowledgeEntries, retrieveRelevantKnowledge } from "../business/agent-knowledge";
+/* The business context lives on its own so every way into a run builds the
+   same one. Re-exported here because this module has always been its door. */
+import { buildBusinessContext, type BusinessRuntimeContext } from "./business-runtime-context";
+export { buildBusinessContext };
+export type { BusinessRuntimeContext };
 import { checkUsageCapAndNotify } from "../business/usage-cap";
 import { redactSensitiveText } from "../business/conversation-understanding/redaction";
 import {
@@ -144,31 +149,6 @@ import { parseRequestedAppointment } from "./appointment-parser";
 import { recordVapiCallUsage } from "../business/usage-billing";
 
 type TwilioBody = Record<string, unknown>;
-
-export type BusinessRuntimeContext = {
-  businessId?: string;
-  ownerId?: string;
-  installedAgentId?: string;
-  listingId?: string;
-  businessName: string;
-  businessType?: string;
-  businessPhoneNumber?: string;
-  bookingUrl?: string;
-  teamPhone?: string;
-  calendarId?: string;
-  timeZone?: string;
-  vapiAssistantId?: string;
-  vapiPhoneNumberId?: string;
-  services: string[];
-  faqs: string[];
-  tone?: string;
-  escalationRules?: string;
-  knowledge: string[];
-  hours?: unknown;
-  /** LIVE by default; architect sandbox agents run as ARCHITECT_DRY_RUN so
-   * their bookings are marked as tests and excluded from production data. */
-  executionMode?: "ARCHITECT_DRY_RUN" | "BUSINESS_TEST" | "LIVE";
-};
 
 type ResolvedAgent = {
   workflowId: string;
@@ -306,143 +286,6 @@ export function firstNestedString(body: Record<string, unknown>, paths: string[]
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return "";
-}
-
-function jsonStringArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
-  }
-
-  return [];
-}
-
-function faqStrings(value: unknown): string[] {
-  if (!value) return [];
-
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => {
-        if (typeof item === "string") return item;
-        if (typeof item === "object" && item !== null) {
-          const record = item as Record<string, unknown>;
-          const question = typeof record.question === "string" ? record.question : "";
-          const answer = typeof record.answer === "string" ? record.answer : "";
-          return [question, answer].filter(Boolean).join(" - ");
-        }
-        return "";
-      })
-      .filter(Boolean);
-  }
-
-  if (typeof value === "object" && value !== null) {
-    return Object.values(value as Record<string, unknown>).filter((item): item is string => typeof item === "string");
-  }
-
-  return [];
-}
-
-function cleanAgentId(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-/** Per-agent business context saved by the buyer setup wizard. */
-function readAgentBusinessDetails(configJson: unknown): Record<string, unknown> {
-  const config =
-    configJson && typeof configJson === "object" && !Array.isArray(configJson)
-      ? (configJson as Record<string, unknown>)
-      : {};
-  const details = config.businessDetails;
-
-  return details && typeof details === "object" && !Array.isArray(details)
-    ? (details as Record<string, unknown>)
-    : {};
-}
-
-function agentDetailString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-const AGENT_BUSINESS_CONTEXT_VERSION = 2;
-
-function ownsFullBusinessContext(details: Record<string, unknown>): boolean {
-  return details.contextVersion === AGENT_BUSINESS_CONTEXT_VERSION;
-}
-
-export function buildBusinessContext(
-  business: any,
-  phoneNumber?: string | null,
-  installedAgent?: { id?: string; listingId?: string | null; configJson?: unknown } | null
-): BusinessRuntimeContext {
-  const profile = business?.profile;
-  const knowledgeBases = Array.isArray(business?.knowledgeBases) ? business.knowledgeBases : [];
-  const agentConfig =
-    installedAgent?.configJson && typeof installedAgent.configJson === "object" && !Array.isArray(installedAgent.configJson)
-      ? (installedAgent.configJson as Record<string, unknown>)
-      : {};
-  const agentDetails = readAgentBusinessDetails(installedAgent?.configJson);
-  const ownsAgentContext = ownsFullBusinessContext(agentDetails);
-  // An agent that owns its context never inherits a sibling's contact points.
-  const profileBookingUrl: string | undefined = ownsAgentContext
-    ? undefined
-    : agentDetailString(profile?.bookingUrl);
-  const profileTeamPhone: string | undefined = ownsAgentContext
-    ? undefined
-    : agentDetailString(profile?.teamPhone);
-  const executionMode: BusinessRuntimeContext["executionMode"] =
-    agentConfig.executionMode === "ARCHITECT_DRY_RUN" || agentConfig.executionMode === "BUSINESS_TEST"
-      ? agentConfig.executionMode
-      : agentConfig.testMode === true
-        ? "ARCHITECT_DRY_RUN"
-        : "LIVE";
-
-  return {
-    businessId: business?.id,
-    ownerId: business?.ownerId,
-    installedAgentId: installedAgent?.id,
-    listingId: installedAgent?.listingId ?? undefined,
-    executionMode,
-    businessName:
-      agentDetailString(agentDetails.businessName) ??
-      business?.name ??
-      env.TWILIO_DEFAULT_BUSINESS_NAME ??
-      "the business",
-    businessType: agentDetailString(agentDetails.businessType) ?? business?.type ?? undefined,
-    businessPhoneNumber: phoneNumber ?? undefined,
-    bookingUrl:
-      agentDetailString(agentDetails.bookingUrl) ??
-      profileBookingUrl ??
-      env.TWILIO_DEFAULT_BOOKING_URL ??
-      undefined,
-    teamPhone:
-      agentDetailString(agentDetails.teamPhone) ??
-      profileTeamPhone ??
-      env.TWILIO_DEFAULT_TEAM_PHONE ??
-      undefined,
-    calendarId: profile?.calendarId ?? env.GOOGLE_CALENDAR_ID ?? "primary",
-    timeZone: profile?.timeZone ?? env.GOOGLE_CALENDAR_DEFAULT_TIMEZONE,
-    vapiAssistantId: installedAgent
-      ? cleanAgentId(agentConfig.vapiAssistantId)
-      : cleanAgentId(agentConfig.vapiAssistantId) || profile?.vapiAssistantId || undefined,
-    vapiPhoneNumberId: installedAgent
-      ? cleanAgentId(agentConfig.vapiPhoneNumberId)
-      : cleanAgentId(agentConfig.vapiPhoneNumberId) || profile?.vapiPhoneNumberId || undefined,
-    services: ownsAgentContext
-      ? jsonStringArray(agentDetails.services)
-      : jsonStringArray(agentDetails.services ?? profile?.services),
-    faqs: ownsAgentContext
-      ? faqStrings(agentDetails.faqs)
-      : faqStrings(agentDetails.faqs ?? profile?.faqsJson),
-    tone: ownsAgentContext
-      ? agentDetailString(agentDetails.tone) ?? "friendly"
-      : agentDetailString(agentDetails.tone) ?? profile?.tone ?? "friendly",
-    escalationRules: ownsAgentContext
-      ? agentDetailString(agentDetails.escalationRules)
-      : agentDetailString(agentDetails.escalationRules) ?? profile?.escalationRules ?? undefined,
-    hours: ownsAgentContext
-      ? (agentDetails.hours as unknown) ?? undefined
-      : agentDetails.hours ?? profile?.hoursJson ?? undefined,
-    knowledge: formatKnowledgeEntries(knowledgeBases)
-  };
 }
 
 export async function latestActiveInstalledAgent(businessId: string) {
@@ -5741,9 +5584,28 @@ export async function handleVapiWebhook(c: Context) {
       return c.json({ success: false, error: "Unauthorized", code: "VAPI_WEBHOOK_UNAUTHORIZED" }, 401);
     }
 
-    const businessContext = business ? buildBusinessContext(business) : null;
     const metadataInstalledAgentId =
       typeof metadata.installedAgentId === "string" ? metadata.installedAgentId : undefined;
+
+    /* THE CALL BELONGED TO ONE AGENT AND WE BUILT THE CONTEXT FOR NONE.
+       This asked for the business alone, so the context fell back to the
+       business profile's booking link, team phone, services and FAQs. A
+       business running two agents — a bookings line and a support line —
+       had one agent answering with the other's booking link and the other's
+       phone number, because neither owned the context it was given. The call
+       carries its agent's id and its own number in the metadata; both are
+       passed now, exactly as the phone path does. */
+    const callAgent = metadataInstalledAgentId && business
+      ? await prisma.installedAgent.findFirst({
+          where: { id: metadataInstalledAgentId, businessId: business.id },
+          select: { id: true, listingId: true, configJson: true }
+        })
+      : null;
+    const callAssignedNumber =
+      typeof metadata.assignedPhoneNumber === "string" ? metadata.assignedPhoneNumber : null;
+    const businessContext = business
+      ? buildBusinessContext(business, callAssignedNumber, callAgent)
+      : null;
     const sandboxBusiness = businessContext?.businessId
       ? await isSandboxExecutionBusiness(businessContext.businessId, metadataInstalledAgentId)
       : false;

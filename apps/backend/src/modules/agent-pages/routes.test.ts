@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const {
+  resolveEmbedLiveMock,
   pageFindUniqueMock,
   workflowFindUniqueMock,
   remainingTodayMock,
@@ -23,6 +24,7 @@ const {
   runWorkflowTestMock,
   startPublicDemoMock
 } = vi.hoisted(() => ({
+  resolveEmbedLiveMock: vi.fn(),
   pageFindUniqueMock: vi.fn(),
   workflowFindUniqueMock: vi.fn(),
   remainingTodayMock: vi.fn(),
@@ -72,6 +74,11 @@ vi.mock("../business/marketplace-demo", () => {
 // Manage endpoints are covered by their own tests — keep this module graph
 // to the public surface only.
 vi.mock("./manage-routes", () => ({ registerAgentPageManageRoutes: () => {} }));
+
+vi.mock("./embed-live", () => ({
+  resolveEmbedLive: resolveEmbedLiveMock,
+  EMBED_DEFAULTS: { dailyLimit: 100, burstPerMinute: 5 }
+}));
 
 import { MarketplaceDemoError } from "../business/marketplace-demo";
 import { agentPagesRoutes } from "./routes";
@@ -142,6 +149,9 @@ beforeEach(() => {
   conversationTestMock.mockResolvedValue({ reply: "Hello from the agent!", configError: null });
   runWorkflowTestMock.mockResolvedValue({ logs: [], context: {} });
   startPublicDemoMock.mockResolvedValue({ webCallToken: "tok-1", assistantId: "asst-1" });
+  // No widget key: an ordinary marketplace visitor. This is the default the
+  // rest of the file has always assumed.
+  resolveEmbedLiveMock.mockResolvedValue({ live: false, reason: "no key — marketplace demo" });
 });
 
 describe("GET /agent-pages/:slug", () => {
@@ -704,5 +714,69 @@ describe("POST /agent-pages/:slug/run", () => {
     expect(json.code).toBe("AGENT_PAGE_RUN_FAILED");
     expect(json.error).not.toContain("exploded");
     expect(refundLimitMock).toHaveBeenCalledWith("unknown", SLUG);
+  });
+});
+
+/**
+ * A REHEARSAL ON A PAYING BUSINESS'S WEBSITE (2026-08-28).
+ *
+ * The run route already refuses to serve the architect's dry run to a real
+ * visitor. Chat and voice did not — the widget never sent the buyer's key, so
+ * these routes could not tell a marketplace browser from a customer standing
+ * on a dentist's own homepage. That customer chatted to an engine that books
+ * into a TEST calendar and marks every lead a test: they were told the
+ * appointment was made, and the next morning nothing existed.
+ *
+ * Neither page can run live yet. Until one can, they say no.
+ */
+describe("a business's own widget is never answered with a rehearsal", () => {
+  const liveEmbed = {
+    live: true as const,
+    install: {
+      id: "install-1",
+      businessId: "business-1",
+      businessOwnerId: "owner-1",
+      listingId: "listing-1",
+      businessName: "Bright Smile Dental",
+      businessType: "dental",
+      businessPhoneNumber: "+15555550123",
+      services: []
+    }
+  };
+
+  it("refuses a chat turn that carries a live widget key", async () => {
+    resolveEmbedLiveMock.mockResolvedValue(liveEmbed);
+
+    const response = await postJson(buildApp(), `/agent-pages/${SLUG}/chat`, {
+      message: "Can I book a cleaning on Thursday?",
+      installKey: "buyer-key-123"
+    });
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).code).toBe("EMBED_CHAT_NOT_LIVE");
+    // And nothing was rehearsed on the customer's behalf.
+    expect(conversationTestMock).not.toHaveBeenCalled();
+    expect(consumeLimitMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a voice session that carries a live widget key", async () => {
+    resolveEmbedLiveMock.mockResolvedValue(liveEmbed);
+
+    const response = await postJson(buildApp(), `/agent-pages/${SLUG}/voice-session`, {
+      installKey: "buyer-key-123"
+    });
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).code).toBe("EMBED_VOICE_NOT_LIVE");
+    expect(startPublicDemoMock).not.toHaveBeenCalled();
+  });
+
+  it("still answers an ordinary marketplace visitor", async () => {
+    const response = await postJson(buildApp(), `/agent-pages/${SLUG}/chat`, {
+      message: "What are your hours?"
+    });
+
+    expect(response.status).toBe(200);
+    expect(conversationTestMock).toHaveBeenCalled();
   });
 });

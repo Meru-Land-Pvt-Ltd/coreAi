@@ -79,12 +79,24 @@ function CenteredCard({ children }: { children: React.ReactNode }) {
  * The only difference is that the slug arrives as a prop instead of from
  * `useParams`, because the server component above already read it.
  */
-export function LegacyAgentPage({ slug }: { slug: string }) {
+export function LegacyAgentPage({
+  slug,
+  installKey = null
+}: {
+  slug: string;
+  /* The buyer's widget key, when this page is embedded on their own site.
+     It was dropped here entirely, so the backend could never tell a
+     business's own visitor from a marketplace browser. */
+  installKey?: string | null;
+}) {
   const [state, setState] = useState<PageState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
 
   // The live runtime — the same public-API calls the templates always made.
-  const runtime = useMemo(() => createPublicAgentPageRuntime(slug), [slug]);
+  const runtime = useMemo(
+    () => createPublicAgentPageRuntime(slug, installKey),
+    [slug, installKey]
+  );
 
   useEffect(() => {
     if (!slug) return;
