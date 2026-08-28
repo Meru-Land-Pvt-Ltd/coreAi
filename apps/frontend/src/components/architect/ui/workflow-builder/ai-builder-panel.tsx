@@ -9,6 +9,7 @@ import {
 } from "@/components/architect/features/api";
 import type { DesignChatMessage } from "@/components/architect/features/types";
 import { getAuthToken } from "@/lib/auth";
+import { safeMarkdownHtml } from "@/lib/safe-markdown";
 import { BuilderIcon } from "./icons";
 
 /**
@@ -117,6 +118,48 @@ function builtAndChecked(canvas: ComposedCanvas): string {
   return "";
 }
 
+
+/**
+ * THE THREE DOTS USED TO SPIN FOR EVER.
+ *
+ * When the AI service refused — a 503, a timeout, a stream that opened and
+ * then said nothing — the panel waited on a reader that would never speak
+ * again, and the architect watched a thinking animation until they gave up
+ * and reloaded. Silence is the platform lying by omission: it looks like
+ * work and it is nothing.
+ *
+ * Two minutes without a single word and it stops and says so. Every chunk
+ * that does arrive resets the clock, so a long answer is never cut off
+ * mid-sentence.
+ */
+const NOTHING_HEARD_FOR_MS = 120_000;
+
+function streamWatchdog() {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let expired = false;
+
+  const heard = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      expired = true;
+      controller.abort();
+    }, NOTHING_HEARD_FOR_MS);
+  };
+  heard();
+
+  return {
+    signal: controller.signal,
+    heard,
+    stop: () => {
+      if (timer) clearTimeout(timer);
+    },
+    get expired() {
+      return expired;
+    }
+  };
+}
+
 async function composeCanvas(
   want: string,
   onStage: (line: string) => void,
@@ -129,8 +172,10 @@ async function composeCanvas(
   const base = process.env.NEXT_PUBLIC_API_URL ?? "/api";
   const token = getAuthToken();
 
+  const watch = streamWatchdog();
   const response = await fetch(`${base}/architect/compose`, {
     method: "POST",
+    signal: watch.signal,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -152,7 +197,19 @@ async function composeCanvas(
   let buffer = "";
 
   for (;;) {
-    const { value, done } = await reader.read();
+    let value: Uint8Array | undefined;
+    let done = false;
+    try {
+      ({ value, done } = await reader.read());
+    } catch {
+      watch.stop();
+      return {
+        failed: watch.expired
+          ? "The AI service did not answer, so nothing was built. Nothing was changed on your canvas."
+          : "The builder stopped mid-way. Try once more."
+      };
+    }
+    if (value) watch.heard();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
@@ -202,8 +259,12 @@ async function streamAnswer(
 ): Promise<{ hand?: "build" | "page" | "explain"; reply?: string | null; failed?: string }> {
   const base = process.env.NEXT_PUBLIC_API_URL ?? "/api";
   const token = getAuthToken();
+
+  const watch = streamWatchdog();
+
   const response = await fetch(`${base}/architect/workflows/${workflowId}/ai-builder/stream`, {
     method: "POST",
+    signal: watch.signal,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -221,7 +282,19 @@ async function streamAnswer(
   let buffer = "";
 
   for (;;) {
-    const { value, done } = await reader.read();
+    let value: Uint8Array | undefined;
+    let done = false;
+    try {
+      ({ value, done } = await reader.read());
+    } catch {
+      watch.stop();
+      return {
+        failed: watch.expired
+          ? "The AI service did not answer. Nothing was changed — try once more."
+          : CHAT_FALLBACK_REPLY
+      };
+    }
+    if (value) watch.heard();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
@@ -243,9 +316,13 @@ async function streamAnswer(
       if (event === "stage") onStage(String(data.stage ?? ""));
       else if (event === "word") onWord(String(data.chunk ?? ""));
       else if (event === "done") return data as { hand?: "build" | "page" | "explain"; reply?: string | null };
-      else if (event === "failed") return { failed: String(data.message ?? CHAT_FALLBACK_REPLY) };
+      else if (event === "failed") {
+        watch.stop();
+        return { failed: String(data.message ?? CHAT_FALLBACK_REPLY) };
+      }
     }
   }
+  watch.stop();
   return { failed: CHAT_FALLBACK_REPLY };
 }
 
@@ -727,12 +804,16 @@ export function AiBuilderPanel({
               </div>
             ) : (
               <div key={message.id} className="flex flex-col items-start">
-                <p
+                {/* THE BUILDER WRITES MARKDOWN AND THE PANEL SHOWED THE STARS.
+                    It answered the founder with **"gpt-4o-mini"** and he read
+                    the asterisks. Rendered through the same escaped-then-parsed
+                    reader the rest of the platform uses, so a model that writes
+                    a link or a tag can never put live HTML on this screen. */}
+                <div
                   data-testid="smart-designer-message-assistant"
-                  className="max-w-[85%] whitespace-pre-line rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-800"
-                >
-                  {message.content}
-                </p>
+                  className="ai-builder-prose max-w-[85%] rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-800"
+                  dangerouslySetInnerHTML={{ __html: safeMarkdownHtml(message.content) }}
+                />
                 {typeof message.merged === "number" && message.merged > 0 ? (
                   <p
                     data-testid="smart-designer-merged"

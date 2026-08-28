@@ -49,8 +49,16 @@ const EXPLAIN_TIMEOUT_MS = 60_000;
 const ROUTER_INSTRUCTION = [
   "You are routing one message from a person building an AI agent. Pick exactly one word:",
   "",
-  "- build — they want steps, wiring or a whole agent created or changed on the canvas",
+  "- build — they want steps, wiring, SETTINGS or a whole agent created or changed on the canvas",
   '    ("build me a lead scorer", "add a condition after the brain", "make an agent that...")',
+  /* THE BUILDER PROMISED AN ACTION AND THEN GAVE HOMEWORK. An architect asked
+     why their agent had failed; the Builder answered "I'll swap the model for
+     you" — and then told them to click the step and change it themselves,
+     because "explain" cannot touch a canvas. It was routed to the hand that
+     can only talk. Changing a SETTING is a change to the canvas, and belongs
+     to the hand that can make it. */
+  '    ("change the model to gpt-4.1-mini", "swap the brain", "set the temperature lower",',
+  '     "use a different model", "point this at my other calendar")',
   "- page — they want the customer-facing page changed: boxes, sections, wording, layout, look",
   '    ("make the input box bigger", "add an email field", "change the button text", "make it blue")',
   "- explain — they are asking why something happened, what went wrong, or how something works",
@@ -63,6 +71,13 @@ const ROUTER_INSTRUCTION = [
 /* ----------------------------------------------------------- the explainer */
 
 const EXPLAIN_INSTRUCTION = [
+  /* NEVER PROMISE A HAND YOU ARE NOT. This hand can read and answer; it
+     cannot touch the canvas. It once told an architect "I'll swap the model
+     for you" and then gave them instructions to do it themselves. */
+  "You can READ this agent and answer about it. You CANNOT change it from here.",
+  "So never say you will change, swap, set, fix or add anything. If they want a change, say in one",
+  "short line: \"Tell me to change it and I will — say 'change the model to X' and it is done.\"",
+  "",
   "You are the AI Builder on the Triven platform, helping a non-technical person who built an AI agent",
   "out of connected steps. They are confused or curious about their own agent. You are given the agent's",
   "steps (with the exact words they typed into each) and what the most recent runs actually did.",

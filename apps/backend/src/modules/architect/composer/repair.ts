@@ -21,6 +21,7 @@
 
 import { checkWiring, type WiringProblem } from "@coreai/shared";
 import { resolveBrainSlot } from "../../admin/brain-slot-settings";
+import { builderMind } from "../builder-mind";
 import { getBuilderBrainConfig } from "../../admin/builder-brain-settings";
 import { getProviderEngine } from "../../ai-provider-engine/provider-engine";
 import type { AIExecuteRequest, AIMessage } from "../../ai-provider-engine/types";
@@ -226,6 +227,17 @@ export async function repairCanvas(input: {
   let edges = input.edges;
   let problems = before.problems;
 
+  /* THE ONLY HAND WITH AMNESIA. "Fix it for me" runs on the Builder's own
+     brain and carried none of its briefing — the same employee with his
+     memory and his manners stripped out, which is why what comes back does
+     not sound like the Builder the architect was just talking to. Its own
+     briefing names "repair" as one of the eight hands it carries. */
+  const mind = await builderMind({
+    hand: "repair",
+    architectUserId: input.architectUserId,
+    focus: problems.map((problem) => problem.message).join(" · ").slice(0, 400)
+  }).catch(() => "");
+
   const messages: AIMessage[] = [
     {
       role: "user",
@@ -241,7 +253,7 @@ export async function repairCanvas(input: {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const request: AIExecuteRequest = {
       capability: "llm",
-      systemPrompt: systemPrompt(menu),
+      systemPrompt: mind ? `${mind}\n\n${systemPrompt(menu)}` : systemPrompt(menu),
       conversationHistory: [],
       messages: [...messages],
       // Very low. This is a correction, not a rewrite, and warmth here shows up
