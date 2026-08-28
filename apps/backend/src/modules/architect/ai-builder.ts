@@ -197,6 +197,23 @@ function compact(value: unknown): string {
  * "build" and "page" hand off to engines that answer with a canvas, not
  * with words.
  */
+
+/**
+ * WHICH HAND IS ACTUALLY AT WORK.
+ *
+ * The Builder's briefing names eight hands and promises the same employee
+ * carries every one. Four had never been used, so the promise was a
+ * description of somebody who did not exist. These two are real work it does
+ * every day and had no name: reading a run that went wrong is DIAGNOSE;
+ * answering with nothing to read is CHAT.
+ */
+function handForExplaining(runs: string): "diagnose" | "chat" | "explain" {
+  const said = (runs ?? "").toLowerCase();
+  if (/fail|error|broke|refused|did not|could not/.test(said)) return "diagnose";
+  if (!said.trim() || /no runs|never run|nothing yet/.test(said)) return "chat";
+  return "explain";
+}
+
 export async function aiBuilderAnswerStreaming(input: {
   workflowId: string;
   architectUserId?: string;
@@ -238,7 +255,17 @@ export async function aiBuilderAnswerStreaming(input: {
 
   input.onStage("Writing");
   const reply = await streamPlatformBrain({
-    instruction: `${await builderMind({ hand: "explain", architectUserId: input.architectUserId, focus: message })}
+    /* THREE OF THE BUILDER'S HANDS WERE LABELS ON NOTHING. Its own briefing
+       names eight hands and says the same employee carries all of them; four
+       were never once used, so the file described a person who did not
+       exist. Two of them are this moment: reading a run that FAILED is
+       diagnose, and answering when there is no run to read is chat. Naming
+       the work honestly is what makes the briefing true. */
+    instruction: `${await builderMind({
+      hand: handForExplaining(runs),
+      architectUserId: input.architectUserId,
+      focus: message
+    })}
 
 ${EXPLAIN_INSTRUCTION}`,
     message: `${agent}
@@ -284,7 +311,17 @@ export async function aiBuilderAnswer(input: {
   const reply = await askPlatformBrain({
     /* One mind, every hand (2026-08-27) — the same employee who built the
        machine is the one explaining what it did. */
-    instruction: `${await builderMind({ hand: "explain", architectUserId: input.architectUserId, focus: message })}
+    /* THREE OF THE BUILDER'S HANDS WERE LABELS ON NOTHING. Its own briefing
+       names eight hands and says the same employee carries all of them; four
+       were never once used, so the file described a person who did not
+       exist. Two of them are this moment: reading a run that FAILED is
+       diagnose, and answering when there is no run to read is chat. Naming
+       the work honestly is what makes the briefing true. */
+    instruction: `${await builderMind({
+      hand: handForExplaining(runs),
+      architectUserId: input.architectUserId,
+      focus: message
+    })}
 
 ${EXPLAIN_INSTRUCTION}`,
     message: `${agent}

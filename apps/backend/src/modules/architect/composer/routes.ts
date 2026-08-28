@@ -144,7 +144,12 @@ composerRoutes.post("/", async (c) => {
             workflowId: parsed.data.workflowId,
             workflowJson: { nodes: canvas.nodes, edges: canvas.edges },
             purpose: parsed.data.want,
-            name: result.plan.summary
+            name: result.plan.summary,
+            /* THE FOUNDER'S MONEY RULE. The wires are checked for free on
+               every build. Actually running the agent costs AI calls on his
+               credit, so it happens only when an architect deliberately
+               presses "Check my agent" — never automatically. */
+            runTheAgent: false
           });
           checked = { lines: report.lines, passed: report.passed, failed: report.failed };
         } catch (error) {

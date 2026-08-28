@@ -355,9 +355,23 @@ export async function composeOrchestration(input: {
       continue;
     }
 
+    /* A SPINNER IS NOT PROGRESS. The founder's line for the Builder: an
+       architect sits WITH it, not in front of silence. This said the same
+       two sentences for every build, whatever it had actually decided — so
+       a build of three steps and a build of twelve looked identical, and
+       the one thing an architect wants to know (what did it choose, and is
+       it stuck) was never on screen. It names what it placed now, and when
+       something is wrong it names the thing that is wrong. */
+    const placed = (plan.nodes ?? []).map((node) => node.title || node.type).filter(Boolean);
+    say(
+      `Laying out ${placed.length} step${placed.length === 1 ? "" : "s"}`,
+      placed.slice(0, 4).join(" → ") + (placed.length > 4 ? ` → +${placed.length - 4} more` : "")
+    );
     say("Checking every step is real and every wire lands");
-    say("Checking every step and every wire", `${plan.nodes?.length ?? 0} steps to verify`);
     const problems = checkPlan(plan, menu, input.want);
+    if (problems.length > 0) {
+      say(`Not right yet — fixing ${problems.length === 1 ? "it" : `${problems.length} things`}`, problems[0]);
+    }
 
     /* THEIR WORDS ARE SACRED, mechanically: when the human answered a
        question, their exact words must appear in the plan. A model that
@@ -382,7 +396,10 @@ export async function composeOrchestration(input: {
     }
 
     if (problems.length === 0) {
-      say("Done", plan.summary);
+      say(
+        attempt === 1 ? "Done — it held first time" : `Done — corrected on round ${attempt}`,
+        plan.summary
+      );
       return { ok: true, plan, menu, attempts: attempt };
     }
 

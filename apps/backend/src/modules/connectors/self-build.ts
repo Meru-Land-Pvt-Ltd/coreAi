@@ -20,6 +20,7 @@
  */
 
 import type { NodeFrameDeclaration } from "@coreai/shared";
+import { builderMind } from "../architect/builder-mind";
 import { askPlatformBrain } from "../architect/platform-brain";
 import { problemsWith, saveArchitectFrame, frameFromDeclaration, listArchitectFrames } from "./architect-frames";
 import { runConnector } from "./engine";
@@ -200,10 +201,22 @@ export async function selfBuildFrame(input: {
   let attempts = 0;
   let feedback = "";
 
+  /* THE FOURTH UNUSED HAND, GIVEN ITS WORK BACK. Writing a connection card
+     is the Builder's job — its own briefing names "build-card" as one of the
+     eight hands the same employee carries — and this drafted one with no
+     briefing at all, in a voice that was nobody's. So the card an architect
+     got back was written by a stranger, and the Builder had no memory of
+     writing it. One employee means one mind on every job, including this. */
+  const mind = await builderMind({
+    hand: "build-card",
+    architectUserId: input.architectUserId,
+    focus: `${input.serviceName} — ${input.goal}`
+  }).catch(() => "");
+
   while (attempts < MAX_ATTEMPTS && problems.length > 0) {
     attempts += 1;
     const raw = await askPlatformBrain({
-      instruction: DRAFT_INSTRUCTION,
+      instruction: mind ? `${mind}\n\n${DRAFT_INSTRUCTION}` : DRAFT_INSTRUCTION,
       message: feedback ? `${ask}\n\nYOUR LAST DRAFT HAD THESE PROBLEMS — fix exactly these and return the whole declaration again:\n${feedback}` : ask,
       maxTokens: 3000,
       timeoutMs: DRAFT_TIMEOUT_MS,

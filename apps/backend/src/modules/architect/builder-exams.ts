@@ -23,6 +23,7 @@
 
 import { decryptSecret, encryptSecret } from "../../lib/crypto";
 import { prisma } from "../../lib/prisma";
+import { saveBuilderLesson } from "./builder-lessons";
 import { composeOrchestration, type ComposerResult } from "./composer/compose";
 
 /* ------------------------------- the exams ------------------------------- */
@@ -334,6 +335,30 @@ export async function runBuilderExams(architectUserId: string): Promise<ExamRepo
       continue;
     }
     marks.push(markExam(exam, result));
+  }
+
+  /* THE LOOP'S OPEN ARM, CLOSED (the founder's law).
+     This file's own header promises "every failure becomes a lesson and a
+     new exam question, forever". In code it did not: a sitting wrote a
+     report and stopped, and the only thing that ever created a lesson was an
+     architect pressing "Teach the Builder" by hand. So the learning arm of
+     the Triven Loop was a human, and a fault the Builder made on Monday it
+     was free to make again on Tuesday.
+
+     A failed mark now writes its own lesson, in the words of the law it
+     broke, and that lesson rides the next compose like any other. Costs
+     nothing — the lesson store is a database row, not a model call. */
+  for (const mark of marks) {
+    if (mark.passed || mark.faults.length === 0) continue;
+    await saveBuilderLesson({
+      architectUserId,
+      note: `${mark.law}: ${mark.faults[0]}`
+    }).catch((error: unknown) =>
+      console.error("[builder-exams] a failed mark could not become a lesson", {
+        exam: mark.id,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    );
   }
 
   const report: ExamReport = {

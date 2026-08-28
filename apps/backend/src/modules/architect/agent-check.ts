@@ -24,6 +24,7 @@
  */
 
 import { checkWiring } from "@coreai/shared";
+import { builderMind } from "./builder-mind";
 import { prisma } from "../../lib/prisma";
 import { askPlatformBrain } from "./platform-brain";
 import { runWorkflowTest } from "./workflow-runner";
@@ -46,10 +47,20 @@ async function ask(instruction: string, message: string, maxTokens: number): Pro
   return askPlatformBrain({ instruction, message, maxTokens, timeoutMs: LLM_TIMEOUT_MS, task: "agent-check" });
 }
 
-/** Test messages invented from the purpose — including one that should NOT fit it. */
-async function inventTests(purpose: string): Promise<string[]> {
+/**
+ * Test messages invented from the purpose — including one that should NOT fit it.
+ *
+ * THE FIFTH UNUSED HAND. Deciding what is worth testing is judgement, and
+ * judgement is the Builder's own — its briefing names "check" as one of the
+ * eight hands the same employee carries, and this wrote its tests with no
+ * briefing at all. The grading below stays cold on purpose: the Builder
+ * chooses the questions, but no AI personality decides whether its own work
+ * passed.
+ */
+async function inventTests(purpose: string, mind?: string): Promise<string[]> {
   const raw = await ask(
     [
+      ...(mind ? [mind, ""] : []),
       "You write test messages for an AI agent, as if you were its customer.",
       "",
       `THE AGENT'S PURPOSE: ${purpose}`,
@@ -147,6 +158,17 @@ export async function checkAgentGraph(input: {
   /** What the architect said they were building. Without it, one plain hello. */
   purpose?: string | null;
   name?: string | null;
+  /**
+   * HIS MONEY IS HIS. Running the agent and judging its answer are AI calls
+   * on the founder's own credit. On a deliberate press of "Check my agent"
+   * that is a cost he chose. On EVERY compose it is a cost nobody chose, so
+   * the automatic check does the free half only: the wires, which are
+   * mechanical and cost nothing.
+   *
+   * When this is false the report says plainly that the agent was not run —
+   * it never implies a test happened.
+   */
+  runTheAgent?: boolean;
 }): Promise<AgentCheckReport> {
   const workflow = {
     name: input.name ?? "this agent",
@@ -190,7 +212,26 @@ export async function checkAgentGraph(input: {
   }
 
   /* ------------------------------------------------------------ the tests */
-  const tests = purpose ? await inventTests(purpose) : ["hello"];
+  /* THE FREE HALF, AND THE HALF THAT COSTS HIM MONEY.
+     Inventing tests, running the agent and judging the answer are all AI
+     calls on the founder's own credit. A deliberate press of "Check my
+     agent" is a cost he chose. Wiring this into every compose made it a cost
+     nobody chose — seven AI calls per press of Build.
+     So the automatic check does the wires only, which are mechanical and
+     free, and SAYS SO. It never implies a run that did not happen. */
+  const runTheAgent = input.runTheAgent !== false;
+  if (!runTheAgent) {
+    lines.push({
+      kind: "note",
+      text: "I checked the wiring only — I did not run it. Press Check my agent to have me actually try it."
+    });
+    return { lines, passed, failed };
+  }
+
+  const checkMind = purpose
+    ? await builderMind({ hand: "check", architectUserId: input.userId, focus: purpose }).catch(() => undefined)
+    : undefined;
+  const tests = purpose ? await inventTests(purpose, checkMind) : ["hello"];
 
   for (const test of tests) {
     let answered = "";
