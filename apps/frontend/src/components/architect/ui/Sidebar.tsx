@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { SidebarCollapseButton, useSidebarCollapsed } from "@/lib/sidebar-collapse";
+import { useSidebarCollapsed } from "@/lib/sidebar-collapse";
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
