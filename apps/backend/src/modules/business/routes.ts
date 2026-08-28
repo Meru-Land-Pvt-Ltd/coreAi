@@ -1004,7 +1004,13 @@ businessRoutes.get("/dashboard", async (c) => {
         listing: {
           select: {
             id: true,
-            name: true
+            name: true,
+            /* "STARTED 7-DAY FREE TRIAL" WAS ALWAYS SEVEN. The activity line
+               reads listing.trialDays and falls back to 7, and this query
+               never asked for the column — so a business on a 14-day trial
+               read that it was on a 7-day one, on their own dashboard, and
+               planned around the wrong date. */
+            trialDays: true
           }
         }
       }

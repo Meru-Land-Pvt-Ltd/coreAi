@@ -1161,6 +1161,21 @@ export async function listCalendlyInviteeOptions(
     .filter((option) => Boolean(option.value));
 }
 
+
+/** Remove one webhook subscription. Used when a created one is unusable. */
+async function deleteCalendlyWebhookSubscription(
+  userId: string,
+  subscriptionUri: string
+): Promise<void> {
+  const uuid = subscriptionUri.split("/").pop();
+  if (!uuid) return;
+  const token = await getValidAccessToken(userId);
+  await fetch(`${CALENDLY_API_BASE}/webhook_subscriptions/${uuid}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+
 export async function ensureCalendlyWebhookSubscription(userId: string) {
   const status = await getCalendlyConnectionStatus(userId);
   if (!status.organizationUri) {
@@ -1201,6 +1216,26 @@ export async function ensureCalendlyWebhookSubscription(userId: string) {
 
   const subscriptionUri = created.resource?.uri ?? null;
   const signingKey = created.resource?.signing_key ?? null;
+
+  /* AND THE SAME AT THE OTHER END. The check above refuses to trust a stored
+     subscription with no key; this refuses to STORE one. Calendly answering
+     with an address and no signing key leaves a subscription that can never
+     be verified — every booking it delivers is refused 401 — and, worse, one
+     that already exists, so the next attempt is met with "already
+     subscribed" and the business is stuck for good. It is torn down here so
+     reconnecting is a real second chance. */
+  if (subscriptionUri && !signingKey && !meta.webhookSigningKeyEnc) {
+    await deleteCalendlyWebhookSubscription(userId, subscriptionUri).catch((error) =>
+      console.error("[calendly] could not remove the keyless subscription", {
+        userId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    );
+    throw new Error(
+      "Calendly created the connection but did not return a signing key, so bookings could not be verified. Please connect Calendly again."
+    );
+  }
+
   await prisma.connectorCredential.update({
     where: { userId_provider: { userId, provider: "CALENDLY" } },
     data: {
@@ -1262,33 +1297,44 @@ async function findCalendlyCredentialByOrganizationUriOnly(organizationUri: stri
     orgCredentialCache.delete(org);
   }
 
+  /* EXACTLY ONE, OR NONE. The doc above says the organisation is used only
+     when one connection could possibly mean it, and this took the first row
+     it found — so two colleagues in one Calendly team still handed each
+     other's customer names and email addresses to whichever of them the
+     query happened to return. Two candidates is not a near miss; it is the
+     leak. Better a booking that goes nowhere and is logged than a booking
+     that goes to the wrong tenant. */
   // Prefer JSON path filter (Postgres) so we don't scan every Calendly row.
+  let matches: Array<{ id: string; userId: string; provider: string; metadata: unknown }> = [];
   try {
-    const matched = await prisma.connectorCredential.findFirst({
+    matches = (await prisma.connectorCredential.findMany({
       where: {
         provider: "CALENDLY",
         metadata: { path: ["organizationUri"], equals: org }
-      }
-    });
-    if (matched) {
-      orgCredentialCache.set(org, {
-        userId: matched.userId,
-        credentialId: matched.id,
-        expiresAt: Date.now() + ORG_CREDENTIAL_CACHE_TTL_MS
-      });
-      return matched;
-    }
+      },
+      take: 2
+    })) as never;
   } catch (error) {
     console.warn("[calendly] organizationUri JSON path lookup failed; falling back to scan", {
       error: error instanceof Error ? error.message : String(error)
     });
+    const credentials = await prisma.connectorCredential.findMany({
+      where: { provider: "CALENDLY" }
+    });
+    matches = credentials.filter(
+      (row) => asMetadata(row.metadata).organizationUri === org
+    ) as never;
   }
 
-  const credentials = await prisma.connectorCredential.findMany({
-    where: { provider: "CALENDLY" }
-  });
-  const found =
-    credentials.find((row) => asMetadata(row.metadata).organizationUri === org) ?? null;
+  if (matches.length > 1) {
+    console.error(
+      "[calendly] two Triven accounts share this Calendly organisation — refusing to guess whose booking this is",
+      { organizationUri: org }
+    );
+    return null;
+  }
+
+  const found = matches[0] ?? null;
   if (found) {
     orgCredentialCache.set(org, {
       userId: found.userId,
@@ -1296,7 +1342,7 @@ async function findCalendlyCredentialByOrganizationUriOnly(organizationUri: stri
       expiresAt: Date.now() + ORG_CREDENTIAL_CACHE_TTL_MS
     });
   }
-  return found;
+  return found as never;
 }
 
 export function getCalendlySigningKeyFromCredential(credential: {
