@@ -2886,11 +2886,23 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           <BuilderIcon name="sparkles" className="h-4 w-4" />
           AI Builder
         </button>
-        {aiBuilderOpen ? (
-          <div
-            data-testid="build-ai-builder-dock"
-            className="absolute bottom-20 right-6 z-40 flex h-[min(34rem,70vh)] w-[min(24rem,90vw)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
-          >
+        {/* MINIMISE MUST MEAN MINIMISE, NOT START AGAIN.
+            This was mounted only while open, so closing the dock destroyed
+            the panel and every message in it. An architect who opened the
+            Builder, got an answer, minimised it to read the node settings it
+            was covering, and opened it again found an empty box and no way
+            back to what it had told them.
+            It stays mounted and hidden now. The conversation is exactly where
+            they left it, and a build that is still running keeps running. */}
+        <div
+          data-testid="build-ai-builder-dock"
+          hidden={!aiBuilderOpen}
+          className={
+            aiBuilderOpen
+              ? "absolute bottom-20 right-6 z-40 flex h-[min(34rem,70vh)] w-[min(24rem,90vw)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
+              : "hidden"
+          }
+        >
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">AI Builder</p>
               <button
@@ -2942,7 +2954,6 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
               }}
             />
           </div>
-        ) : null}
 
         {activeTab === "build" ? (
           <section className="builder-view fade-enter flex min-w-0">

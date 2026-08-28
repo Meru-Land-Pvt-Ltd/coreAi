@@ -439,6 +439,7 @@ export function AiBuilderPanel({
 
     setGenerating(true);
     setProgressStage(0);
+    setStage(PROGRESS_STAGES[0]);
     progressTimerRef.current = setTimeout(() => setProgressStage(1), PROGRESS_STAGE_SWITCH_MS);
 
     try {
@@ -500,7 +501,16 @@ export function AiBuilderPanel({
       const thread = threadOverride ?? (buildThread?.want === want ? buildThread.turns : []);
       const { canvas, failed, ask } = await composeCanvas(
         want,
-        () => setProgressStage(1),
+        /* THE BUILDER'S REAL WORDS, NOT A CANNED ANIMATION. The composer
+           streams what it is actually doing — "Laying out 3 steps: Telegram
+           → AI Brain → Send reply", "Not right yet — fixing the wire from
+           the trigger" — and this threw the sentence away and flipped a
+           two-item list on a timer instead. The architect watched a fake
+           animation while the real account of the work went in the bin. */
+        (line: string) => {
+          if (line) setStage(line);
+          setProgressStage(1);
+        },
         thread,
         existingPlan,
         workflowId
@@ -668,6 +678,11 @@ export function AiBuilderPanel({
          that cannot answer routes to "explain" server-side — the cheapest
          wrong answer. The reply then arrives word by word, so nobody watches
          a silent box and assumes the machine is dead. */
+      /* NEVER A BARE SPINNER. The status line only appeared once the server
+         sent its first stage, and the router runs before that — so the
+         architect watched three dots and no words for the part of the wait
+         that is longest. It says what it is doing from the first moment. */
+      setStage("Reading what you asked");
       setStreamingReply("");
       const attached = pictures.map((picture) => picture.dataUrl);
       setPictures([]);
@@ -830,7 +845,11 @@ export function AiBuilderPanel({
             <div className="flex justify-start" data-testid="smart-designer-progress">
               <span className="flex items-center gap-2 rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2">
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
-                <span className="text-xs leading-5 text-slate-600">{PROGRESS_STAGES[progressStage]}</span>
+                {/* The Builder's own sentence when it has sent one, and only
+                    the canned line while it has not yet spoken. */}
+                <span className="text-xs leading-5 text-slate-600">
+                  {stage || PROGRESS_STAGES[progressStage]}
+                </span>
               </span>
             </div>
           ) : null}
