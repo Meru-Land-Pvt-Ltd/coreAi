@@ -532,11 +532,19 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
             content: draft.content,
             tokenCount: draft.tokenCount,
             contentHash: draft.contentHash,
+            /* "COMPLETE" WAS WRITTEN BEFORE ANYTHING WAS EMBEDDED. The
+               vectors are built in the background, after this row is saved.
+               When that work failed — a refused embedding call, Pinecone
+               down, a mismatched batch — the row still said complete for
+               ever, so nothing retried it and nothing reported it: the
+               memory was stored, unsearchable, and the platform's own record
+               said it was fine. It says pending until the work is actually
+               done. */
             embeddingStatus:
               eligibleChunks.length === 0
                 ? "bypassed_short"
                 : pineconeIndex
-                  ? "complete"
+                  ? "pending"
                   : "unavailable"
           }
         });
@@ -586,9 +594,23 @@ export const defaultSmartMemoryDeps: SmartMemoryDeps = {
                 });
 
                 await targetIndex.upsert({ records: vectorsToUpsert });
+                await prisma.memoryRecord.update({
+                  where: { id: record.id },
+                  data: { embeddingStatus: "complete" }
+                });
+              } else {
+                /* The embedding service answered with the wrong number of
+                   vectors, or nothing at all. Nothing was upserted. */
+                await prisma.memoryRecord.update({
+                  where: { id: record.id },
+                  data: { embeddingStatus: "failed" }
+                });
               }
             } catch (err) {
               console.warn("[smart-memory] Background vector upsert failed:", err instanceof Error ? err.message : err);
+              await prisma.memoryRecord
+                .update({ where: { id: record.id }, data: { embeddingStatus: "failed" } })
+                .catch(() => undefined);
             }
           })();
           

@@ -37,6 +37,8 @@ export type AiBrainNodeConfig = {
     llmTemperature?: unknown;
     llmMaxTokens?: unknown;
     llmOutputFormat?: unknown;
+    /** "How hard it thinks" — see ai-provider-engine/types.ts. */
+    reasoningEffort?: unknown;
     llmOutputKey?: unknown;
     attachments?: unknown;
   };
@@ -172,6 +174,13 @@ export async function contextBundleToExecuteRequest(
     messages: [{ role: "user", content: userPrompt }],
     model: asString(data.model) || undefined,
     temperature: asNumber(data.temperature) ?? 0.7,
+    /* THE DIAL THE ARCHITECT TURNED AND NOTHING READ. It is carried to the
+       provider now; adapters that have no such setting ignore it. */
+    ...(data.reasoningEffort === "low" ||
+    data.reasoningEffort === "medium" ||
+    data.reasoningEffort === "high"
+      ? { reasoningEffort: data.reasoningEffort }
+      : {}),
     maxTokens: (() => {
       const tokens = asNumber(data.maxTokens);
       return (tokens === undefined || tokens <= 250) ? 2048 : tokens;

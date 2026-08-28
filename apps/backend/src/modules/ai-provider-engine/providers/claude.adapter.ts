@@ -51,6 +51,24 @@ export function isTemperatureRejection(err: unknown): boolean {
   return isBadRequest && /temperature/i.test(message) && /deprecat|not supported|unsupported|unexpected|invalid/i.test(message);
 }
 
+
+/**
+ * The architect's three words turned into a thinking budget.
+ *
+ * Only a model our catalog calls "thinking" gets one — sending a budget to a
+ * model without the ability is a 400, and a stale dial left on a node whose
+ * model has since changed must not fail the run.
+ */
+function thinkingBudgetFor(
+  model: string,
+  effort: "low" | "medium" | "high" | undefined
+): number | null {
+  if (!effort || !modelRejectsTemperature(model)) return null;
+  if (effort === "low") return 1024;
+  if (effort === "high") return 8192;
+  return 4096;
+}
+
 class ClaudeAdapter implements AIProviderAdapter {
   readonly providerId = "claude";
   readonly displayName = "Anthropic Claude";
@@ -93,6 +111,7 @@ class ClaudeAdapter implements AIProviderAdapter {
   }
 
   async execute(request: AIExecuteRequest): Promise<AIExecuteResponse> {
+
     const startMs = Date.now();
     const model = request.model ?? this.defaultModel;
 
@@ -102,12 +121,28 @@ class ClaudeAdapter implements AIProviderAdapter {
       // maxTokens passes straight through, so callers doing big structured
       // generations (a composed product spec runs 8k+ tokens) get what they
       // ask for; 1024 is only the floor for callers that never said.
+      /* "HOW HARD IT THINKS" REACHED NOTHING. The node inspector shows this
+         dial on Anthropic's thinking models, warns it can cost several times
+         more, and no adapter ever sent it — every model kept its own default
+         while the architect believed they had chosen. Anthropic takes it as a
+         thinking budget, and the answer must have room left after the
+         thinking, so the ceiling is raised to fit rather than erroring. */
+      const thinkingBudget = thinkingBudgetFor(model, request.reasoningEffort);
+      const maxTokens = Math.max(
+        request.maxTokens ?? 1024,
+        thinkingBudget ? thinkingBudget + 1024 : 0
+      );
+
       const params = (withTemperature: boolean): Anthropic.MessageCreateParamsNonStreaming => ({
         model,
-        max_tokens: request.maxTokens ?? 1024,
+        max_tokens: maxTokens,
         system,
         messages,
-        ...(withTemperature ? { temperature: request.temperature ?? 0.7 } : {}),
+        ...(thinkingBudget
+          ? { thinking: { type: "enabled" as const, budget_tokens: thinkingBudget } }
+          : {}),
+        /* Anthropic refuses temperature whenever thinking is on. */
+        ...(withTemperature && !thinkingBudget ? { temperature: request.temperature ?? 0.7 } : {}),
       });
 
       let response: Anthropic.Message;

@@ -295,8 +295,18 @@ export function heartFromRecipe(declaration: NodeFrameDeclaration): Heart {
     const outputs: Record<string, unknown> = {};
     const first = declaration.produces[0];
     if (first) outputs[first.key] = found ?? (first.kind === "list" ? [] : null);
+    /* OUR NAME IS NOT THE PROVIDER'S PATH. Every output after the first was
+       looked up by the name WE gave it — "skipped", "totalFound" — as though
+       the service answered in our words. It never does, so a described card's
+       second output came back undefined every single run and nothing
+       reported it. A path is declared, or the value is honestly absent. */
     for (const output of declaration.produces.slice(1)) {
-      outputs[output.key] = valueAtPath(body, output.key);
+      const path = (output.at ?? "").trim();
+      outputs[output.key] = path
+        ? valueAtPath(body, path)
+        : output.kind === "list"
+          ? []
+          : null;
     }
 
     const paging = recipe.paging;

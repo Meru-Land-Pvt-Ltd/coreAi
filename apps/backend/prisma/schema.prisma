@@ -1827,7 +1827,7 @@ model MemoryRecord {
   content          String /// Complete original text before chunking
   tokenCount       Int      @default(0)
   contentHash      String
-  embeddingStatus  String   @default("pending") /// pending | complete | unavailable
+  embeddingStatus  String   @default("pending") /// pending | complete | failed | unavailable | bypassed_short
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

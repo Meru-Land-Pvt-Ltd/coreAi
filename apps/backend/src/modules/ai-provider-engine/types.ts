@@ -58,6 +58,13 @@ export type AIExecuteRequest = {
   temperature?: number;
   maxTokens?: number;
   outputFormat?: "text" | "json";
+  /**
+   * "How hard it thinks" — the dial the node inspector shows on a thinking
+   * model, with a note warning it can cost several times more. Nothing read
+   * it: the architect turned it, was told the price, and every model kept its
+   * own default. Only the providers that have such a setting are sent it.
+   */
+  reasoningEffort?: "low" | "medium" | "high";
   task?: string;
 
   // TTS

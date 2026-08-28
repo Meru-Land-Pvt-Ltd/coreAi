@@ -24,6 +24,14 @@ import {
 } from "./base-adapter";
 import { getModelsForProvider, getPricingForProvider } from "../model-catalog";
 
+/**
+ * Which OpenAI models accept `reasoning_effort`. The o-series and the GPT-5
+ * family think before answering; the rest return a 400 if it is sent.
+ */
+function modelTakesReasoningEffort(model: string): boolean {
+  return /^o\d/.test(model) || /^gpt-5/.test(model);
+}
+
 class OpenAIAdapter implements AIProviderAdapter {
   readonly providerId = "openai";
   readonly displayName = "OpenAI";
@@ -85,6 +93,14 @@ class OpenAIAdapter implements AIProviderAdapter {
              it. The thinking models refuse the setting outright, so it is only
              sent when the request carries one. */
           ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
+          /* "HOW HARD IT THINKS" DID NOTHING EITHER. The reasoning models
+             take this setting and the others refuse it outright, so it is
+             sent only to a model that has one — a stale value left on a node
+             whose model has since changed is dropped rather than failing the
+             run. */
+          ...(request.reasoningEffort && modelTakesReasoningEffort(model)
+            ? { reasoning_effort: request.reasoningEffort }
+            : {}),
           ...jsonResponseFormat(request),
         })
       );

@@ -473,6 +473,9 @@ type RunnerNodeData = {
   llmTemperature?: unknown;
   llmMaxTokens?: unknown;
   llmOutputFormat?: unknown;
+  /** "How hard it thinks" — read at last; see ai-provider-engine/types.ts. */
+  llmReasoningEffort?: unknown;
+  reasoningEffort?: unknown;
   llmOutputKey?: unknown;
   // Code node fields (logic.script) — set from the workflow builder inspector
   scriptLanguage?: unknown;
@@ -1399,6 +1402,19 @@ async function runKnowledgeNodeInRunner(params: {
  * forty-one agents were written in it, so it still works exactly as it did:
  * the two boxes win only when at least one of them has been filled in.
  */
+
+/**
+ * "How hard it thinks", as the architect set it.
+ *
+ * The dial has been on the node inspector all along, with a note warning it
+ * can cost several times more, and nothing read it. Anything that is not one
+ * of the three words is treated as unset — a stale value left behind by a
+ * model change must never reach a provider.
+ */
+function readThinkingDepth(value: unknown): "low" | "medium" | "high" | undefined {
+  return value === "low" || value === "medium" || value === "high" ? value : undefined;
+}
+
 function composeBrainTask(data: Record<string, unknown> | undefined): string {
   const incoming = asString(data?.llmInputIs).trim();
   const answer = asString(data?.llmAnswerShouldBe).trim();
@@ -1510,6 +1526,7 @@ function toAiBrainNodeConfig(node: RunnerNode, context: RunnerContext): AiBrainN
         llmContext: combinedLlmContext,
         llmCustomerMessage: customerMessage,
         temperature: node.data?.llmTemperature ?? node.data?.temperature,
+        reasoningEffort: readThinkingDepth(node.data?.llmReasoningEffort),
         maxTokens: finalMaxTokens,
         outputFormat: node.data?.llmOutputFormat ?? node.data?.outputFormat,
       }

@@ -178,6 +178,17 @@ export type ConnectorOutput = {
   sample: unknown;
   /** True when a run is meaningless without it — the engine enforces this. */
   required: boolean;
+  /**
+   * Where this value sits in the provider's answer, as a dot path.
+   *
+   * Only described connectors use it. The first output comes from the
+   * recipe's `resultsAt`; every one after it used to be looked up by OUR name
+   * for it — "skipped", "totalFound" — as though the provider used our words.
+   * It never does, so a described card's second output was empty every run
+   * and nothing said so. Named here, or left out and honestly reported as
+   * absent.
+   */
+  at?: string;
 };
 
 /* -------------------------------------------------------------------------- */
