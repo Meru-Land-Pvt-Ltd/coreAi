@@ -96,6 +96,37 @@ async function waitedForAnswer(
   return answer;
 }
 
+
+/**
+ * THE ADMIN'S CHOICE, FOR THE WHOLE EMPLOYEE.
+ *
+ * Both doors into the Builder's voice used to open on a hardcoded
+ * `resolveConfiguredLlmProvider("mistral")`. The admin screen carries a
+ * Builder Brain slot and it chose the MODEL only — the SERVICE was fixed in
+ * the code. So one employee ran on two brains at once: compose and repair on
+ * whatever the admin picked, chat and explain always on Mistral. The founder
+ * set the Builder to Claude and watched the chat keep answering from
+ * somewhere else, then set it to OpenAI and watched the same thing.
+ *
+ * One place decides now. If the admin's service has no key configured the
+ * platform falls back rather than going silent — a missing key is a reason to
+ * degrade, never a reason to pretend the Builder has nothing to say.
+ */
+async function builderVoice(): Promise<{ providerId: string; modelId: string | null } | null> {
+  const config = await getBuilderBrainConfig().catch(() => null);
+  const chosen = config?.providerId ? resolveConfiguredLlmProvider(config.providerId) : null;
+  if (chosen) return { providerId: chosen.providerId, modelId: config?.modelId ?? null };
+
+  const fallback = resolveConfiguredLlmProvider("mistral");
+  if (fallback) {
+    console.warn(
+      `[platform-brain] the admin chose ${config?.providerId ?? "nothing"} and it has no key — falling back to ${fallback.providerId}`
+    );
+    return { providerId: fallback.providerId, modelId: null };
+  }
+  return null;
+}
+
 export async function streamPlatformBrain(input: {
   instruction: string;
   message: string;
@@ -106,9 +137,12 @@ export async function streamPlatformBrain(input: {
   images?: string[];
   onWord: (chunk: string) => void;
 }): Promise<string | null> {
-  const resolved = resolveConfiguredLlmProvider("mistral");
+  const resolved = await builderVoice();
   if (!resolved) return null;
   const apiKey = llmProviderApiKey(resolved.providerId);
+  /* Only Mistral speaks this streaming shape today. Every other service the
+     admin may pick answers through the waited-for path, which delivers the
+     same words through onWord. */
   if (!apiKey || resolved.providerId !== "mistral") {
     /* Only Mistral speaks this shape today. Anything else falls back to the
        waited-for answer rather than pretending to stream. */
@@ -215,11 +249,6 @@ export async function streamPlatformBrain(input: {
   }
 }
 
-/** The Builder's brain, as the admin set it — blank means "the service's own". */
-async function adminChosenBrainModel(): Promise<string | null> {
-  const config = await getBuilderBrainConfig().catch(() => null);
-  return config?.modelId || null;
-}
 
 export async function askPlatformBrain(input: {
   instruction: string;
@@ -231,10 +260,10 @@ export async function askPlatformBrain(input: {
   /** A reflex, not a judgement — runs on the fast model. */
   quick?: boolean;
 }): Promise<string | null> {
-  const resolved = resolveConfiguredLlmProvider("mistral");
+  const resolved = await builderVoice();
   if (!resolved) return null;
 
-  const chosenModel = input.quick ? null : await adminChosenBrainModel();
+  const chosenModel = input.quick ? null : resolved.modelId;
   const request: AIExecuteRequest = {
     capability: "llm",
     systemPrompt: input.instruction,
