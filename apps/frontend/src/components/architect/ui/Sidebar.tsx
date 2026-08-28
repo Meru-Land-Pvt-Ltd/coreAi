@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { SidebarCollapseButton, useSidebarCollapsed } from "@/lib/sidebar-collapse";
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
@@ -292,6 +293,7 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { collapsed, toggle } = useSidebarCollapsed("architect");
   // The workflow builder is fullscreen (fixed inset-0). Treat the unsaved builder
   // at /architect/workflows and every /architect/workflows/* route as builder so
   // the sidebar shell doesn't wrap/overlap it.
@@ -353,9 +355,14 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-gray-50 text-slate-900">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-gray-100 bg-white shadow-sm lg:flex">
-        <SidebarContent user={user} pathname={pathname} />
-      </aside>
+      {/* THE MENU FOLDS AWAY. On the builder canvas 256 pixels of navigation
+          is 256 pixels of working space. One shared control, three shells —
+          see lib/sidebar-collapse. */}
+      {collapsed ? null : (
+        <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-gray-100 bg-white shadow-sm lg:flex">
+          <SidebarContent user={user} pathname={pathname} />
+        </aside>
+      )}
 
       {mobileNavOpen ? (
         <button
@@ -380,7 +387,7 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
       ) : null}
 
       {/* Avoid z-index here — it traps fixed modals under the sidebar. */}
-      <div className="relative min-h-screen lg:pl-64">
+      <div className={`relative min-h-screen transition-[padding] duration-200 ${collapsed ? "lg:pl-0" : "lg:pl-64"}`}>
         <div className="fixed left-0 right-0 top-0 z-30 flex h-14 items-center justify-between border-b border-gray-100 bg-gray-50 px-5 lg:hidden">
           {!mobileNavOpen ? (
             <button
@@ -411,6 +418,10 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
               Triven.ai
             </span>
           </div>
+        </div>
+
+        <div className="absolute left-4 top-4 z-30 hidden lg:block">
+          <SidebarCollapseButton collapsed={collapsed} onToggle={toggle} shell="architect" />
         </div>
 
         <div className="pt-14 lg:pt-0">{children}</div>

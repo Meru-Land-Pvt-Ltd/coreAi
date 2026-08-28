@@ -13,9 +13,12 @@ const BUILDER_STEPS: Array<{ id: BuilderTab; label: string; step: number }> = [
      were two doors to one destination. The tab died; the one button beside
      Publish is the only door, and what stands behind it is judged by the
      agent's trigger. */
+  /* AND THE SAME RULE AGAIN, for Publish (the founder, 2026-08-28). A tab
+     named Publish and a button named Publish Agent, both on the same bar,
+     three inches apart, both leading to publishing. One door. The button
+     stays because it is the one an architect reaches for; the tab goes. */
   { id: "build", label: "Build", step: 1 },
-  { id: "configure", label: "Configure", step: 2 },
-  { id: "publish", label: "Publish", step: 3 }
+  { id: "configure", label: "Configure", step: 2 }
 ];
 
 /** The three ways to look at the customer page — shown on the Preview step. */

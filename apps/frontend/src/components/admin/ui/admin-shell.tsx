@@ -4,11 +4,16 @@ import Image from "next/image";
 import { Menu } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { AdminSidebar } from "./admin-sidebar";
+import { SidebarCollapseButton, useSidebarCollapsed } from "@/lib/sidebar-collapse";
 
 const TRIVEN_MARK = encodeURI("/triven.ai word logo transparent bg.PNG");
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  /* THE MENU FOLDS AWAY. A fixed 256 pixels of navigation an admin is not
+     reading, on every screen. One shared control, three shells — see
+     lib/sidebar-collapse. */
+  const { collapsed, toggle } = useSidebarCollapsed("admin");
 
   return (
     <div className="min-h-screen bg-gray-50 text-slate-900">
@@ -21,9 +26,11 @@ export function AdminShell({ children }: { children: ReactNode }) {
         />
       ) : null}
 
-      <AdminSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className={collapsed ? "lg:hidden" : undefined}>
+        <AdminSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      </div>
 
-      <div className="min-h-screen lg:pl-64">
+      <div className={`min-h-screen transition-[padding] duration-200 ${collapsed ? "lg:pl-0" : "lg:pl-64"}`}>
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur lg:hidden">
           <button
             type="button"
@@ -41,6 +48,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </header>
 
         <main className="admin-workspace w-full max-w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <div className="mb-4 hidden lg:block">
+            <SidebarCollapseButton collapsed={collapsed} onToggle={toggle} shell="admin" />
+          </div>
           {children}
         </main>
       </div>

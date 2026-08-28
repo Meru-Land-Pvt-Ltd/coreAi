@@ -457,6 +457,45 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
   const [tagline, setTagline] = useState(defaultAgentDescription);
   /* The AI Builder on the Build tab — the founder's call: one assistant, every
      screen, never hunt for it. */
+  /* THE ARCHITECT SETS THE HEIGHT.
+     A fixed 34rem box is right for a two-line answer and wrong for reading
+     back a conversation. Drag the top edge; the choice is remembered, so the
+     panel is the size they work at, not the size we guessed. */
+  const [builderHeight, setBuilderHeight] = useState(() => {
+    if (typeof window === "undefined") return 544;
+    const saved = Number(window.localStorage.getItem("triven.aiBuilderHeight"));
+    return Number.isFinite(saved) && saved >= 320 ? Math.min(saved, 900) : 544;
+  });
+
+  const startBuilderResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startY = event.clientY;
+    let latest = 0;
+
+    const move = (moveEvent: PointerEvent) => {
+      /* Dragging UP makes it taller — the panel grows from the bottom. */
+      setBuilderHeight((current) => {
+        const base = latest || current;
+        latest = Math.max(
+          320,
+          Math.min(Math.round(base + (startY - moveEvent.clientY)), Math.round(window.innerHeight * 0.85))
+        );
+        return latest;
+      });
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      try {
+        if (latest) window.localStorage.setItem("triven.aiBuilderHeight", String(latest));
+      } catch {
+        /* A browser refusing storage must never break a drag. */
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  }, []);
+
   const [aiBuilderOpen, setAiBuilderOpenState] = useState(false);
   /* Remembered per browser: an employee who vanished on every visit would
      read as a toy. Read after mount (SSR has no storage). */
@@ -2899,12 +2938,21 @@ export function ArchitectWorkflowBuilderView({ workflowId }: { workflowId: strin
           hidden={!aiBuilderOpen}
           className={
             aiBuilderOpen
-              ? "absolute bottom-20 right-6 z-40 flex h-[min(34rem,70vh)] w-[min(24rem,90vw)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
+              ? "absolute bottom-20 right-6 z-40 flex w-[min(26rem,92vw)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl"
               : "hidden"
           }
+          style={aiBuilderOpen ? { height: `${builderHeight}px` } : undefined}
         >
-            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">AI Builder</p>
+            {/* Drag this edge to set the height. */}
+            <div
+              onPointerDown={startBuilderResize}
+              data-testid="build-ai-builder-resize"
+              role="separator"
+              aria-label="Drag to resize the AI Builder"
+              className="h-2 w-full shrink-0 cursor-ns-resize transition-colors hover:bg-amber-100"
+            />
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 pb-3">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-400">AI Builder</p>
               <button
                 type="button"
                 onClick={() => setAiBuilderOpen(false)}

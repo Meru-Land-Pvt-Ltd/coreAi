@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { SidebarCollapseButton, useSidebarCollapsed } from "@/lib/sidebar-collapse";
 import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useState, type ReactNode } from "react";
@@ -73,6 +74,7 @@ const businessNavItems = [
 export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const { collapsed, toggle } = useSidebarCollapsed("business");
     const [locationHash, setLocationHash] = useState("");
     const router = useRouter();
     const [currentUser, setCurrentUser] = useState<TrivenUser | null>(null);
@@ -136,9 +138,13 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
             ) : null}
 
             <aside
-                className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 max-w-[85vw] flex-col overflow-x-hidden border-r border-gray-100 bg-white shadow-xl transition-transform duration-300 ease-out will-change-transform lg:translate-x-0 lg:shadow-none ${
+                /* THE MENU FOLDS AWAY. One shared control, three shells —
+                   see lib/sidebar-collapse. On a wide screen a collapsed
+                   sidebar slides out of the way; on a phone the existing
+                   open/closed behaviour is untouched. */
+                className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 max-w-[85vw] flex-col overflow-x-hidden border-r border-gray-100 bg-white shadow-xl transition-transform duration-300 ease-out will-change-transform lg:shadow-none ${
                     sidebarOpen ? "translate-x-0" : "-translate-x-full"
-                }`}
+                } ${collapsed ? "lg:-translate-x-full" : "lg:translate-x-0"}`}
                 aria-label="Primary"
             >
                 <div className="flex min-w-0 items-center gap-3 border-b border-gray-100 px-4 py-4">
@@ -246,7 +252,10 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
             </aside>
 
             
-            <div className="relative min-h-screen min-w-0 w-full overflow-x-hidden lg:pl-64">
+            <div className={`relative min-h-screen min-w-0 w-full overflow-x-hidden transition-[padding] duration-200 ${collapsed ? "lg:pl-0" : "lg:pl-64"}`}>
+                <div className="absolute left-4 top-4 z-30 hidden lg:block">
+                    <SidebarCollapseButton collapsed={collapsed} onToggle={toggle} shell="business" />
+                </div>
                 <div className="sticky top-0 z-30 flex w-full min-w-0 items-center justify-between gap-2 overflow-x-hidden border-b border-gray-100 bg-gray-50 px-2 py-2.5 lg:hidden">
                     <button
                         type="button"

@@ -120,6 +120,7 @@ import { getVoiceAnswerStatus } from "./vapi-connector";
 import { generateVoicePreview, listVoicePresets, voicePreviewDiagnostics, VoicePreviewError } from "./voice-presets";
 import { getConditionRoadLimit, DEFAULT_CONDITION_ROADS } from "../admin/node-limits";
 import { aiBuilderAnswer, aiBuilderAnswerStreaming } from "./ai-builder";
+import { readBuilderConversation, rememberBuilderTurn } from "./builder-conversation";
 import { builderPageHand } from "../agent-pages/builder-page-hand";
 import { allNodeDocs, docsSummary, nodeDocFor } from "../docs/node-docs";
 import { checkAgent } from "./agent-check";
@@ -2898,6 +2899,34 @@ const architectPreviewRunSchema = z.object({
  * and the last runs. The build and page hands are served by the engines that
  * already do those jobs; this endpoint tells the caller which one to use.
  */
+/**
+ * THE CONVERSATION, AS IT STANDS.
+ *
+ * The panel used to hold every message in one React state object and nowhere
+ * else, so closing the tab erased the lot. It reads its history from here
+ * now, and `before` walks backwards for the scrollback so a year of work
+ * never lands in one page.
+ */
+architectRoutes.get("/workflows/:workflowId/ai-builder/history", async (c) => {
+  const authUser = c.get("authUser");
+  const workflowId = c.req.param("workflowId");
+
+  const workflow = await prisma.workflowDefinition.findFirst({
+    where: { id: workflowId, architectUserId: authUser.id },
+    select: { id: true }
+  });
+  if (!workflow) return errorResponse(c, "Agent not found", 404, "WORKFLOW_NOT_FOUND");
+
+  const before = c.req.query("before");
+  const history = await readBuilderConversation({
+    workflowId,
+    architectUserId: authUser.id,
+    ...(before ? { before } : {})
+  });
+
+  return successResponse(c, history);
+});
+
 architectRoutes.post("/workflows/:workflowId/ai-builder", async (c) => {
   try {
     const authUser = c.get("authUser");
@@ -2980,6 +3009,15 @@ architectRoutes.post("/workflows/:workflowId/ai-builder/stream", async (c) => {
   return streamSSE(c, async (stream) => {
     const send = (event: string, data: unknown) => stream.writeSSE({ event, data: JSON.stringify(data) });
     try {
+      /* EVERY TURN IS WRITTEN DOWN. Best-effort on purpose: losing the
+         record of a message must never cost the architect the message. */
+      void rememberBuilderTurn({
+        workflowId,
+        architectUserId: authUser.id,
+        role: "user",
+        content: body.data.message
+      });
+
       const answer = await aiBuilderAnswerStreaming({
         workflowId,
         architectUserId: authUser.id,
@@ -2989,6 +3027,15 @@ architectRoutes.post("/workflows/:workflowId/ai-builder/stream", async (c) => {
         onStage: (stage) => void send("stage", { stage }),
         onWord: (chunk) => void send("word", { chunk })
       });
+      if (answer?.reply) {
+        void rememberBuilderTurn({
+          workflowId,
+          architectUserId: authUser.id,
+          role: "assistant",
+          content: answer.reply,
+          hand: answer.hand ?? null
+        });
+      }
       await send("done", answer);
     } catch (error) {
       console.error("[architect] ai-builder stream failed", error);

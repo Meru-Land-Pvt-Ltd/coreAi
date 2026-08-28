@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   aiBuilderChat,
   checkAgent,
@@ -9,6 +9,7 @@ import {
 } from "@/components/architect/features/api";
 import type { DesignChatMessage } from "@/components/architect/features/types";
 import { getAuthToken } from "@/lib/auth";
+import { apiGet } from "@/lib/api";
 import { safeMarkdownHtml } from "@/lib/safe-markdown";
 import { BuilderIcon } from "./icons";
 
@@ -375,6 +376,71 @@ export function AiBuilderPanel({
   onPurposeSaved?: (purpose: string) => void;
 }) {
   const [messages, setMessages] = useState<BuilderBubble[]>([]);
+
+  /* THE CONVERSATION IS READ BACK FROM THE SERVER.
+     It used to live in this one state object and nowhere else, so closing
+     the tab erased it. The founder found it the honest way: he closed Chrome,
+     signed back in, and an hour of work with the Builder was gone — including
+     what it had told him still needed doing.
+     The last page loads on open; older pages are fetched as he scrolls up,
+     so an agent worked on for months never pours ten thousand messages into
+     a panel. */
+  const oldestAtRef = useRef<string | null>(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [olderAvailable, setOlderAvailable] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+
+  useEffect(() => {
+    if (!workflowId) return;
+    let alive = true;
+    setHistoryLoaded(false);
+    void apiGet<{ turns: Array<{ id: string; role: string; content: string }>; more: boolean }>(
+      `/architect/workflows/${workflowId}/ai-builder/history`
+    ).then((response) => {
+      if (!alive) return;
+      setHistoryLoaded(true);
+      /* A panel must never crash because a reply was a shape it did not
+         expect. An empty or malformed history simply means no history. */
+      const loaded = Array.isArray(response.data?.turns) ? response.data.turns : [];
+      if (!response.success) return;
+      setOlderAvailable(Boolean(response.data?.more));
+      oldestAtRef.current = (loaded[0] as { at?: string } | undefined)?.at ?? null;
+      const turns = loaded.map((turn) => ({
+        id: turn.id,
+        role: turn.role === "user" ? ("user" as const) : ("assistant" as const),
+        content: turn.content
+      }));
+      /* Anything said in this session stays after the history, so a reload
+         mid-conversation never loses the last exchange. */
+      setMessages((current) => (current.length > 0 ? [...turns, ...current] : turns));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [workflowId]);
+
+  const loadOlder = useCallback(async () => {
+    if (!workflowId || loadingOlder) return;
+    const oldest = messages[0];
+    if (!oldest) return;
+    setLoadingOlder(true);
+    const response = await apiGet<{ turns: Array<{ id: string; role: string; content: string; at: string }>; more: boolean }>(
+      `/architect/workflows/${workflowId}/ai-builder/history?before=${encodeURIComponent(oldestAtRef.current ?? "")}`
+    );
+    setLoadingOlder(false);
+    const older = Array.isArray(response.data?.turns) ? response.data.turns : [];
+    if (!response.success || older.length === 0) return;
+    setOlderAvailable(Boolean(response.data?.more));
+    oldestAtRef.current = older[0]?.at ?? oldestAtRef.current;
+    setMessages((current) => [
+      ...older.map((turn) => ({
+        id: turn.id,
+        role: turn.role === "user" ? ("user" as const) : ("assistant" as const),
+        content: turn.content
+      })),
+      ...current
+    ]);
+  }, [workflowId, loadingOlder, messages]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -741,7 +807,7 @@ export function AiBuilderPanel({
     <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-3" data-testid="smart-designer-panel">
       {workflowId || !canvasHasSteps ? null : (
         <p
-          className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800"
+          className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800"
           data-testid="smart-designer-save-first"
         >
           Your agent is still saving — one moment.
@@ -762,7 +828,7 @@ export function AiBuilderPanel({
           still one click away. The paragraph went, because the button beside
           it already says what it does and a screen must never say one thing
           twice. */}
-      <div className="mb-2 flex items-center gap-1.5 text-[11px]" data-testid="ai-builder-actions">
+      <div className="mb-2 flex items-center gap-1.5 text-xs" data-testid="ai-builder-actions">
         {workflowId && canvasHasSteps ? (
           <button
             type="button"
@@ -814,12 +880,27 @@ export function AiBuilderPanel({
           data-testid="smart-designer-messages"
           className="mb-1 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1"
         >
+          {/* The way back. An architect who has worked on one agent for months
+              reads their way to the beginning a page at a time, instead of a
+              year of messages landing at once. */}
+          {olderAvailable ? (
+            <button
+              type="button"
+              onClick={() => void loadOlder()}
+              disabled={loadingOlder}
+              data-testid="builder-load-older"
+              className="mx-auto mb-2 block rounded-full px-3 py-1 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
+            >
+              {loadingOlder ? "Loading…" : "Read earlier messages"}
+            </button>
+          ) : null}
+
           {messages.map((message) =>
             message.role === "user" ? (
               <div key={message.id} className="flex justify-end">
                 <p
                   data-testid="smart-designer-message-user"
-                  className="max-w-[85%] rounded-2xl rounded-br-md bg-amber-500 px-3 py-2 text-xs leading-5 text-white"
+                  className="max-w-[85%] rounded-2xl rounded-br-md bg-amber-500 px-3.5 py-2.5 text-sm leading-6 text-white"
                 >
                   {message.content}
                 </p>
@@ -830,7 +911,7 @@ export function AiBuilderPanel({
                   data-testid="smart-designer-boundary"
                   className="max-w-[85%] rounded-2xl rounded-bl-md border border-slate-200 bg-slate-50 px-3 py-2"
                 >
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                     Packaging
                   </p>
                   <p className="mt-0.5 text-xs leading-5 text-slate-600">{message.content}</p>
@@ -845,13 +926,13 @@ export function AiBuilderPanel({
                     a link or a tag can never put live HTML on this screen. */}
                 <div
                   data-testid="smart-designer-message-assistant"
-                  className="ai-builder-prose max-w-[85%] rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-800"
+                  className="ai-builder-prose max-w-[85%] rounded-2xl rounded-bl-md bg-slate-100 px-3.5 py-2.5 text-sm leading-6 text-slate-800"
                   dangerouslySetInnerHTML={{ __html: safeMarkdownHtml(message.content) }}
                 />
                 {typeof message.merged === "number" && message.merged > 0 ? (
                   <p
                     data-testid="smart-designer-merged"
-                    className="mt-1 pl-1 text-[10px] font-semibold text-emerald-600"
+                    className="mt-1 pl-1 text-xs font-semibold text-emerald-600"
                   >
                     {message.merged} inputs merged
                   </p>
@@ -875,7 +956,7 @@ export function AiBuilderPanel({
 
           {streamingReply ? (
             <div className="flex flex-col items-start" data-testid="smart-designer-streaming">
-              <p className="max-w-[85%] whitespace-pre-line rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-xs leading-5 text-slate-800">
+              <p className="max-w-[85%] whitespace-pre-line rounded-2xl rounded-bl-md bg-slate-100 px-3.5 py-2.5 text-sm leading-6 text-slate-800">
                 {streamingReply}
                 <span className="ml-0.5 inline-block h-3 w-1 animate-pulse bg-slate-400 align-middle" />
               </p>
@@ -919,7 +1000,7 @@ export function AiBuilderPanel({
                 aria-label={`Remove ${picture.name}`}
                 data-testid={`builder-picture-remove-${index}`}
                 onClick={() => setPictures((current) => current.filter((_, at) => at !== index))}
-                className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-slate-900 text-[11px] font-bold text-white opacity-0 transition group-hover:opacity-100"
+                className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-slate-900 text-xs font-bold text-white opacity-0 transition group-hover:opacity-100"
               >
                 ×
               </button>
@@ -928,7 +1009,7 @@ export function AiBuilderPanel({
         </div>
       ) : null}
       {pictureNote ? (
-        <p className="mt-1.5 text-[11px] text-amber-700" data-testid="builder-picture-note">
+        <p className="mt-1.5 text-xs text-amber-700" data-testid="builder-picture-note">
           {pictureNote}
         </p>
       ) : null}
@@ -965,9 +1046,27 @@ export function AiBuilderPanel({
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </label>
-        <input
+        {/* A REAL TYPING BOX. This was a single-line input at 14px in a panel
+            where everything else was 10 and 11 — an architect describing a
+            whole agent typed into a slot and could see one line of what they
+            had written. It grows with the sentence, up to six lines, then
+            scrolls. Enter sends; Shift+Enter starts a new line, because a
+            person writing a brief needs paragraphs. */}
+        <textarea
+          rows={1}
+          ref={(node) => {
+            if (!node) return;
+            node.style.height = "0px";
+            node.style.height = `${Math.min(node.scrollHeight, 132)}px`;
+          }}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
           onPaste={(event) => {
             /* Paste is how a person actually shares a screenshot. */
             const files = Array.from(event.clipboardData?.files ?? []);
@@ -981,7 +1080,7 @@ export function AiBuilderPanel({
           disabled={(!workflowId && canvasHasSteps) || generating}
           spellCheck={false}
           data-testid="smart-designer-input"
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-none outline-none ring-0 transition-colors placeholder:text-slate-400 focus:border-amber-400 focus:outline-none focus:ring-0 disabled:bg-slate-50"
+          className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm leading-6 text-slate-800 shadow-none outline-none ring-0 transition-colors placeholder:text-slate-400 focus:border-amber-400 focus:outline-none focus:ring-0 disabled:bg-slate-50"
         />
         <button
           type="submit"
@@ -1017,7 +1116,7 @@ export function AiBuilderPanel({
                 className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-amber-400"
               />
               <div className="mt-1.5 flex items-center justify-between gap-2">
-                <label className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                <label className="flex items-center gap-1.5 text-xs text-slate-500">
                   <input
                     type="checkbox"
                     checked={teachPrivate}
@@ -1030,7 +1129,7 @@ export function AiBuilderPanel({
                   type="submit"
                   disabled={teachSaving || teachDraft.trim().length < 8}
                   data-testid="builder-teach-save"
-                  className="rounded-md bg-amber-500 px-3 py-1 text-[11px] font-semibold text-white transition hover:bg-amber-600 disabled:opacity-40"
+                  className="rounded-md bg-amber-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-40"
                 >
                   {teachSaving ? "Saving…" : "Teach it"}
                 </button>
@@ -1041,7 +1140,7 @@ export function AiBuilderPanel({
               type="button"
               onClick={() => setTeachOpen(true)}
               data-testid="builder-teach-open"
-              className="text-[11px] font-medium text-slate-400 hover:text-amber-700"
+              className="text-xs font-medium text-slate-400 hover:text-amber-700"
             >
               Teach the Builder a lesson
             </button>

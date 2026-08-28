@@ -46,12 +46,22 @@ describe("BuilderHeader", () => {
     expect(screen.getByTestId("builder-publish-marketplace").textContent).toBe("Publish Agent");
   });
 
-  it("keeps the three remaining step tabs", () => {
+  it("keeps the two step tabs", () => {
     renderHeader();
 
-    for (const tab of ["build", "configure", "publish"]) {
+    for (const tab of ["build", "configure"]) {
       expect(screen.getByTestId(`builder-tab-${tab}`)).toBeTruthy();
     }
+  });
+
+  it("has no Publish tab — the Publish Agent button is the one door", () => {
+    /* The founder, 2026-08-28: a tab named Publish and a button named
+       Publish Agent sat on the same bar, three inches apart, both leading to
+       publishing. The same two-doors-to-one-destination rule that killed the
+       Preview tab. The button stays because it is the one an architect
+       reaches for. */
+    renderHeader();
+    expect(screen.queryByTestId("builder-tab-publish")).toBeNull();
   });
 });
 

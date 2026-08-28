@@ -20,6 +20,7 @@ import { defaultHiddenArchitectNodeTypes, hiddenArchitectNodeTypes } from "@core
 import { prisma } from "../../../lib/prisma";
 import { composeOrchestration } from "./compose";
 import { checkAgentGraph } from "../agent-check";
+import { rememberBuilderTurn } from "../builder-conversation";
 import { planToCanvas } from "./to-canvas";
 import { repairCanvas } from "./repair";
 
@@ -96,6 +97,18 @@ composerRoutes.post("/", async (c) => {
       stream.writeSSE({ event, data: JSON.stringify(data) });
 
     try {
+      /* A BUILD IS PART OF THE CONVERSATION TOO. The panel remembers what
+         the architect asked and what came back, so a build that happened
+         last week is still readable next month. */
+      if (parsed.data.workflowId) {
+        void rememberBuilderTurn({
+          workflowId: parsed.data.workflowId,
+          architectUserId: authUser.id,
+          role: "user",
+          content: parsed.data.want
+        });
+      }
+
       const result = await composeOrchestration({
         architectUserId: authUser.id,
         want: parsed.data.want,
@@ -164,6 +177,16 @@ composerRoutes.post("/", async (c) => {
         }
       } else {
         couldNotCheck = "I built it, but I could not run it here to check my own work.";
+      }
+
+      if (parsed.data.workflowId && result.plan.summary) {
+        void rememberBuilderTurn({
+          workflowId: parsed.data.workflowId,
+          architectUserId: authUser.id,
+          role: "assistant",
+          content: result.plan.summary,
+          hand: "compose"
+        });
       }
 
       await send("done", {

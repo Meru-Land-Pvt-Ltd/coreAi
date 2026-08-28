@@ -47,6 +47,7 @@ model User {
   @@unique([email, role])
   @@index([role])
   @@index([createdAt])
+  builderMessages   BuilderMessage[]
 }
 
 /// Capability grants: one row per (user, role). `User.role` is kept only as
@@ -124,6 +125,7 @@ model WorkflowDefinition {
 
   @@index([architectUserId])
   @@index([createdAt])
+  builderMessages   BuilderMessage[]
 }
 
 model AgentListing {
@@ -3384,4 +3386,35 @@ model HeldConversation {
 
   @@index([status, dueAt])
   @@index([installedAgentId, threadKey, status])
+}
+
+/// ─────────────────────────────────────────────────────────────────────────
+/// THE BUILDER REMEMBERS THE CONVERSATION.
+///
+/// It never did. Every message an architect and the AI Builder exchanged
+/// lived in one React state object and nowhere else — so closing the tab,
+/// logging out, or a browser crash erased the whole conversation. An
+/// architect who spent an hour teaching the Builder what they wanted came
+/// back the next morning to an empty box, with no way to read what it had
+/// told them or what they had already tried.
+///
+/// One row per message, per agent, per architect. Kept for good: the
+/// conversation IS the record of how an agent came to be what it is.
+/// ─────────────────────────────────────────────────────────────────────────
+model BuilderMessage {
+  id              String   @id @default(cuid())
+  workflowId      String
+  architectUserId String
+  /// user | assistant
+  role            String
+  content         String
+  /// Which hand answered — chat, compose, repair, design-page. Null for the
+  /// architect's own messages.
+  hand            String?
+  at              DateTime @default(now())
+
+  workflow WorkflowDefinition @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  author   User               @relation(fields: [architectUserId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId, architectUserId, at])
 }
