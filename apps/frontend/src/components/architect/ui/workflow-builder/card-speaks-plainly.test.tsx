@@ -23,7 +23,7 @@ function renderCard(type: string) {
     <ReactFlowProvider>
       <CoreNode
         id="n1"
-        type="core"
+        type="coreNode"
         selected={false}
         zIndex={1}
         isConnectable
