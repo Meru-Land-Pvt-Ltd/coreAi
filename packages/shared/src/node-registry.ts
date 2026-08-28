@@ -1771,7 +1771,11 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
        is an answer — the agent's address belongs to the BUSINESS's Mail
        Setup, never typed by the architect. */
     requiredVariables: [],
-    producedVariables: ["email"],
+    /* WHAT THIS HANDS ON IS DECLARED ONCE, IN PRODUCES_BY_TYPE BELOW.
+       It used to be declared here as well, and the table quietly won — so
+       anyone correcting this node in the obvious place was editing a
+       decoration. One fact, one place; the table is the place, because it is
+       the list a person can read in a sitting and verify against real runs. */
     settings: []
   }),
   /* NODE 012 — ESCALATE. The judgment to stop.
@@ -3325,7 +3329,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
        chose, and one line of why, are worth having: a Send Text after a
        Condition can then say "sorry about the delay" instead of a generic
        line. The exit door writes both. */
-    producedVariables: ["choice", "why"]
+    /* WHAT THIS HANDS ON IS DECLARED ONCE, IN PRODUCES_BY_TYPE BELOW.
+       It was declared here too, and the table quietly won — so anyone
+       correcting this node in the obvious place was editing a decoration.
+       One fact, one place. */
   }),
   def({
     type: "output.result",
@@ -3457,7 +3464,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
     defaultConfig: { callHandlingMode: "AI_ANSWERS", answerAfterRings: "1", forwardingSchedule: "always" },
     capability: "trigger.phone_call",
     requiredVariables: [],
-    producedVariables: ["caller.phone", "caller.name", "call.time", "business.name", "business.type"]
+    /* WHAT THIS HANDS ON IS DECLARED ONCE, IN PRODUCES_BY_TYPE BELOW.
+       It was declared here too, and the table quietly won — so anyone
+       correcting this node in the obvious place was editing a decoration.
+       One fact, one place. */
   }),
   def({
     type: VOICE_NODE_TYPES.voiceConversation,
@@ -4139,7 +4149,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
       }
     ],
     requiredVariables: [],
-    producedVariables: ["script.output"]
+    /* WHAT THIS HANDS ON IS DECLARED ONCE, IN PRODUCES_BY_TYPE BELOW.
+       It was declared here too, and the table quietly won — so anyone
+       correcting this node in the obvious place was editing a decoration.
+       One fact, one place. */
   }),
   /* 018b — THE NODE FRAME, under the laws. It is not a step that does
      something — it is the FORM a new service is described in, and the form
@@ -4187,7 +4200,10 @@ export const NODE_DEFINITIONS: NodeDefinition[] = [
        later step can say "your Monday report" without guessing the day; and
        mid-wire, the patience door's report of what the waking carried. */
     requiredVariables: [],
-    producedVariables: ["schedule", "timer"],
+    /* WHAT THIS HANDS ON IS DECLARED ONCE, IN PRODUCES_BY_TYPE BELOW.
+       It was declared here too, and the table quietly won — so anyone
+       correcting this node in the obvious place was editing a decoration.
+       One fact, one place. */
     defaultConfig: {
       cadence: "daily",
       weekday: "1",
@@ -4766,7 +4782,7 @@ export function nodeDoorsEnabled(nodeData: unknown): boolean {
  * than unfinished — a distinction the check needs, or "nobody described this"
  * quietly reads as "this is fine".
  */
-const PRODUCES_BY_TYPE: Record<string, string[] | null> = {
+export const PRODUCES_BY_TYPE: Record<string, string[] | null> = {
   /*
    * These are the names the RUN actually uses, not the tidier ones anybody
    * would have chosen. That is deliberate. A later step reads a value by the
