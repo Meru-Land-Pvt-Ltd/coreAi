@@ -4,7 +4,7 @@ import Image from "next/image";
 import { Menu } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { AdminSidebar } from "./admin-sidebar";
-import { SidebarCollapseButton, useSidebarCollapsed } from "@/lib/sidebar-collapse";
+import { useSidebarCollapsed } from "@/lib/sidebar-collapse";
 
 const TRIVEN_MARK = encodeURI("/triven.ai word logo transparent bg.PNG");
 
@@ -26,11 +26,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
         />
       ) : null}
 
-      <div className={collapsed ? "lg:hidden" : undefined}>
-        <AdminSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      </div>
+      <AdminSidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        rail={collapsed}
+        onToggleRail={toggle}
+      />
 
-      <div className={`min-h-screen transition-[padding] duration-200 ${collapsed ? "lg:pl-0" : "lg:pl-64"}`}>
+      <div className={`min-h-screen transition-[padding] duration-200 ${collapsed ? "lg:pl-16" : "lg:pl-64"}`}>
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-gray-200 bg-white/95 px-4 backdrop-blur lg:hidden">
           <button
             type="button"
@@ -48,9 +51,6 @@ export function AdminShell({ children }: { children: ReactNode }) {
         </header>
 
         <main className="admin-workspace w-full max-w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-          <div className="mb-4 hidden lg:block">
-            <SidebarCollapseButton collapsed={collapsed} onToggle={toggle} shell="admin" />
-          </div>
           {children}
         </main>
       </div>

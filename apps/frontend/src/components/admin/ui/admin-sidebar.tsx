@@ -90,7 +90,18 @@ function initials(user: AuthUser | null) {
     .join("");
 }
 
-export function AdminSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function AdminSidebar({
+  open,
+  onClose,
+  rail = false,
+  onToggleRail
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** Collapsed to the icon rail: same menu, 64px wide, names on hover. */
+  rail?: boolean;
+  onToggleRail?: () => void;
+}) {
   const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
 
@@ -102,27 +113,53 @@ export function AdminSidebar({ open, onClose }: { open: boolean; onClose: () => 
     <aside
       data-testid="admin-sidebar"
       aria-label="Admin navigation"
-      className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-gray-200 bg-white transition-transform duration-200 lg:translate-x-0 ${
+      className={`fixed inset-y-0 left-0 z-50 flex flex-col border-r border-gray-200 bg-white transition-all duration-200 lg:translate-x-0 ${
         open ? "translate-x-0" : "-translate-x-full"
-      }`}
+      } ${rail ? "w-16" : "w-64"}`}
     >
-      <div className="flex h-20 items-center border-b border-gray-100 px-5">
+      {/* On the sidebar's own edge, so it can never be buried under a page's
+          top strip. Collapsed is a RAIL, not a disappearance: every
+          destination stays one click from the eye and 192 pixels come back. */}
+      {onToggleRail ? (
+        <button
+          type="button"
+          onClick={onToggleRail}
+          data-testid="admin-sidebar-toggle"
+          aria-label={rail ? "Show the menu" : "Hide the menu"}
+          aria-pressed={rail}
+          title={rail ? "Show the menu" : "Hide the menu"}
+          className="absolute -right-3 top-24 z-50 hidden h-6 w-6 place-items-center rounded-full border border-gray-200 bg-white text-slate-400 shadow-sm transition hover:text-slate-700 lg:grid"
+        >
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+            <polyline points={rail ? "9,6 15,12 9,18" : "15,6 9,12 15,18"} strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      ) : null}
+      <div className={`flex h-20 items-center border-b border-gray-100 ${rail ? "justify-center px-0" : "px-5"}`}>
         <Link href={"/admin/dashboard" as Route} onClick={onClose} className="flex min-w-0 items-center gap-3" aria-label="Trivern admin dashboard">
           <Image src={TRIVERN_MARK} alt="Trivern" width={38} height={38} priority className="h-10 w-10 shrink-0 object-contain" />
-          <div className="min-w-0">
-            <span className="block truncate text-lg font-extrabold text-slate-950" data-testid="admin-sidebar-brand">Triven.ai</span>
-            <span className="block text-[10px] font-bold uppercase tracking-normal text-slate-400">Administration</span>
-          </div>
+          {rail ? null : (
+            <div className="min-w-0">
+              <span className="block truncate text-lg font-extrabold text-slate-950" data-testid="admin-sidebar-brand">Triven.ai</span>
+              <span className="block text-[10px] font-bold uppercase tracking-normal text-slate-400">Administration</span>
+            </div>
+          )}
         </Link>
         <button type="button" onClick={onClose} aria-label="Close navigation" className="ml-auto grid h-9 w-9 place-items-center rounded-lg text-slate-400 hover:bg-gray-100 lg:hidden">
           <X className="h-5 w-5" />
         </button>
       </div>
 
-      <nav className="nav-scroll flex-1 overflow-y-auto px-3 py-5">
+      <nav className={`nav-scroll flex-1 overflow-y-auto py-5 ${rail ? "px-2" : "px-3"}`}>
         {NAV_GROUPS.map((group, index) => (
           <div key={group.label} className={index === 0 ? "" : "mt-6"}>
-            <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-normal text-slate-400">{group.label}</p>
+            {rail ? (
+              /* A hairline stands in for the group heading, so the rail still
+                 reads as sections rather than one long column of icons. */
+              <div className="mx-auto mb-2 h-px w-6 bg-gray-200" aria-hidden="true" />
+            ) : (
+              <p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-normal text-slate-400">{group.label}</p>
+            )}
             <ul className="space-y-1">
               {group.items.map((item) => {
                 const active = isActive(pathname, item.href);
@@ -134,14 +171,17 @@ export function AdminSidebar({ open, onClose }: { open: boolean; onClose: () => 
                       onClick={onClose}
                       aria-current={active ? "page" : undefined}
                       data-testid={`admin-sidebar-${item.label.toLowerCase().replaceAll(" ", "-")}`}
-                      className={`group relative flex items-center gap-3 rounded-r-lg border-l-[3px] px-3 py-2.5 text-sm transition ${
+                      title={rail ? item.label : undefined}
+                      className={`group relative flex items-center rounded-r-lg border-l-[3px] py-2.5 text-sm transition ${
+                        rail ? "justify-center px-0" : "gap-3 px-3"
+                      } ${
                         active
                           ? "border-amber-500 bg-amber-50 font-semibold text-amber-800"
                           : "border-transparent font-medium text-slate-600 hover:bg-gray-50 hover:text-slate-950"
                       }`}
                     >
                       <Icon className={`h-[18px] w-[18px] ${active ? "text-amber-600" : "text-slate-400 group-hover:text-slate-600"}`} />
-                      <span className="truncate">{item.label}</span>
+                      {rail ? null : <span className="truncate">{item.label}</span>}
                     </Link>
                   </li>
                 );

@@ -170,17 +170,20 @@ function SidebarContent({
   pathname,
   onNavigate,
   showMobileClose,
-  onMobileClose
+  onMobileClose,
+  rail = false
 }: {
   user: AuthUser | null;
   pathname: string;
   onNavigate?: () => void;
   showMobileClose?: boolean;
   onMobileClose?: () => void;
+  /** Collapsed to the icon rail: same menu, 64px wide, names on hover. */
+  rail?: boolean;
 }) {
   return (
     <>
-      <div className="flex min-w-0 items-center gap-0.5 border-b border-gray-100 px-5 py-5">
+      <div className={cn("flex min-w-0 items-center border-b border-gray-100 py-5", rail ? "justify-center px-0" : "gap-0.5 px-5")}>
         <Image
           src={TRIVEN_LOGO_SRC}
           alt="Triven"
@@ -189,9 +192,11 @@ function SidebarContent({
           priority
           className="h-9 w-9 shrink-0 object-contain"
         />
-        <span className="truncate text-lg font-extrabold tracking-tight text-amber-500" data-testid="architect-sidebar-brand-text">
-          Triven.ai
-        </span>
+        {rail ? null : (
+          <span className="truncate text-lg font-extrabold tracking-tight text-amber-500" data-testid="architect-sidebar-brand-text">
+            Triven.ai
+          </span>
+        )}
 
         {showMobileClose ? (
           <button
@@ -209,7 +214,11 @@ function SidebarContent({
         ) : null}
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
+      {/* COLLAPSED IS A RAIL, NOT A DISAPPEARANCE. Hiding the menu takes the
+          navigation away with the width; a rail keeps every destination one
+          click from the eye and gives back 192 of the 256 pixels. The label
+          rides on the title attribute so a name is always a hover away. */}
+      <nav className={cn("flex-1 overflow-y-auto py-4", rail ? "px-2" : "px-3")}>
         <ul className="space-y-1">
           {navItems.map((item) => {
             const active = isActive(pathname, item);
@@ -220,8 +229,10 @@ function SidebarContent({
                   href={item.href}
                   onClick={onNavigate}
                   aria-current={active ? "page" : undefined}
+                  title={rail ? item.label : undefined}
                   className={cn(
-                    "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition",
+                    "group relative flex items-center rounded-lg text-sm transition",
+                    rail ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
                     active
                       ? "bg-amber-50 font-semibold text-amber-700"
                       : "font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900"
@@ -231,7 +242,9 @@ function SidebarContent({
                     <span className="absolute inset-y-1.5 left-0 w-1 rounded-r-full bg-amber-500" />
                   ) : null}
                   <Icon name={item.icon} className={active ? "text-amber-600" : "text-slate-400 group-hover:text-slate-600"} />
-                  <span className="min-w-0 flex-1 truncate" data-testid="architect-sidebar-nav-label-text">{item.label}</span>
+                  {rail ? null : (
+                    <span className="min-w-0 flex-1 truncate" data-testid="architect-sidebar-nav-label-text">{item.label}</span>
+                  )}
                 </Link>
               </li>
             );
@@ -358,11 +371,36 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
       {/* THE MENU FOLDS AWAY. On the builder canvas 256 pixels of navigation
           is 256 pixels of working space. One shared control, three shells —
           see lib/sidebar-collapse. */}
-      {collapsed ? null : (
-        <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-gray-100 bg-white shadow-sm lg:flex">
-          <SidebarContent user={user} pathname={pathname} />
-        </aside>
-      )}
+      {/* COLLAPSED IS A RAIL, NOT A DISAPPEARANCE. Hiding the menu took the
+          navigation away along with the width. A rail keeps every destination
+          one click from the eye and still gives back 192 of the 256 pixels —
+          which on a builder canvas is the whole point. */}
+      <aside
+        data-testid="architect-sidebar"
+        className={cn(
+          "fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-gray-100 bg-white shadow-sm transition-[width] duration-200 lg:flex",
+          collapsed ? "w-16" : "w-64"
+        )}
+      >
+        <SidebarContent user={user} pathname={pathname} rail={collapsed} />
+
+        {/* On the sidebar's own edge, half on and half off — so it is never
+            buried under a page's top strip, which is exactly where the first
+            attempt put it on the builder. */}
+        <button
+          type="button"
+          onClick={toggle}
+          data-testid="architect-sidebar-toggle"
+          aria-label={collapsed ? "Show the menu" : "Hide the menu"}
+          aria-pressed={collapsed}
+          title={collapsed ? "Show the menu" : "Hide the menu"}
+          className="absolute -right-3 top-20 z-50 hidden h-6 w-6 place-items-center rounded-full border border-gray-200 bg-white text-slate-400 shadow-sm transition hover:text-slate-700 lg:grid"
+        >
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+            <polyline points={collapsed ? "9,6 15,12 9,18" : "15,6 9,12 15,18"} strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </aside>
 
       {mobileNavOpen ? (
         <button
@@ -387,7 +425,7 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
       ) : null}
 
       {/* Avoid z-index here — it traps fixed modals under the sidebar. */}
-      <div className={`relative min-h-screen transition-[padding] duration-200 ${collapsed ? "lg:pl-0" : "lg:pl-64"}`}>
+      <div className={`relative min-h-screen transition-[padding] duration-200 ${collapsed ? "lg:pl-16" : "lg:pl-64"}`}>
         <div className="fixed left-0 right-0 top-0 z-30 flex h-14 items-center justify-between border-b border-gray-100 bg-gray-50 px-5 lg:hidden">
           {!mobileNavOpen ? (
             <button
@@ -418,10 +456,6 @@ export function ArchitectSidebarShell({ children }: { children: ReactNode }) {
               Triven.ai
             </span>
           </div>
-        </div>
-
-        <div className="absolute left-4 top-4 z-30 hidden lg:block">
-          <SidebarCollapseButton collapsed={collapsed} onToggle={toggle} shell="architect" />
         </div>
 
         <div className="pt-14 lg:pt-0">{children}</div>

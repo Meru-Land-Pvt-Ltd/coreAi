@@ -51,39 +51,16 @@ export function useSidebarCollapsed(shell: SidebarShell) {
   return { collapsed, toggle };
 }
 
-/**
- * The button itself. Deliberately quiet — it sits beside a page title and
- * must never compete with it.
+/*
+ * THE BUTTON IS NOT SHARED, AND THAT IS DELIBERATE.
+ *
+ * The first attempt put one generic button in all three shells, floated at
+ * the top-left of the content — and on the builder it landed underneath the
+ * fixed top strip, invisible. The founder was right twice over: it must sit
+ * on each sidebar's own edge, and it must look like the sidebar it belongs
+ * to, not like a stranger dropped into three different designs.
+ *
+ * So only the MEMORY is shared. What the collapse looks like belongs to each
+ * side, because each side already has a design and it is not ours to
+ * flatten.
  */
-export function SidebarCollapseButton({
-  collapsed,
-  onToggle,
-  shell
-}: {
-  collapsed: boolean;
-  onToggle: () => void;
-  shell: SidebarShell;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      data-testid={`${shell}-sidebar-toggle`}
-      aria-label={collapsed ? "Show the menu" : "Hide the menu"}
-      aria-pressed={collapsed}
-      title={collapsed ? "Show the menu" : "Hide the menu"}
-      className="hidden h-9 w-9 shrink-0 place-items-center rounded-lg border border-gray-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-800 lg:grid"
-    >
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <line x1="9" y1="4" x2="9" y2="20" />
-        {/* The chevron points the way it will move. */}
-        <polyline
-          points={collapsed ? "13,9 16,12 13,15" : "16,9 13,12 16,15"}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </button>
-  );
-}

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { SidebarCollapseButton, useSidebarCollapsed } from "@/lib/sidebar-collapse";
+import { useSidebarCollapsed } from "@/lib/sidebar-collapse";
 import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useState, type ReactNode } from "react";
@@ -144,7 +144,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                    open/closed behaviour is untouched. */
                 className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 max-w-[85vw] flex-col overflow-x-hidden border-r border-gray-100 bg-white shadow-xl transition-transform duration-300 ease-out will-change-transform lg:shadow-none ${
                     sidebarOpen ? "translate-x-0" : "-translate-x-full"
-                } ${collapsed ? "lg:-translate-x-full" : "lg:translate-x-0"}`}
+                } lg:translate-x-0 ${collapsed ? "lg:w-16" : ""}`}
                 aria-label="Primary"
             >
                 <div className="flex min-w-0 items-center gap-3 border-b border-gray-100 px-4 py-4">
@@ -191,14 +191,17 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                                 key={item.label}
                                 href={item.href as any}
                                 onClick={closeSidebar}
-                                className={`group flex items-center gap-3 rounded-r-lg border-l-[3px] px-4 py-2.5 text-left transition-colors duration-300 ${active
+                                title={collapsed ? item.label : undefined}
+                                className={`group flex items-center rounded-r-lg border-l-[3px] py-2.5 text-left transition-colors duration-300 ${collapsed ? "justify-center px-0" : "gap-3 px-4"} ${active
                                     ? "border-amber-500 bg-amber-50 font-semibold text-amber-700"
                                     : "border-transparent text-slate-600 hover:bg-gray-50"
                                     }`}
                                 aria-current={active ? "page" : undefined}
                             >
                                 <Icon name={item.icon} className="h-5 w-5" />
-                                <span data-testid="business-sidebar-label-text">{item.label}</span>
+                                {collapsed ? null : (
+                                    <span data-testid="business-sidebar-label-text">{item.label}</span>
+                                )}
                             </Link>
                         );
                     })}
@@ -211,7 +214,7 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                         href={BUSINESS_MARKETPLACE_PATH}
                         onClick={closeSidebar}
                         aria-current={marketplaceActive ? "page" : undefined}
-                        className={`flex items-center gap-3 rounded-r-lg border-l-[3px] px-4 py-2.5 text-sm transition-colors duration-300 ${marketplaceActive
+                        className={`flex items-center rounded-r-lg border-l-[3px] py-2.5 text-sm transition-colors duration-300 ${collapsed ? "justify-center px-0" : "gap-3 px-4"} ${marketplaceActive
                             ? "border-amber-500 bg-amber-50 font-semibold text-amber-700"
                             : "border-transparent text-slate-500 hover:bg-gray-50 hover:text-slate-700"
                             }`}
@@ -249,13 +252,27 @@ export function BusinessSidebarLayout({ children }: { children: ReactNode }) {
                         </button>
                     </div>
                 </div>
+                {/* On the sidebar's own edge, so it is never buried under a
+                    page's top strip. Collapsed is a RAIL, not a
+                    disappearance. */}
+                <button
+                    type="button"
+                    onClick={toggle}
+                    data-testid="business-sidebar-toggle"
+                    aria-label={collapsed ? "Show the menu" : "Hide the menu"}
+                    aria-pressed={collapsed}
+                    title={collapsed ? "Show the menu" : "Hide the menu"}
+                    className="absolute -right-3 top-24 z-50 hidden h-6 w-6 place-items-center rounded-full border border-gray-200 bg-white text-slate-400 shadow-sm transition hover:text-slate-700 lg:grid"
+                >
+                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                        <polyline points={collapsed ? "9,6 15,12 9,18" : "15,6 9,12 15,18"} strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                </button>
             </aside>
 
             
-            <div className={`relative min-h-screen min-w-0 w-full overflow-x-hidden transition-[padding] duration-200 ${collapsed ? "lg:pl-0" : "lg:pl-64"}`}>
-                <div className="absolute left-4 top-4 z-30 hidden lg:block">
-                    <SidebarCollapseButton collapsed={collapsed} onToggle={toggle} shell="business" />
-                </div>
+            <div className={`relative min-h-screen min-w-0 w-full overflow-x-hidden transition-[padding] duration-200 ${collapsed ? "lg:pl-16" : "lg:pl-64"}`}>
+
                 <div className="sticky top-0 z-30 flex w-full min-w-0 items-center justify-between gap-2 overflow-x-hidden border-b border-gray-100 bg-gray-50 px-2 py-2.5 lg:hidden">
                     <button
                         type="button"
