@@ -117,6 +117,43 @@ export async function checkAgent(input: {
   });
   if (!workflow) return { lines: [{ kind: "problem", text: "This agent could not be loaded." }], passed: 0, failed: 1 };
 
+  return checkAgentGraph({
+    userId: input.userId,
+    workflowId: input.workflowId,
+    workflowJson: workflow.workflowJson,
+    purpose: workflow.purpose,
+    name: workflow.name
+  });
+}
+
+/**
+ * THE SAME CHECK, ON A GRAPH THAT IS NOT SAVED YET.
+ *
+ * The founder's law for the Builder: it must not hand over work it has never
+ * watched run. Until now this check could only be pointed at a workflow
+ * already in the database — which meant the Builder composed an agent, handed
+ * it to the architect, and the first eyes on it were always human.
+ *
+ * The graph comes in directly now, so the Builder can run what it just built
+ * BEFORE it says a word. Same wiring check, same invented tests, same
+ * mechanical judgement. One check, two callers — never two checks that could
+ * disagree about whether an agent works.
+ */
+export async function checkAgentGraph(input: {
+  userId: string;
+  /** A real workflow id — the run is recorded against it, as any test is. */
+  workflowId: string;
+  workflowJson: unknown;
+  /** What the architect said they were building. Without it, one plain hello. */
+  purpose?: string | null;
+  name?: string | null;
+}): Promise<AgentCheckReport> {
+  const workflow = {
+    name: input.name ?? "this agent",
+    purpose: input.purpose ?? null,
+    workflowJson: input.workflowJson
+  };
+
   const lines: CheckLine[] = [];
   let passed = 0;
   let failed = 0;

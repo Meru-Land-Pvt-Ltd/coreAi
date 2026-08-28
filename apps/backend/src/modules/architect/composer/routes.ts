@@ -19,6 +19,7 @@ import { errorResponse, successResponse } from "../../../lib/api-response";
 import { defaultHiddenArchitectNodeTypes, hiddenArchitectNodeTypes } from "@coreai/shared";
 import { prisma } from "../../../lib/prisma";
 import { composeOrchestration } from "./compose";
+import { checkAgentGraph } from "../agent-check";
 import { planToCanvas } from "./to-canvas";
 import { repairCanvas } from "./repair";
 
@@ -26,6 +27,12 @@ export const composerRoutes = new Hono();
 
 const askSchema = z.object({
   want: z.string().min(8, "Tell it a little more about what you want.").max(4000),
+  /* THE BUILDER MUST NOT HAND OVER WORK IT HAS NEVER WATCHED RUN.
+     The canvas the Builder is composing into. With it, the Builder runs what
+     it just built and judges the answer before saying a word. Without it, it
+     says plainly that it could not check itself — never silence, and never a
+     claim it did not earn. */
+  workflowId: z.string().trim().min(1).max(64).optional(),
   /* The Builder's questions and the architect's answers — a reply completes
      the build instead of restarting it. */
   conversation: z
@@ -113,12 +120,49 @@ composerRoutes.post("/", async (c) => {
       }
 
       const canvas = planToCanvas(result.plan);
+
+      /* THE BUILDER LOOKS AT THE AGENT IT BUILT (the founder's law).
+         It already looks at the page it designs — runs it in a real browser,
+         reads the picture, fixes, looks again. The agent itself was handed
+         over blind: composed, wired, and never once run. So the first eyes on
+         a built agent were always the architect's, which is the exact
+         half-finish the looking loop exists to prevent.
+
+         The same check the "Check my agent" button runs — the wires, then
+         real test messages invented from the architect's own words, put
+         through the real engine and judged against the purpose. What it finds
+         rides back with the plan, and what it could NOT check it says out
+         loud rather than passing in silence. */
+      let checked: { lines: unknown[]; passed: number; failed: number } | null = null;
+      let couldNotCheck: string | null = null;
+
+      if (parsed.data.workflowId) {
+        void send("progress", { step: "Running what I just built, to see it work" });
+        try {
+          const report = await checkAgentGraph({
+            userId: authUser.id,
+            workflowId: parsed.data.workflowId,
+            workflowJson: { nodes: canvas.nodes, edges: canvas.edges },
+            purpose: parsed.data.want,
+            name: result.plan.summary
+          });
+          checked = { lines: report.lines, passed: report.passed, failed: report.failed };
+        } catch (error) {
+          console.error("[composer] could not run what it built", error);
+          couldNotCheck = "I built it, but I could not run it to check my own work.";
+        }
+      } else {
+        couldNotCheck = "I built it, but I could not run it here to check my own work.";
+      }
+
       await send("done", {
         summary: result.plan.summary,
         asksTheBusiness: result.plan.asksTheBusiness ?? [],
         attempts: result.attempts,
         nodes: canvas.nodes,
-        edges: canvas.edges
+        edges: canvas.edges,
+        checked,
+        couldNotCheck
       });
     } catch (error) {
       console.error("[composer] failed", error);

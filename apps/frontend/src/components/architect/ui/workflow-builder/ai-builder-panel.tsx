@@ -51,6 +51,11 @@ const PROGRESS_STAGE_SWITCH_MS = 1500;
 export type ComposedCanvas = {
   name?: string;
   workflowId?: string;
+  /* THE BUILDER RAN WHAT IT BUILT. What the check found, in the Builder's
+     own lines — or, when it could not run it at all, the honest sentence
+     saying so. Never silence. */
+  checked?: { lines: Array<{ kind: string; text: string }>; passed: number; failed: number } | null;
+  couldNotCheck?: string | null;
   nodes: unknown[];
   edges: unknown[];
   message?: string;
@@ -84,11 +89,42 @@ type GraphPlan = {
   edges: Array<{ from: string; to: string; when?: string }>;
 };
 
+
+/**
+ * WHAT THE BUILDER SAW WHEN IT RAN ITS OWN WORK.
+ *
+ * The Builder has always looked at the customer page it designs. The agent
+ * itself it handed over blind — composed, wired, never once run — so the
+ * first eyes on a built agent were the architect's. It runs it now, and this
+ * is where it says what happened.
+ *
+ * Three answers, and never a fourth: it ran and it worked · it ran and this
+ * did not · it could not run it, and says so. A silent pass is the lie this
+ * whole loop exists to prevent.
+ */
+function builtAndChecked(canvas: ComposedCanvas): string {
+  if (canvas.couldNotCheck) return `\n\n${canvas.couldNotCheck}`;
+  if (!canvas.checked) return "";
+
+  const { passed, failed, lines } = canvas.checked;
+  if (failed === 0 && passed > 0) {
+    return `\n\nI ran it ${passed === 1 ? "once" : `${passed} times`} and it did the job.`;
+  }
+  if (failed > 0) {
+    const first = lines.find((line) => line.kind === "problem")?.text;
+    return `\n\nI ran it and ${failed === 1 ? "one thing is" : `${failed} things are`} not right yet${first ? `: ${first}` : "."}`;
+  }
+  return "";
+}
+
 async function composeCanvas(
   want: string,
   onStage: (line: string) => void,
   conversation?: Array<{ role: "user" | "assistant"; content: string }>,
-  existingPlan?: GraphPlan
+  existingPlan?: GraphPlan,
+  /* Which canvas this is being built into. The Builder needs it to RUN what
+     it just built before it hands it over. */
+  workflowId?: string | null
 ): Promise<{ canvas?: ComposedCanvas; failed?: string; ask?: { question: string; suggestion: string } }> {
   const base = process.env.NEXT_PUBLIC_API_URL ?? "/api";
   const token = getAuthToken();
@@ -102,7 +138,8 @@ async function composeCanvas(
     body: JSON.stringify({
       want,
       ...(conversation?.length ? { conversation } : {}),
-      ...(existingPlan ? { existingPlan } : {})
+      ...(existingPlan ? { existingPlan } : {}),
+      ...(workflowId ? { workflowId } : {})
     })
   });
 
@@ -384,12 +421,18 @@ export function AiBuilderPanel({
     setProgressStage(0);
     try {
       const thread = threadOverride ?? (buildThread?.want === want ? buildThread.turns : []);
-      const { canvas, failed, ask } = await composeCanvas(want, () => setProgressStage(1), thread, existingPlan);
+      const { canvas, failed, ask } = await composeCanvas(
+        want,
+        () => setProgressStage(1),
+        thread,
+        existingPlan,
+        workflowId
+      );
       if (canvas) {
         setBuildThread(null);
         say({
           role: "assistant",
-          content: canvas.message ?? `Built — ${canvas.nodes.length} steps are on your canvas.`
+          content: `${canvas.message ?? `Built — ${canvas.nodes.length} steps are on your canvas.`}${builtAndChecked(canvas)}`
         });
         onBuilt?.(canvas);
       } else if (ask) {
